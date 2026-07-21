@@ -14,16 +14,167 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      audit_logs: {
+        Row: {
+          actor: string | null
+          created_at: string
+          detail: Json
+          device_id: string | null
+          event: string
+          id: string
+          session_id: string | null
+        }
+        Insert: {
+          actor?: string | null
+          created_at?: string
+          detail?: Json
+          device_id?: string | null
+          event: string
+          id?: string
+          session_id?: string | null
+        }
+        Update: {
+          actor?: string | null
+          created_at?: string
+          detail?: Json
+          device_id?: string | null
+          event?: string
+          id?: string
+          session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_logs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      devices: {
+        Row: {
+          device_id: string
+          display_name: string
+          enrolled_at: string
+          hostname: string | null
+          id: string
+          last_seen_at: string | null
+          metadata: Json
+          os: string | null
+          status: string
+        }
+        Insert: {
+          device_id: string
+          display_name: string
+          enrolled_at?: string
+          hostname?: string | null
+          id?: string
+          last_seen_at?: string | null
+          metadata?: Json
+          os?: string | null
+          status?: string
+        }
+        Update: {
+          device_id?: string
+          display_name?: string
+          enrolled_at?: string
+          hostname?: string | null
+          id?: string
+          last_seen_at?: string | null
+          metadata?: Json
+          os?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
+      sessions: {
+        Row: {
+          consent_at: string | null
+          created_at: string
+          device_id: string
+          ended_at: string | null
+          id: string
+          mode: string
+          state: string
+          technician_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          consent_at?: string | null
+          created_at?: string
+          device_id: string
+          ended_at?: string | null
+          id?: string
+          mode?: string
+          state?: string
+          technician_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          consent_at?: string | null
+          created_at?: string
+          device_id?: string
+          ended_at?: string | null
+          id?: string
+          mode?: string
+          state?: string
+          technician_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "technician"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +301,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "technician"],
+    },
   },
 } as const
