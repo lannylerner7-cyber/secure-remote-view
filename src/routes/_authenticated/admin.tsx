@@ -237,6 +237,55 @@ function AdminPage() {
           </div>
         </section>
       </main>
+
+      {liveId && (() => {
+        const s = sessions.find((x) => x.id === liveId);
+        if (!s) return null;
+        const dev = devices.find((d) => d.id === s.device_id);
+        const active = s.state === "active";
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
+            <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-[#4F7CFF] animate-pulse" : "bg-amber-400"}`} />
+                  <div>
+                    <div className="text-sm font-semibold">{dev?.display_name ?? "Device"}</div>
+                    <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => pauseSession(s)} className="rounded bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15">
+                    {s.state === "paused" ? "Resume" : "Pause"}
+                  </button>
+                  <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">
+                    End session
+                  </button>
+                  <button onClick={() => setLiveId(null)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">
+                    Close
+                  </button>
+                </div>
+              </div>
+              <div className="relative aspect-video bg-gradient-to-br from-[#1F2A44] to-[#0F172A]">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
+                    {active ? "Live signaling channel open" : "Session paused"}
+                  </div>
+                  <div className="text-sm text-white/70">Waiting for agent media stream…</div>
+                  <div className="text-xs text-white/40 max-w-md">
+                    The remote user sees a persistent on-screen banner and consented to this {s.mode} session.
+                    Screen frames stream in over the WebRTC channel once the agent negotiates codecs.
+                  </div>
+                </div>
+                <div className="absolute bottom-3 left-3 rounded bg-black/50 px-2 py-1 font-mono text-[10px] text-white/60">
+                  session {s.id.slice(0, 8)} · device {s.device_id.slice(0, 8)}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
