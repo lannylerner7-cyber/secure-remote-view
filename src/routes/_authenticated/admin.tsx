@@ -46,6 +46,7 @@ function AdminPage() {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ""));
     void refresh();
     void loadTg();
+    fetchRole().then((r) => setRole(r.role)).catch(() => setRole(null));
     const ch = supabase
       .channel("admin-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, refresh)
