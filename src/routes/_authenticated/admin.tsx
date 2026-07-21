@@ -40,6 +40,7 @@ function AdminPage() {
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
   const [codeModal, setCodeModal] = useState<null | { code: string; sessionId: string }>(null);
+  const [sharedNote, setSharedNote] = useState<string>("");
   const [tg, setTg] = useState({ telegram_bot_token: "", telegram_chat_id: "", notify_on_session_start: true, notify_on_control_taken: true, notify_on_device_offline: true });
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(null);
 
