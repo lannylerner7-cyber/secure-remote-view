@@ -86,7 +86,7 @@ public sealed class SessionIndicator : Window
 
     public void SetControlGranted(bool granted) => Dispatcher.Invoke(() =>
     {
-        _mode.Text = granted ? "Remote control active" : "View only";
+        _mode.Text = granted ? "Live · control" : "Live · view";
         _dot.Fill = granted
             ? (Brush)Application.Current.Resources["BrandWarn"]
             : (Brush)Application.Current.Resources["BrandAccent"];
