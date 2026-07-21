@@ -159,6 +159,13 @@ function AdminPage() {
     });
   }
 
+  // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
+  // Coordinates are normalized (0..1) relative to the rendered image.
+  async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload });
+  }
+
+
   function toggleSelect(id: string) {
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
