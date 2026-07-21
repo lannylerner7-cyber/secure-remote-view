@@ -1,69 +1,58 @@
+Enhance the admin-side control UI on the existing consent-based remote support session. This is purely a UI/UX improvement — no new agent capabilities, no new privilege escalation, no changes to the consent model, and no changes to what the agent accepts from the server.
 
-# IT Support Agent — Own-Branded Build Plan
+## Scope
 
-Three deliverables, all on the clean road (transparent, consented, your branding only).
+1. **Resizable trackpad** in the live-view modal (admin panel only)
+2. **Slide-out on-screen keyboard panel** with common editing keys, hidden by default
 
-## 1. Branding (yours, not another vendor's)
+All events use the existing `session_inputs` pipeline the agent already consumes when `mode === "control"` (and only then). The user-side banner and consent flow are unchanged.
 
-I need one input from you before I generate assets: the **product name** and **primary color**. Sensible defaults if you'd rather I just pick:
+## Changes (admin panel only)
 
-- Name: **"IT Support Agent"** (neutral, descriptive) or **"[YourCompany] Remote Assist"**
-- Color: deep slate/indigo (`#1F2A44`) with a single accent
+### 1. Resizable `VirtualTrackpad` — `src/routes/_authenticated/admin.tsx`
 
-I'll generate:
-- A wordmark + monogram SVG (no third-party logos, ever)
-- A 256×256 installer icon (.ico-ready PNG set: 16/32/48/64/128/256)
-- A favicon for the admin panel
+Update the existing `VirtualTrackpad` component:
+- Add a `size` state (default 128px, min 96, max 240)
+- Add a small resize handle in the corner (bottom-left) — pointer-drag adjusts size
+- Add compact `−` / `+` buttons as an alternative
+- Persist size in `localStorage` (`connectlive:trackpad-size`) so admin doesn't reset it every session
+- Keep the sensitivity multiplier proportional to size so movement feels consistent
 
-## 2. Windows Agent — script only (you compile locally)
+### 2. Slide-out keyboard panel — `src/routes/_authenticated/admin.tsx`
 
-A single-file PowerShell + C# hybrid you can compile to a signed `.exe` on your box with `dotnet publish` or `ps2exe`. No binary produced here.
+Add a small tab/handle on the right edge of the live-view modal (only visible in control mode). Clicking it slides a compact panel out; clicking again hides it.
 
-**Startup UX** (the piece you asked for, done cleanly):
-- WPF splash window, 480×280, centered
-- Your wordmark at top, indeterminate progress bar, status text ("Registering with helpdesk…", "Waiting for consent…")
-- Closes as soon as the tray indicator is live
-- No fake progress; each step reflects a real API call
+Keys, each sending existing `keydown` + `keyup` events via `sendInput(sessionId, ...)`:
+- **Enter** (VK 13)
+- **Backspace** (VK 8)
+- **Delete** (VK 46)
+- **Tab** (VK 9)
+- **Escape** (VK 27)
+- **Arrow keys** (37/38/39/40)
+- **Ctrl+A** / **Ctrl+C** / **Ctrl+V** / **Ctrl+X** / **Ctrl+Z** — sent as sequenced `keydown(Ctrl) → keydown(letter) → keyup(letter) → keyup(Ctrl)` using the VKs already accepted by `InputRelay.Key(...)` (17 for Ctrl, 65/67/86/88/90 for letters)
 
-**Agent behavior** (matches the API contract already built):
-- `POST /api/devices/enroll` on first run → stores device token in DPAPI-encrypted local file
-- `POST /api/devices/heartbeat` every 30s with the device token
-- WebSocket to `/api/ws` for session invites
-- On invite: shows **consent dialog** (Allow / Deny), only starts capture after Allow
-- Persistent tray icon + on-screen banner while a session is active — cannot be hidden
-- Separate second consent prompt before control is granted
-- User can end the session from the tray at any time
+No new agent code is needed — `InputRelay.cs` already handles `keydown` / `keyup` with a virtual-key code.
 
-**Deliverables in the repo:**
-- `agent/src/Agent.cs` — service + tray + WPF splash
-- `agent/src/ApiClient.cs` — generated from your OpenAPI so routes stay in sync
-- `agent/build.ps1` — one command to produce `IT-Support-Agent.exe` and zip it
-- `agent/README.md` — how to Authenticode-sign and deploy via MDM/GPO
-- `agent/assets/` — your logo, splash CSS-equivalent XAML styling
+### 3. Small polish
 
-## 3. Fix the admin viewer WebSocket (the real blocker)
+- The panel is a plain `<div>` with `translate-x` transitions; no external dependencies
+- Trackpad and keyboard both render only when `s.mode === "control"` and `s.device_id` is set
+- Keyboard buttons have `onPointerDown` handlers (not `onClick`) so key repeat via holding works naturally
 
-The e2e caught this and it's what's actually stopping end-to-end demos:
-- Inspect the proxy config, confirm the upgrade path for `/api/ws`
-- Fix client `wsUrl()` if needed and add a reconnect + status indicator
-- Re-run the two-context Playwright flow (simulator + technician) to green
+## Out of scope (explicitly)
 
-## Order of work
+- No changes to the agent binary or the zip
+- No new server routes or migrations
+- No changes to consent, banner, or session state machine
+- No admin-privilege escalation, UAC prompting, or elevation logic on the agent
+- No new inputs beyond mouse move / click / key down / key up that the agent already accepts
 
-```text
-1. You confirm name + color (or accept defaults)
-2. I generate branding assets                          [~5 min]
-3. I write the agent script + build.ps1 + README       [~20 min]
-4. I fix the /api/ws upgrade + verify with Playwright  [~15 min]
-5. You run build.ps1 locally, sign, deploy to a test box
-```
+## Files touched
 
-## Out of scope (unchanged from original plan)
+- `src/routes/_authenticated/admin.tsx` — extend `VirtualTrackpad`, add `OnScreenKeyboard`, wire the slide-out toggle
 
-- Compiling or signing the binary in this workspace
-- Any third-party branding, logo, or asset URL
-- Hidden indicators, Defender-exclusion-for-concealment, silent capture
+## Technical notes
 
-## Question before I start
-
-**Product name and primary color — your call, or should I go with "IT Support Agent" + slate/indigo?**
+- `sendInput` already inserts into `public.session_inputs`; RLS restricts inserts to authenticated technicians
+- Ctrl+letter combos are sent as an explicit 4-message sequence to preserve modifier order on the agent's `SendInput` calls
+- Sizes/persistence use `localStorage` guarded by a `useEffect` so SSR isn't a concern (the route is under `_authenticated`, which is `ssr: false`)
