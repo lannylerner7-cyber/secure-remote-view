@@ -13,10 +13,13 @@ namespace ConnectLive.Agent;
 
 /// <summary>
 /// Thin HTTP + WebSocket client for the ConnectLive gateway.
-/// Routes mirror the OpenAPI contract:
-///   POST /api/devices/enroll      -> { deviceId, deviceToken }
-///   POST /api/devices/heartbeat   -> 204 (auth: X-Device-Token)
-///   WS   /api/ws?token=...        -> session invites, signaling, control
+/// Routes (kept in sync with src/shared/api-routes.ts):
+///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }
+///   POST /api/public/agent/hello                -> presence "arrived" signal
+///   POST /api/public/agent/heartbeat            -> pending session invites
+///   POST /api/public/agent/session/:id/consent  -> user consent result
+///   WS   /api/ws?token=...                      -> realtime signaling
+/// Every authenticated request sends BOTH X-Device-Id AND X-Device-Token.
 /// </summary>
 public sealed class ApiClient
 {
@@ -41,6 +44,12 @@ public sealed class ApiClient
         LoadDeviceCreds();
     }
 
+    private void AddAuth(HttpRequestMessage req)
+    {
+        req.Headers.Add("X-Device-Id", DeviceId!);
+        req.Headers.Add("X-Device-Token", DeviceToken!);
+    }
+
     // ---- Enrollment ----------------------------------------------------
 
     public async Task EnrollIfNeededAsync(CancellationToken ct)
@@ -50,10 +59,11 @@ public sealed class ApiClient
         var payload = new
         {
             hostname = Environment.MachineName,
-            osVersion = Environment.OSVersion.VersionString,
+            os = Environment.OSVersion.VersionString,
+            displayName = Environment.MachineName,
             agentVersion = typeof(ApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0"
         };
-        using var resp = await _http.PostAsJsonAsync("/api/devices/enroll", payload, ct);
+        using var resp = await _http.PostAsJsonAsync("/api/public/agent/enroll", payload, ct);
         resp.EnsureSuccessStatusCode();
         var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
                    ?? throw new InvalidOperationException("Empty enrollment response");
@@ -63,10 +73,30 @@ public sealed class ApiClient
         SaveDeviceCreds(body);
     }
 
-    public async Task HeartbeatAsync(CancellationToken ct)
+    public async Task HelloAsync(CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/devices/heartbeat");
-        req.Headers.Add("X-Device-Token", DeviceToken);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/hello");
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<string> HeartbeatAsync(CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat");
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task SubmitConsentAsync(string sessionId, bool accepted, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/consent")
+        {
+            Content = JsonContent.Create(new { accepted })
+        };
+        AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
     }
@@ -76,7 +106,7 @@ public sealed class ApiClient
     public async Task<ClientWebSocket> ConnectRealtimeAsync(CancellationToken ct)
     {
         var uri = new Uri(new Uri(ApiBaseUrl.Replace("https://", "wss://").Replace("http://", "ws://")),
-                          $"/api/ws?token={Uri.EscapeDataString(DeviceToken!)}");
+                          $"/api/ws?deviceId={Uri.EscapeDataString(DeviceId!)}&token={Uri.EscapeDataString(DeviceToken!)}");
         var ws = new ClientWebSocket();
         ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
         await ws.ConnectAsync(uri, ct);
