@@ -67,6 +67,26 @@ public static class ScreenCapture
                 {
                     idleCount = 0;
                     lastHash = hash;
+                    // Tee the frame into the WebRTC track when a peer is connected;
+                    // silently no-ops otherwise (HTTPS stream keeps flowing).
+                    try
+                    {
+                        var live = WebRtcSession.Current;
+                        if (live != null)
+                        {
+                            var rect = new Rectangle(0, 0, scaled.Width, scaled.Height);
+                            var data = scaled.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                            try
+                            {
+                                var buf = new byte[data.Stride * data.Height];
+                                Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+                                live.PushFrame(buf, data.Width, data.Height, data.Stride);
+                            }
+                            finally { scaled.UnlockBits(data); }
+                        }
+                    }
+                    catch (Exception ex) { Log.Warn($"webrtc tee: {ex.Message}"); }
+
                     using var ms = new MemoryStream();
                     scaled.Save(ms, jpegEnc, encParams);
                     await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);

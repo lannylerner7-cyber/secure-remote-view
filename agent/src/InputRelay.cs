@@ -47,7 +47,7 @@ public static class InputRelay
         }
     }
 
-    private static void Apply(JsonElement it)
+    internal static void Apply(JsonElement it)
     {
         var kind = it.GetProperty("kind").GetString();
         var p = it.TryGetProperty("payload", out var pv) ? pv : default;

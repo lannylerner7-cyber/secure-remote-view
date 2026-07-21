@@ -1,114 +1,83 @@
-# ConnectLive — Precision, Resilience & Service Architecture
+# WebRTC Migration — with automatic fallback to the existing HTTPS stream
 
-Three targeted upgrades to bring the agent to commercial-grade RMM behavior, without dropping any existing feature (curtain mode, standing consent, shared note, on-screen keys, trackpad, pairing flow, RBAC, Telegram, frame stream).
+Goal: cut live-view latency from ~500 ms to <100 ms when the network allows it, while keeping the current HTTPS frame-stream as a guaranteed fallback so **no session ever dies** because a firewall blocked WebRTC.
 
----
+Fallback cascade we're implementing:
 
-## 1. Mouse Mapping — Normalized Coordinates + VirtualDesk
+```text
+[1. P2P via STUN] ──fail──► [2. HTTPS frame-stream (already shipping)]
+   sub-50ms                    ~500ms, 100% reliable
+```
 
-**Admin (`src/routes/_authenticated/admin.tsx`)**
-
-- Replace pixel-based click/move payloads with normalized `xPercent` / `yPercent` (0–1) computed against `img.getBoundingClientRect()`, accounting for the existing letterbox math.
-- Trackpad keeps relative deltas but also normalizes to `-1..1` of the frame width/height so agent-side scaling is consistent.
-
-**Agent (`agent/src/InputRelay.cs`)**
-
-- New `MapToVirtualDesk(double xPct, double yPct)` helper:
-  - Reads `SM_XVIRTUALSCREEN / SM_YVIRTUALSCREEN / SM_CXVIRTUALSCREEN / SM_CYVIRTUALSCREEN`.
-  - Absolute px = virtual origin + pct * virtual size.
-  - Normalizes to 0–65535 for `MOUSEINPUT`.
-- `SendInput` called with `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE` so multi-monitor works.
-- Click / mousedown / mouseup / wheel reuse the same mapping.
-
-Existing `ScreenCapture.cs` already draws the OS cursor into frames — untouched.
+TURN/TURNS is designed for later — the app-level HTTPS fallback already covers the "no P2P" case at 100% success, so we ship without paying for a TURN relay.
 
 ---
 
-## 2. Network Resilience
+## 1. Signaling channel
 
-**Agent (`agent/src/ApiClient.cs` + `Agent.cs`)**
+New TanStack public route: `src/routes/api/public/agent/session.$sessionId.signal.ts`
 
-- Heartbeat loop: exponential backoff 1s → 2s → 4s → 8s → 16s → 30s cap; reset to 1s on first success. Never throws out of the loop.
-- Consecutive-failure counter; on **3 failures** call `InputBlocker.Release()` and `CurtainOverlay.Hide()` — dead-man fallback independent of the existing 5s curtain heartbeat.
-- Frame POST and input-poll wrapped in try/catch with the same backoff, no crash on transient 5xx / DNS / TLS errors.
+- `POST` — agent or admin publishes an SDP offer/answer/ICE candidate for that session (`{ from: "admin"|"agent", kind: "offer"|"answer"|"ice", payload }`).
+- Stored in a new `session_signals` table (id, session_id, from, kind, payload jsonb, created_at).
+- Admin uses Supabase Realtime `postgres_changes` on `session_signals` to receive agent messages in real time (same pattern as `session_frames`).
+- Agent polls `GET /api/public/agent/session/$id/signal?since=<id>` on a 500 ms interval (already how it polls inputs).
 
-**Admin (`admin.tsx`)**
+Migration: create `session_signals` + GRANT + RLS (admins read all, agent inserts scoped to `device_id` via `verifyDevice`).
 
-- Reconnect banner already exists for offline devices; add a "last frame age" indicator (green <2s, amber <8s, red otherwise) so admin sees stream health at a glance.
-- Curtain pinger keeps its 1s cadence; if two pings fail, show a toast "Curtain link degraded — releasing in Ns".
+## 2. Agent side (C# Worker)
 
-**WebRTC note:** current live path is frame-based over HTTPS+Realtime, not WebRTC. The `iceconnectionstatechange` recipe doesn't apply until we migrate to WebRTC (out of scope this pass — noted for a later card).
+- Add **SIPSorcery** NuGet (`SIPSorceryMedia.Encoders` for VP8) to `agent/src/ConnectLiveAgent.csproj`. Pure managed, bundles cleanly into single-file publish.
+- New `agent/src/WebRtcSession.cs`:
+  - Creates `RTCPeerConnection` with `iceServers: [{ urls: "stun:stun.l.google.com:19302" }]`.
+  - Adds a video track fed from `ScreenCapture` (reuse current 7 fps GDI loop, but feed raw BGRA into SIPSorcery's VP8 encoder instead of JPEG).
+  - Adds a reliable+ordered `RTCDataChannel` named `inputs`; on message → same `Apply(JsonElement)` path used by `InputRelay.PollInputsAsync` today. Polling loop stays as fallback.
+  - Sends ICE candidates + offer answer through the new signaling endpoint.
+- `Agent.cs` starts the WebRTC session when a session becomes `active`; on ICE `failed`/`disconnected` for >5 s, closes the peer connection — HTTPS stream keeps running the whole time so there's nothing to "fall back to", it's already live.
 
----
+## 3. Admin side (React)
 
-## 3. Watcher / Worker Service Split
+`src/routes/_authenticated/admin.tsx`:
 
-Session-0 isolation blocks screen capture and `SendInput` when running as SYSTEM. Split the agent into two binaries in the same solution.
+- On live-view open, create `RTCPeerConnection` with the same STUN server, subscribe to `session_signals` Realtime, send offer.
+- Render incoming video track into a `<video autoplay muted playsinline>` **layered on top of** the existing `<img>` frame stream.
+- Track connection state:
+  - `connected` → hide the `<img>`, show `<video>`, label pill: **live · webrtc** (green).
+  - `checking`/`disconnected`/`failed` → hide `<video>`, show `<img>`, label pill: **live · https** (amber).
+- Route mouse + key events through the data channel when open, else fall back to the existing `POST /session/$id/inputs`. Zero behavior change for the operator.
+- Curtain pinger, trackpad, on-screen keys, shared note — all untouched.
 
-**New: `agent/src/Watcher/**` (`ConnectLiveWatcher.csproj`, WinExe → installed as service)
+## 4. What stays exactly as it is
 
-- Runs as `LocalSystem`.
-- Responsibilities: install/uninstall as Windows Service (`sc create ConnectLiveWatcher`), heartbeat to `/api/agent/heartbeat`, self-update check, spawn worker.
-- On session-start signal or on user login: `WTSGetActiveConsoleSessionId` → `WTSQueryUserToken` → `DuplicateTokenEx` → `CreateEnvironmentBlock` → `CreateProcessAsUser` launches `ConnectLiveAgent.exe` in the interactive session with elevation inherited.
-- Watches the worker PID; respawns on crash with capped backoff.
+- HTTPS frame stream (`ScreenCapture` + `session_frames`) — the fallback.
+- Input polling endpoint — the fallback for the data channel.
+- Curtain mode, dead-man release, standing consent, pairing flow, Watcher/Worker split, RBAC, Telegram, session indicator.
+- Normalized 0–1 coordinates — same wire format on both transports.
 
-**Existing agent → `agent/src/Worker/**` (renamed `ConnectLiveAgent.exe`)
+## 5. Deliverables
 
-- Same code we already have: splash, Join window, screen capture, input relay, curtain overlay, shared note, session indicator.
-- Removes its own heartbeat responsibility (moved to Watcher) but keeps session/pairing calls.
-- IPC with Watcher via a named pipe (`\\.\pipe\ConnectLive`) for: session-start push, curtain state, health.
+- Migration for `session_signals` (table + GRANT + RLS).
+- New route: `src/routes/api/public/agent/session.$sessionId.signal.ts`.
+- Admin panel WebRTC layer with automatic HTTPS fallback + status pill.
+- Agent: `WebRtcSession.cs`, `Agent.cs` wiring, `ConnectLiveAgent.csproj` gains SIPSorcery.
+- Refreshed `agent/INSTALL.md` (note the new NuGet, exe size ~+5 MB, no user-facing changes).
+- Rebuilt `ConnectLiveAgent.zip` at `/mnt/documents/ConnectLiveAgent.zip`.
 
-**Installer (`agent/install.ps1`)**
+## 6. Out of scope this pass (called out honestly)
 
-- Copies both exes to `C:\Program Files\ConnectLive\`.
-- Registers the Watcher as an auto-start service running as `LocalSystem`.
-- Adds firewall rules and DPAPI-protected config in `%ProgramData%\ConnectLive\`.
-- Uninstall script mirrors it.
-
-**Manifests**
-
-- Watcher: no UAC prompt (service).
-- Worker: keep `requireAdministrator` in `app.manifest` so it inherits elevation cleanly from the Watcher token.
-
----
-
-## Deliverables
-
-- Updated `agent/` sources with the split + mapping + backoff.
-- Refreshed `agent/INSTALL.md`: two build commands (watcher + worker), install.ps1 usage, dev-mode single-exe fallback for quick iteration.
-- Refreshed `agent/ConnectLiveAgent.zip` at `/mnt/documents/ConnectLiveAgent.zip`.
-- Admin: normalized coord payloads, stream-health indicator, curtain-degraded toast.
-
-## Preserved (no removals)
-
-Standing consent · pairing code flow · curtain mode + SetWindowDisplayAffinity · shared note overlay · resizable trackpad · slide-out on-screen keys · Telegram notifications · RBAC (`super_admin` / `admin` / `viewer`) · session recording hooks · draggable 190×30 indicator.
-
-## Out of scope this pass
-
-WebRTC migration (ICE restart hook) — current frame stream stays; we'll swap transport in a dedicated card once Watcher/Worker is stable.
+- **TURN / TURNS relay.** ~20–30% of strict corporate networks won't complete P2P via STUN alone. Those sessions transparently use the HTTPS stream — same UX as today, just no latency win. When you're ready to pay for a TURN server (Metered/Twilio/self-hosted Coturn), we add its URL + credentials as secrets and drop them into the `iceServers` array on both sides. No code refactor needed.
+- **Hardware video encoding (NVENC / AMF / Media Foundation).** SIPSorcery ships software VP8; ~8–15% CPU on an i5 at 720p/15 fps. Acceptable for support sessions. NVENC is a separate optimization card.
+- **H.264.** VP8 first because SIPSorcery's software encoder is battle-tested; H.264 needs a native codec DLL and complicates single-file publish.
 
 ## Technical notes
 
-- Named-pipe ACL: only `LocalSystem` + the interactive user SID can connect.
-- Token duplication: `TOKEN_ALL_ACCESS`, `SecurityImpersonation`, `TokenPrimary`.
-- If no interactive session (`WTSGetActiveConsoleSessionId == 0xFFFFFFFF`), Watcher idles — no worker spawn on the lock screen.
-- Dead-man releases are idempotent; safe to call from both the 5s curtain watchdog and the 3-fail heartbeat path.
+- SIPSorcery is MIT, pure managed, ~2 MB. Works inside a single-file self-contained publish; no native bindings to smuggle.
+- SDP + ICE payloads are small (<4 KB); polling every 500 ms is fine and matches the existing input-poll cadence.
+- Data-channel input path is `reliable: true, ordered: true` — matches TCP semantics, so no dropped clicks. Video track is unreliable/unordered by design (that's the whole point).
+- We do **not** need to change `ScreenCapture.cs` output — SIPSorcery accepts BGRA frames; we just tee the same frame into both encoders (JPEG for HTTPS fallback, VP8 for WebRTC) so the fallback is always warm and swap-over is instant.
+- If SIPSorcery's single-file publish surfaces a trimming issue (it occasionally does with reflection-heavy code), we disable trimming for the Worker csproj — exe grows ~2 MB, no behavior change.
+
+Preserved (no removals): standing consent · pairing code · curtain mode + SetWindowDisplayAffinity · shared note overlay · resizable trackpad · slide-out on-screen keys · Telegram notifications · RBAC · session recording hooks · draggable 190×30 indicator · Watcher/Worker split · exponential-backoff heartbeat · 3-fail dead-man release.
 
 &nbsp;
 
-&nbsp;
-
-&nbsp;
-
-## ​One Minor "Gotcha" to Watch During Development
-
-​**The Lock Screen (Secure Desktop) Transition:**
-
-In your technical notes, you mention: *"If no interactive session (WTSGetActiveConsoleSessionId == 0xFFFFFFFF), Watcher idles — no worker spawn on the lock screen."*
-
-​This is completely fine for this sprint, but be aware of how Windows defines a "Lock Screen":
-
-1. ​If the computer is freshly booted and nobody has logged in, the Session ID is indeed 0xFFFFFFFF (or Session 0), and your Watcher will correctly idle.
-2. ​However, if a user is logged in (Session 1) and presses Win + L to lock the PC, **the Session ID remains 1**. Instead of killing the session, Windows switches the active *desktop* from Default to Winlogon (the Secure Desktop).
-
-​When this happens, your Worker (running on the Default desktop) will suddenly start capturing black frames, and SendInput will fail because it cannot pierce the Secure Desktop. For this sprint, simply handle the black frames gracefully. In a future sprint, you can update the Worker to use OpenInputDesktop and SetThreadDesktop to jump between the user's desktop and the lock screen.
+> **Minor implementation tip:** When you implement the RTCDataChannel for mouse and keyboard inputs on the React side, wrap your dataChannel.send() calls in a check for dataChannel.readyState === 'open'. If it isn't open, immediately route the input to your existing HTTPS POST endpoint. This guarantees zero dropped clicks during those few seconds where the WebRTC connection is still negotiating

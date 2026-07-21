@@ -174,8 +174,37 @@ public sealed class ApiClient
         catch { return (since, null); }
     }
 
+    // ---- WebRTC signaling ---------------------------------------------
 
+    public async Task<bool> PostSignalAsync(string sessionId, string kind, object payload, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/signal")
+        {
+            Content = JsonContent.Create(new { kind, payload }),
+        };
+        AddAuth(req);
+        try { using var resp = await _http.SendAsync(req, ct); return resp.IsSuccessStatusCode; }
+        catch { return false; }
+    }
 
+    public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollSignalsAsync(string sessionId, long since, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/signal?since={since}");
+        AddAuth(req);
+        try
+        {
+            using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return (since, null);
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(body);
+            long max = doc.RootElement.TryGetProperty("max", out var m) ? m.GetInt64() : since;
+            var list = new System.Collections.Generic.List<JsonElement>();
+            if (doc.RootElement.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                foreach (var el in arr.EnumerateArray()) list.Add(el.Clone());
+            return (max, list);
+        }
+        catch { return (since, null); }
+    }
 
     // ---- Realtime WebSocket -------------------------------------------
 

@@ -18,6 +18,7 @@ import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/age
 import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
 import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
 import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
+import { Route as ApiPublicAgentSessionSessionIdSignalRouteImport } from './routes/api/public/agent/session.$sessionId.signal'
 import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './routes/api/public/agent/session.$sessionId.inputs'
 import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './routes/api/public/agent/session.$sessionId.frame'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
@@ -66,6 +67,12 @@ const ApiPublicAdminBootstrapRoute = ApiPublicAdminBootstrapRouteImport.update({
   path: '/api/public/admin/bootstrap',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAgentSessionSessionIdSignalRoute =
+  ApiPublicAgentSessionSessionIdSignalRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/signal',
+    path: '/api/public/agent/session/$sessionId/signal',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAgentSessionSessionIdInputsRoute =
   ApiPublicAgentSessionSessionIdInputsRouteImport.update({
     id: '/api/public/agent/session/$sessionId/inputs',
@@ -97,6 +104,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
+  '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +118,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
+  '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +134,7 @@ export interface FileRoutesById {
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
+  '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
+    | '/api/public/agent/session/$sessionId/signal'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
+    | '/api/public/agent/session/$sessionId/signal'
   id:
     | '__root__'
     | '/'
@@ -167,6 +179,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
+    | '/api/public/agent/session/$sessionId/signal'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -181,6 +194,7 @@ export interface RootRouteChildren {
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
   ApiPublicAgentSessionSessionIdFrameRoute: typeof ApiPublicAgentSessionSessionIdFrameRoute
   ApiPublicAgentSessionSessionIdInputsRoute: typeof ApiPublicAgentSessionSessionIdInputsRoute
+  ApiPublicAgentSessionSessionIdSignalRoute: typeof ApiPublicAgentSessionSessionIdSignalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -248,6 +262,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAdminBootstrapRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/session/$sessionId/signal': {
+      id: '/api/public/agent/session/$sessionId/signal'
+      path: '/api/public/agent/session/$sessionId/signal'
+      fullPath: '/api/public/agent/session/$sessionId/signal'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdSignalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/agent/session/$sessionId/inputs': {
       id: '/api/public/agent/session/$sessionId/inputs'
       path: '/api/public/agent/session/$sessionId/inputs'
@@ -298,17 +319,9 @@ const rootRouteChildren: RootRouteChildren = {
     ApiPublicAgentSessionSessionIdFrameRoute,
   ApiPublicAgentSessionSessionIdInputsRoute:
     ApiPublicAgentSessionSessionIdInputsRoute,
+  ApiPublicAgentSessionSessionIdSignalRoute:
+    ApiPublicAgentSessionSessionIdSignalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
