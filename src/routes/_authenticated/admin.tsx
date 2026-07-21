@@ -477,6 +477,29 @@ function AdminPage() {
   );
 }
 
+function getContainedImagePoint(
+  img: HTMLImageElement,
+  clientX: number,
+  clientY: number,
+  frame: LiveFrame | null,
+): { x: number; y: number } | null {
+  const rect = img.getBoundingClientRect();
+  const sourceW = frame?.width || img.naturalWidth || rect.width;
+  const sourceH = frame?.height || img.naturalHeight || rect.height;
+  if (!sourceW || !sourceH || !rect.width || !rect.height) return null;
+
+  const scale = Math.min(rect.width / sourceW, rect.height / sourceH);
+  const renderedW = sourceW * scale;
+  const renderedH = sourceH * scale;
+  const renderedLeft = rect.left + (rect.width - renderedW) / 2;
+  const renderedTop = rect.top + (rect.height - renderedH) / 2;
+  const x = (clientX - renderedLeft) / renderedW;
+  const y = (clientY - renderedTop) / renderedH;
+
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { x, y };
+}
+
 function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number) => void; onClick: (button: number) => void }) {
   const [knob, setKnob] = useState<{ x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
