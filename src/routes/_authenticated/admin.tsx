@@ -8,6 +8,7 @@ import type { Tables } from "@/integrations/supabase/types";
 
 type Device = Tables<"devices">;
 type Session = Tables<"sessions">;
+type LiveFrame = { frame: string; width: number | null; height: number | null; updated_at: string };
 
 export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
@@ -34,7 +35,7 @@ function AdminPage() {
   const [audit, setAudit] = useState<Tables<"audit_logs">[]>([]);
   const [userEmail, setUserEmail] = useState<string>("");
   const [liveId, setLiveId] = useState<string | null>(null);
-  const [liveFrame, setLiveFrame] = useState<{ frame: string; width: number | null; height: number | null; updated_at: string } | null>(null);
+  const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
@@ -68,7 +69,7 @@ function AdminPage() {
     const ch = supabase
       .channel(`frames-${liveId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
-        (payload) => { const row = payload.new as never as typeof liveFrame; if (row) setLiveFrame(row); })
+        (payload) => { const row = payload.new as never as LiveFrame; if (row) setLiveFrame(row); })
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, [liveId]);
@@ -420,12 +421,18 @@ function AdminPage() {
                     draggable={false}
                     tabIndex={s.mode === "control" ? 0 : -1}
                     onMouseMove={s.mode === "control" ? (e) => {
-                      const r = (e.target as HTMLImageElement).getBoundingClientRect();
-                      const x = (e.clientX - r.left) / r.width;
-                      const y = (e.clientY - r.top) / r.height;
-                      void sendInput(s.id, "mousemove", { x, y });
+                      const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
+                      if (!point) return;
+                      void sendInput(s.id, "mousemove", point);
                     } : undefined}
-                    onMouseDown={s.mode === "control" ? (e) => { e.preventDefault(); (e.target as HTMLImageElement).focus(); void sendInput(s.id, "mousedown", { button: e.button }); } : undefined}
+                    onMouseDown={s.mode === "control" ? (e) => {
+                      const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
+                      if (!point) return;
+                      e.preventDefault();
+                      e.currentTarget.focus();
+                      void sendInput(s.id, "mousemove", point);
+                      void sendInput(s.id, "mousedown", { button: e.button });
+                    } : undefined}
                     onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
                     onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
                     onWheel={s.mode === "control" ? (e) => { void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
@@ -468,6 +475,29 @@ function AdminPage() {
       })()}
     </div>
   );
+}
+
+function getContainedImagePoint(
+  img: HTMLImageElement,
+  clientX: number,
+  clientY: number,
+  frame: LiveFrame | null,
+): { x: number; y: number } | null {
+  const rect = img.getBoundingClientRect();
+  const sourceW = frame?.width || img.naturalWidth || rect.width;
+  const sourceH = frame?.height || img.naturalHeight || rect.height;
+  if (!sourceW || !sourceH || !rect.width || !rect.height) return null;
+
+  const scale = Math.min(rect.width / sourceW, rect.height / sourceH);
+  const renderedW = sourceW * scale;
+  const renderedH = sourceH * scale;
+  const renderedLeft = rect.left + (rect.width - renderedW) / 2;
+  const renderedTop = rect.top + (rect.height - renderedH) / 2;
+  const x = (clientX - renderedLeft) / renderedW;
+  const y = (clientY - renderedTop) / renderedH;
+
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { x, y };
 }
 
 function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number) => void; onClick: (button: number) => void }) {
