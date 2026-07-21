@@ -26,6 +26,8 @@ function generatePairingCode() {
 function AdminPage() {
   const navigate = useNavigate();
   const notify = useServerFn(sendTelegramNotify);
+  const fetchRole = useServerFn(getMyRole);
+  const [role, setRole] = useState<AppRole | null>(null);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
