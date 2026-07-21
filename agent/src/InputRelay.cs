@@ -44,6 +44,8 @@ public static class InputRelay
         switch (kind)
         {
             case "mousemove": MoveTo(GetD(p, "x"), GetD(p, "y")); break;
+            case "mousemove_rel": MoveRel(GetInt(p, "dx"), GetInt(p, "dy")); break;
+            case "click": Click(GetInt(p, "button")); break;
             case "mousedown": MouseButton(GetInt(p, "button"), true); break;
             case "mouseup": MouseButton(GetInt(p, "button"), false); break;
             case "wheel": Wheel(GetInt(p, "dy")); break;
