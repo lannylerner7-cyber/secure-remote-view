@@ -24,7 +24,7 @@ Restore + run in dev (defaults to the ConnectLive gateway; pass `--api-url` only
 
     dotnet run
     :: or explicitly:
-    dotnet run -- --api-url https://project--13b47594-1b4d-46c6-a939-da4132e55c1c.lovable.app
+    dotnet run -- --api-url https://secure-remote-view.lovable.app
 
 Publish a signed single-file EXE for production:
 
@@ -42,7 +42,7 @@ Copy the EXE + write the gateway URL, then launch:
     mkdir "%ProgramFiles%\ConnectLive"
     copy ConnectLiveAgent.exe "%ProgramFiles%\ConnectLive\"
     mkdir "%ProgramData%\ConnectLive"
-    echo {"ApiBaseUrl":"https://project--13b47594-1b4d-46c6-a939-da4132e55c1c.lovable.app"} > "%ProgramData%\ConnectLive\config.json"
+    echo {"ApiBaseUrl":"https://secure-remote-view.lovable.app"} > "%ProgramData%\ConnectLive\config.json"
     "%ProgramFiles%\ConnectLive\ConnectLiveAgent.exe"
 
 To auto-start at login:
