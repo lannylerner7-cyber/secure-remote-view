@@ -54,6 +54,21 @@ function AdminPage() {
     return () => { supabase.removeChannel(ch); clearInterval(t); clearInterval(clock); };
   }, []);
 
+  // Live frame subscription: whenever an admin opens a session, we stream the
+  // agent's latest screen snapshot (session_frames table, updated ~2fps).
+  useEffect(() => {
+    if (!liveId) { setLiveFrame(null); return; }
+    let cancelled = false;
+    supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
+      .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    const ch = supabase
+      .channel(`frames-${liveId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
+        (payload) => { const row = payload.new as never as typeof liveFrame; if (row) setLiveFrame(row); })
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, [liveId]);
+
   async function refresh() {
     const [d, s, a] = await Promise.all([
       supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
