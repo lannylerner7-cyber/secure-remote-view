@@ -1,58 +1,52 @@
-Enhance the admin-side control UI on the existing consent-based remote support session. This is purely a UI/UX improvement — no new agent capabilities, no new privilege escalation, no changes to the consent model, and no changes to what the agent accepts from the server.
+## Multi-admin role-based access control
 
-## Scope
+Add support for multiple admin accounts with different permission levels, using the existing `user_roles` table and `has_role` function.
 
-1. **Resizable trackpad** in the live-view modal (admin panel only)
-2. **Slide-out on-screen keyboard panel** with common editing keys, hidden by default
+### Roles
 
-All events use the existing `session_inputs` pipeline the agent already consumes when `mode === "control"` (and only then). The user-side banner and consent flow are unchanged.
+Extend the `app_role` enum with three tiers:
+- `super_admin` — full access: manage admins, settings (Telegram), delete sessions/audit, bulk actions, live control
+- `admin` — standard operator: view devices, start sessions, live view + control, generate pairing codes
+- `viewer` — read-only: dashboard, sessions list, audit log, live view **without** control (no pause/trackpad/keyboard)
 
-## Changes (admin panel only)
+### Database
 
-### 1. Resizable `VirtualTrackpad` — `src/routes/_authenticated/admin.tsx`
+- Migration: add `super_admin` and `viewer` to `app_role` enum (keep existing `admin`)
+- Seed the existing `197200` account as `super_admin`
+- Add `public.profiles` table (id → auth.users, display_name, created_at) with RLS + GRANTs, so super_admins can list/manage other admins by name
+- RLS: super_admins can insert/update/delete rows in `user_roles`; everyone can select their own role
 
-Update the existing `VirtualTrackpad` component:
-- Add a `size` state (default 128px, min 96, max 240)
-- Add a small resize handle in the corner (bottom-left) — pointer-drag adjusts size
-- Add compact `−` / `+` buttons as an alternative
-- Persist size in `localStorage` (`connectlive:trackpad-size`) so admin doesn't reset it every session
-- Keep the sensitivity multiplier proportional to size so movement feels consistent
+### Server functions (`src/lib/admins.functions.ts`)
 
-### 2. Slide-out keyboard panel — `src/routes/_authenticated/admin.tsx`
+- `listAdmins` (super_admin only) — returns profiles + roles
+- `createAdmin` (super_admin only) — creates auth user via `supabaseAdmin`, inserts profile + role
+- `updateAdminRole` (super_admin only) — change a user's role
+- `deleteAdmin` (super_admin only) — remove auth user + profile + role
+- `getMyRole` — returns current user's role (used by UI to gate features)
 
-Add a small tab/handle on the right edge of the live-view modal (only visible in control mode). Clicking it slides a compact panel out; clicking again hides it.
+All privileged fns use `requireSupabaseAuth`, verify caller is `super_admin` via `context.supabase` under RLS, then load `supabaseAdmin` inside the handler.
 
-Keys, each sending existing `keydown` + `keyup` events via `sendInput(sessionId, ...)`:
-- **Enter** (VK 13)
-- **Backspace** (VK 8)
-- **Delete** (VK 46)
-- **Tab** (VK 9)
-- **Escape** (VK 27)
-- **Arrow keys** (37/38/39/40)
-- **Ctrl+A** / **Ctrl+C** / **Ctrl+V** / **Ctrl+X** / **Ctrl+Z** — sent as sequenced `keydown(Ctrl) → keydown(letter) → keyup(letter) → keyup(Ctrl)` using the VKs already accepted by `InputRelay.Key(...)` (17 for Ctrl, 65/67/86/88/90 for letters)
+### Admin UI (`src/routes/_authenticated/admin.tsx`)
 
-No new agent code is needed — `InputRelay.cs` already handles `keydown` / `keyup` with a virtual-key code.
+- Fetch current role on mount; store in a context/hook `useRole()`
+- Gate controls:
+  - Sidebar "Settings" tab → super_admin only
+  - "Pause user (take control)", trackpad, keyboard panel, shared note → hidden for `viewer`
+  - Bulk actions, delete session, delete audit rows → super_admin only
+  - Generate pairing code + Live view → admin + super_admin
+- New sidebar entry **Team** (super_admin only): list admins, add new admin (email + password + role), change role, remove
 
-### 3. Small polish
+### Out of scope
 
-- The panel is a plain `<div>` with `translate-x` transitions; no external dependencies
-- Trackpad and keyboard both render only when `s.mode === "control"` and `s.device_id` is set
-- Keyboard buttons have `onPointerDown` handlers (not `onClick`) so key repeat via holding works naturally
+- Agent zip changes (no agent-side impact)
+- Custom per-permission granularity beyond the 3 tiers above (can be added later if needed)
 
-## Out of scope (explicitly)
+### Technical notes
 
-- No changes to the agent binary or the zip
-- No new server routes or migrations
-- No changes to consent, banner, or session state machine
-- No admin-privilege escalation, UAC prompting, or elevation logic on the agent
-- No new inputs beyond mouse move / click / key down / key up that the agent already accepts
-
-## Files touched
-
-- `src/routes/_authenticated/admin.tsx` — extend `VirtualTrackpad`, add `OnScreenKeyboard`, wire the slide-out toggle
-
-## Technical notes
-
-- `sendInput` already inserts into `public.session_inputs`; RLS restricts inserts to authenticated technicians
-- Ctrl+letter combos are sent as an explicit 4-message sequence to preserve modifier order on the agent's `SendInput` calls
-- Sizes/persistence use `localStorage` guarded by a `useEffect` so SSR isn't a concern (the route is under `_authenticated`, which is `ssr: false`)
+```text
+Role check path:
+  UI  ──useRole()──▶ getMyRole() ──RLS──▶ user_roles (select own)
+  Privileged action ──serverFn──▶ requireSupabaseAuth
+                       ──▶ context.supabase.has_role(userId,'super_admin')
+                       ──▶ supabaseAdmin.<action>
+```

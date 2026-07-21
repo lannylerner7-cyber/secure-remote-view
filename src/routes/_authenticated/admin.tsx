@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { sendTelegramNotify } from "@/lib/notify.functions";
+import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type AppRole, type AdminRow } from "@/lib/admins.functions";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Device = Tables<"devices">;
@@ -16,7 +17,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
 const STALE_MS = 45_000;
 const OFFLINE_MS = 180_000;
 
-type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings";
+type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team";
 
 function generatePairingCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -25,6 +26,8 @@ function generatePairingCode() {
 function AdminPage() {
   const navigate = useNavigate();
   const notify = useServerFn(sendTelegramNotify);
+  const fetchRole = useServerFn(getMyRole);
+  const [role, setRole] = useState<AppRole | null>(null);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -43,6 +46,7 @@ function AdminPage() {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ""));
     void refresh();
     void loadTg();
+    fetchRole().then((r) => setRole(r.role)).catch(() => setRole(null));
     const ch = supabase
       .channel("admin-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, refresh)
@@ -229,10 +233,12 @@ function AdminPage() {
             <NavBtn id="devices" label="Devices" badge={onlineCount} />
             <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
             <NavBtn id="audit" label="Audit log" />
-            <NavBtn id="settings" label="Settings" />
+            {role === "super_admin" && <NavBtn id="team" label="Team" />}
+            {role === "super_admin" && <NavBtn id="settings" label="Settings" />}
           </nav>
           <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/50">
             <div className="truncate">{userEmail}</div>
+            {role && <div className="mt-1 inline-block rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[#B9CCFF]">{role.replace("_", " ")}</div>}
             <button onClick={signOut} className="mt-2 w-full rounded border border-white/15 px-2 py-1 hover:bg-white/5">Sign out</button>
           </div>
         </aside>
@@ -241,12 +247,14 @@ function AdminPage() {
         <div className="flex-1">
           <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
             <h1 className="text-lg font-semibold capitalize">{nav}</h1>
-            <button
-              onClick={generateCode}
-              className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
-            >
-              + Generate meeting code
-            </button>
+            {role !== "viewer" && (
+              <button
+                onClick={generateCode}
+                className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
+              >
+                + Generate meeting code
+              </button>
+            )}
           </header>
 
           {reconnecting.length > 0 && (
@@ -339,7 +347,7 @@ function AdminPage() {
               </div>
             )}
 
-            {nav === "settings" && (
+            {nav === "settings" && role === "super_admin" && (
               <TelegramSettings
                 tg={tg}
                 setTg={setTg}
@@ -348,6 +356,8 @@ function AdminPage() {
                 status={tgSaved}
               />
             )}
+
+            {nav === "team" && role === "super_admin" && <TeamPanel />}
           </main>
         </div>
       </div>
@@ -387,12 +397,12 @@ function AdminPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {s.device_id && (
+                  {s.device_id && role !== "viewer" && (
                     <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-amber-500/90 hover:bg-amber-500 text-black" : "bg-white/10 hover:bg-white/15"}`}>
                       {s.mode === "control" ? "Resume user" : "Pause user (take control)"}
                     </button>
                   )}
-                  <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">End</button>
+                  {role !== "viewer" && <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">End</button>}
                   <button onClick={() => setLiveId(null)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Close</button>
                 </div>
               </div>
@@ -812,4 +822,109 @@ function TelegramSettings({ tg, setTg, onSave, onTest, status }: {
     </div>
   );
 }
+
+function TeamPanel() {
+  const list = useServerFn(listAdmins);
+  const create = useServerFn(createAdmin);
+  const updateRole = useServerFn(updateAdminRole);
+  const removeAdmin = useServerFn(deleteAdmin);
+  const [rows, setRows] = useState<AdminRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [form, setForm] = useState({ email: "", password: "", display_name: "", role: "admin" as AppRole });
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    setLoading(true);
+    try { setRows(await list()); setErr(null); }
+    catch (e) { setErr((e as Error).message); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void refresh(); }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      await create({ data: form });
+      setForm({ email: "", password: "", display_name: "", role: "admin" });
+      await refresh();
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function changeRole(user_id: string, role: AppRole) {
+    try { await updateRole({ data: { user_id, role } }); await refresh(); }
+    catch (e) { alert((e as Error).message); }
+  }
+
+  async function remove(user_id: string, email: string | null) {
+    if (!confirm(`Remove ${email ?? "this admin"}? This cannot be undone.`)) return;
+    try { await removeAdmin({ data: { user_id } }); await refresh(); }
+    catch (e) { alert((e as Error).message); }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-white/10 bg-[#0F172A] p-5">
+        <h2 className="mb-1 text-sm font-semibold">Add team member</h2>
+        <p className="mb-4 text-xs text-white/50">Create a new admin account with a role. Passwords must be at least 8 characters.</p>
+        <form onSubmit={submit} className="grid grid-cols-1 gap-3 md:grid-cols-5">
+          <input required placeholder="Display name" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-[#4F7CFF]" />
+          <input required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-[#4F7CFF]" />
+          <input required type="password" minLength={8} placeholder="Password (min 8)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-[#4F7CFF]" />
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as AppRole })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm">
+            <option value="viewer">Viewer (read-only)</option>
+            <option value="admin">Admin (live control)</option>
+            <option value="super_admin">Super admin</option>
+          </select>
+          <button disabled={busy} className="rounded bg-[#4F7CFF] px-4 py-2 text-sm font-medium disabled:opacity-50">{busy ? "Creating…" : "Add"}</button>
+        </form>
+        {err && <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">{err}</div>}
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-[#0F172A]">
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
+          <h2 className="text-sm font-semibold">Team members</h2>
+          <button onClick={refresh} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/5">Refresh</button>
+        </div>
+        {loading ? (
+          <div className="p-5 text-sm text-white/50">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-5 text-sm text-white/50">No team members yet.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase tracking-wider text-white/40">
+              <tr><th className="px-5 py-2 text-left">Name</th><th className="px-5 py-2 text-left">Email</th><th className="px-5 py-2 text-left">Role</th><th className="px-5 py-2"></th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.user_id} className="border-t border-white/5">
+                  <td className="px-5 py-3">{r.display_name ?? "—"}</td>
+                  <td className="px-5 py-3 text-white/70">{r.email ?? "—"}</td>
+                  <td className="px-5 py-3">
+                    <select
+                      value={r.role ?? ""}
+                      onChange={(e) => changeRole(r.user_id, e.target.value as AppRole)}
+                      className="rounded border border-white/10 bg-black/30 px-2 py-1 text-xs"
+                    >
+                      <option value="" disabled>— none —</option>
+                      <option value="viewer">Viewer</option>
+                      <option value="admin">Admin</option>
+                      <option value="super_admin">Super admin</option>
+                    </select>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button onClick={() => remove(r.user_id, r.email)} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-red-500/20">Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
