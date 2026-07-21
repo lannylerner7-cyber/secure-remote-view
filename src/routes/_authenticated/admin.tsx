@@ -347,7 +347,7 @@ function AdminPage() {
               </div>
             )}
 
-            {nav === "settings" && (
+            {nav === "settings" && role === "super_admin" && (
               <TelegramSettings
                 tg={tg}
                 setTg={setTg}
@@ -356,6 +356,8 @@ function AdminPage() {
                 status={tgSaved}
               />
             )}
+
+            {nav === "team" && role === "super_admin" && <TeamPanel />}
           </main>
         </div>
       </div>
