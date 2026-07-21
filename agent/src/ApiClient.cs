@@ -130,6 +130,29 @@ public sealed class ApiClient
     private sealed record PairOk(bool ok, string sessionId, string mode, string state);
     private sealed record PairErr(string error);
 
+    // ---- Live frame upload --------------------------------------------
+
+    public async Task<bool> PostFrameAsync(string sessionId, byte[] jpegBytes, int width, int height, CancellationToken ct)
+    {
+        var payload = new
+        {
+            frame = Convert.ToBase64String(jpegBytes),
+            width,
+            height,
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/frame")
+        {
+            Content = JsonContent.Create(payload),
+        };
+        AddAuth(req);
+        try
+        {
+            using var resp = await _http.SendAsync(req, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
 
     // ---- Realtime WebSocket -------------------------------------------
 

@@ -31,6 +31,7 @@ function AdminPage() {
   const [audit, setAudit] = useState<Tables<"audit_logs">[]>([]);
   const [userEmail, setUserEmail] = useState<string>("");
   const [liveId, setLiveId] = useState<string | null>(null);
+  const [liveFrame, setLiveFrame] = useState<{ frame: string; width: number | null; height: number | null; updated_at: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
@@ -52,6 +53,21 @@ function AdminPage() {
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => { supabase.removeChannel(ch); clearInterval(t); clearInterval(clock); };
   }, []);
+
+  // Live frame subscription: whenever an admin opens a session, we stream the
+  // agent's latest screen snapshot (session_frames table, updated ~2fps).
+  useEffect(() => {
+    if (!liveId) { setLiveFrame(null); return; }
+    let cancelled = false;
+    supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
+      .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    const ch = supabase
+      .channel(`frames-${liveId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
+        (payload) => { const row = payload.new as never as typeof liveFrame; if (row) setLiveFrame(row); })
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, [liveId]);
 
   async function refresh() {
     const [d, s, a] = await Promise.all([
@@ -372,25 +388,31 @@ function AdminPage() {
                   <button onClick={() => setLiveId(null)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Close</button>
                 </div>
               </div>
-              <div className="relative aspect-video bg-gradient-to-br from-[#1F2A44] to-[#0F172A]">
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
-                  {!s.device_id ? (
-                    <>
-                      <div className="font-mono text-4xl tracking-[0.4em] text-[#B9CCFF]">{s.pairing_code}</div>
-                      <div className="text-sm text-white/60">Waiting for agent to join with this code…</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
-                        {active ? "Connected · streaming frames" : "Session paused"}
-                      </div>
-                      <div className="text-sm text-white/70">Waiting for agent WebRTC track…</div>
-                    </>
-                  )}
-                </div>
-                <div className="absolute bottom-3 left-3 rounded bg-black/50 px-2 py-1 font-mono text-[10px] text-white/60">
+              <div className="relative aspect-video bg-black">
+                {!s.device_id ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
+                    <div className="font-mono text-4xl tracking-[0.4em] text-[#B9CCFF]">{s.pairing_code}</div>
+                    <div className="text-sm text-white/60">Waiting for agent to join with this code…</div>
+                  </div>
+                ) : liveFrame?.frame ? (
+                  <img
+                    src={`data:image/jpeg;base64,${liveFrame.frame}`}
+                    alt="Live screen"
+                    className="absolute inset-0 h-full w-full object-contain"
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
+                    <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
+                      {active ? "Connected · waiting for first frame" : "Session paused"}
+                    </div>
+                    <div className="text-sm text-white/60">The agent will start streaming its screen momentarily.</div>
+                  </div>
+                )}
+                <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
                   session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}
+                  {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
                 </div>
               </div>
             </div>
