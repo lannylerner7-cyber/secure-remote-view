@@ -1,31 +1,23 @@
-## Packaging the ConnectLive agent: MSI vs single-file EXE
+## Restore Telegram settings visibility
 
-Both work. Pick based on how you want IT to deploy it.
+### Diagnosis
+The Telegram settings panel was not removed — it's still in `admin.tsx` (lines 352–360, `TelegramSettings`). It's hidden because the sidebar gates the Settings tab behind `role === "super_admin"`, and the `197200` account is currently stored as `role = 'technician'` in `public.user_roles` (verified via DB query). `technician` isn't part of the `super_admin | admin | viewer` model the UI uses, so the whole sidebar renders in its lowest-privilege state.
 
-### Option A — Visual Studio Installer Projects (.msi)
-Good when:
-- You want a proper Windows installer with Add/Remove Programs entry.
-- IT will push it via Group Policy / Intune / SCCM (those tools expect MSI).
-- You want per-machine install into `Program Files` and an auto-start entry.
+### Fix (one migration, no code changes)
+Promote `197200` to `super_admin` and remove the stale `technician` row:
 
-Steps (rough):
-1. `dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true` in `agent/src` → produces `ConnectLiveAgent.exe`.
-2. In Visual Studio, add a new "Setup Project", add the published EXE as the primary output, set the target folder to `[ProgramFiles64Folder]\ConnectLive`.
-3. Optional: add a Registry key under `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` to auto-start, and a Start Menu shortcut.
-4. Build → produces `ConnectLiveAgent.msi`.
+```sql
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('9209c21d-55a1-4152-a4bf-e6921c7473c4', 'super_admin')
+ON CONFLICT (user_id, role) DO NOTHING;
 
-### Option B — Command-line single-file EXE (what the zip already does)
-Good when:
-- End users just double-click to run (no admin install needed).
-- You want the fastest iteration loop — one PowerShell command rebuilds it.
-
-Already wired up in `agent/build.ps1`:
-```
-dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
+DELETE FROM public.user_roles
+WHERE user_id = '9209c21d-55a1-4152-a4bf-e6921c7473c4'
+  AND role = 'technician';
 ```
 
-### Recommendation
-- For **piloting / manual runs**: keep the single-file EXE (Option B).
-- For **rolling out to staff machines**: wrap that same EXE in an MSI (Option A). MSI is just a delivery wrapper around the same binary — you don't rewrite the agent.
+After the migration runs, sign out and back in — the Settings tab reappears with the Telegram bot token / chat ID / per-event toggles, and Team management also becomes visible.
 
-No code changes needed on our side for either path. Want me to add an `installer/` folder with a ready-to-open `.vdproj` scaffold pointing at the published EXE, or leave packaging entirely on your Visual Studio side?
+### Not doing
+- No UI changes; the Telegram panel code is intact.
+- Not lowering the gate to `admin` — Telegram credentials are workspace-wide secrets and should stay super_admin only.
