@@ -1,0 +1,122 @@
+using System;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace ConnectLive.Agent;
+
+/// <summary>
+/// Polls the gateway for queued admin input events and replays them on the
+/// local machine via Win32 SendInput. Only runs while the session is
+/// active AND the SessionIndicator is visible — the on-screen banner is
+/// the user's kill-switch: closing it cancels the token and stops relay.
+/// </summary>
+public static class InputRelay
+{
+    public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
+    {
+        long since = 0;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var (max, items) = await api.PollInputsAsync(sessionId, since, ct);
+                if (items != null)
+                {
+                    foreach (var it in items)
+                    {
+                        try { Apply(it); } catch (Exception ex) { Log.Warn($"input apply: {ex.Message}"); }
+                    }
+                    if (max > since) since = max;
+                }
+            }
+            catch (Exception ex) { Log.Warn($"input poll: {ex.Message}"); }
+            try { await Task.Delay(90, ct); } catch { }
+        }
+    }
+
+    private static void Apply(JsonElement it)
+    {
+        var kind = it.GetProperty("kind").GetString();
+        var p = it.GetProperty("payload");
+        switch (kind)
+        {
+            case "mousemove": MoveTo(GetD(p, "x"), GetD(p, "y")); break;
+            case "mousedown": MouseButton(GetInt(p, "button"), true); break;
+            case "mouseup": MouseButton(GetInt(p, "button"), false); break;
+            case "wheel": Wheel(GetInt(p, "dy")); break;
+            case "keydown": Key(GetInt(p, "vk"), true); break;
+            case "keyup": Key(GetInt(p, "vk"), false); break;
+        }
+    }
+
+    private static double GetD(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetDouble() : 0;
+    private static int GetInt(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetInt32() : 0;
+
+    // ---- Win32 SendInput --------------------------------------------------
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT { public uint type; public INPUTUNION U; }
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
+    {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+
+    private const uint INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
+    private const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_ABSOLUTE = 0x8000;
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
+    private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
+    private const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020, MOUSEEVENTF_MIDDLEUP = 0x0040;
+    private const uint MOUSEEVENTF_WHEEL = 0x0800;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    private static void MoveTo(double nx, double ny)
+    {
+        // nx, ny are 0..1 normalized coordinates from the admin viewport.
+        var b = Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        int absX = (int)Math.Clamp(nx * 65535.0, 0, 65535);
+        int absY = (int)Math.Clamp(ny * 65535.0, 0, 65535);
+        var inp = new INPUT { type = INPUT_MOUSE };
+        inp.U.mi = new MOUSEINPUT { dx = absX, dy = absY, dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE };
+        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+        _ = b;
+    }
+
+    private static void MouseButton(int button, bool down)
+    {
+        uint flag = button switch
+        {
+            2 => down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP,
+            1 => down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP,
+            _ => down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP,
+        };
+        var inp = new INPUT { type = INPUT_MOUSE };
+        inp.U.mi = new MOUSEINPUT { dwFlags = flag };
+        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+    }
+
+    private static void Wheel(int dy)
+    {
+        var inp = new INPUT { type = INPUT_MOUSE };
+        inp.U.mi = new MOUSEINPUT { mouseData = unchecked((uint)(-dy * 3)), dwFlags = MOUSEEVENTF_WHEEL };
+        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+    }
+
+    private static void Key(int vk, bool down)
+    {
+        var inp = new INPUT { type = INPUT_KEYBOARD };
+        inp.U.ki = new KEYBDINPUT { wVk = (ushort)vk, dwFlags = down ? 0 : KEYEVENTF_KEYUP };
+        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+    }
+}
