@@ -132,10 +132,11 @@ export type Database = {
         Row: {
           consent_at: string | null
           created_at: string
-          device_id: string
+          device_id: string | null
           ended_at: string | null
           id: string
           mode: string
+          pairing_code: string | null
           state: string
           technician_id: string | null
           updated_at: string
@@ -143,10 +144,11 @@ export type Database = {
         Insert: {
           consent_at?: string | null
           created_at?: string
-          device_id: string
+          device_id?: string | null
           ended_at?: string | null
           id?: string
           mode?: string
+          pairing_code?: string | null
           state?: string
           technician_id?: string | null
           updated_at?: string
@@ -154,10 +156,11 @@ export type Database = {
         Update: {
           consent_at?: string | null
           created_at?: string
-          device_id?: string
+          device_id?: string | null
           ended_at?: string | null
           id?: string
           mode?: string
+          pairing_code?: string | null
           state?: string
           technician_id?: string | null
           updated_at?: string

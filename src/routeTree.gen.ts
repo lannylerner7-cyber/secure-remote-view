@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as ApiPublicAgentPairRouteImport } from './routes/api/public/agent/pair'
 import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
 import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
 import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
@@ -37,6 +38,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiPublicAgentPairRoute = ApiPublicAgentPairRouteImport.update({
+  id: '/api/public/agent/pair',
+  path: '/api/public/agent/pair',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicAgentHelloRoute = ApiPublicAgentHelloRouteImport.update({
   id: '/api/public/agent/hello',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
+  '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
 }
 export interface FileRoutesByTo {
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
+  '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
 }
 export interface FileRoutesById {
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
+  '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
 }
 export interface FileRouteTypes {
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
+    | '/api/public/agent/pair'
     | '/api/public/agent/session/$sessionId/consent'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
+    | '/api/public/agent/pair'
     | '/api/public/agent/session/$sessionId/consent'
   id:
     | '__root__'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
+    | '/api/public/agent/pair'
     | '/api/public/agent/session/$sessionId/consent'
   fileRoutesById: FileRoutesById
 }
@@ -139,6 +151,7 @@ export interface RootRouteChildren {
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
   ApiPublicAgentHelloRoute: typeof ApiPublicAgentHelloRoute
+  ApiPublicAgentPairRoute: typeof ApiPublicAgentPairRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
 }
 
@@ -171,6 +184,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin'
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/agent/pair': {
+      id: '/api/public/agent/pair'
+      path: '/api/public/agent/pair'
+      fullPath: '/api/public/agent/pair'
+      preLoaderRoute: typeof ApiPublicAgentPairRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/agent/hello': {
       id: '/api/public/agent/hello'
@@ -229,6 +249,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
   ApiPublicAgentHelloRoute: ApiPublicAgentHelloRoute,
+  ApiPublicAgentPairRoute: ApiPublicAgentPairRoute,
   ApiPublicAgentSessionSessionIdConsentRoute:
     ApiPublicAgentSessionSessionIdConsentRoute,
 }

@@ -101,6 +101,36 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
     }
 
+    // ---- Pairing (meeting-code join) ----------------------------------
+
+    public sealed record PairResult(bool Ok, string? SessionId, string? Error);
+
+    public async Task<PairResult> PairAsync(string code, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/pair")
+        {
+            Content = JsonContent.Create(new { code })
+        };
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            try
+            {
+                var err = System.Text.Json.JsonSerializer.Deserialize<PairErr>(body);
+                return new PairResult(false, null, err?.error ?? resp.StatusCode.ToString());
+            }
+            catch { return new PairResult(false, null, resp.StatusCode.ToString()); }
+        }
+        var ok = System.Text.Json.JsonSerializer.Deserialize<PairOk>(body);
+        return new PairResult(true, ok?.sessionId, null);
+    }
+
+    private sealed record PairOk(bool ok, string sessionId, string mode, string state);
+    private sealed record PairErr(string error);
+
+
     // ---- Realtime WebSocket -------------------------------------------
 
     public async Task<ClientWebSocket> ConnectRealtimeAsync(CancellationToken ct)

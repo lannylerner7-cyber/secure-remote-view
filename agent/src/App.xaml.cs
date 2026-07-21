@@ -13,7 +13,6 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Optional --api-url override on first run.
         string? apiUrl = null;
         for (int i = 0; i < e.Args.Length - 1; i++)
             if (e.Args[i] == "--api-url") { apiUrl = e.Args[i + 1]; ApiClient.SaveConfig(new ApiClient.AgentConfig(apiUrl)); }
@@ -23,21 +22,25 @@ public partial class App : Application
 
         var api = new ApiClient(apiUrl);
         var dispatcher = new WpfDispatcher(Application.Current.Dispatcher);
-        var agent = new Agent(api, status => splash.SetStatus(status), dispatcher);
 
         try
         {
-            // Run bootstrap: enroll -> heartbeat -> open realtime channel.
-            // Once the WS is up we hide the splash and stay resident in the tray.
-            var bootstrap = agent.RunAsync(_cts.Token);
-            await Task.WhenAny(bootstrap, Task.Delay(2500));
-            splash.SetStatus("Connected — waiting for helpdesk");
-            await Task.Delay(600);
+            // Enroll + first heartbeat happen behind the splash.
+            splash.SetStatus("Registering with ConnectLive…");
+            await api.EnrollIfNeededAsync(_cts.Token);
+            splash.SetStatus("Ready");
+            await Task.Delay(400);
             splash.Close();
 
-            // Tray icon lives for the process lifetime.
+            // Show the Join window. User enters the 6-digit code from the admin.
+            var join = new JoinWindow(api);
+            var ok = join.ShowDialog();
+            if (ok != true) { Shutdown(); return; }
+
+            // Paired — resident tray + heartbeat + realtime loops.
             _ = new TrayIcon(onQuit: Shutdown);
-            await bootstrap; // keep alive
+            var agent = new Agent(api, _ => { }, dispatcher);
+            await agent.RunAsync(_cts.Token);
         }
         catch (Exception ex)
         {
@@ -52,7 +55,6 @@ public partial class App : Application
         _cts.Cancel();
         base.OnExit(e);
     }
-
 }
 
 internal sealed class WpfDispatcher : Dispatcher

@@ -13,10 +13,14 @@ export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — ConnectLive" }] }),
 });
 
-// A device is treated as "unstable" (reconnecting) if it was online but hasn't
-// heartbeated in >45s. Auto-drops to offline after 3 minutes.
 const STALE_MS = 45_000;
 const OFFLINE_MS = 180_000;
+
+type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings";
+
+function generatePairingCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
 
 function AdminPage() {
   const navigate = useNavigate();
@@ -29,7 +33,8 @@ function AdminPage() {
   const [liveId, setLiveId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
-  const [tgOpen, setTgOpen] = useState(false);
+  const [nav, setNav] = useState<Nav>("dashboard");
+  const [codeModal, setCodeModal] = useState<null | { code: string; sessionId: string }>(null);
   const [tg, setTg] = useState({ telegram_bot_token: "", telegram_chat_id: "", notify_on_session_start: true, notify_on_control_taken: true, notify_on_device_offline: true });
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(null);
 
@@ -37,28 +42,22 @@ function AdminPage() {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ""));
     void refresh();
     void loadTg();
-
     const ch = supabase
       .channel("admin-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "audit_logs" }, refresh)
       .subscribe();
-
     const t = setInterval(refresh, 5000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
-    return () => {
-      supabase.removeChannel(ch);
-      clearInterval(t);
-      clearInterval(clock);
-    };
+    return () => { supabase.removeChannel(ch); clearInterval(t); clearInterval(clock); };
   }, []);
 
   async function refresh() {
     const [d, s, a] = await Promise.all([
       supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
-      supabase.from("sessions").select("*").order("created_at", { ascending: false }).limit(20),
-      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(30),
+      supabase.from("sessions").select("*").order("created_at", { ascending: false }).limit(50),
+      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(50),
     ]);
     if (d.data) setDevices(d.data);
     if (s.data) setSessions(s.data);
@@ -67,15 +66,13 @@ function AdminPage() {
 
   async function loadTg() {
     const { data } = await supabase.from("admin_settings").select("*").maybeSingle();
-    if (data) {
-      setTg({
-        telegram_bot_token: data.telegram_bot_token ?? "",
-        telegram_chat_id: data.telegram_chat_id ?? "",
-        notify_on_session_start: data.notify_on_session_start,
-        notify_on_control_taken: data.notify_on_control_taken,
-        notify_on_device_offline: data.notify_on_device_offline,
-      });
-    }
+    if (data) setTg({
+      telegram_bot_token: data.telegram_bot_token ?? "",
+      telegram_chat_id: data.telegram_chat_id ?? "",
+      notify_on_session_start: data.notify_on_session_start,
+      notify_on_control_taken: data.notify_on_control_taken,
+      notify_on_device_offline: data.notify_on_device_offline,
+    });
   }
 
   async function saveTg() {
@@ -93,7 +90,6 @@ function AdminPage() {
     setTimeout(() => setTgSaved(null), 3000);
   }
 
-  // Derive presence with stale/reconnecting inference
   const presenceOf = (d: Device): "online" | "reconnecting" | "offline" => {
     const last = d.last_seen_at ? new Date(d.last_seen_at).getTime() : 0;
     const age = now - last;
@@ -102,46 +98,41 @@ function AdminPage() {
     return "offline";
   };
 
-  async function startLive(device: Device) {
-    const existing = sessions.find(
-      (x) => x.device_id === device.id && (x.state === "active" || x.state === "paused" || x.state === "invited"),
-    );
-    if (existing) {
-      if (existing.state !== "active") {
-        await supabase.from("sessions").update({ state: "active" }).eq("id", existing.id);
-      }
-      setLiveId(existing.id);
-      return;
-    }
+  // Generate a 6-digit code and open a pending session that any agent can join.
+  async function generateCode() {
     const { data: u } = await supabase.auth.getUser();
+    const code = generatePairingCode();
     const { data, error } = await supabase
       .from("sessions")
       .insert({
-        device_id: device.id,
         technician_id: u.user?.id,
         mode: "view",
-        state: "active",
-        consent_at: new Date().toISOString(),
+        state: "invited",
+        pairing_code: code,
+        device_id: null,
       })
       .select()
       .single();
     if (error) return alert(error.message);
-    if (data) {
-      setLiveId(data.id);
-      void notify({ data: { kind: "session_start", text: `🖥️ Session started on <b>${device.display_name}</b> (${device.hostname ?? "—"})` } });
-    }
+    if (data) setCodeModal({ code, sessionId: data.id });
   }
 
   async function endSession(s: Session) {
-    await supabase.from("sessions").update({ state: "ended", ended_at: new Date().toISOString() }).eq("id", s.id);
-    const dev = devices.find((d) => d.id === s.device_id);
+    await supabase.from("sessions").update({ state: "ended", ended_at: new Date().toISOString(), pairing_code: null }).eq("id", s.id);
+    const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
     void notify({ data: { kind: "session_end", text: `⏹️ Session ended on <b>${dev?.display_name ?? "device"}</b>` } });
+  }
+
+  async function deleteSession(s: Session) {
+    if (!confirm("Delete this session permanently?")) return;
+    const { error } = await supabase.from("sessions").delete().eq("id", s.id);
+    if (error) alert(error.message);
   }
 
   async function toggleControl(s: Session) {
     const nextMode = s.mode === "control" ? "view" : "control";
     await supabase.from("sessions").update({ mode: nextMode }).eq("id", s.id);
-    const dev = devices.find((d) => d.id === s.device_id);
+    const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
     void notify({
       data: {
         kind: nextMode === "control" ? "control_taken" : "control_released",
@@ -152,13 +143,8 @@ function AdminPage() {
     });
   }
 
-  // ---- Bulk actions --------------------------------------------------
   function toggleSelect(id: string) {
-    setSelected((s) => {
-      const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
   const selectedDevices = useMemo(() => devices.filter((d) => selected.has(d.id)), [devices, selected]);
 
@@ -176,7 +162,6 @@ function AdminPage() {
   async function bulkRestartAgent() {
     if (selectedDevices.length === 0) return;
     if (!confirm(`Signal ${selectedDevices.length} agent(s) to restart?`)) return;
-    // Broadcast is picked up by agents on next heartbeat via audit_logs feed.
     const rows = selectedDevices.map((d) => ({ device_id: d.id, event: "agent.restart_requested", detail: {} }));
     await supabase.from("audit_logs").insert(rows);
     setSelected(new Set());
@@ -188,212 +173,173 @@ function AdminPage() {
   }
 
   const reconnecting = devices.filter((d) => presenceOf(d) === "reconnecting");
+  const onlineCount = devices.filter((d) => presenceOf(d) === "online").length;
+  const activeSessions = sessions.filter((s) => s.state === "active" || s.state === "paused");
+  const pendingSessions = sessions.filter((s) => s.state === "invited" && s.pairing_code);
+
+  const NavBtn = ({ id, label, badge }: { id: Nav; label: string; badge?: number }) => (
+    <button
+      onClick={() => setNav(id)}
+      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+        nav === id ? "bg-[#4F7CFF]/20 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
+      }`}
+    >
+      <span>{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className="rounded-full bg-[#4F7CFF] px-1.5 py-0.5 text-[10px] font-medium text-white">{badge}</span>
+      )}
+    </button>
+  );
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-white">
-      <header className="border-b border-white/10">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-[#0B1220] text-white">
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <aside className="flex w-60 flex-col border-r border-white/10 bg-[#0F172A] p-4">
+          <div className="mb-6 flex items-center gap-2 px-2">
             <span className="inline-block h-3 w-3 rounded-full bg-[#4F7CFF]" />
-            <span className="font-semibold">ConnectLive · Admin</span>
+            <span className="font-semibold">ConnectLive</span>
           </div>
-          <div className="flex items-center gap-3 text-xs text-white/60">
-            <button onClick={() => setTgOpen(true)} className="rounded border border-white/15 px-2 py-1 hover:bg-white/5">Telegram</button>
-            <span>{userEmail}</span>
-            <button onClick={signOut} className="rounded border border-white/15 px-2 py-1 hover:bg-white/5">Sign out</button>
+          <nav className="flex-1 space-y-1">
+            <NavBtn id="dashboard" label="Dashboard" />
+            <NavBtn id="devices" label="Devices" badge={onlineCount} />
+            <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
+            <NavBtn id="audit" label="Audit log" />
+            <NavBtn id="settings" label="Settings" />
+          </nav>
+          <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/50">
+            <div className="truncate">{userEmail}</div>
+            <button onClick={signOut} className="mt-2 w-full rounded border border-white/15 px-2 py-1 hover:bg-white/5">Sign out</button>
           </div>
-        </div>
-      </header>
+        </aside>
 
-      {/* Reconnect banner */}
-      {reconnecting.length > 0 && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10">
-          <div className="mx-auto flex max-w-7xl items-center gap-3 px-6 py-2 text-xs text-amber-200">
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-            <span>
+        {/* Main */}
+        <div className="flex-1">
+          <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+            <h1 className="text-lg font-semibold capitalize">{nav}</h1>
+            <button
+              onClick={generateCode}
+              className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
+            >
+              + Generate meeting code
+            </button>
+          </header>
+
+          {reconnecting.length > 0 && (
+            <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-xs text-amber-200">
+              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
               {reconnecting.length} device{reconnecting.length > 1 ? "s" : ""} reconnecting…
-            </span>
-            <span className="text-amber-200/60">
-              Auto-drop to offline in {Math.max(0, Math.round((OFFLINE_MS - (now - new Date(reconnecting[0].last_seen_at!).getTime())) / 1000))}s
-            </span>
-          </div>
-        </div>
-      )}
-
-      <main className="mx-auto max-w-7xl px-6 py-6 space-y-6">
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-white/60">Devices ({devices.length})</h2>
-            {selected.size > 0 && (
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-white/60">{selected.size} selected</span>
-                <button onClick={bulkEndSessions} className="rounded bg-red-500/80 px-2 py-1">End sessions</button>
-                <button onClick={bulkRestartAgent} className="rounded bg-white/10 px-2 py-1">Restart agent</button>
-                <button onClick={() => setSelected(new Set())} className="rounded border border-white/15 px-2 py-1">Clear</button>
-              </div>
-            )}
-          </div>
-          <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1F2A44]">
-            <table className="w-full text-sm">
-              <thead className="bg-white/5 text-left text-xs uppercase text-white/50">
-                <tr>
-                  <th className="w-8 px-4 py-2"></th>
-                  <th className="px-4 py-2">Name</th>
-                  <th className="px-4 py-2">Host</th>
-                  <th className="px-4 py-2">Status</th>
-                  <th className="px-4 py-2">Last seen</th>
-                  <th className="px-4 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {devices.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-white/40">No devices enrolled yet.</td></tr>
-                )}
-                {devices.map((d) => {
-                  const p = presenceOf(d);
-                  return (
-                    <tr key={d.id} className="border-t border-white/5">
-                      <td className="px-4 py-2">
-                        <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} />
-                      </td>
-                      <td className="px-4 py-2 font-medium">{d.display_name}</td>
-                      <td className="px-4 py-2 text-white/60">{d.hostname ?? "—"}</td>
-                      <td className="px-4 py-2">
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
-                          p === "online" ? "bg-green-500/15 text-green-300" :
-                          p === "reconnecting" ? "bg-amber-500/15 text-amber-300" :
-                          "bg-white/10 text-white/50"
-                        }`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${
-                            p === "online" ? "bg-green-400" : p === "reconnecting" ? "bg-amber-400 animate-pulse" : "bg-white/40"
-                          }`} />
-                          {p}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 text-white/60">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "—"}</td>
-                      <td className="px-4 py-2 text-right">
-                        <button
-                          onClick={() => startLive(d)}
-                          disabled={p === "offline"}
-                          className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Live view
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Sessions</h2>
-          <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1F2A44]">
-            <table className="w-full text-sm">
-              <thead className="bg-white/5 text-left text-xs uppercase text-white/50">
-                <tr>
-                  <th className="px-4 py-2">Device</th>
-                  <th className="px-4 py-2">Mode</th>
-                  <th className="px-4 py-2">State</th>
-                  <th className="px-4 py-2">Started</th>
-                  <th className="px-4 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-6 text-center text-white/40">No sessions yet.</td></tr>
-                )}
-                {sessions.map((s) => {
-                  const dev = devices.find((d) => d.id === s.device_id);
-                  return (
-                    <tr key={s.id} className="border-t border-white/5">
-                      <td className="px-4 py-2">{dev?.display_name ?? s.device_id.slice(0, 8)}</td>
-                      <td className="px-4 py-2 text-white/70">{s.mode}</td>
-                      <td className="px-4 py-2">
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
-                          s.state === "active" ? "bg-[#4F7CFF]/20 text-[#B9CCFF]" :
-                          s.state === "paused" ? "bg-amber-500/15 text-amber-300" :
-                          s.state === "invited" ? "bg-white/10 text-white/70" :
-                          "bg-white/5 text-white/40"
-                        }`}>
-                          {s.state === "active" && <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />}
-                          {s.state}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 text-white/60">{new Date(s.created_at).toLocaleTimeString()}</td>
-                      <td className="px-4 py-2 text-right">
-                        {(s.state === "active" || s.state === "paused") && (
-                          <>
-                            <button onClick={() => setLiveId(s.id)} className="mr-2 rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90">Live view</button>
-                            <button onClick={() => toggleControl(s)} className="mr-2 rounded bg-white/10 px-2 py-1 text-xs">
-                              {s.mode === "control" ? "Resume user" : "Pause user"}
-                            </button>
-                            <button onClick={() => endSession(s)} className="rounded bg-red-500/80 px-2 py-1 text-xs">End</button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Audit</h2>
-          <div className="rounded-lg border border-white/10 bg-[#1F2A44] p-4 text-xs">
-            {audit.length === 0 ? (
-              <p className="text-white/40">No events yet.</p>
-            ) : (
-              <ul className="space-y-1 font-mono">
-                {audit.map((a) => (
-                  <li key={a.id} className="text-white/70">
-                    <span className="text-white/40">{new Date(a.created_at).toLocaleTimeString()}</span>{" "}
-                    <span className="text-[#4F7CFF]">{a.event}</span>{" "}
-                    <span className="text-white/50">{JSON.stringify(a.detail)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-      </main>
-
-      {/* Telegram settings modal */}
-      {tgOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setTgOpen(false)}>
-          <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#0F172A] p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-3 text-sm font-semibold">Telegram notifications</h3>
-            <p className="mb-4 text-xs text-white/60">
-              Create a bot with @BotFather, paste the token here, then message it once and paste your chat ID from
-              https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates.
-            </p>
-            <label className="block text-xs text-white/60">Bot token</label>
-            <input value={tg.telegram_bot_token} onChange={(e) => setTg({ ...tg, telegram_bot_token: e.target.value })}
-              className="mb-3 w-full rounded border border-white/15 bg-black/30 px-2 py-1.5 text-sm" placeholder="123456:ABC-DEF..." />
-            <label className="block text-xs text-white/60">Chat ID</label>
-            <input value={tg.telegram_chat_id} onChange={(e) => setTg({ ...tg, telegram_chat_id: e.target.value })}
-              className="mb-4 w-full rounded border border-white/15 bg-black/30 px-2 py-1.5 text-sm" placeholder="123456789" />
-
-            <div className="mb-4 space-y-2 text-xs">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={tg.notify_on_session_start} onChange={(e) => setTg({ ...tg, notify_on_session_start: e.target.checked })} /> Notify on session start</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={tg.notify_on_control_taken} onChange={(e) => setTg({ ...tg, notify_on_control_taken: e.target.checked })} /> Notify on control taken / released</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={tg.notify_on_device_offline} onChange={(e) => setTg({ ...tg, notify_on_device_offline: e.target.checked })} /> Notify on device offline</label>
             </div>
+          )}
 
-            <div className="flex items-center justify-between gap-2">
-              <button onClick={testTg} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Send test</button>
-              <div className="flex items-center gap-2">
-                {tgSaved === "saved" && <span className="text-xs text-green-300">Saved</span>}
-                {tgSaved === "test_ok" && <span className="text-xs text-green-300">Delivered ✓</span>}
-                {tgSaved === "test_fail" && <span className="text-xs text-red-300">Failed — check token/chat id</span>}
-                {tgSaved === "testing" && <span className="text-xs text-white/60">Sending…</span>}
-                <button onClick={() => setTgOpen(false)} className="rounded border border-white/15 px-3 py-1.5 text-xs">Close</button>
-                <button onClick={saveTg} className="rounded bg-[#4F7CFF] px-3 py-1.5 text-xs font-medium">Save</button>
+          <main className="p-6">
+            {nav === "dashboard" && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                  <StatCard label="Online devices" value={onlineCount} tone="blue" />
+                  <StatCard label="Active sessions" value={activeSessions.length} tone="green" />
+                  <StatCard label="Pending codes" value={pendingSessions.length} tone="amber" />
+                  <StatCard label="Total devices" value={devices.length} tone="slate" />
+                </div>
+
+                {pendingSessions.length > 0 && (
+                  <section>
+                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Waiting for agent</h2>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                      {pendingSessions.map((s) => (
+                        <div key={s.id} className="rounded-lg border border-white/10 bg-[#1F2A44] p-4">
+                          <div className="text-xs text-white/50">Meeting code</div>
+                          <div className="my-1 font-mono text-2xl tracking-widest">{s.pairing_code}</div>
+                          <div className="mb-2 text-xs text-white/40">Created {new Date(s.created_at).toLocaleTimeString()}</div>
+                          <div className="flex gap-2">
+                            <button onClick={() => setCodeModal({ code: s.pairing_code!, sessionId: s.id })} className="rounded bg-white/10 px-2 py-1 text-xs">Show</button>
+                            <button onClick={() => deleteSession(s)} className="rounded bg-red-500/70 px-2 py-1 text-xs">Cancel</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                <section>
+                  <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Recent events</h2>
+                  <div className="rounded-lg border border-white/10 bg-[#1F2A44] p-4 text-xs">
+                    {audit.slice(0, 10).map((a) => (
+                      <div key={a.id} className="border-b border-white/5 py-1 font-mono last:border-0">
+                        <span className="text-white/40">{new Date(a.created_at).toLocaleTimeString()}</span>{" "}
+                        <span className="text-[#4F7CFF]">{a.event}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </div>
+            )}
+
+            {nav === "devices" && (
+              <DevicesTable
+                devices={devices}
+                presenceOf={presenceOf}
+                selected={selected}
+                toggleSelect={toggleSelect}
+                onBulkEnd={bulkEndSessions}
+                onBulkRestart={bulkRestartAgent}
+                onClearSelected={() => setSelected(new Set())}
+              />
+            )}
+
+            {nav === "sessions" && (
+              <SessionsTable
+                sessions={sessions}
+                devices={devices}
+                onLive={(s) => setLiveId(s.id)}
+                onToggleControl={toggleControl}
+                onEnd={endSession}
+                onDelete={deleteSession}
+                onShowCode={(s) => s.pairing_code && setCodeModal({ code: s.pairing_code, sessionId: s.id })}
+              />
+            )}
+
+            {nav === "audit" && (
+              <div className="rounded-lg border border-white/10 bg-[#1F2A44] p-4 text-xs">
+                {audit.length === 0 ? <p className="text-white/40">No events yet.</p> : (
+                  <ul className="space-y-1 font-mono">
+                    {audit.map((a) => (
+                      <li key={a.id} className="border-b border-white/5 py-1 last:border-0">
+                        <span className="text-white/40">{new Date(a.created_at).toLocaleString()}</span>{" "}
+                        <span className="text-[#4F7CFF]">{a.event}</span>{" "}
+                        <span className="text-white/50">{JSON.stringify(a.detail)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {nav === "settings" && (
+              <TelegramSettings
+                tg={tg}
+                setTg={setTg}
+                onSave={saveTg}
+                onTest={testTg}
+                status={tgSaved}
+              />
+            )}
+          </main>
+        </div>
+      </div>
+
+      {/* Pairing code modal */}
+      {codeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setCodeModal(null)}>
+          <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#0F172A] p-6 text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 text-xs uppercase tracking-widest text-white/50">Meeting code</div>
+            <div className="my-4 font-mono text-5xl tracking-[0.4em] text-[#B9CCFF]">{codeModal.code}</div>
+            <p className="mb-5 text-sm text-white/60">
+              On the target PC, open ConnectLive Agent and enter this code on the Join screen. Code stays valid until the session ends.
+            </p>
+            <div className="flex justify-center gap-2">
+              <button onClick={() => navigator.clipboard.writeText(codeModal.code)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Copy</button>
+              <button onClick={() => setCodeModal(null)} className="rounded bg-[#4F7CFF] px-4 py-1.5 text-xs font-medium">Done</button>
             </div>
           </div>
         </div>
@@ -403,7 +349,7 @@ function AdminPage() {
       {liveId && (() => {
         const s = sessions.find((x) => x.id === liveId);
         if (!s) return null;
-        const dev = devices.find((d) => d.id === s.device_id);
+        const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
         const active = s.state === "active";
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
@@ -412,29 +358,39 @@ function AdminPage() {
                 <div className="flex items-center gap-3">
                   <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-[#4F7CFF] animate-pulse" : "bg-amber-400"}`} />
                   <div>
-                    <div className="text-sm font-semibold">{dev?.display_name ?? "Device"}</div>
+                    <div className="text-sm font-semibold">{dev?.display_name ?? "Waiting for agent…"}</div>
                     <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-amber-500/90 hover:bg-amber-500 text-black" : "bg-white/10 hover:bg-white/15"}`}>
-                    {s.mode === "control" ? "Resume user" : "Pause user (take control)"}
-                  </button>
-                  <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">End session</button>
+                  {s.device_id && (
+                    <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-amber-500/90 hover:bg-amber-500 text-black" : "bg-white/10 hover:bg-white/15"}`}>
+                      {s.mode === "control" ? "Resume user" : "Pause user (take control)"}
+                    </button>
+                  )}
+                  <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">End</button>
                   <button onClick={() => setLiveId(null)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Close</button>
                 </div>
               </div>
-              <div className="relative aspect-video bg-gradient-to-br from-[#1F2A44] to-[#0F172A]" tabIndex={0}
-                   onMouseMove={() => { /* input relay wire-up point */ }}>
+              <div className="relative aspect-video bg-gradient-to-br from-[#1F2A44] to-[#0F172A]">
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
-                  <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
-                    {active ? "Connected · streaming frames" : "Session paused"}
-                  </div>
-                  <div className="text-sm text-white/70">Waiting for agent WebRTC track…</div>
+                  {!s.device_id ? (
+                    <>
+                      <div className="font-mono text-4xl tracking-[0.4em] text-[#B9CCFF]">{s.pairing_code}</div>
+                      <div className="text-sm text-white/60">Waiting for agent to join with this code…</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
+                        {active ? "Connected · streaming frames" : "Session paused"}
+                      </div>
+                      <div className="text-sm text-white/70">Waiting for agent WebRTC track…</div>
+                    </>
+                  )}
                 </div>
                 <div className="absolute bottom-3 left-3 rounded bg-black/50 px-2 py-1 font-mono text-[10px] text-white/60">
-                  session {s.id.slice(0, 8)} · device {s.device_id.slice(0, 8)}
+                  session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}
                 </div>
               </div>
             </div>
@@ -444,3 +400,173 @@ function AdminPage() {
     </div>
   );
 }
+
+function StatCard({ label, value, tone }: { label: string; value: number; tone: "blue" | "green" | "amber" | "slate" }) {
+  const bg = { blue: "bg-[#4F7CFF]/10 border-[#4F7CFF]/30", green: "bg-green-500/10 border-green-500/30", amber: "bg-amber-500/10 border-amber-500/30", slate: "bg-white/5 border-white/10" }[tone];
+  return (
+    <div className={`rounded-lg border p-4 ${bg}`}>
+      <div className="text-xs uppercase tracking-widest text-white/50">{label}</div>
+      <div className="mt-1 text-3xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected }: {
+  devices: Device[]; presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
+  selected: Set<string>; toggleSelect: (id: string) => void;
+  onBulkEnd: () => void; onBulkRestart: () => void; onClearSelected: () => void;
+}) {
+  return (
+    <div>
+      {selected.size > 0 && (
+        <div className="mb-3 flex items-center gap-2 text-xs">
+          <span className="text-white/60">{selected.size} selected</span>
+          <button onClick={onBulkEnd} className="rounded bg-red-500/80 px-2 py-1">End sessions</button>
+          <button onClick={onBulkRestart} className="rounded bg-white/10 px-2 py-1">Restart agent</button>
+          <button onClick={onClearSelected} className="rounded border border-white/15 px-2 py-1">Clear</button>
+        </div>
+      )}
+      <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1F2A44]">
+        <table className="w-full text-sm">
+          <thead className="bg-white/5 text-left text-xs uppercase text-white/50">
+            <tr>
+              <th className="w-8 px-4 py-2"></th>
+              <th className="px-4 py-2">Name</th>
+              <th className="px-4 py-2">Host</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Last seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {devices.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-white/40">No devices enrolled yet.</td></tr>}
+            {devices.map((d) => {
+              const p = presenceOf(d);
+              return (
+                <tr key={d.id} className="border-t border-white/5">
+                  <td className="px-4 py-2"><input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} /></td>
+                  <td className="px-4 py-2 font-medium">{d.display_name}</td>
+                  <td className="px-4 py-2 text-white/60">{d.hostname ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
+                      p === "online" ? "bg-green-500/15 text-green-300" : p === "reconnecting" ? "bg-amber-500/15 text-amber-300" : "bg-white/10 text-white/50"
+                    }`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${p === "online" ? "bg-green-400" : p === "reconnecting" ? "bg-amber-400 animate-pulse" : "bg-white/40"}`} />
+                      {p}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-white/60">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SessionsTable({ sessions, devices, onLive, onToggleControl, onEnd, onDelete, onShowCode }: {
+  sessions: Session[]; devices: Device[];
+  onLive: (s: Session) => void;
+  onToggleControl: (s: Session) => void;
+  onEnd: (s: Session) => void;
+  onDelete: (s: Session) => void;
+  onShowCode: (s: Session) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1F2A44]">
+      <table className="w-full text-sm">
+        <thead className="bg-white/5 text-left text-xs uppercase text-white/50">
+          <tr>
+            <th className="px-4 py-2">Device</th>
+            <th className="px-4 py-2">Code</th>
+            <th className="px-4 py-2">Mode</th>
+            <th className="px-4 py-2">State</th>
+            <th className="px-4 py-2">Started</th>
+            <th className="px-4 py-2 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sessions.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-white/40">No sessions yet.</td></tr>}
+          {sessions.map((s) => {
+            const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
+            return (
+              <tr key={s.id} className="border-t border-white/5">
+                <td className="px-4 py-2">{dev?.display_name ?? <span className="text-white/40">waiting…</span>}</td>
+                <td className="px-4 py-2 font-mono text-white/70">{s.pairing_code ?? "—"}</td>
+                <td className="px-4 py-2 text-white/70">{s.mode}</td>
+                <td className="px-4 py-2">
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
+                    s.state === "active" ? "bg-[#4F7CFF]/20 text-[#B9CCFF]" :
+                    s.state === "paused" ? "bg-amber-500/15 text-amber-300" :
+                    s.state === "invited" ? "bg-white/10 text-white/70" :
+                    "bg-white/5 text-white/40"
+                  }`}>
+                    {s.state === "active" && <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />}
+                    {s.state}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-white/60">{new Date(s.created_at).toLocaleTimeString()}</td>
+                <td className="px-4 py-2 text-right space-x-1">
+                  {s.state === "invited" && s.pairing_code && (
+                    <button onClick={() => onShowCode(s)} className="rounded bg-white/10 px-2 py-1 text-xs">Show code</button>
+                  )}
+                  {(s.state === "active" || s.state === "paused") && (
+                    <>
+                      <button onClick={() => onLive(s)} className="rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90">Live</button>
+                      <button onClick={() => onToggleControl(s)} className="rounded bg-white/10 px-2 py-1 text-xs">
+                        {s.mode === "control" ? "Resume" : "Pause"}
+                      </button>
+                      <button onClick={() => onEnd(s)} className="rounded bg-red-500/70 px-2 py-1 text-xs">End</button>
+                    </>
+                  )}
+                  <button onClick={() => onDelete(s)} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-red-500/20">Delete</button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type TgState = { telegram_bot_token: string; telegram_chat_id: string; notify_on_session_start: boolean; notify_on_control_taken: boolean; notify_on_device_offline: boolean };
+
+function TelegramSettings({ tg, setTg, onSave, onTest, status }: {
+  tg: TgState;
+  setTg: (v: TgState) => void;
+  onSave: () => void; onTest: () => void;
+  status: null | "saved" | "testing" | "test_ok" | "test_fail";
+}) {
+  return (
+    <div className="max-w-lg rounded-lg border border-white/10 bg-[#1F2A44] p-6">
+      <h3 className="mb-3 text-sm font-semibold">Telegram notifications</h3>
+      <p className="mb-4 text-xs text-white/60">
+        Create a bot with @BotFather, paste the token here, then message it once and paste your chat ID.
+      </p>
+      <label className="block text-xs text-white/60">Bot token</label>
+      <input value={tg.telegram_bot_token} onChange={(e) => setTg({ ...tg, telegram_bot_token: e.target.value })}
+        className="mb-3 w-full rounded border border-white/15 bg-black/30 px-2 py-1.5 text-sm" placeholder="123456:ABC-DEF..." />
+      <label className="block text-xs text-white/60">Chat ID</label>
+      <input value={tg.telegram_chat_id} onChange={(e) => setTg({ ...tg, telegram_chat_id: e.target.value })}
+        className="mb-4 w-full rounded border border-white/15 bg-black/30 px-2 py-1.5 text-sm" placeholder="123456789" />
+      <div className="mb-4 space-y-2 text-xs">
+        <label className="flex items-center gap-2"><input type="checkbox" checked={tg.notify_on_session_start} onChange={(e) => setTg({ ...tg, notify_on_session_start: e.target.checked })} /> Notify on session start</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={tg.notify_on_control_taken} onChange={(e) => setTg({ ...tg, notify_on_control_taken: e.target.checked })} /> Notify on control taken / released</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={tg.notify_on_device_offline} onChange={(e) => setTg({ ...tg, notify_on_device_offline: e.target.checked })} /> Notify on device offline</label>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={onTest} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Send test</button>
+        <div className="flex items-center gap-2">
+          {status === "saved" && <span className="text-xs text-green-300">Saved</span>}
+          {status === "test_ok" && <span className="text-xs text-green-300">Delivered ✓</span>}
+          {status === "test_fail" && <span className="text-xs text-red-300">Failed</span>}
+          {status === "testing" && <span className="text-xs text-white/60">Sending…</span>}
+          <button onClick={onSave} className="rounded bg-[#4F7CFF] px-4 py-1.5 text-xs font-medium">Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
