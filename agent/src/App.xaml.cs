@@ -44,6 +44,8 @@ public partial class App : Application
             indicator.Show();
 
             _ = ScreenCapture.RunAsync(api, sessionId, _cts.Token);
+            _ = InputRelay.RunAsync(api, sessionId, _cts.Token);
+
 
             var agent = new Agent(api, _ => { }, dispatcher);
             await agent.RunAsync(_cts.Token);
