@@ -440,6 +440,15 @@ function AdminPage() {
                     onKeyDown={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keydown", { vk: e.keyCode }); } : undefined}
                     onKeyUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keyup", { vk: e.keyCode }); } : undefined}
                   />
+                )}
+                {sharedNote.trim() && (
+                  <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 max-w-[80%] rounded-lg border border-[#4F7CFF]/40 bg-[#1F2A44]/90 px-4 py-2 text-sm text-white shadow-lg">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#B9CCFF]">Message shown to user</div>
+                    <div className="mt-1 whitespace-pre-wrap break-words">{sharedNote}</div>
+                  </div>
+                )}
+                {false && (
+                  <img alt="" /
 
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
