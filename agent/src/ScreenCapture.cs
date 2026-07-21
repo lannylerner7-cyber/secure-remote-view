@@ -15,6 +15,9 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class ScreenCapture
 {
+    private const uint CURSOR_SHOWING = 0x00000001;
+    private const int DI_NORMAL = 0x0003;
+
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
         var encoders = ImageCodecInfo.GetImageEncoders();
@@ -36,7 +39,10 @@ public static class ScreenCapture
                              ?? new Rectangle(0, 0, 1920, 1080);
                 using var raw = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
                 using (var g = Graphics.FromImage(raw))
+                {
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+                    DrawCursor(g, bounds, out _);
+                }
 
                 int maxEdge = 1280;
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(raw.Width, raw.Height));
@@ -98,4 +104,77 @@ public static class ScreenCapture
         }
         finally { bmp.UnlockBits(data); }
     }
+
+    private static void DrawCursor(Graphics g, Rectangle screenBounds, out ulong cursorKey)
+    {
+        cursorKey = 0;
+        try
+        {
+            var info = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
+            if (!GetCursorInfo(ref info) || (info.flags & CURSOR_SHOWING) == 0 || info.hCursor == IntPtr.Zero) return;
+
+            int hotX = 0;
+            int hotY = 0;
+            if (GetIconInfo(info.hCursor, out var iconInfo))
+            {
+                hotX = iconInfo.xHotspot;
+                hotY = iconInfo.yHotspot;
+                if (iconInfo.hbmMask != IntPtr.Zero) DeleteObject(iconInfo.hbmMask);
+                if (iconInfo.hbmColor != IntPtr.Zero) DeleteObject(iconInfo.hbmColor);
+            }
+
+            int x = info.ptScreenPos.X - screenBounds.Left - hotX;
+            int y = info.ptScreenPos.Y - screenBounds.Top - hotY;
+            cursorKey = ((ulong)(uint)info.ptScreenPos.X << 32) ^ (uint)info.ptScreenPos.Y ^ (ulong)info.hCursor.ToInt64();
+
+            // CopyFromScreen does not include the hardware cursor, so paint it
+            // into the frame before scaling. This makes the admin's shared view
+            // show the real pointer position, including during remote control.
+            var hdc = g.GetHdc();
+            try { DrawIconEx(hdc, x, y, info.hCursor, 0, 0, 0, IntPtr.Zero, DI_NORMAL); }
+            finally { g.ReleaseHdc(hdc); }
+        }
+        catch
+        {
+            // Cursor rendering should never break screen streaming.
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CURSORINFO
+    {
+        public int cbSize;
+        public uint flags;
+        public IntPtr hCursor;
+        public POINT ptScreenPos;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ICONINFO
+    {
+        public bool fIcon;
+        public int xHotspot;
+        public int yHotspot;
+        public IntPtr hbmMask;
+        public IntPtr hbmColor;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorInfo(ref CURSORINFO pci);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DrawIconEx(IntPtr hdc, int xLeft, int yTop, IntPtr hIcon, int cxWidth, int cyWidth, int istepIfAniCur, IntPtr hbrFlickerFreeDraw, int diFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern bool DeleteObject(IntPtr hObject);
 }
