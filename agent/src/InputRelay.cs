@@ -51,6 +51,7 @@ public static class InputRelay
             case "wheel": Wheel(GetInt(p, "dy")); break;
             case "keydown": Key(GetInt(p, "vk"), true); break;
             case "keyup": Key(GetInt(p, "vk"), false); break;
+            case "note": NoteOverlay.Update(p.TryGetProperty("text", out var t) ? t.GetString() : null); break;
         }
     }
 
