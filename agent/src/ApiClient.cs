@@ -24,7 +24,7 @@ namespace ConnectLive.Agent;
 public sealed class ApiClient
 {
     // Override at build time or via first-run --api-url flag.
-    public const string DefaultApiBaseUrl = "https://helpdesk.example.com";
+    public const string DefaultApiBaseUrl = "https://project--13b47594-1b4d-46c6-a939-da4132e55c1c.lovable.app";
 
     private static readonly string ConfigDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
