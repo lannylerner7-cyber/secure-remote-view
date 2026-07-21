@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_settings: {
+        Row: {
+          notify_on_control_taken: boolean
+          notify_on_device_offline: boolean
+          notify_on_session_start: boolean
+          telegram_bot_token: string | null
+          telegram_chat_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          notify_on_control_taken?: boolean
+          notify_on_device_offline?: boolean
+          notify_on_session_start?: boolean
+          telegram_bot_token?: string | null
+          telegram_chat_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          notify_on_control_taken?: boolean
+          notify_on_device_offline?: boolean
+          notify_on_session_start?: boolean
+          telegram_bot_token?: string | null
+          telegram_chat_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           actor: string | null
@@ -69,6 +99,7 @@ export type Database = {
           last_seen_at: string | null
           metadata: Json
           os: string | null
+          standing_consent: boolean
           status: string
         }
         Insert: {
@@ -80,6 +111,7 @@ export type Database = {
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
+          standing_consent?: boolean
           status?: string
         }
         Update: {
@@ -91,6 +123,7 @@ export type Database = {
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
+          standing_consent?: boolean
           status?: string
         }
         Relationships: []
