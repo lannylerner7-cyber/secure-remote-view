@@ -216,6 +216,41 @@ export type Database = {
           },
         ]
       }
+      session_signals: {
+        Row: {
+          created_at: string
+          from_side: string
+          id: number
+          kind: string
+          payload: Json
+          session_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_side: string
+          id?: number
+          kind: string
+          payload: Json
+          session_id: string
+        }
+        Update: {
+          created_at?: string
+          from_side?: string
+          id?: number
+          kind?: string
+          payload?: Json
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_signals_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sessions: {
         Row: {
           consent_at: string | null
