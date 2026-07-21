@@ -9,6 +9,7 @@ export const API_ROUTES = {
   agentEnroll: "/api/public/agent/enroll",
   agentHello: "/api/public/agent/hello",
   agentHeartbeat: "/api/public/agent/heartbeat",
+  agentPair: "/api/public/agent/pair",
   agentSessionPoll: (sessionId: string) => `/api/public/agent/session/${sessionId}`,
   agentConsent: (sessionId: string) => `/api/public/agent/session/${sessionId}/consent`,
 
