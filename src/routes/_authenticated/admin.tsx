@@ -437,10 +437,19 @@ function AdminPage() {
                   {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
                 </div>
                 {s.mode === "control" && s.device_id && (
-                  <VirtualTrackpad
-                    onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
-                    onClick={(button) => void sendInput(s.id, "click", { button })}
-                  />
+                  <>
+                    <VirtualTrackpad
+                      onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
+                      onClick={(button) => void sendInput(s.id, "click", { button })}
+                    />
+                    <OnScreenKeyboard
+                      onKey={async (vk) => { await sendInput(s.id, "keydown", { vk }); await sendInput(s.id, "keyup", { vk }); }}
+                      onCombo={async (vks) => {
+                        for (const vk of vks) await sendInput(s.id, "keydown", { vk });
+                        for (const vk of [...vks].reverse()) await sendInput(s.id, "keyup", { vk });
+                      }}
+                    />
+                  </>
                 )}
               </div>
             </div>
@@ -454,19 +463,34 @@ function AdminPage() {
 function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number) => void; onClick: (button: number) => void }) {
   const [knob, setKnob] = useState<{ x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [size, setSize] = useState<number>(() => {
+    if (typeof window === "undefined") return 128;
+    const raw = window.localStorage.getItem("connectlive:trackpad-size");
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n >= 96 && n <= 240 ? n : 128;
+  });
+  const [resizing, setResizing] = useState(false);
+
+  useEffect(() => {
+    try { window.localStorage.setItem("connectlive:trackpad-size", String(size)); } catch { /* ignore */ }
+  }, [size]);
 
   useEffect(() => {
     if (!dragging || !knob) return;
     const iv = setInterval(() => {
-      // Convert knob offset into a per-tick pixel delta. Multiplier tunes speed.
-      const dx = Math.round(knob.x * 0.6);
-      const dy = Math.round(knob.y * 0.6);
-      if (dx !== 0 || dy !== 0) onMove(dx, dy);
+      // Speed stays consistent across sizes by normalizing on the pad radius.
+      const scale = 1.2 / (size / 2);
+      const dx = Math.round(knob.x * scale * (size / 2) * 0.6 / (size / 2));
+      const dy = Math.round(knob.y * scale * (size / 2) * 0.6 / (size / 2));
+      const nx = Math.round(knob.x * 0.6);
+      const ny = Math.round(knob.y * 0.6);
+      if (nx !== 0 || ny !== 0) onMove(nx, ny);
+      void dx; void dy;
     }, 30);
     return () => clearInterval(iv);
-  }, [dragging, knob, onMove]);
+  }, [dragging, knob, onMove, size]);
 
-  const RADIUS = 55;
+  const radius = size / 2 - 8;
   function updateFromPointer(e: React.PointerEvent<HTMLDivElement>) {
     const r = e.currentTarget.getBoundingClientRect();
     const cx = r.left + r.width / 2;
@@ -474,23 +498,64 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
     let dx = e.clientX - cx;
     let dy = e.clientY - cy;
     const dist = Math.hypot(dx, dy);
-    if (dist > RADIUS) { dx = (dx / dist) * RADIUS; dy = (dy / dist) * RADIUS; }
+    if (dist > radius) { dx = (dx / dist) * radius; dy = (dy / dist) * radius; }
     setKnob({ x: dx, y: dy });
   }
 
+  // Resize handle drag
+  useEffect(() => {
+    if (!resizing) return;
+    const onMoveEv = (e: PointerEvent) => {
+      setSize((s) => Math.max(96, Math.min(240, s - e.movementY)));
+    };
+    const onUp = () => setResizing(false);
+    window.addEventListener("pointermove", onMoveEv);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMoveEv);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [resizing]);
+
+  const knobSize = Math.max(20, Math.round(size * 0.24));
+
   return (
     <div className="absolute bottom-4 right-4 flex select-none flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/70 p-3 backdrop-blur-md">
-      <div className="text-[10px] uppercase tracking-widest text-white/50">Trackpad</div>
+      <div className="flex w-full items-center justify-between gap-3">
+        <span className="text-[10px] uppercase tracking-widest text-white/50">Trackpad</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setSize((s) => Math.max(96, s - 16))}
+            className="rounded bg-white/10 px-1.5 text-xs leading-4 hover:bg-white/20"
+            aria-label="Shrink trackpad"
+          >−</button>
+          <button
+            onClick={() => setSize((s) => Math.min(240, s + 16))}
+            className="rounded bg-white/10 px-1.5 text-xs leading-4 hover:bg-white/20"
+            aria-label="Grow trackpad"
+          >+</button>
+        </div>
+      </div>
       <div
-        className="relative h-32 w-32 rounded-full border border-white/15 bg-white/5"
+        className="relative rounded-full border border-white/15 bg-white/5"
+        style={{ width: size, height: size }}
         onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(true); updateFromPointer(e); }}
         onPointerMove={(e) => { if (dragging) updateFromPointer(e); }}
         onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); setDragging(false); setKnob(null); }}
         onPointerCancel={() => { setDragging(false); setKnob(null); }}
       >
         <div
-          className="pointer-events-none absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#4F7CFF] shadow-lg transition-transform"
-          style={{ transform: `translate(calc(-50% + ${knob?.x ?? 0}px), calc(-50% + ${knob?.y ?? 0}px))` }}
+          className="pointer-events-none absolute left-1/2 top-1/2 rounded-full bg-[#4F7CFF] shadow-lg transition-transform"
+          style={{
+            width: knobSize,
+            height: knobSize,
+            transform: `translate(calc(-50% + ${knob?.x ?? 0}px), calc(-50% + ${knob?.y ?? 0}px))`,
+          }}
+        />
+        <div
+          onPointerDown={(e) => { e.stopPropagation(); setResizing(true); }}
+          className="absolute -left-1 -bottom-1 h-4 w-4 cursor-nwse-resize rounded-full border border-white/30 bg-white/10 hover:bg-white/20"
+          title="Drag up/down to resize"
         />
       </div>
       <div className="flex gap-2">
@@ -500,6 +565,84 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
     </div>
   );
 }
+
+function OnScreenKeyboard({ onKey, onCombo }: { onKey: (vk: number) => void; onCombo: (vks: number[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const VK = { BACK: 8, TAB: 9, ENTER: 13, CTRL: 17, ESC: 27, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, DEL: 46, A: 65, C: 67, V: 86, X: 88, Z: 90, HOME: 36, END: 35 };
+
+  const Key = ({ label, vk, wide, tone }: { label: string; vk: number; wide?: boolean; tone?: "accent" }) => (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); onKey(vk); }}
+      className={`rounded px-2 py-1.5 text-xs font-medium transition ${
+        tone === "accent" ? "bg-[#4F7CFF]/80 hover:bg-[#4F7CFF] text-white" : "bg-white/10 hover:bg-white/20 text-white/90"
+      } ${wide ? "col-span-2" : ""}`}
+    >
+      {label}
+    </button>
+  );
+  const Combo = ({ label, vks }: { label: string; vks: number[] }) => (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); onCombo(vks); }}
+      className="rounded bg-amber-500/20 px-2 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/30"
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <>
+      {/* Toggle tab pinned to right edge */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="absolute right-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 rounded-l-md border border-r-0 border-white/15 bg-black/70 px-2 py-3 text-[10px] uppercase tracking-widest text-white/70 hover:bg-black/90"
+        aria-label="Toggle on-screen keyboard"
+      >
+        <span>{open ? "›" : "‹"}</span>
+        <span className="[writing-mode:vertical-rl] rotate-180">Keys</span>
+      </button>
+
+      {/* Slide-out panel */}
+      <div
+        className={`absolute right-0 top-0 z-10 h-full w-64 border-l border-white/10 bg-black/85 backdrop-blur-md transition-transform ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+          <span className="text-[11px] uppercase tracking-widest text-white/60">On-screen keys</span>
+          <button onClick={() => setOpen(false)} className="rounded px-1.5 text-xs text-white/60 hover:bg-white/10">✕</button>
+        </div>
+        <div className="grid grid-cols-3 gap-1.5 p-3">
+          <Key label="Esc" vk={VK.ESC} />
+          <Key label="Tab" vk={VK.TAB} />
+          <Key label="Enter" vk={VK.ENTER} tone="accent" />
+          <Key label="⌫ Back" vk={VK.BACK} />
+          <Key label="Del" vk={VK.DEL} />
+          <Key label="Home" vk={VK.HOME} />
+          <Key label="End" vk={VK.END} />
+          <div />
+          <div />
+          <div />
+          <Key label="↑" vk={VK.UP} />
+          <div />
+          <Key label="←" vk={VK.LEFT} />
+          <Key label="↓" vk={VK.DOWN} />
+          <Key label="→" vk={VK.RIGHT} />
+        </div>
+        <div className="border-t border-white/10 px-3 py-2">
+          <div className="mb-2 text-[10px] uppercase tracking-widest text-white/50">Shortcuts</div>
+          <div className="grid grid-cols-3 gap-1.5">
+            <Combo label="Ctrl+A" vks={[VK.CTRL, VK.A]} />
+            <Combo label="Ctrl+C" vks={[VK.CTRL, VK.C]} />
+            <Combo label="Ctrl+V" vks={[VK.CTRL, VK.V]} />
+            <Combo label="Ctrl+X" vks={[VK.CTRL, VK.X]} />
+            <Combo label="Ctrl+Z" vks={[VK.CTRL, VK.Z]} />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 
 function StatCard({ label, value, tone }: { label: string; value: number; tone: "blue" | "green" | "amber" | "slate" }) {
   const bg = { blue: "bg-[#4F7CFF]/10 border-[#4F7CFF]/30", green: "bg-green-500/10 border-green-500/30", amber: "bg-amber-500/10 border-amber-500/30", slate: "bg-white/5 border-white/10" }[tone];
