@@ -397,12 +397,12 @@ function AdminPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {s.device_id && (
+                  {s.device_id && role !== "viewer" && (
                     <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-amber-500/90 hover:bg-amber-500 text-black" : "bg-white/10 hover:bg-white/15"}`}>
                       {s.mode === "control" ? "Resume user" : "Pause user (take control)"}
                     </button>
                   )}
-                  <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">End</button>
+                  {role !== "viewer" && <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">End</button>}
                   <button onClick={() => setLiveId(null)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Close</button>
                 </div>
               </div>
