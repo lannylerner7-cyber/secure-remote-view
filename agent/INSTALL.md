@@ -20,9 +20,11 @@ Verify:
     tar -xf ConnectLiveAgent.zip
     cd ConnectLiveAgent\src
 
-Restore + run in dev (points the agent at your gateway):
+Restore + run in dev (defaults to the ConnectLive gateway; pass `--api-url` only to override):
 
-    dotnet run -- --api-url https://your-gateway.example.com
+    dotnet run
+    :: or explicitly:
+    dotnet run -- --api-url https://project--13b47594-1b4d-46c6-a939-da4132e55c1c.lovable.app
 
 Publish a signed single-file EXE for production:
 
