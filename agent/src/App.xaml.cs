@@ -42,9 +42,11 @@ public partial class App : Application
             _ = new TrayIcon(onQuit: Shutdown);
             var indicator = new SessionIndicator("Helpdesk", onEnd: () => _cts.Cancel());
             indicator.Show();
+            InputRelay.SessionBanner = indicator;
 
             _ = ScreenCapture.RunAsync(api, sessionId, _cts.Token);
             _ = InputRelay.RunAsync(api, sessionId, _cts.Token);
+
 
 
             var agent = new Agent(api, _ => { }, dispatcher);

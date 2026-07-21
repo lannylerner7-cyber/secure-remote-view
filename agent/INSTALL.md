@@ -20,7 +20,8 @@ Verify:
     tar -xf ConnectLiveAgent.zip
     cd ConnectLiveAgent\src
 
-Restore + run in dev (defaults to the ConnectLive gateway; pass `--api-url` only to override):
+Restore + run in dev. Curtain mode (BlockInput + capture-hidden overlay)
+needs elevation, so launch CMD **as Administrator** for dev runs:
 
     dotnet run
     :: or explicitly:
@@ -34,6 +35,9 @@ Publish a signed single-file EXE for production:
       -o ..\dist
 
 Output: `agent\dist\ConnectLiveAgent.exe` (~60 MB, self-contained).
+The manifest requests `requireAdministrator`, so double-clicking the EXE
+triggers a UAC prompt once at launch.
+
 
 ## 3. Install on an end-user machine (CMD, admin)
 

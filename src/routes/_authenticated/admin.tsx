@@ -154,13 +154,21 @@ function AdminPage() {
   async function toggleControl(s: Session) {
     const nextMode = s.mode === "control" ? "view" : "control";
     await supabase.from("sessions").update({ mode: nextMode }).eq("id", s.id);
+    // Fire the curtain command through the same input relay the agent already polls.
+    // curtain_on doubles as the watchdog heartbeat on the agent — if these stop
+    // arriving for >5s, the agent auto-releases BlockInput.
+    await supabase.from("session_inputs").insert({
+      session_id: s.id,
+      kind: nextMode === "control" ? "curtain_on" : "curtain_off",
+      payload: {} as never,
+    });
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
     void notify({
       data: {
         kind: nextMode === "control" ? "control_taken" : "control_released",
         text: nextMode === "control"
-          ? `🎮 Control taken on <b>${dev?.display_name ?? "device"}</b>`
-          : `👤 Control returned to user on <b>${dev?.display_name ?? "device"}</b>`,
+          ? `🎮 Curtain engaged on <b>${dev?.display_name ?? "device"}</b>`
+          : `👤 Curtain released on <b>${dev?.display_name ?? "device"}</b>`,
       },
     });
   }
@@ -170,6 +178,34 @@ function AdminPage() {
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
     await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload: payload as never });
   }
+
+  // Dead-man's switch on the admin side: while we hold a control session open,
+  // ping curtain_on every 1s. If this tab closes, crashes, or the network drops,
+  // the agent's watchdog releases BlockInput within ~5s.
+  useEffect(() => {
+    if (!liveId) return;
+    const s = sessions.find((x) => x.id === liveId);
+    if (!s || s.mode !== "control" || !s.device_id) return;
+    const ping = () => { void sendInput(s.id, "curtain_on", {}); };
+    ping();
+    const t = setInterval(ping, 1000);
+    const onHide = () => {
+      if (document.visibilityState === "hidden") {
+        void sendInput(s.id, "curtain_off", {});
+      } else {
+        ping();
+      }
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onHide);
+      // Best-effort release when the live view closes or session mode changes.
+      void sendInput(s.id, "curtain_off", {});
+    };
+  }, [liveId, sessions]);
+
+
 
 
 
@@ -400,9 +436,10 @@ function AdminPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {s.device_id && role !== "viewer" && (
-                    <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-amber-500/90 hover:bg-amber-500 text-black" : "bg-white/10 hover:bg-white/15"}`}>
-                      {s.mode === "control" ? "Resume user" : "Pause user (take control)"}
+                    <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-red-500/90 hover:bg-red-500 text-white" : "bg-white/10 hover:bg-white/15"}`} title={s.mode === "control" ? "Release curtain and return control to the user" : "Block the user's keyboard/mouse and take control"}>
+                      {s.mode === "control" ? "🔓 Release curtain" : "🔒 Curtain (take control)"}
                     </button>
+
                   )}
                   {role !== "viewer" && <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">End</button>}
                   <button onClick={() => setLiveId(null)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Close</button>

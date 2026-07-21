@@ -15,9 +15,19 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class InputRelay
 {
+    // Set by App.xaml.cs so the curtain can force the banner above its overlays.
+    public static System.Windows.Window? SessionBanner { get; set; }
+
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
         long since = 0;
+        // Auto-release the curtain if the token gets cancelled from anywhere.
+        using var _ = ct.Register(() =>
+        {
+            try { InputBlocker.Release("session_cancelled"); } catch { }
+            try { System.Windows.Application.Current?.Dispatcher.Invoke(CurtainOverlay.Hide); } catch { }
+        });
+
         while (!ct.IsCancellationRequested)
         {
             try
@@ -40,7 +50,7 @@ public static class InputRelay
     private static void Apply(JsonElement it)
     {
         var kind = it.GetProperty("kind").GetString();
-        var p = it.GetProperty("payload");
+        var p = it.TryGetProperty("payload", out var pv) ? pv : default;
         switch (kind)
         {
             case "mousemove": MoveTo(GetD(p, "x"), GetD(p, "y")); break;
@@ -51,9 +61,45 @@ public static class InputRelay
             case "wheel": Wheel(GetInt(p, "dy")); break;
             case "keydown": Key(GetInt(p, "vk"), true); break;
             case "keyup": Key(GetInt(p, "vk"), false); break;
-            case "note": NoteOverlay.Update(p.TryGetProperty("text", out var t) ? t.GetString() : null); break;
+            case "note": NoteOverlay.Update(p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) ? t.GetString() : null); break;
+            case "curtain_on": EngageCurtain(); break;
+            case "curtain_off": ReleaseCurtain(); break;
         }
     }
+
+    private static void EngageCurtain()
+    {
+        // Every curtain_on message doubles as the watchdog heartbeat.
+        InputBlocker.Heartbeat();
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            bool ok = InputBlocker.Engage(_ =>
+            {
+                // Auto-release path (watchdog / session switch / process exit):
+                // tear down the overlay from the UI thread so the user isn't
+                // left staring at a dark screen after Ctrl+Alt+Del.
+                try { System.Windows.Application.Current?.Dispatcher.Invoke(CurtainOverlay.Hide); } catch { }
+            });
+            if (ok)
+            {
+                CurtainOverlay.Show(SessionBanner);
+            }
+            else
+            {
+                Log.Warn("curtain unavailable — agent is not elevated");
+            }
+        });
+    }
+
+    private static void ReleaseCurtain()
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            CurtainOverlay.Hide();
+            InputBlocker.Release("admin_off");
+        });
+    }
+
 
     private static double GetD(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetDouble() : 0;
     private static int GetInt(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetInt32() : 0;
