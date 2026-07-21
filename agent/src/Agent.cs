@@ -20,6 +20,7 @@ public sealed class Agent
     private readonly Action<string> _splashStatus;
     private readonly Dispatcher _ui;
     private SessionIndicator? _indicator;
+    private WebRtcSession? _rtc;
     private bool _controlGranted;
 
     public Agent(ApiClient api, Action<string> splashStatus, Dispatcher ui)
@@ -173,6 +174,15 @@ public sealed class Agent
                 _indicator = new SessionIndicator(technician, onEnd: () => EndSession());
                 _indicator.Show();
             });
+            // Spin up the WebRTC peer alongside the HTTPS frame stream. If ICE
+            // never completes (strict NAT, no TURN), admin auto-falls-back
+            // to the HTTPS <img> stream — zero regression.
+            try
+            {
+                _rtc = new WebRtcSession(_api, sessionId);
+                await _rtc.StartAsync();
+            }
+            catch (Exception ex) { Log.Warn($"webrtc start: {ex.Message}"); }
             Log.Info($"session {sessionId} started (view-only) with {technician}");
         }
     }
@@ -202,7 +212,7 @@ public sealed class Agent
             _indicator?.Close();
             _indicator = null;
         });
-        // TODO: tear down WebRTC peer connection + capture.
+        try { _rtc?.Close(); _rtc = null; } catch { }
         Log.Info("session ended");
     }
 

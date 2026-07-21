@@ -195,6 +195,7 @@ public sealed class WebRtcSession : IDisposable
     {
         if (_closed) return;
         _closed = true;
+        if (Current == this) Current = null;
         try { _cts.Cancel(); } catch { }
         try { _videoEnd?.CloseVideo(); } catch { }
         try { _pc?.close(); } catch { }
