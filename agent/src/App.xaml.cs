@@ -53,13 +53,6 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    [STAThread]
-    public static void Main()
-    {
-        var app = new App();
-        app.InitializeComponent();
-        app.Run();
-    }
 }
 
 internal sealed class WpfDispatcher : Dispatcher
