@@ -37,11 +37,12 @@ public static class ScreenCapture
             {
                 var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds
                              ?? new Rectangle(0, 0, 1920, 1080);
+                ulong cursorKey = 0;
                 using var raw = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
                 using (var g = Graphics.FromImage(raw))
                 {
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
-                    DrawCursor(g, bounds, out _);
+                    DrawCursor(g, bounds, out cursorKey);
                 }
 
                 int maxEdge = 1280;
@@ -57,7 +58,7 @@ public static class ScreenCapture
                 }
 
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
-                ulong hash = HashBitmap(scaled);
+                ulong hash = HashBitmap(scaled) ^ cursorKey;
                 bool unchanged = hash == lastHash;
                 // Force a keyframe every ~2s even when idle, so a fresh admin
                 // subscriber still sees the current screen.
