@@ -31,6 +31,7 @@ function AdminPage() {
   const [audit, setAudit] = useState<Tables<"audit_logs">[]>([]);
   const [userEmail, setUserEmail] = useState<string>("");
   const [liveId, setLiveId] = useState<string | null>(null);
+  const [liveFrame, setLiveFrame] = useState<{ frame: string; width: number | null; height: number | null; updated_at: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
