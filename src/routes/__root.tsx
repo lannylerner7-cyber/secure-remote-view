@@ -83,6 +83,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "ConnectLive — Transparent Remote Support" },
+      { name: "twitter:description", content: "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/fFBzYFYPzWNZOLqC9SQzRBxtDyB2/social-images/social-1784591304444-image-removebg-preview.webp" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/fFBzYFYPzWNZOLqC9SQzRBxtDyB2/social-images/social-1784591304444-image-removebg-preview.webp" },
     ],
     links: [
       {
