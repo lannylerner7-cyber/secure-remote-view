@@ -160,6 +160,38 @@ export type Database = {
           },
         ]
       }
+      session_inputs: {
+        Row: {
+          created_at: string
+          id: number
+          kind: string
+          payload: Json
+          session_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          kind: string
+          payload?: Json
+          session_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          kind?: string
+          payload?: Json
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_inputs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sessions: {
         Row: {
           consent_at: string | null
