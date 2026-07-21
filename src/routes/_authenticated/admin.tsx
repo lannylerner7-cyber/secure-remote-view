@@ -531,9 +531,11 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onEnd, onDe
   );
 }
 
+type TgState = { telegram_bot_token: string; telegram_chat_id: string; notify_on_session_start: boolean; notify_on_control_taken: boolean; notify_on_device_offline: boolean };
+
 function TelegramSettings({ tg, setTg, onSave, onTest, status }: {
-  tg: { telegram_bot_token: string; telegram_chat_id: string; notify_on_session_start: boolean; notify_on_control_taken: boolean; notify_on_device_offline: boolean };
-  setTg: (v: TelegramSettings["tg"] extends never ? never : typeof tg) => void;
+  tg: TgState;
+  setTg: (v: TgState) => void;
   onSave: () => void; onTest: () => void;
   status: null | "saved" | "testing" | "test_ok" | "test_fail";
 }) {
@@ -568,4 +570,3 @@ function TelegramSettings({ tg, setTg, onSave, onTest, status }: {
   );
 }
 
-type TelegramSettings = { tg: never };
