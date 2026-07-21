@@ -476,6 +476,36 @@ function AdminPage() {
                   </>
                 )}
               </div>
+              {s.device_id && role !== "viewer" && (
+                <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Shared message to user</label>
+                  <div className="mt-2 flex items-start gap-2">
+                    <textarea
+                      value={sharedNote}
+                      onChange={(e) => setSharedNote(e.target.value)}
+                      onBlur={() => void sendInput(s.id, "note", { text: sharedNote })}
+                      onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void sendInput(s.id, "note", { text: sharedNote }); } }}
+                      placeholder="Type a message — it appears as a banner on the user's screen. Ctrl+Enter to send."
+                      rows={2}
+                      className="flex-1 resize-none rounded border border-white/10 bg-[#0F172A] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#4F7CFF] focus:outline-none"
+                    />
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => void sendInput(s.id, "note", { text: sharedNote })}
+                        className="rounded bg-[#4F7CFF] px-3 py-1.5 text-xs font-medium hover:opacity-90"
+                      >
+                        Send
+                      </button>
+                      <button
+                        onClick={() => { setSharedNote(""); void sendInput(s.id, "note", { text: "" }); }}
+                        className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
