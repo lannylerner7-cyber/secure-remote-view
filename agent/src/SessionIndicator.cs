@@ -19,7 +19,8 @@ public sealed class SessionIndicator : Window
     public SessionIndicator(string technician, Action onEnd)
     {
         Title = "ConnectLive session";
-        Width = 360; Height = 56;
+        // Compact strip: small footprint, always visible, doesn't cover work area.
+        Width = 190; Height = 30;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true;
@@ -27,49 +28,60 @@ public sealed class SessionIndicator : Window
         Topmost = true;
         ShowInTaskbar = false;
 
-        // Pin to top-right of the primary screen.
+        // Pin to the very top-right corner, hugging the screen edge.
         var work = SystemParameters.WorkArea;
-        Left = work.Right - Width - 16;
-        Top  = work.Top   + 16;
+        Left = work.Right - Width - 8;
+        Top  = work.Top   + 6;
 
         var border = new Border
         {
-            CornerRadius = new CornerRadius(28),
+            CornerRadius = new CornerRadius(15),
             Background = (Brush)Application.Current.Resources["BrandInk"],
-            BorderThickness = new Thickness(0)
+            BorderThickness = new Thickness(0),
+            Opacity = 0.92
         };
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(16, 10, 8, 10) };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 4, 4, 4) };
 
-        _dot = new Ellipse { Width = 10, Height = 10, Fill = (Brush)Application.Current.Resources["BrandAccent"], Margin = new Thickness(0, 8, 10, 0) };
+        _dot = new Ellipse
+        {
+            Width = 7, Height = 7,
+            Fill = (Brush)Application.Current.Resources["BrandAccent"],
+            Margin = new Thickness(0, 7, 7, 0)
+        };
         row.Children.Add(_dot);
 
-        var text = new StackPanel();
-        text.Children.Add(new TextBlock
-        {
-            Text = $"Sharing with {technician}",
-            Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, FontSize = 13
-        });
         _mode = new TextBlock
         {
-            Text = "View only",
-            Foreground = new SolidColorBrush(Color.FromRgb(180, 195, 220)),
-            FontSize = 11
+            Text = "Live · view",
+            Foreground = Brushes.White,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 5, 8, 0),
+            ToolTip = $"Sharing with {technician}"
         };
-        text.Children.Add(_mode);
-        row.Children.Add(text);
+        row.Children.Add(_mode);
 
         var endBtn = new Button
         {
-            Content = "End", Style = (Style)Application.Current.Resources["PrimaryButton"],
-            Padding = new Thickness(14, 4, 14, 4), FontSize = 12,
-            Margin = new Thickness(16, 0, 0, 0)
+            Content = "End",
+            Padding = new Thickness(8, 1, 8, 1),
+            FontSize = 10,
+            Margin = new Thickness(4, 0, 0, 0),
+            Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+            Foreground = Brushes.White,
+            BorderThickness = new Thickness(0),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = "End session immediately"
         };
         endBtn.Click += (_, _) => { onEnd(); Close(); };
         row.Children.Add(endBtn);
 
         border.Child = row;
         Content = border;
+
+        // Allow the user to drag the strip if it ever overlaps something important.
+        MouseLeftButtonDown += (_, e) => { if (e.ButtonState == System.Windows.Input.MouseButtonState.Pressed) DragMove(); };
     }
 
     public void SetControlGranted(bool granted) => Dispatcher.Invoke(() =>
