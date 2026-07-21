@@ -450,6 +450,12 @@ function AdminPage() {
                     <div className="text-sm text-white/60">The agent will start streaming its screen momentarily.</div>
                   </div>
                 )}
+                {sharedNote.trim() && (
+                  <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 max-w-[80%] rounded-lg border border-[#4F7CFF]/40 bg-[#1F2A44]/90 px-4 py-2 text-sm text-white shadow-lg">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#B9CCFF]">Message shown to user</div>
+                    <div className="mt-1 whitespace-pre-wrap break-words">{sharedNote}</div>
+                  </div>
+                )}
                 <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
                   session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}
                   {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
