@@ -162,8 +162,9 @@ function AdminPage() {
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
   // Coordinates are normalized (0..1) relative to the rendered image.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
-    await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload });
+    await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload: payload as never });
   }
+
 
 
   function toggleSelect(id: string) {
