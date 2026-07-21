@@ -233,10 +233,12 @@ function AdminPage() {
             <NavBtn id="devices" label="Devices" badge={onlineCount} />
             <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
             <NavBtn id="audit" label="Audit log" />
-            <NavBtn id="settings" label="Settings" />
+            {role === "super_admin" && <NavBtn id="team" label="Team" />}
+            {role === "super_admin" && <NavBtn id="settings" label="Settings" />}
           </nav>
           <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/50">
             <div className="truncate">{userEmail}</div>
+            {role && <div className="mt-1 inline-block rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[#B9CCFF]">{role.replace("_", " ")}</div>}
             <button onClick={signOut} className="mt-2 w-full rounded border border-white/15 px-2 py-1 hover:bg-white/5">Sign out</button>
           </div>
         </aside>
@@ -245,12 +247,14 @@ function AdminPage() {
         <div className="flex-1">
           <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
             <h1 className="text-lg font-semibold capitalize">{nav}</h1>
-            <button
-              onClick={generateCode}
-              className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
-            >
-              + Generate meeting code
-            </button>
+            {role !== "viewer" && (
+              <button
+                onClick={generateCode}
+                className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
+              >
+                + Generate meeting code
+              </button>
+            )}
           </header>
 
           {reconnecting.length > 0 && (
