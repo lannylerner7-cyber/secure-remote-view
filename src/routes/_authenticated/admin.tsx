@@ -493,10 +493,25 @@ function AdminPage() {
                     <div className="mt-1 whitespace-pre-wrap break-words">{sharedNote}</div>
                   </div>
                 )}
-                <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
-                  session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}
-                  {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
+                <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
+                  {(() => {
+                    // Stream health: green <2s, amber <8s, red otherwise. Gives the
+                    // admin an at-a-glance signal that the frame pipe is healthy
+                    // (or lagging) without cluttering the viewport.
+                    const age = liveFrame?.updated_at ? now - new Date(liveFrame.updated_at).getTime() : Infinity;
+                    const cls = age < 2000 ? "bg-emerald-400" : age < 8000 ? "bg-amber-400" : "bg-rose-500";
+                    const label = age < 2000 ? "live" : age < 8000 ? "lag" : "stalled";
+                    return (
+                      <span className="flex items-center gap-1">
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${cls}`} />
+                        <span>{label}</span>
+                      </span>
+                    );
+                  })()}
+                  <span>session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}</span>
+                  {liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
                 </div>
+
                 {s.mode === "control" && s.device_id && (
                   <>
                     <VirtualTrackpad
