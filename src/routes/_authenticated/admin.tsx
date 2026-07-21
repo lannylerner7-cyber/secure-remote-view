@@ -17,6 +17,7 @@ function AdminPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [audit, setAudit] = useState<Tables<"audit_logs">[]>([]);
   const [userEmail, setUserEmail] = useState<string>("");
+  const [liveId, setLiveId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ""));
