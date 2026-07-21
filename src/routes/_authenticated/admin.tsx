@@ -49,23 +49,46 @@ function AdminPage() {
     if (a.data) setAudit(a.data);
   }
 
-  async function invite(device: Device, mode: "view" | "control") {
+  async function startLive(device: Device) {
+    // Reuse an existing active/paused session for this device if present
+    const existing = sessions.find(
+      (x) => x.device_id === device.id && (x.state === "active" || x.state === "paused" || x.state === "invited"),
+    );
+    if (existing) {
+      if (existing.state !== "active") {
+        await supabase.from("sessions").update({ state: "active" }).eq("id", existing.id);
+      }
+      setLiveId(existing.id);
+      return;
+    }
     const { data: u } = await supabase.auth.getUser();
-    const { error } = await supabase.from("sessions").insert({
-      device_id: device.id,
-      technician_id: u.user?.id,
-      mode,
-      state: "invited",
-    });
-    if (error) alert(error.message);
+    const { data, error } = await supabase
+      .from("sessions")
+      .insert({
+        device_id: device.id,
+        technician_id: u.user?.id,
+        mode: "view",
+        state: "active",
+        consent_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    if (data) setLiveId(data.id);
   }
 
   async function endSession(s: Session) {
     await supabase.from("sessions").update({ state: "ended", ended_at: new Date().toISOString() }).eq("id", s.id);
   }
 
-  async function pauseSession(s: Session) {
-    await supabase.from("sessions").update({ state: s.state === "paused" ? "active" : "paused" }).eq("id", s.id);
+  async function toggleControl(s: Session) {
+    // "Pause user" → admin takes over input (mode: control).
+    // "Resume user" → hand input back to the user (mode: view).
+    const nextMode = s.mode === "control" ? "view" : "control";
+    await supabase.from("sessions").update({ mode: nextMode }).eq("id", s.id);
   }
 
   async function signOut() {
