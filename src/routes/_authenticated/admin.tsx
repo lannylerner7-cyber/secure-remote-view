@@ -217,8 +217,8 @@ function AdminPage() {
                             <button onClick={() => setLiveId(s.id)} className="mr-2 rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90">
                               Live view
                             </button>
-                            <button onClick={() => pauseSession(s)} className="mr-2 rounded bg-white/10 px-2 py-1 text-xs">
-                              {s.state === "paused" ? "Resume" : "Pause"}
+                            <button onClick={() => toggleControl(s)} className="mr-2 rounded bg-white/10 px-2 py-1 text-xs">
+                              {s.mode === "control" ? "Resume user" : "Pause user"}
                             </button>
                             <button onClick={() => endSession(s)} className="rounded bg-red-500/80 px-2 py-1 text-xs">
                               End
