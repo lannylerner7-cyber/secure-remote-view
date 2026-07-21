@@ -102,30 +102,48 @@ public sealed class Agent
 
     // ---- Consent handshake --------------------------------------------
 
+    // Standing-consent model: the local user granted permission at install time
+    // (stored in %ProgramData%\ConnectLive\consent.flag). Runtime signaling comes
+    // from the persistent on-screen banner + tray icon, not a modal popup.
+    // If the flag is missing, we fall back to the per-session modal.
+    private static bool HasStandingConsent()
+    {
+        try
+        {
+            var path = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "ConnectLive", "consent.flag");
+            return System.IO.File.Exists(path);
+        }
+        catch { return false; }
+    }
+
     private async Task HandleInvite(ClientWebSocket ws, JsonElement msg, CancellationToken ct)
     {
         var sessionId = msg.GetProperty("sessionId").GetString()!;
         var technician = msg.TryGetProperty("technician", out var t) ? t.GetString() ?? "Helpdesk" : "Helpdesk";
 
-        var allowed = await _ui.InvokeAsync(() =>
-            ConsentDialog.AskViewConsent(technician));
-
-        var reply = new
+        bool allowed;
+        if (HasStandingConsent())
         {
-            type = "session.consent",
-            sessionId,
-            allowed
-        };
-        await SendJson(ws, reply, ct);
+            allowed = true;
+            Log.Info($"session {sessionId} auto-accepted via standing consent");
+        }
+        else
+        {
+            allowed = await _ui.InvokeAsync(() => ConsentDialog.AskViewConsent(technician));
+        }
+
+        await SendJson(ws, new { type = "session.consent", sessionId, allowed }, ct);
 
         if (allowed)
         {
             _ui.Invoke(() =>
             {
+                // Banner is the ongoing, non-hideable signal for the whole session.
                 _indicator = new SessionIndicator(technician, onEnd: () => EndSession());
                 _indicator.Show();
             });
-            // TODO: start Windows.Graphics.Capture pipeline + WebRTC peer connection here.
             Log.Info($"session {sessionId} started (view-only) with {technician}");
         }
     }
@@ -135,7 +153,11 @@ public sealed class Agent
         var sessionId = msg.GetProperty("sessionId").GetString()!;
         _ui.Invoke(async () =>
         {
-            var granted = ConsentDialog.AskControlConsent();
+            // Under standing consent, control takeover flips the banner colour instead
+            // of blocking with a modal. Users always see it and can End instantly.
+            bool granted = HasStandingConsent()
+                ? true
+                : ConsentDialog.AskControlConsent();
             _controlGranted = granted;
             _indicator?.SetControlGranted(granted);
             await SendJson(ws, new { type = "session.grantResponse", sessionId, granted }, ct);
