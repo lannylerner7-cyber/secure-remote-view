@@ -437,10 +437,19 @@ function AdminPage() {
                   {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
                 </div>
                 {s.mode === "control" && s.device_id && (
-                  <VirtualTrackpad
-                    onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
-                    onClick={(button) => void sendInput(s.id, "click", { button })}
-                  />
+                  <>
+                    <VirtualTrackpad
+                      onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
+                      onClick={(button) => void sendInput(s.id, "click", { button })}
+                    />
+                    <OnScreenKeyboard
+                      onKey={async (vk) => { await sendInput(s.id, "keydown", { vk }); await sendInput(s.id, "keyup", { vk }); }}
+                      onCombo={async (vks) => {
+                        for (const vk of vks) await sendInput(s.id, "keydown", { vk });
+                        for (const vk of [...vks].reverse()) await sendInput(s.id, "keyup", { vk });
+                      }}
+                    />
+                  </>
                 )}
               </div>
             </div>
