@@ -12,6 +12,9 @@ export const API_ROUTES = {
   agentPair: "/api/public/agent/pair",
   agentSessionPoll: (sessionId: string) => `/api/public/agent/session/${sessionId}`,
   agentConsent: (sessionId: string) => `/api/public/agent/session/${sessionId}/consent`,
+  agentFrame: (sessionId: string) => `/api/public/agent/session/${sessionId}/frame`,
+  agentInputs: (sessionId: string) => `/api/public/agent/session/${sessionId}/inputs`,
+  agentSignal: (sessionId: string) => `/api/public/agent/session/${sessionId}/signal`,
 
   // One-time bootstrap (gated by BOOTSTRAP_TOKEN)
   adminBootstrap: "/api/public/admin/bootstrap",
