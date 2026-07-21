@@ -43,6 +43,9 @@ Copy the EXE + write the gateway URL, then launch:
     copy ConnectLiveAgent.exe "%ProgramFiles%\ConnectLive\"
     mkdir "%ProgramData%\ConnectLive"
     echo {"ApiBaseUrl":"https://secure-remote-view.lovable.app"} > "%ProgramData%\ConnectLive\config.json"
+    :: Standing consent — the local user grants ongoing helpdesk access once.
+    :: Delete this file to revert to per-session prompts.
+    echo granted > "%ProgramData%\ConnectLive\consent.flag"
     "%ProgramFiles%\ConnectLive\ConnectLiveAgent.exe"
 
 To auto-start at login:
