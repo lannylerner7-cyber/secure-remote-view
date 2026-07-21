@@ -128,6 +128,38 @@ export type Database = {
         }
         Relationships: []
       }
+      session_frames: {
+        Row: {
+          frame: string
+          height: number | null
+          session_id: string
+          updated_at: string
+          width: number | null
+        }
+        Insert: {
+          frame: string
+          height?: number | null
+          session_id: string
+          updated_at?: string
+          width?: number | null
+        }
+        Update: {
+          frame?: string
+          height?: number | null
+          session_id?: string
+          updated_at?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_frames_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sessions: {
         Row: {
           consent_at: string | null
