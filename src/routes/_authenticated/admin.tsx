@@ -406,9 +406,23 @@ function AdminPage() {
                   <img
                     src={`data:image/jpeg;base64,${liveFrame.frame}`}
                     alt="Live screen"
-                    className="absolute inset-0 h-full w-full object-contain"
+                    className={`absolute inset-0 h-full w-full object-contain ${s.mode === "control" ? "cursor-crosshair" : ""}`}
                     draggable={false}
+                    tabIndex={s.mode === "control" ? 0 : -1}
+                    onMouseMove={s.mode === "control" ? (e) => {
+                      const r = (e.target as HTMLImageElement).getBoundingClientRect();
+                      const x = (e.clientX - r.left) / r.width;
+                      const y = (e.clientY - r.top) / r.height;
+                      void sendInput(s.id, "mousemove", { x, y });
+                    } : undefined}
+                    onMouseDown={s.mode === "control" ? (e) => { e.preventDefault(); (e.target as HTMLImageElement).focus(); void sendInput(s.id, "mousedown", { button: e.button }); } : undefined}
+                    onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
+                    onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
+                    onWheel={s.mode === "control" ? (e) => { void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
+                    onKeyDown={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keydown", { vk: e.keyCode }); } : undefined}
+                    onKeyUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keyup", { vk: e.keyCode }); } : undefined}
                   />
+
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
