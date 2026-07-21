@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { sendTelegramNotify } from "@/lib/notify.functions";
+import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type AppRole, type AdminRow } from "@/lib/admins.functions";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Device = Tables<"devices">;
@@ -16,7 +17,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
 const STALE_MS = 45_000;
 const OFFLINE_MS = 180_000;
 
-type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings";
+type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team";
 
 function generatePairingCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
