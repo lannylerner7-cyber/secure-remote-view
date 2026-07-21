@@ -21,6 +21,9 @@ namespace ConnectLive.Agent;
 /// </summary>
 public sealed class WebRtcSession : IDisposable
 {
+    /// <summary>Active peer for the current session, or null. Read by ScreenCapture to tee frames.</summary>
+    public static WebRtcSession? Current { get; private set; }
+
     private readonly ApiClient _api;
     private readonly string _sessionId;
     private readonly CancellationTokenSource _cts;
@@ -34,6 +37,7 @@ public sealed class WebRtcSession : IDisposable
         _api = api;
         _sessionId = sessionId;
         _cts = new CancellationTokenSource();
+        Current = this;
     }
 
     public async Task StartAsync()
