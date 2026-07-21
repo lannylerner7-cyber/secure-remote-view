@@ -9,28 +9,28 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
-import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
-import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
-import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
 import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
+import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
+import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
+import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
@@ -38,14 +38,9 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const ApiPublicAdminBootstrapRoute = ApiPublicAdminBootstrapRouteImport.update({
-  id: '/api/public/admin/bootstrap',
-  path: '/api/public/admin/bootstrap',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentEnrollRoute = ApiPublicAgentEnrollRouteImport.update({
-  id: '/api/public/agent/enroll',
-  path: '/api/public/agent/enroll',
+const ApiPublicAgentHelloRoute = ApiPublicAgentHelloRouteImport.update({
+  id: '/api/public/agent/hello',
+  path: '/api/public/agent/hello',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicAgentHeartbeatRoute = ApiPublicAgentHeartbeatRouteImport.update({
@@ -53,9 +48,14 @@ const ApiPublicAgentHeartbeatRoute = ApiPublicAgentHeartbeatRouteImport.update({
   path: '/api/public/agent/heartbeat',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicAgentHelloRoute = ApiPublicAgentHelloRouteImport.update({
-  id: '/api/public/agent/hello',
-  path: '/api/public/agent/hello',
+const ApiPublicAgentEnrollRoute = ApiPublicAgentEnrollRouteImport.update({
+  id: '/api/public/agent/enroll',
+  path: '/api/public/agent/enroll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAdminBootstrapRoute = ApiPublicAdminBootstrapRouteImport.update({
+  id: '/api/public/admin/bootstrap',
+  path: '/api/public/admin/bootstrap',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicAgentSessionSessionIdConsentRoute =
@@ -144,11 +144,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -158,11 +158,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin': {
@@ -172,18 +172,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/api/public/admin/bootstrap': {
-      id: '/api/public/admin/bootstrap'
-      path: '/api/public/admin/bootstrap'
-      fullPath: '/api/public/admin/bootstrap'
-      preLoaderRoute: typeof ApiPublicAdminBootstrapRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/enroll': {
-      id: '/api/public/agent/enroll'
-      path: '/api/public/agent/enroll'
-      fullPath: '/api/public/agent/enroll'
-      preLoaderRoute: typeof ApiPublicAgentEnrollRouteImport
+    '/api/public/agent/hello': {
+      id: '/api/public/agent/hello'
+      path: '/api/public/agent/hello'
+      fullPath: '/api/public/agent/hello'
+      preLoaderRoute: typeof ApiPublicAgentHelloRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/agent/heartbeat': {
@@ -193,11 +186,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentHeartbeatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/hello': {
-      id: '/api/public/agent/hello'
-      path: '/api/public/agent/hello'
-      fullPath: '/api/public/agent/hello'
-      preLoaderRoute: typeof ApiPublicAgentHelloRouteImport
+    '/api/public/agent/enroll': {
+      id: '/api/public/agent/enroll'
+      path: '/api/public/agent/enroll'
+      fullPath: '/api/public/agent/enroll'
+      preLoaderRoute: typeof ApiPublicAgentEnrollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/admin/bootstrap': {
+      id: '/api/public/admin/bootstrap'
+      path: '/api/public/admin/bootstrap'
+      fullPath: '/api/public/admin/bootstrap'
+      preLoaderRoute: typeof ApiPublicAdminBootstrapRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/agent/session/$sessionId/consent': {
@@ -235,3 +235,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
