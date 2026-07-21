@@ -49,23 +49,46 @@ function AdminPage() {
     if (a.data) setAudit(a.data);
   }
 
-  async function invite(device: Device, mode: "view" | "control") {
+  async function startLive(device: Device) {
+    // Reuse an existing active/paused session for this device if present
+    const existing = sessions.find(
+      (x) => x.device_id === device.id && (x.state === "active" || x.state === "paused" || x.state === "invited"),
+    );
+    if (existing) {
+      if (existing.state !== "active") {
+        await supabase.from("sessions").update({ state: "active" }).eq("id", existing.id);
+      }
+      setLiveId(existing.id);
+      return;
+    }
     const { data: u } = await supabase.auth.getUser();
-    const { error } = await supabase.from("sessions").insert({
-      device_id: device.id,
-      technician_id: u.user?.id,
-      mode,
-      state: "invited",
-    });
-    if (error) alert(error.message);
+    const { data, error } = await supabase
+      .from("sessions")
+      .insert({
+        device_id: device.id,
+        technician_id: u.user?.id,
+        mode: "view",
+        state: "active",
+        consent_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    if (data) setLiveId(data.id);
   }
 
   async function endSession(s: Session) {
     await supabase.from("sessions").update({ state: "ended", ended_at: new Date().toISOString() }).eq("id", s.id);
   }
 
-  async function pauseSession(s: Session) {
-    await supabase.from("sessions").update({ state: s.state === "paused" ? "active" : "paused" }).eq("id", s.id);
+  async function toggleControl(s: Session) {
+    // "Pause user" → admin takes over input (mode: control).
+    // "Resume user" → hand input back to the user (mode: view).
+    const nextMode = s.mode === "control" ? "view" : "control";
+    await supabase.from("sessions").update({ mode: nextMode }).eq("id", s.id);
   }
 
   async function signOut() {
@@ -133,16 +156,11 @@ function AdminPage() {
                     </td>
                     <td className="px-4 py-2 text-right">
                       <button
-                        onClick={() => invite(d, "view")}
-                        className="mr-2 rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
+                        onClick={() => startLive(d)}
+                        disabled={d.status !== "online"}
+                        className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        Request view
-                      </button>
-                      <button
-                        onClick={() => invite(d, "control")}
-                        className="rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90"
-                      >
-                        Request control
+                        Live view
                       </button>
                     </td>
                   </tr>
@@ -199,8 +217,8 @@ function AdminPage() {
                             <button onClick={() => setLiveId(s.id)} className="mr-2 rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90">
                               Live view
                             </button>
-                            <button onClick={() => pauseSession(s)} className="mr-2 rounded bg-white/10 px-2 py-1 text-xs">
-                              {s.state === "paused" ? "Resume" : "Pause"}
+                            <button onClick={() => toggleControl(s)} className="mr-2 rounded bg-white/10 px-2 py-1 text-xs">
+                              {s.mode === "control" ? "Resume user" : "Pause user"}
                             </button>
                             <button onClick={() => endSession(s)} className="rounded bg-red-500/80 px-2 py-1 text-xs">
                               End
@@ -255,8 +273,8 @@ function AdminPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => pauseSession(s)} className="rounded bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15">
-                    {s.state === "paused" ? "Resume" : "Pause"}
+                  <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-amber-500/90 hover:bg-amber-500 text-black" : "bg-white/10 hover:bg-white/15"}`}>
+                    {s.mode === "control" ? "Resume user" : "Pause user (take control)"}
                   </button>
                   <button onClick={() => { endSession(s); setLiveId(null); }} className="rounded bg-red-500/80 px-3 py-1.5 text-xs">
                     End session
