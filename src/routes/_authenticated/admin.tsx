@@ -40,6 +40,7 @@ function AdminPage() {
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
   const [codeModal, setCodeModal] = useState<null | { code: string; sessionId: string }>(null);
+  const [sharedNote, setSharedNote] = useState<string>("");
   const [tg, setTg] = useState({ telegram_bot_token: "", telegram_chat_id: "", notify_on_session_start: true, notify_on_control_taken: true, notify_on_device_offline: true });
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(null);
 
@@ -62,7 +63,7 @@ function AdminPage() {
   // Live frame subscription: whenever an admin opens a session, we stream the
   // agent's latest screen snapshot (session_frames table, updated ~2fps).
   useEffect(() => {
-    if (!liveId) { setLiveFrame(null); return; }
+    if (!liveId) { setLiveFrame(null); setSharedNote(""); return; }
     let cancelled = false;
     supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
       .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
@@ -449,6 +450,12 @@ function AdminPage() {
                     <div className="text-sm text-white/60">The agent will start streaming its screen momentarily.</div>
                   </div>
                 )}
+                {sharedNote.trim() && (
+                  <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 max-w-[80%] rounded-lg border border-[#4F7CFF]/40 bg-[#1F2A44]/90 px-4 py-2 text-sm text-white shadow-lg">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#B9CCFF]">Message shown to user</div>
+                    <div className="mt-1 whitespace-pre-wrap break-words">{sharedNote}</div>
+                  </div>
+                )}
                 <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
                   session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}
                   {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
@@ -469,6 +476,36 @@ function AdminPage() {
                   </>
                 )}
               </div>
+              {s.device_id && role !== "viewer" && (
+                <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Shared message to user</label>
+                  <div className="mt-2 flex items-start gap-2">
+                    <textarea
+                      value={sharedNote}
+                      onChange={(e) => setSharedNote(e.target.value)}
+                      onBlur={() => void sendInput(s.id, "note", { text: sharedNote })}
+                      onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void sendInput(s.id, "note", { text: sharedNote }); } }}
+                      placeholder="Type a message — it appears as a banner on the user's screen. Ctrl+Enter to send."
+                      rows={2}
+                      className="flex-1 resize-none rounded border border-white/10 bg-[#0F172A] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#4F7CFF] focus:outline-none"
+                    />
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => void sendInput(s.id, "note", { text: sharedNote })}
+                        className="rounded bg-[#4F7CFF] px-3 py-1.5 text-xs font-medium hover:opacity-90"
+                      >
+                        Send
+                      </button>
+                      <button
+                        onClick={() => { setSharedNote(""); void sendInput(s.id, "note", { text: "" }); }}
+                        className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
