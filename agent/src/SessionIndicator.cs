@@ -62,20 +62,11 @@ public sealed class SessionIndicator : Window
         };
         row.Children.Add(_mode);
 
-        var endBtn = new Button
-        {
-            Content = "End",
-            Padding = new Thickness(8, 1, 8, 1),
-            FontSize = 10,
-            Margin = new Thickness(4, 0, 0, 0),
-            Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
-            Foreground = Brushes.White,
-            BorderThickness = new Thickness(0),
-            Cursor = System.Windows.Input.Cursors.Hand,
-            ToolTip = "End session immediately"
-        };
-        endBtn.Click += (_, _) => { onEnd(); Close(); };
-        row.Children.Add(endBtn);
+        // No End button on the user side: only the admin (or the org) can terminate
+        // a session, so the local user can't accidentally kill an in-flight repair.
+        // The banner alone signals "live" — the admin owns start/stop.
+        _ = onEnd;
+
 
         border.Child = row;
         Content = border;
