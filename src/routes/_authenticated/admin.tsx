@@ -182,12 +182,23 @@ function AdminPage() {
                       <td className="px-4 py-2">{dev?.display_name ?? s.device_id.slice(0, 8)}</td>
                       <td className="px-4 py-2 text-white/70">{s.mode}</td>
                       <td className="px-4 py-2">
-                        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs">{s.state}</span>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
+                          s.state === "active" ? "bg-[#4F7CFF]/20 text-[#B9CCFF]" :
+                          s.state === "paused" ? "bg-amber-500/15 text-amber-300" :
+                          s.state === "invited" ? "bg-white/10 text-white/70" :
+                          "bg-white/5 text-white/40"
+                        }`}>
+                          {s.state === "active" && <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />}
+                          {s.state}
+                        </span>
                       </td>
                       <td className="px-4 py-2 text-white/60">{new Date(s.created_at).toLocaleTimeString()}</td>
                       <td className="px-4 py-2 text-right">
                         {(s.state === "active" || s.state === "paused") && (
                           <>
+                            <button onClick={() => setLiveId(s.id)} className="mr-2 rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90">
+                              Live view
+                            </button>
                             <button onClick={() => pauseSession(s)} className="mr-2 rounded bg-white/10 px-2 py-1 text-xs">
                               {s.state === "paused" ? "Resume" : "Pause"}
                             </button>
