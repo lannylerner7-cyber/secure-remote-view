@@ -442,8 +442,6 @@ function AdminPage() {
                   />
 
                 ) : (
-
-                ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
                       <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
