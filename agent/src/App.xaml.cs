@@ -25,20 +25,26 @@ public partial class App : Application
 
         try
         {
-            // Enroll + first heartbeat happen behind the splash.
             splash.SetStatus("Registering with ConnectLive…");
             await api.EnrollIfNeededAsync(_cts.Token);
             splash.SetStatus("Ready");
             await Task.Delay(400);
             splash.Close();
 
-            // Show the Join window. User enters the 6-digit code from the admin.
+            // Join window collects the 6-digit code from the dashboard.
             var join = new JoinWindow(api);
             var ok = join.ShowDialog();
-            if (ok != true) { Shutdown(); return; }
+            if (ok != true || string.IsNullOrEmpty(join.JoinedSessionId)) { Shutdown(); return; }
 
-            // Paired — resident tray + heartbeat + realtime loops.
+            var sessionId = join.JoinedSessionId!;
+
+            // Tray + persistent banner + screen capture loop.
             _ = new TrayIcon(onQuit: Shutdown);
+            var indicator = new SessionIndicator("Helpdesk", onEnd: () => _cts.Cancel());
+            indicator.Show();
+
+            _ = ScreenCapture.RunAsync(api, sessionId, _cts.Token);
+
             var agent = new Agent(api, _ => { }, dispatcher);
             await agent.RunAsync(_cts.Token);
         }
