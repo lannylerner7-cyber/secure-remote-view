@@ -823,3 +823,108 @@ function TelegramSettings({ tg, setTg, onSave, onTest, status }: {
   );
 }
 
+function TeamPanel() {
+  const list = useServerFn(listAdmins);
+  const create = useServerFn(createAdmin);
+  const updateRole = useServerFn(updateAdminRole);
+  const removeAdmin = useServerFn(deleteAdmin);
+  const [rows, setRows] = useState<AdminRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [form, setForm] = useState({ email: "", password: "", display_name: "", role: "admin" as AppRole });
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    setLoading(true);
+    try { setRows(await list()); setErr(null); }
+    catch (e) { setErr((e as Error).message); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void refresh(); }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      await create({ data: form });
+      setForm({ email: "", password: "", display_name: "", role: "admin" });
+      await refresh();
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function changeRole(user_id: string, role: AppRole) {
+    try { await updateRole({ data: { user_id, role } }); await refresh(); }
+    catch (e) { alert((e as Error).message); }
+  }
+
+  async function remove(user_id: string, email: string | null) {
+    if (!confirm(`Remove ${email ?? "this admin"}? This cannot be undone.`)) return;
+    try { await removeAdmin({ data: { user_id } }); await refresh(); }
+    catch (e) { alert((e as Error).message); }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-white/10 bg-[#0F172A] p-5">
+        <h2 className="mb-1 text-sm font-semibold">Add team member</h2>
+        <p className="mb-4 text-xs text-white/50">Create a new admin account with a role. Passwords must be at least 8 characters.</p>
+        <form onSubmit={submit} className="grid grid-cols-1 gap-3 md:grid-cols-5">
+          <input required placeholder="Display name" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-[#4F7CFF]" />
+          <input required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-[#4F7CFF]" />
+          <input required type="password" minLength={8} placeholder="Password (min 8)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-[#4F7CFF]" />
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as AppRole })} className="rounded border border-white/10 bg-black/30 px-3 py-2 text-sm">
+            <option value="viewer">Viewer (read-only)</option>
+            <option value="admin">Admin (live control)</option>
+            <option value="super_admin">Super admin</option>
+          </select>
+          <button disabled={busy} className="rounded bg-[#4F7CFF] px-4 py-2 text-sm font-medium disabled:opacity-50">{busy ? "Creating…" : "Add"}</button>
+        </form>
+        {err && <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">{err}</div>}
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-[#0F172A]">
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
+          <h2 className="text-sm font-semibold">Team members</h2>
+          <button onClick={refresh} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/5">Refresh</button>
+        </div>
+        {loading ? (
+          <div className="p-5 text-sm text-white/50">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-5 text-sm text-white/50">No team members yet.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase tracking-wider text-white/40">
+              <tr><th className="px-5 py-2 text-left">Name</th><th className="px-5 py-2 text-left">Email</th><th className="px-5 py-2 text-left">Role</th><th className="px-5 py-2"></th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.user_id} className="border-t border-white/5">
+                  <td className="px-5 py-3">{r.display_name ?? "—"}</td>
+                  <td className="px-5 py-3 text-white/70">{r.email ?? "—"}</td>
+                  <td className="px-5 py-3">
+                    <select
+                      value={r.role ?? ""}
+                      onChange={(e) => changeRole(r.user_id, e.target.value as AppRole)}
+                      className="rounded border border-white/10 bg-black/30 px-2 py-1 text-xs"
+                    >
+                      <option value="" disabled>— none —</option>
+                      <option value="viewer">Viewer</option>
+                      <option value="admin">Admin</option>
+                      <option value="super_admin">Super admin</option>
+                    </select>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button onClick={() => remove(r.user_id, r.email)} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-red-500/20">Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
