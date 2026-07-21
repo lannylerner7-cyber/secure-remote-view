@@ -436,6 +436,12 @@ function AdminPage() {
                   session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}
                   {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
                 </div>
+                {s.mode === "control" && s.device_id && (
+                  <VirtualTrackpad
+                    onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
+                    onClick={(button) => void sendInput(s.id, "click", { button })}
+                  />
+                )}
               </div>
             </div>
           </div>
