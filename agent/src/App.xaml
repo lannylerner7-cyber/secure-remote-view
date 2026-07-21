@@ -1,0 +1,34 @@
+<Application x:Class="ConnectLive.Agent.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <!-- ConnectLive palette -->
+        <SolidColorBrush x:Key="BrandInk"      Color="#1F2A44"/>
+        <SolidColorBrush x:Key="BrandAccent"   Color="#4F7CFF"/>
+        <SolidColorBrush x:Key="BrandSurface"  Color="#F7F8FB"/>
+        <SolidColorBrush x:Key="BrandMuted"    Color="#5B6478"/>
+        <SolidColorBrush x:Key="BrandBorder"   Color="#E2E6EF"/>
+        <SolidColorBrush x:Key="BrandSuccess"  Color="#1F9D6B"/>
+        <SolidColorBrush x:Key="BrandWarn"     Color="#D97706"/>
+
+        <FontFamily x:Key="BrandFont">Segoe UI</FontFamily>
+
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource BrandAccent}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding"    Value="16,10"/>
+            <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource BrandInk}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrandBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </Application.Resources>
+</Application>
