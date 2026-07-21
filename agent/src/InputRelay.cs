@@ -95,6 +95,20 @@ public static class InputRelay
         _ = b;
     }
 
+    private static void MoveRel(int dx, int dy)
+    {
+        // Relative mouse move (used by the admin's virtual trackpad).
+        var inp = new INPUT { type = INPUT_MOUSE };
+        inp.U.mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = MOUSEEVENTF_MOVE };
+        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+    }
+
+    private static void Click(int button)
+    {
+        MouseButton(button, true);
+        MouseButton(button, false);
+    }
+
     private static void MouseButton(int button, bool down)
     {
         uint flag = button switch
