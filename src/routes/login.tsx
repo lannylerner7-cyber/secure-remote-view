@@ -61,7 +61,6 @@ function LoginPage() {
               autoComplete="username"
               required
               className="mt-1 w-full rounded-md border border-white/10 bg-[#0F172A] px-3 py-2 text-sm text-white outline-none focus:border-[#4F7CFF]"
-              placeholder="197200"
             />
           </div>
           <div>
