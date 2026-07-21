@@ -44,13 +44,42 @@ public sealed class Agent
 
     private async Task HeartbeatLoop(CancellationToken ct)
     {
+        // Exponential backoff on failure: 1s → 2s → 4s → 8s → 16s → 30s cap.
+        // Reset to the base delay on the first successful heartbeat. After 3
+        // consecutive failures we assume the admin is unreachable and trip the
+        // dead-man fallback: release the input block + drop the curtain so the
+        // local user is never left with a frozen machine on a broken link.
+        var baseDelay = TimeSpan.FromSeconds(30);   // healthy cadence
+        var errDelay = TimeSpan.FromSeconds(1);     // backoff on failure
+        int fails = 0;
+        bool deadManTripped = false;
         while (!ct.IsCancellationRequested)
         {
-            try { await _api.HeartbeatAsync(ct); }
-            catch (Exception ex) { Log.Warn($"heartbeat failed: {ex.Message}"); }
-            try { await Task.Delay(TimeSpan.FromSeconds(30), ct); } catch { }
+            try
+            {
+                await _api.HeartbeatAsync(ct);
+                fails = 0;
+                errDelay = TimeSpan.FromSeconds(1);
+                deadManTripped = false;
+                try { await Task.Delay(baseDelay, ct); } catch { }
+            }
+            catch (Exception ex)
+            {
+                fails++;
+                Log.Warn($"heartbeat failed ({fails}): {ex.Message}");
+                if (fails >= 3 && !deadManTripped)
+                {
+                    deadManTripped = true;
+                    try { InputBlocker.Release("heartbeat_lost"); } catch { }
+                    try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
+                    Log.Warn("dead-man: released input block, dropped curtain");
+                }
+                try { await Task.Delay(errDelay, ct); } catch { }
+                errDelay = TimeSpan.FromSeconds(Math.Min(30, errDelay.TotalSeconds * 2));
+            }
         }
     }
+
 
     private async Task RealtimeLoop(CancellationToken ct)
     {

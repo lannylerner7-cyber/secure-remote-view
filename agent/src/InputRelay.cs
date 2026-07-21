@@ -120,27 +120,48 @@ public static class InputRelay
     private struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
 
     private const uint INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
-    private const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_ABSOLUTE = 0x8000;
+    private const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_ABSOLUTE = 0x8000, MOUSEEVENTF_VIRTUALDESK = 0x4000;
     private const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
     private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
     private const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020, MOUSEEVENTF_MIDDLEUP = 0x0040;
     private const uint MOUSEEVENTF_WHEEL = 0x0800;
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
+    // Virtual-screen metrics — spans every connected monitor.
+    private const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77;
+    private const int SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
 
     private static void MoveTo(double nx, double ny)
     {
         // nx, ny are 0..1 normalized coordinates from the admin viewport.
-        var b = Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
-        int absX = (int)Math.Clamp(nx * 65535.0, 0, 65535);
-        int absY = (int)Math.Clamp(ny * 65535.0, 0, 65535);
+        // Map to the FULL virtual desktop (multi-monitor) then normalize to
+        // the 0..65535 absolute range SendInput expects. MOUSEEVENTF_VIRTUALDESK
+        // makes Windows interpret abs coords across every monitor rather than
+        // just the primary — required for correct clicks on dual/tri-monitor rigs.
+        int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int vw = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+        int vh = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+        // Absolute pixel on the virtual desk.
+        double px = vx + Math.Clamp(nx, 0, 1) * vw;
+        double py = vy + Math.Clamp(ny, 0, 1) * vh;
+        // Normalize to 0..65535 relative to the virtual desk origin.
+        int absX = (int)((px - vx) * 65535.0 / vw);
+        int absY = (int)((py - vy) * 65535.0 / vh);
         var inp = new INPUT { type = INPUT_MOUSE };
-        inp.U.mi = new MOUSEINPUT { dx = absX, dy = absY, dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE };
+        inp.U.mi = new MOUSEINPUT
+        {
+            dx = absX,
+            dy = absY,
+            dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+        };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
-        _ = b;
     }
+
 
     private static void MoveRel(int dx, int dy)
     {

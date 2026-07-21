@@ -1,81 +1,78 @@
-# ConnectLive Agent — Build & Install (Windows, CMD)
+# ConnectLive Agent — Build & Install
 
-Compile the agent yourself from source. Every request the binary makes is
-listed in `src/shared/api-routes.ts` on the server side, and mirrored in
-`src/ApiClient.cs` here — no hidden endpoints.
+Two binaries, one solution:
 
-## 1. Prerequisites (one-time)
+| Binary | Runs as | Job |
+| --- | --- | --- |
+| `ConnectLiveWatcher.exe` | LocalSystem (Windows Service) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. |
+| `ConnectLiveAgent.exe` | Interactive user (elevated) | Splash → Join code → screen capture, input relay, curtain overlay, shared note. |
 
-Install the .NET 8 SDK on the build machine:
+Session 0 (services) can't capture screens or inject input — that's why the Watcher exists purely to launch the Worker inside the real user session via `CreateProcessAsUser`.
 
-    winget install Microsoft.DotNet.SDK.8
+Production endpoint is baked in: **https://secure-remote-view.lovable.app**.
 
-Verify:
+---
 
-    dotnet --version
+## Prerequisites
 
-## 2. Extract & build (CMD)
+- Windows 10 / 11 / Server 2019+
+- **.NET 8 SDK** (only for building — end users need nothing)
+  ```cmd
+  winget install Microsoft.DotNet.SDK.8
+  ```
 
-    cd %USERPROFILE%\Downloads
-    tar -xf ConnectLiveAgent.zip
-    cd ConnectLiveAgent\src
+## Build (single-file, self-contained)
 
-Restore + run in dev. Curtain mode (BlockInput + capture-hidden overlay)
-needs elevation, so launch CMD **as Administrator** for dev runs:
+Open an **elevated** `cmd` in the `agent\` directory:
 
-    dotnet run
-    :: or explicitly:
-    dotnet run -- --api-url https://secure-remote-view.lovable.app
+```cmd
+:: Worker (user-session agent)
+dotnet publish src\ConnectLiveAgent.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
-Publish a signed single-file EXE for production:
+:: Watcher (Windows Service)
+dotnet publish watcher\ConnectLiveWatcher.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+```
 
-    dotnet publish ConnectLiveAgent.csproj ^
-      -c Release -r win-x64 --self-contained true ^
-      -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true ^
-      -o ..\dist
+Outputs:
 
-Output: `agent\dist\ConnectLiveAgent.exe` (~60 MB, self-contained).
-The manifest requests `requireAdministrator`, so double-clicking the EXE
-triggers a UAC prompt once at launch.
+```
+src\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveAgent.exe
+watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe
+```
 
+## Install (production)
 
-## 3. Install on an end-user machine (CMD, admin)
+From the `agent\` directory in **elevated PowerShell**:
 
-Copy the EXE + write the gateway URL, then launch:
+```powershell
+.\install.ps1 install
+```
 
-    mkdir "%ProgramFiles%\ConnectLive"
-    copy ConnectLiveAgent.exe "%ProgramFiles%\ConnectLive\"
-    mkdir "%ProgramData%\ConnectLive"
-    echo {"ApiBaseUrl":"https://secure-remote-view.lovable.app"} > "%ProgramData%\ConnectLive\config.json"
-    :: Standing consent — the local user grants ongoing helpdesk access once.
-    :: Delete this file to revert to per-session prompts.
-    echo granted > "%ProgramData%\ConnectLive\consent.flag"
-    "%ProgramFiles%\ConnectLive\ConnectLiveAgent.exe"
+This copies both exes to `C:\Program Files\ConnectLive\` and registers `ConnectLiveWatcher` as an auto-start Windows service running under `LocalSystem`. The Watcher then spawns the Agent inside the interactive desktop automatically.
 
-To auto-start at login:
+Uninstall:
 
-    schtasks /Create /SC ONLOGON /TN "ConnectLive Agent" ^
-      /TR "\"%ProgramFiles%\ConnectLive\ConnectLiveAgent.exe\"" /RL HIGHEST /F
+```powershell
+.\install.ps1 uninstall
+```
 
-## 4. Uninstall
+## Dev / quick iteration (no service)
 
-    schtasks /Delete /TN "ConnectLive Agent" /F
-    taskkill /IM ConnectLiveAgent.exe /F 2>nul
-    rmdir /S /Q "%ProgramFiles%\ConnectLive"
-    rmdir /S /Q "%ProgramData%\ConnectLive"
+You don't need the Watcher during development — just run the Worker directly in an **elevated** shell so `BlockInput` / curtain mode work:
 
-## 5. What the agent does — and does not do
+```cmd
+cd src
+dotnet run
+```
 
-Does:
-- Enroll once (`POST /api/public/agent/enroll`), store the device token via
-  DPAPI under `%ProgramData%\ConnectLive\device.dat`.
-- Say hello on start (`POST /api/public/agent/hello`).
-- Heartbeat every 20s (`POST /api/public/agent/heartbeat`) to pick up session
-  invites; exponential backoff on network loss.
-- Show the branded splash + persistent tray icon while running.
-- Prompt the local user for consent before any View or Control session
-  starts, and show a non-dismissible on-screen banner for the duration.
+The Worker will splash → prompt for a meeting code → heartbeat with exponential backoff (1 → 2 → 4 → 8 → 16 → 30 s).
 
-Does not:
-- Auto-accept consent, hide the session banner, or run headless.
-- Ship any third-party trademarked assets.
+## Dead-man safety
+
+- Heartbeat fails 3× in a row → `InputBlocker.Release()` + curtain hides. The local user always regains their machine on a broken admin link.
+- Curtain heartbeat ping stops for >5 s → same release path (independent watchdog inside `InputBlocker`).
+- Process exit / `Ctrl+Alt+Del` (`SessionSwitch`) → same release.
+
+## Multi-monitor mouse mapping
+
+Admin sends normalized `(x%, y%)` against the streamed frame. Agent maps to the **virtual desktop** (`SM_XVIRTUALSCREEN` + span) and calls `SendInput` with `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK` so clicks land correctly on secondary/tertiary monitors.
