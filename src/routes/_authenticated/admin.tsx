@@ -436,11 +436,67 @@ function AdminPage() {
                   session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}
                   {liveFrame?.updated_at ? ` · ${new Date(liveFrame.updated_at).toLocaleTimeString()}` : ""}
                 </div>
+                {s.mode === "control" && s.device_id && (
+                  <VirtualTrackpad
+                    onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
+                    onClick={(button) => void sendInput(s.id, "click", { button })}
+                  />
+                )}
               </div>
             </div>
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number) => void; onClick: (button: number) => void }) {
+  const [knob, setKnob] = useState<{ x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    if (!dragging || !knob) return;
+    const iv = setInterval(() => {
+      // Convert knob offset into a per-tick pixel delta. Multiplier tunes speed.
+      const dx = Math.round(knob.x * 0.6);
+      const dy = Math.round(knob.y * 0.6);
+      if (dx !== 0 || dy !== 0) onMove(dx, dy);
+    }, 30);
+    return () => clearInterval(iv);
+  }, [dragging, knob, onMove]);
+
+  const RADIUS = 55;
+  function updateFromPointer(e: React.PointerEvent<HTMLDivElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > RADIUS) { dx = (dx / dist) * RADIUS; dy = (dy / dist) * RADIUS; }
+    setKnob({ x: dx, y: dy });
+  }
+
+  return (
+    <div className="absolute bottom-4 right-4 flex select-none flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/70 p-3 backdrop-blur-md">
+      <div className="text-[10px] uppercase tracking-widest text-white/50">Trackpad</div>
+      <div
+        className="relative h-32 w-32 rounded-full border border-white/15 bg-white/5"
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(true); updateFromPointer(e); }}
+        onPointerMove={(e) => { if (dragging) updateFromPointer(e); }}
+        onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); setDragging(false); setKnob(null); }}
+        onPointerCancel={() => { setDragging(false); setKnob(null); }}
+      >
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#4F7CFF] shadow-lg transition-transform"
+          style={{ transform: `translate(calc(-50% + ${knob?.x ?? 0}px), calc(-50% + ${knob?.y ?? 0}px))` }}
+        />
+      </div>
+      <div className="flex gap-2">
+        <button onClick={() => onClick(0)} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Left click</button>
+        <button onClick={() => onClick(2)} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Right click</button>
+      </div>
     </div>
   );
 }

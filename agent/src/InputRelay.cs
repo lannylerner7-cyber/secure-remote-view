@@ -44,6 +44,8 @@ public static class InputRelay
         switch (kind)
         {
             case "mousemove": MoveTo(GetD(p, "x"), GetD(p, "y")); break;
+            case "mousemove_rel": MoveRel(GetInt(p, "dx"), GetInt(p, "dy")); break;
+            case "click": Click(GetInt(p, "button")); break;
             case "mousedown": MouseButton(GetInt(p, "button"), true); break;
             case "mouseup": MouseButton(GetInt(p, "button"), false); break;
             case "wheel": Wheel(GetInt(p, "dy")); break;
@@ -91,6 +93,20 @@ public static class InputRelay
         inp.U.mi = new MOUSEINPUT { dx = absX, dy = absY, dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
         _ = b;
+    }
+
+    private static void MoveRel(int dx, int dy)
+    {
+        // Relative mouse move (used by the admin's virtual trackpad).
+        var inp = new INPUT { type = INPUT_MOUSE };
+        inp.U.mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = MOUSEEVENTF_MOVE };
+        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+    }
+
+    private static void Click(int button)
+    {
+        MouseButton(button, true);
+        MouseButton(button, false);
     }
 
     private static void MouseButton(int button, bool down)
