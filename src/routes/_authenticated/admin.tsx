@@ -156,16 +156,11 @@ function AdminPage() {
                     </td>
                     <td className="px-4 py-2 text-right">
                       <button
-                        onClick={() => invite(d, "view")}
-                        className="mr-2 rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
+                        onClick={() => startLive(d)}
+                        disabled={d.status !== "online"}
+                        className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        Request view
-                      </button>
-                      <button
-                        onClick={() => invite(d, "control")}
-                        className="rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90"
-                      >
-                        Request control
+                        Live view
                       </button>
                     </td>
                   </tr>
