@@ -485,11 +485,7 @@ function AdminPage() {
                     onKeyDown={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keydown", { vk: e.keyCode }); } : undefined}
                     onKeyUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keyup", { vk: e.keyCode }); } : undefined}
                   />
-                )}
-                {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
-                  <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
-                )}
-
+                ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
                       <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
@@ -497,6 +493,9 @@ function AdminPage() {
                     </div>
                     <div className="text-sm text-white/60">The agent will start streaming its screen momentarily.</div>
                   </div>
+                )}
+                {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
+                  <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
                 )}
                 {sharedNote.trim() && (
                   <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 max-w-[80%] rounded-lg border border-[#4F7CFF]/40 bg-[#1F2A44]/90 px-4 py-2 text-sm text-white shadow-lg">
