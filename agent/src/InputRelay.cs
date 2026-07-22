@@ -294,11 +294,13 @@ public static class InputRelay
 
     private static void Key(int vk, bool down)
     {
+        uint flags = down ? 0u : KEYEVENTF_KEYUP;
+        if (IsExtendedKey(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
         var inp = new INPUT { type = INPUT_KEYBOARD };
         inp.U.ki = new KEYBDINPUT
         {
             wVk = (ushort)vk,
-            dwFlags = down ? 0 : KEYEVENTF_KEYUP,
+            dwFlags = flags,
             dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
         };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
