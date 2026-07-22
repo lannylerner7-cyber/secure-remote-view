@@ -15,9 +15,6 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class ScreenCapture
 {
-    private const uint CURSOR_SHOWING = 0x00000001;
-    private const int DI_NORMAL = 0x0003;
-
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
         var encoders = ImageCodecInfo.GetImageEncoders();
