@@ -12,6 +12,11 @@ export const Route = createFileRoute("/login")({
   }),
 });
 
+function formatLockout(seconds: number) {
+  if (seconds >= 60) return `${Math.ceil(seconds / 60)} min`;
+  return `${seconds}s`;
+}
+
 function LoginPage() {
   const navigate = useNavigate();
   const [technicianId, setTechnicianId] = useState("");
@@ -24,18 +29,47 @@ function LoginPage() {
     setLoading(true);
     setError(null);
 
-    // Technician IDs (e.g. 197200) map to internal email addresses.
-    const email = /@/.test(technicianId)
-      ? technicianId.trim()
-      : `tech-${technicianId.trim()}@connectlive.internal`;
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) {
-      setError("Invalid credentials.");
-      return;
+    try {
+      const res = await fetch("/api/public/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: technicianId, password }),
+      });
+      const data = (await res.json()) as {
+        session?: { access_token: string; refresh_token: string };
+        error?: string;
+        attemptsLeft?: number;
+        lockedForSeconds?: number;
+      };
+      if (!res.ok || !data.session) {
+        if (typeof data.lockedForSeconds === "number") {
+          setError(
+            `Account locked for ${formatLockout(data.lockedForSeconds)}. Try again later.`,
+          );
+        } else if (typeof data.attemptsLeft === "number") {
+          setError(
+            `Invalid credentials. ${data.attemptsLeft} attempt${data.attemptsLeft === 1 ? "" : "s"} left before a 1-hour lockout.`,
+          );
+        } else {
+          setError(data.error ?? "Sign-in failed.");
+        }
+        setLoading(false);
+        return;
+      }
+      const { error: setErr } = await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      });
+      setLoading(false);
+      if (setErr) {
+        setError(setErr.message);
+        return;
+      }
+      navigate({ to: "/admin" });
+    } catch {
+      setLoading(false);
+      setError("Network error. Please try again.");
     }
-    navigate({ to: "/admin" });
   }
 
   return (
@@ -47,7 +81,8 @@ function LoginPage() {
         </Link>
         <h1 className="text-xl font-semibold text-white">Technician sign in</h1>
         <p className="mt-1 text-xs text-white/60">
-          Use your ConnectLive technician ID.
+          Use your ConnectLive technician ID. Three failed attempts trigger a
+          1-hour lockout.
         </p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
