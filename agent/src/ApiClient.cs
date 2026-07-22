@@ -153,6 +153,24 @@ public sealed class ApiClient
         catch { return false; }
     }
 
+    // ---- Cursor telemetry (Phase-1: decoupled from frame stream) -------
+
+    public async Task<bool> PostCursorAsync(string sessionId, int x, int y, int w, int h, string kind, bool visible, CancellationToken ct)
+    {
+        var payload = new { x, y, w, h, kind, visible };
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/cursor")
+        {
+            Content = JsonContent.Create(payload),
+        };
+        AddAuth(req);
+        try
+        {
+            using var resp = await _http.SendAsync(req, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
     // ---- Admin input polling (mouse/keyboard from technician) ---------
 
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollInputsAsync(string sessionId, long since, CancellationToken ct)
