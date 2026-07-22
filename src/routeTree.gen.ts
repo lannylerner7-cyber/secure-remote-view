@@ -21,6 +21,7 @@ import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public
 import { Route as ApiPublicAgentSessionSessionIdSignalRouteImport } from './routes/api/public/agent/session.$sessionId.signal'
 import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './routes/api/public/agent/session.$sessionId.inputs'
 import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './routes/api/public/agent/session.$sessionId.frame'
+import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './routes/api/public/agent/session.$sessionId.cursor'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
 
 const LoginRoute = LoginRouteImport.update({
@@ -85,6 +86,12 @@ const ApiPublicAgentSessionSessionIdFrameRoute =
     path: '/api/public/agent/session/$sessionId/frame',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicAgentSessionSessionIdCursorRoute =
+  ApiPublicAgentSessionSessionIdCursorRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/cursor',
+    path: '/api/public/agent/session/$sessionId/cursor',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAgentSessionSessionIdConsentRoute =
   ApiPublicAgentSessionSessionIdConsentRouteImport.update({
     id: '/api/public/agent/session/$sessionId/consent',
@@ -102,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
+  '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
@@ -116,6 +124,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
+  '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
@@ -132,6 +141,7 @@ export interface FileRoutesById {
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
+  '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
     | '/api/public/agent/session/$sessionId/consent'
+    | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/signal'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
     | '/api/public/agent/session/$sessionId/consent'
+    | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/signal'
@@ -177,6 +189,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
     | '/api/public/agent/session/$sessionId/consent'
+    | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/signal'
@@ -192,6 +205,7 @@ export interface RootRouteChildren {
   ApiPublicAgentHelloRoute: typeof ApiPublicAgentHelloRoute
   ApiPublicAgentPairRoute: typeof ApiPublicAgentPairRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
+  ApiPublicAgentSessionSessionIdCursorRoute: typeof ApiPublicAgentSessionSessionIdCursorRoute
   ApiPublicAgentSessionSessionIdFrameRoute: typeof ApiPublicAgentSessionSessionIdFrameRoute
   ApiPublicAgentSessionSessionIdInputsRoute: typeof ApiPublicAgentSessionSessionIdInputsRoute
   ApiPublicAgentSessionSessionIdSignalRoute: typeof ApiPublicAgentSessionSessionIdSignalRoute
@@ -283,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentSessionSessionIdFrameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/session/$sessionId/cursor': {
+      id: '/api/public/agent/session/$sessionId/cursor'
+      path: '/api/public/agent/session/$sessionId/cursor'
+      fullPath: '/api/public/agent/session/$sessionId/cursor'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdCursorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/agent/session/$sessionId/consent': {
       id: '/api/public/agent/session/$sessionId/consent'
       path: '/api/public/agent/session/$sessionId/consent'
@@ -315,6 +336,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentPairRoute: ApiPublicAgentPairRoute,
   ApiPublicAgentSessionSessionIdConsentRoute:
     ApiPublicAgentSessionSessionIdConsentRoute,
+  ApiPublicAgentSessionSessionIdCursorRoute:
+    ApiPublicAgentSessionSessionIdCursorRoute,
   ApiPublicAgentSessionSessionIdFrameRoute:
     ApiPublicAgentSessionSessionIdFrameRoute,
   ApiPublicAgentSessionSessionIdInputsRoute:

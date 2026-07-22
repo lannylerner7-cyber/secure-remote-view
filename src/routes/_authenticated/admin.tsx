@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { sendTelegramNotify } from "@/lib/notify.functions";
@@ -9,6 +9,7 @@ import type { Tables } from "@/integrations/supabase/types";
 type Device = Tables<"devices">;
 type Session = Tables<"sessions">;
 type LiveFrame = { frame: string; width: number | null; height: number | null; updated_at: string };
+type LiveCursor = { x: number; y: number; frame_w: number | null; frame_h: number | null; kind: string; visible: boolean; updated_at: string };
 
 export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
@@ -36,6 +37,7 @@ function AdminPage() {
   const [userEmail, setUserEmail] = useState<string>("");
   const [liveId, setLiveId] = useState<string | null>(null);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
+  const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
@@ -63,14 +65,18 @@ function AdminPage() {
   // Live frame subscription: whenever an admin opens a session, we stream the
   // agent's latest screen snapshot (session_frames table, updated ~2fps).
   useEffect(() => {
-    if (!liveId) { setLiveFrame(null); setSharedNote(""); return; }
+    if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); return; }
     let cancelled = false;
     supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
       .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle()
+      .then(({ data }) => { if (!cancelled && data) setLiveCursor(data as never); });
     const ch = supabase
       .channel(`frames-${liveId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
         (payload) => { const row = payload.new as never as LiveFrame; if (row) setLiveFrame(row); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
+        (payload) => { const row = payload.new as never as LiveCursor; if (row) setLiveCursor(row); })
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, [liveId]);
@@ -479,7 +485,6 @@ function AdminPage() {
                     onKeyDown={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keydown", { vk: e.keyCode }); } : undefined}
                     onKeyUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keyup", { vk: e.keyCode }); } : undefined}
                   />
-
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
@@ -488,6 +493,9 @@ function AdminPage() {
                     </div>
                     <div className="text-sm text-white/60">The agent will start streaming its screen momentarily.</div>
                   </div>
+                )}
+                {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
+                  <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
                 )}
                 {sharedNote.trim() && (
                   <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 max-w-[80%] rounded-lg border border-[#4F7CFF]/40 bg-[#1F2A44]/90 px-4 py-2 text-sm text-white shadow-lg">
@@ -1046,5 +1054,42 @@ function TeamPanel() {
     </div>
   );
 }
+
+/**
+ * SVG overlay rendering the remote cursor position independently from
+ * JPEG frames (Phase-1 upgrade). Uses ResizeObserver + object-contain
+ * math so the pointer lands where it truly is on the remote screen,
+ * even when the container is letterboxed.
+ */
+function RemoteCursorOverlay({ cursor, frame }: { cursor: LiveCursor; frame: LiveFrame }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const update = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+    update();
+    const ro = new ResizeObserver(update); ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const fw = cursor.frame_w ?? frame.width ?? 0;
+  const fh = cursor.frame_h ?? frame.height ?? 0;
+  if (!fw || !fh || !box.w || !box.h) return <div ref={ref} className="pointer-events-none absolute inset-0" />;
+  const scale = Math.min(box.w / fw, box.h / fh);
+  const drawW = fw * scale, drawH = fh * scale;
+  const offX = (box.w - drawW) / 2, offY = (box.h - drawH) / 2;
+  const px = offX + cursor.x * scale;
+  const py = offY + cursor.y * scale;
+  return (
+    <div ref={ref} className="pointer-events-none absolute inset-0">
+      <svg
+        width="20" height="24" viewBox="0 0 20 24"
+        style={{ position: "absolute", left: px, top: py, transform: "translate(-2px,-2px)", cursor: cursor.kind, filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.6))" }}
+      >
+        <path d="M1 1 L1 19 L6 14 L9 22 L12 21 L9 13 L16 13 Z" fill="#fff" stroke="#000" strokeWidth="1.2" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
 
 
