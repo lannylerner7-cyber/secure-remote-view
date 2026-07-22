@@ -128,6 +128,63 @@ export type Database = {
         }
         Relationships: []
       }
+      login_attempts: {
+        Row: {
+          failures: number
+          identifier: string
+          last_ip: string | null
+          locked_until: string | null
+          updated_at: string
+        }
+        Insert: {
+          failures?: number
+          identifier: string
+          last_ip?: string | null
+          locked_until?: string | null
+          updated_at?: string
+        }
+        Update: {
+          failures?: number
+          identifier?: string
+          last_ip?: string | null
+          locked_until?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          read_at: string | null
+          recipient_id: string | null
+          sender_id: string | null
+          severity: string
+          title: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          recipient_id?: string | null
+          sender_id?: string | null
+          severity?: string
+          title: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          recipient_id?: string | null
+          sender_id?: string | null
+          severity?: string
+          title?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
