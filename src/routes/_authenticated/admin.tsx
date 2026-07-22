@@ -9,6 +9,7 @@ import type { Tables } from "@/integrations/supabase/types";
 type Device = Tables<"devices">;
 type Session = Tables<"sessions">;
 type LiveFrame = { frame: string; width: number | null; height: number | null; updated_at: string };
+type LiveCursor = { x: number; y: number; frame_w: number | null; frame_h: number | null; kind: string; visible: boolean; updated_at: string };
 
 export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
