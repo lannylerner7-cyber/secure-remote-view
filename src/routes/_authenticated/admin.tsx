@@ -6,6 +6,7 @@ import { sendTelegramNotify } from "@/lib/notify.functions";
 import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type AppRole, type AdminRow } from "@/lib/admins.functions";
 import { broadcastNotification, sendNotification, type NotificationSeverity } from "@/lib/notifications.functions";
 import { NotificationBell } from "@/components/NotificationBell";
+import { startWebRtcLive, type WebRtcLive } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Device = Tables<"devices">;
@@ -32,6 +33,9 @@ function AdminPage() {
   const notify = useServerFn(sendTelegramNotify);
   const fetchRole = useServerFn(getMyRole);
   const [role, setRole] = useState<AppRole | null>(null);
+  const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const rtcRef = useRef<WebRtcLive | null>(null);
+  const lastScreenMoveAtRef = useRef(0);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -83,6 +87,28 @@ function AdminPage() {
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, [liveId]);
+
+  useEffect(() => {
+    if (!liveId) {
+      rtcRef.current?.close();
+      rtcRef.current = null;
+      return;
+    }
+    const live = startWebRtcLive(liveId);
+    rtcRef.current = live;
+    return () => {
+      if (rtcRef.current === live) rtcRef.current = null;
+      live.close();
+    };
+  }, [liveId]);
+
+  useEffect(() => {
+    if (!liveId) return;
+    const s = sessions.find((x) => x.id === liveId);
+    if (s?.mode === "control") {
+      requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
+    }
+  }, [liveId, sessions]);
 
   async function refresh() {
     const [d, s, a] = await Promise.all([
@@ -187,7 +213,47 @@ function AdminPage() {
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
   // Coordinates are normalized (0..1) relative to the rendered image.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    const sentRealtime = rtcRef.current?.sendInput({ kind, payload }) ?? false;
+    if (sentRealtime && kind !== "curtain_off" && kind !== "release_inputs") return;
     await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload: payload as never });
+  }
+
+  function focusLiveSurface() {
+    requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
+  }
+
+  function sendKeyboardDown(sessionId: string, e: React.KeyboardEvent<HTMLElement>, updateEcho = false) {
+    if (e.nativeEvent.isComposing) return;
+    const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (printable) {
+      e.preventDefault();
+      void sendInput(sessionId, "unicode_text", { text: e.key });
+      if (updateEcho) setSharedNote((v) => (v + e.key).slice(-240));
+      return;
+    }
+
+    const vk = keyToVirtualKey(e);
+    if (!vk) return;
+    e.preventDefault();
+    if (updateEcho && e.key === "Backspace") setSharedNote((v) => v.slice(0, -1));
+    void sendInput(sessionId, "keydown", { vk });
+  }
+
+  function sendKeyboardUp(sessionId: string, e: React.KeyboardEvent<HTMLElement>) {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) return;
+    const vk = keyToVirtualKey(e);
+    if (!vk) return;
+    e.preventDefault();
+    void sendInput(sessionId, "keyup", { vk });
+  }
+
+  function pasteToRemote(sessionId: string, e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const text = e.clipboardData.getData("text");
+    if (!text) return;
+    e.preventDefault();
+    void sendInput(sessionId, "unicode_text", { text });
+    setSharedNote((v) => (v + text).slice(-240));
   }
 
   // Dead-man's switch on the admin side: while we hold a control session open,
@@ -466,13 +532,14 @@ function AdminPage() {
                     <div className="text-sm text-white/60">Waiting for agent to join with this code…</div>
                   </div>
                 ) : liveFrame?.frame ? (
-                  <img
-                    src={`data:image/jpeg;base64,${liveFrame.frame}`}
-                    alt="Live screen"
-                    className={`absolute inset-0 h-full w-full object-contain ${s.mode === "control" ? "cursor-crosshair" : ""}`}
-                    draggable={false}
+                  <div
+                    ref={liveSurfaceRef}
                     tabIndex={s.mode === "control" ? 0 : -1}
+                    className={`absolute inset-0 outline-none ${s.mode === "control" ? "cursor-crosshair" : ""}`}
                     onMouseMove={s.mode === "control" ? (e) => {
+                      const nowMs = performance.now();
+                      if (nowMs - lastScreenMoveAtRef.current < 24) return;
+                      lastScreenMoveAtRef.current = nowMs;
                       const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
                       if (!point) return;
                       void sendInput(s.id, "mousemove", point);
@@ -481,16 +548,23 @@ function AdminPage() {
                       const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
                       if (!point) return;
                       e.preventDefault();
-                      e.currentTarget.focus();
+                      focusLiveSurface();
                       void sendInput(s.id, "mousemove", point);
                       void sendInput(s.id, "mousedown", { button: e.button });
                     } : undefined}
                     onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
                     onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
-                    onWheel={s.mode === "control" ? (e) => { void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
-                    onKeyDown={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keydown", { vk: e.keyCode }); } : undefined}
-                    onKeyUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keyup", { vk: e.keyCode }); } : undefined}
-                  />
+                    onWheel={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
+                    onKeyDown={s.mode === "control" ? (e) => sendKeyboardDown(s.id, e) : undefined}
+                    onKeyUp={s.mode === "control" ? (e) => sendKeyboardUp(s.id, e) : undefined}
+                  >
+                    <img
+                      src={`data:image/jpeg;base64,${liveFrame.frame}`}
+                      alt="Live screen"
+                      className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                      draggable={false}
+                    />
+                  </div>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
@@ -502,12 +576,6 @@ function AdminPage() {
                 )}
                 {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
                   <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
-                )}
-                {sharedNote.trim() && (
-                  <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 max-w-[80%] rounded-lg border border-[#4F7CFF]/40 bg-[#1F2A44]/90 px-4 py-2 text-sm text-white shadow-lg">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#B9CCFF]">Message shown to user</div>
-                    <div className="mt-1 whitespace-pre-wrap break-words">{sharedNote}</div>
-                  </div>
                 )}
                 <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
                   {(() => {
@@ -548,26 +616,28 @@ function AdminPage() {
               </div>
               {s.device_id && role !== "viewer" && (
                 <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Shared message to user</label>
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Typing tunnel to remote PC</label>
                   <div className="mt-2 flex items-start gap-2">
                     <textarea
                       value={sharedNote}
-                      onChange={(e) => setSharedNote(e.target.value)}
-                      onBlur={() => void sendInput(s.id, "note", { text: sharedNote })}
-                      onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void sendInput(s.id, "note", { text: sharedNote }); } }}
-                      placeholder="Type a message — it appears as a banner on the user's screen. Ctrl+Enter to send."
+                      onChange={() => { /* input is mirrored from key events so shortcuts never affect this local field */ }}
+                      onFocus={focusLiveSurface}
+                      onPaste={(e) => pasteToRemote(s.id, e)}
+                      onKeyDown={(e) => sendKeyboardDown(s.id, e, true)}
+                      onKeyUp={(e) => sendKeyboardUp(s.id, e)}
+                      placeholder="Type here to send keystrokes to the focused app on the remote PC."
                       rows={2}
                       className="flex-1 resize-none rounded border border-white/10 bg-[#0F172A] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#4F7CFF] focus:outline-none"
                     />
                     <div className="flex flex-col gap-2">
                       <button
-                        onClick={() => void sendInput(s.id, "note", { text: sharedNote })}
+                        onClick={() => { if (sharedNote) void sendInput(s.id, "unicode_text", { text: sharedNote }); }}
                         className="rounded bg-[#4F7CFF] px-3 py-1.5 text-xs font-medium hover:opacity-90"
                       >
-                        Send
+                        Type
                       </button>
                       <button
-                        onClick={() => { setSharedNote(""); void sendInput(s.id, "note", { text: "" }); }}
+                        onClick={() => setSharedNote("")}
                         className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
                       >
                         Clear
