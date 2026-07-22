@@ -1275,8 +1275,7 @@ function DirectNotifyModal({
     </div>
   );
 }
-  );
-}
+
 
 /**
  * SVG overlay rendering the remote cursor position independently from
