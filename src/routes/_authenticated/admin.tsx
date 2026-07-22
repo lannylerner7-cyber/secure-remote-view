@@ -938,22 +938,22 @@ function VirtualTrackpad({
           title="Drag up/down to resize"
         />
       </div>
-      {/* Click row */}
+      {/* Click row — glyphs so it doesn't read as "direction" next to the knob */}
       <div className="flex gap-2">
-        <button onPointerDown={(e) => { e.preventDefault(); onClick(0); }} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Left</button>
-        <button onPointerDown={(e) => { e.preventDefault(); onDoubleClick(); }} className="rounded bg-[#4F7CFF]/80 px-3 py-1 text-xs text-white hover:bg-[#4F7CFF]">Double</button>
-        <button onPointerDown={(e) => { e.preventDefault(); onClick(2); }} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Right</button>
+        <button onPointerDown={(e) => { e.preventDefault(); onClick(0); }} title="Left click" aria-label="Left click" className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">◧</button>
+        <button onPointerDown={(e) => { e.preventDefault(); onDoubleClick(); }} title="Double click (open)" aria-label="Double click" className="rounded bg-[#4F7CFF]/80 px-3 py-1 text-xs text-white hover:bg-[#4F7CFF]">◉</button>
+        <button onPointerDown={(e) => { e.preventDefault(); onClick(2); }} title="Right click" aria-label="Right click" className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">◨</button>
       </div>
-      {/* Directional pad — nudges cursor selection / navigation on the remote */}
+      {/* Directional pad — nudges the mouse cursor on the remote (hold to glide) */}
       <div className="grid grid-cols-3 gap-1 pt-1">
         <span />
-        <ArrowBtn label="▲" vk={VK_UP} ariaLabel="Arrow up" />
+        <NudgeBtn label="▲" dx={0} dy={-12} ariaLabel="Nudge cursor up" />
         <span />
-        <ArrowBtn label="◀" vk={VK_LEFT} ariaLabel="Arrow left" />
+        <NudgeBtn label="◀" dx={-12} dy={0} ariaLabel="Nudge cursor left" />
         <span />
-        <ArrowBtn label="▶" vk={VK_RIGHT} ariaLabel="Arrow right" />
+        <NudgeBtn label="▶" dx={12} dy={0} ariaLabel="Nudge cursor right" />
         <span />
-        <ArrowBtn label="▼" vk={VK_DOWN} ariaLabel="Arrow down" />
+        <NudgeBtn label="▼" dx={0} dy={12} ariaLabel="Nudge cursor down" />
         <span />
       </div>
     </div>
