@@ -603,6 +603,7 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
     return Number.isFinite(n) && n >= 96 && n <= 240 ? n : 128;
   });
   const [resizing, setResizing] = useState(false);
+  const radius = size / 2 - 8;
 
   useEffect(() => {
     try { window.localStorage.setItem("connectlive:trackpad-size", String(size)); } catch { /* ignore */ }
@@ -620,7 +621,6 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
     return () => clearInterval(iv);
   }, [dragging, knob, onMove, radius]);
 
-  const radius = size / 2 - 8;
   function updateFromPointer(e: React.PointerEvent<HTMLDivElement>) {
     const r = e.currentTarget.getBoundingClientRect();
     const cx = r.left + r.width / 2;
