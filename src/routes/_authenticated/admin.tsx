@@ -37,6 +37,7 @@ function AdminPage() {
   const [userEmail, setUserEmail] = useState<string>("");
   const [liveId, setLiveId] = useState<string | null>(null);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
+  const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
@@ -64,14 +65,18 @@ function AdminPage() {
   // Live frame subscription: whenever an admin opens a session, we stream the
   // agent's latest screen snapshot (session_frames table, updated ~2fps).
   useEffect(() => {
-    if (!liveId) { setLiveFrame(null); setSharedNote(""); return; }
+    if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); return; }
     let cancelled = false;
     supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
       .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle()
+      .then(({ data }) => { if (!cancelled && data) setLiveCursor(data as never); });
     const ch = supabase
       .channel(`frames-${liveId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
         (payload) => { const row = payload.new as never as LiveFrame; if (row) setLiveFrame(row); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
+        (payload) => { const row = payload.new as never as LiveCursor; if (row) setLiveCursor(row); })
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, [liveId]);
