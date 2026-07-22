@@ -662,17 +662,27 @@ function AdminPage() {
                   <>
                     <VirtualTrackpad
                       onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
-                      onClick={(button) => void sendInput(s.id, "click", { button })}
+                      onClick={(button) => { void sendInput(s.id, "click", { button }); focusLiveSurface(); }}
+                      onDoubleClick={() => {
+                        void sendInput(s.id, "click", { button: 0 });
+                        window.setTimeout(() => { void sendInput(s.id, "click", { button: 0 }); }, 60);
+                        focusLiveSurface();
+                      }}
+                      onArrow={(vk) => { void sendInput(s.id, "key_sequence", { events: [{ vk, down: true }, { vk, down: false }] }); focusLiveSurface(); }}
                     />
                     <OnScreenKeyboard
-                      onKey={(vk) => sendInput(s.id, "key_sequence", { events: [{ vk, down: true }, { vk, down: false }] })}
-                      onCombo={(vks) => sendInput(s.id, "key_sequence", {
-                        events: [
-                          ...vks.map((vk) => ({ vk, down: true })),
-                          ...[...vks].reverse().map((vk) => ({ vk, down: false })),
-                        ],
-                      })}
+                      onKey={(vk) => { void sendInput(s.id, "key_sequence", { events: [{ vk, down: true }, { vk, down: false }] }); focusLiveSurface(); }}
+                      onCombo={(vks) => {
+                        void sendInput(s.id, "key_sequence", {
+                          events: [
+                            ...vks.map((vk) => ({ vk, down: true })),
+                            ...[...vks].reverse().map((vk) => ({ vk, down: false })),
+                          ],
+                        });
+                        focusLiveSurface();
+                      }}
                     />
+
                   </>
                 )}
               </div>
