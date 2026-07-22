@@ -597,7 +597,8 @@ function AdminPage() {
                     className={`absolute inset-0 outline-none ${s.mode === "control" ? "cursor-crosshair" : ""}`}
                     onMouseMove={s.mode === "control" ? (e) => {
                       const nowMs = performance.now();
-                      if (nowMs - lastScreenMoveAtRef.current < 24) return;
+                      // Skip throttle while a button is held so drag-select captures every point.
+                      if (!mouseButtonDownRef.current && nowMs - lastScreenMoveAtRef.current < 24) return;
                       lastScreenMoveAtRef.current = nowMs;
                       const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
                       if (!point) return;
@@ -608,10 +609,12 @@ function AdminPage() {
                       if (!point) return;
                       e.preventDefault();
                       focusLiveSurface();
+                      mouseButtonDownRef.current = true;
                       void sendInput(s.id, "mousemove", point);
                       void sendInput(s.id, "mousedown", { button: e.button });
                     } : undefined}
-                    onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
+                    onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); mouseButtonDownRef.current = false; void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
+                    onMouseLeave={s.mode === "control" ? () => { mouseButtonDownRef.current = false; } : undefined}
                     onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
                     onWheel={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
                     onKeyDown={s.mode === "control" ? (e) => sendKeyboardDown(s.id, e) : undefined}
