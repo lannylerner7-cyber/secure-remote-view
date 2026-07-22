@@ -6,6 +6,7 @@ import { sendTelegramNotify } from "@/lib/notify.functions";
 import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type AppRole, type AdminRow } from "@/lib/admins.functions";
 import { broadcastNotification, sendNotification, type NotificationSeverity } from "@/lib/notifications.functions";
 import { NotificationBell } from "@/components/NotificationBell";
+import { startWebRtcLive, type WebRtcLive } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Device = Tables<"devices">;
@@ -27,11 +28,68 @@ function generatePairingCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+function keyToVirtualKey(e: React.KeyboardEvent<HTMLElement>): number | null {
+  const named: Record<string, number> = {
+    Backspace: 0x08,
+    Tab: 0x09,
+    Enter: 0x0d,
+    Escape: 0x1b,
+    PageUp: 0x21,
+    PageDown: 0x22,
+    End: 0x23,
+    Home: 0x24,
+    ArrowLeft: 0x25,
+    ArrowUp: 0x26,
+    ArrowRight: 0x27,
+    ArrowDown: 0x28,
+    Insert: 0x2d,
+    Delete: 0x2e,
+    Shift: e.code === "ShiftRight" ? 0xa1 : 0xa0,
+    Control: e.code === "ControlRight" ? 0xa3 : 0xa2,
+    Alt: e.code === "AltRight" ? 0xa5 : 0xa4,
+    Meta: e.code === "MetaRight" ? 0x5c : 0x5b,
+  };
+  if (named[e.key]) return named[e.key];
+
+  const keyMatch = /^Key([A-Z])$/.exec(e.code);
+  if (keyMatch) return keyMatch[1].charCodeAt(0);
+  const digitMatch = /^Digit([0-9])$/.exec(e.code);
+  if (digitMatch) return digitMatch[1].charCodeAt(0);
+  const numpadMatch = /^Numpad([0-9])$/.exec(e.code);
+  if (numpadMatch) return 0x60 + Number(numpadMatch[1]);
+
+  const byCode: Record<string, number> = {
+    Space: 0x20,
+    NumpadEnter: 0x0d,
+    NumpadMultiply: 0x6a,
+    NumpadAdd: 0x6b,
+    NumpadSubtract: 0x6d,
+    NumpadDecimal: 0x6e,
+    NumpadDivide: 0x6f,
+    F1: 0x70,
+    F2: 0x71,
+    F3: 0x72,
+    F4: 0x73,
+    F5: 0x74,
+    F6: 0x75,
+    F7: 0x76,
+    F8: 0x77,
+    F9: 0x78,
+    F10: 0x79,
+    F11: 0x7a,
+    F12: 0x7b,
+  };
+  return byCode[e.code] ?? null;
+}
+
 function AdminPage() {
   const navigate = useNavigate();
   const notify = useServerFn(sendTelegramNotify);
   const fetchRole = useServerFn(getMyRole);
   const [role, setRole] = useState<AppRole | null>(null);
+  const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const rtcRef = useRef<WebRtcLive | null>(null);
+  const lastScreenMoveAtRef = useRef(0);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -83,6 +141,28 @@ function AdminPage() {
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, [liveId]);
+
+  useEffect(() => {
+    if (!liveId) {
+      rtcRef.current?.close();
+      rtcRef.current = null;
+      return;
+    }
+    const live = startWebRtcLive(liveId);
+    rtcRef.current = live;
+    return () => {
+      if (rtcRef.current === live) rtcRef.current = null;
+      live.close();
+    };
+  }, [liveId]);
+
+  useEffect(() => {
+    if (!liveId) return;
+    const s = sessions.find((x) => x.id === liveId);
+    if (s?.mode === "control") {
+      requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
+    }
+  }, [liveId, sessions]);
 
   async function refresh() {
     const [d, s, a] = await Promise.all([
@@ -187,7 +267,47 @@ function AdminPage() {
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
   // Coordinates are normalized (0..1) relative to the rendered image.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    const sentRealtime = rtcRef.current?.sendInput({ kind, payload }) ?? false;
+    if (sentRealtime && kind !== "curtain_off" && kind !== "release_inputs") return;
     await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload: payload as never });
+  }
+
+  function focusLiveSurface() {
+    requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
+  }
+
+  function sendKeyboardDown(sessionId: string, e: React.KeyboardEvent<HTMLElement>, updateEcho = false) {
+    if (e.nativeEvent.isComposing) return;
+    const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (printable) {
+      e.preventDefault();
+      void sendInput(sessionId, "unicode_text", { text: e.key });
+      if (updateEcho) setSharedNote((v) => (v + e.key).slice(-240));
+      return;
+    }
+
+    const vk = keyToVirtualKey(e);
+    if (!vk) return;
+    e.preventDefault();
+    if (updateEcho && e.key === "Backspace") setSharedNote((v) => v.slice(0, -1));
+    void sendInput(sessionId, "keydown", { vk });
+  }
+
+  function sendKeyboardUp(sessionId: string, e: React.KeyboardEvent<HTMLElement>) {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) return;
+    const vk = keyToVirtualKey(e);
+    if (!vk) return;
+    e.preventDefault();
+    void sendInput(sessionId, "keyup", { vk });
+  }
+
+  function pasteToRemote(sessionId: string, e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const text = e.clipboardData.getData("text");
+    if (!text) return;
+    e.preventDefault();
+    void sendInput(sessionId, "unicode_text", { text });
+    setSharedNote((v) => (v + text).slice(-240));
   }
 
   // Dead-man's switch on the admin side: while we hold a control session open,
@@ -466,13 +586,14 @@ function AdminPage() {
                     <div className="text-sm text-white/60">Waiting for agent to join with this code…</div>
                   </div>
                 ) : liveFrame?.frame ? (
-                  <img
-                    src={`data:image/jpeg;base64,${liveFrame.frame}`}
-                    alt="Live screen"
-                    className={`absolute inset-0 h-full w-full object-contain ${s.mode === "control" ? "cursor-crosshair" : ""}`}
-                    draggable={false}
+                  <div
+                    ref={liveSurfaceRef}
                     tabIndex={s.mode === "control" ? 0 : -1}
+                    className={`absolute inset-0 outline-none ${s.mode === "control" ? "cursor-crosshair" : ""}`}
                     onMouseMove={s.mode === "control" ? (e) => {
+                      const nowMs = performance.now();
+                      if (nowMs - lastScreenMoveAtRef.current < 24) return;
+                      lastScreenMoveAtRef.current = nowMs;
                       const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
                       if (!point) return;
                       void sendInput(s.id, "mousemove", point);
@@ -481,16 +602,23 @@ function AdminPage() {
                       const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
                       if (!point) return;
                       e.preventDefault();
-                      e.currentTarget.focus();
+                      focusLiveSurface();
                       void sendInput(s.id, "mousemove", point);
                       void sendInput(s.id, "mousedown", { button: e.button });
                     } : undefined}
                     onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
                     onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
-                    onWheel={s.mode === "control" ? (e) => { void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
-                    onKeyDown={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keydown", { vk: e.keyCode }); } : undefined}
-                    onKeyUp={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "keyup", { vk: e.keyCode }); } : undefined}
-                  />
+                    onWheel={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
+                    onKeyDown={s.mode === "control" ? (e) => sendKeyboardDown(s.id, e) : undefined}
+                    onKeyUp={s.mode === "control" ? (e) => sendKeyboardUp(s.id, e) : undefined}
+                  >
+                    <img
+                      src={`data:image/jpeg;base64,${liveFrame.frame}`}
+                      alt="Live screen"
+                      className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                      draggable={false}
+                    />
+                  </div>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
@@ -502,12 +630,6 @@ function AdminPage() {
                 )}
                 {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
                   <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
-                )}
-                {sharedNote.trim() && (
-                  <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 max-w-[80%] rounded-lg border border-[#4F7CFF]/40 bg-[#1F2A44]/90 px-4 py-2 text-sm text-white shadow-lg">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#B9CCFF]">Message shown to user</div>
-                    <div className="mt-1 whitespace-pre-wrap break-words">{sharedNote}</div>
-                  </div>
                 )}
                 <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
                   {(() => {
@@ -546,28 +668,29 @@ function AdminPage() {
                   </>
                 )}
               </div>
-              {s.device_id && role !== "viewer" && (
+              {s.device_id && role !== "viewer" && s.mode === "control" && (
                 <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Shared message to user</label>
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Typing tunnel to remote PC</label>
                   <div className="mt-2 flex items-start gap-2">
                     <textarea
                       value={sharedNote}
-                      onChange={(e) => setSharedNote(e.target.value)}
-                      onBlur={() => void sendInput(s.id, "note", { text: sharedNote })}
-                      onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void sendInput(s.id, "note", { text: sharedNote }); } }}
-                      placeholder="Type a message — it appears as a banner on the user's screen. Ctrl+Enter to send."
+                      onChange={() => { /* input is mirrored from key events so shortcuts never affect this local field */ }}
+                      onPaste={(e) => pasteToRemote(s.id, e)}
+                      onKeyDown={(e) => sendKeyboardDown(s.id, e, true)}
+                      onKeyUp={(e) => sendKeyboardUp(s.id, e)}
+                      placeholder="Type here to send keystrokes to the focused app on the remote PC."
                       rows={2}
                       className="flex-1 resize-none rounded border border-white/10 bg-[#0F172A] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#4F7CFF] focus:outline-none"
                     />
                     <div className="flex flex-col gap-2">
                       <button
-                        onClick={() => void sendInput(s.id, "note", { text: sharedNote })}
+                        onClick={() => { if (sharedNote) void sendInput(s.id, "unicode_text", { text: sharedNote }); }}
                         className="rounded bg-[#4F7CFF] px-3 py-1.5 text-xs font-medium hover:opacity-90"
                       >
-                        Send
+                        Type
                       </button>
                       <button
-                        onClick={() => { setSharedNote(""); void sendInput(s.id, "note", { text: "" }); }}
+                        onClick={() => setSharedNote("")}
                         className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
                       >
                         Clear
@@ -585,14 +708,14 @@ function AdminPage() {
 }
 
 function getContainedImagePoint(
-  img: HTMLImageElement,
+  el: HTMLElement,
   clientX: number,
   clientY: number,
   frame: LiveFrame | null,
 ): { x: number; y: number } | null {
-  const rect = img.getBoundingClientRect();
-  const sourceW = frame?.width || img.naturalWidth || rect.width;
-  const sourceH = frame?.height || img.naturalHeight || rect.height;
+  const rect = el.getBoundingClientRect();
+  const sourceW = frame?.width || rect.width;
+  const sourceH = frame?.height || rect.height;
   if (!sourceW || !sourceH || !rect.width || !rect.height) return null;
 
   const scale = Math.min(rect.width / sourceW, rect.height / sourceH);
@@ -627,11 +750,12 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
     if (!dragging || !knob) return;
     const iv = setInterval(() => {
       const strength = Math.min(1, Math.hypot(knob.x, knob.y) / Math.max(1, radius));
-      const maxStep = 26;
-      const nx = Math.round((knob.x / Math.max(1, radius)) * maxStep * strength);
-      const ny = Math.round((knob.y / Math.max(1, radius)) * maxStep * strength);
+      const maxStep = 56;
+      const curve = 0.35 + strength * 0.9;
+      const nx = Math.round((knob.x / Math.max(1, radius)) * maxStep * curve);
+      const ny = Math.round((knob.y / Math.max(1, radius)) * maxStep * curve);
       if (nx !== 0 || ny !== 0) onMove(nx, ny);
-    }, 50);
+    }, 24);
     return () => clearInterval(iv);
   }, [dragging, knob, onMove, radius]);
 
@@ -712,7 +836,7 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
 
 function OnScreenKeyboard({ onKey, onCombo }: { onKey: (vk: number) => void; onCombo: (vks: number[]) => void }) {
   const [open, setOpen] = useState(false);
-  const VK = { BACK: 8, TAB: 9, ENTER: 13, CTRL: 17, ESC: 27, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, DEL: 46, A: 65, C: 67, V: 86, X: 88, Z: 90, HOME: 36, END: 35 };
+  const VK = { BACK: 8, TAB: 9, ENTER: 13, CTRL: 17, ESC: 27, SPACE: 32, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, DEL: 46, A: 65, C: 67, V: 86, X: 88, Z: 90, HOME: 36, END: 35 };
 
   const Key = ({ label, vk, wide, tone }: { label: string; vk: number; wide?: boolean; tone?: "accent" }) => (
     <button
@@ -761,16 +885,9 @@ function OnScreenKeyboard({ onKey, onCombo }: { onKey: (vk: number) => void; onC
           <Key label="Enter" vk={VK.ENTER} tone="accent" />
           <Key label="⌫ Back" vk={VK.BACK} />
           <Key label="Del" vk={VK.DEL} />
+          <Key label="Space" vk={VK.SPACE} wide />
           <Key label="Home" vk={VK.HOME} />
           <Key label="End" vk={VK.END} />
-          <div />
-          <div />
-          <div />
-          <Key label="↑" vk={VK.UP} />
-          <div />
-          <Key label="←" vk={VK.LEFT} />
-          <Key label="↓" vk={VK.DOWN} />
-          <Key label="→" vk={VK.RIGHT} />
         </div>
         <div className="border-t border-white/10 px-3 py-2">
           <div className="mb-2 text-[10px] uppercase tracking-widest text-white/50">Shortcuts</div>

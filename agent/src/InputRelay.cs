@@ -63,6 +63,8 @@ public static class InputRelay
             case "keydown": Key(GetInt(p, "vk"), true); break;
             case "keyup": Key(GetInt(p, "vk"), false); break;
             case "key_sequence": KeySequence(p); break;
+            case "unicode_text": InjectUnicodeString(GetString(p, "text")); break;
+            case "text": InjectUnicodeString(GetString(p, "text")); break;
             case "note": NoteOverlay.Update(p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) ? t.GetString() : null); break;
             case "curtain_on": EngageCurtain(); break;
             case "curtain_off": ReleaseCurtain(); break;
@@ -170,6 +172,10 @@ public static class InputRelay
 
     private static double GetD(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetDouble() : 0;
     private static int GetInt(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetInt32() : 0;
+    private static string GetString(JsonElement o, string k) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() ?? string.Empty
+            : string.Empty;
 
     // ---- Win32 SendInput --------------------------------------------------
 
@@ -194,6 +200,7 @@ public static class InputRelay
     private const uint MOUSEEVENTF_WHEEL = 0x0800;
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+    private const uint KEYEVENTF_UNICODE = 0x0004;
 
     // Virtual-keys that MUST carry the extended-key flag or Windows treats
     // them as their numpad twins (arrows become "5"/nothing when NumLock is
@@ -304,6 +311,49 @@ public static class InputRelay
             dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
         };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+    }
+
+    private static void InjectUnicodeString(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+
+        // Send Unicode scan codes directly so text entry does not depend on
+        // keyboard layout, Shift state, or physical key mapping. Windows apps
+        // receive exactly these UTF-16 code units in the currently focused field.
+        const int chunkChars = 128;
+        for (int offset = 0; offset < text.Length; offset += chunkChars)
+        {
+            int count = Math.Min(chunkChars, text.Length - offset);
+            var inputs = new INPUT[count * 2];
+            int index = 0;
+            for (int i = 0; i < count; i++)
+            {
+                ushort ch = (ushort)text[offset + i];
+
+                var down = new INPUT { type = INPUT_KEYBOARD };
+                down.U.ki = new KEYBDINPUT
+                {
+                    wVk = 0,
+                    wScan = ch,
+                    dwFlags = KEYEVENTF_UNICODE,
+                    dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
+                };
+                inputs[index++] = down;
+
+                var up = new INPUT { type = INPUT_KEYBOARD };
+                up.U.ki = new KEYBDINPUT
+                {
+                    wVk = 0,
+                    wScan = ch,
+                    dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                    dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
+                };
+                inputs[index++] = up;
+            }
+
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+            Thread.Sleep(1);
+        }
     }
 
     private static void KeySequence(JsonElement payload)
