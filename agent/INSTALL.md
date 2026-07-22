@@ -83,10 +83,30 @@ dotnet run
 
 The Worker will splash → prompt for a meeting code → heartbeat with exponential backoff (1 → 2 → 4 → 8 → 16 → 30 s).
 
+## Control modes
+
+- **Co-op (default while admin has control):** admin `SendInput` events are
+  mixed natively with the local user's physical mouse/keyboard. No lag, no
+  lockout — both cursors coexist.
+- **Curtain / takeover:** installs `WH_MOUSE_LL` + `WH_KEYBOARD_LL` hooks on
+  a dedicated STA thread with a `GetMessage` pump (0% CPU when idle). The
+  callback swallows physical input in microseconds while letting admin
+  `SendInput` pass at native 60+ FPS. We identify admin input two ways:
+  the OS `LLMHF_INJECTED` / `LLKHF_INJECTED` mask (both base and LOWER_IL
+  bits) AND a `dwExtraInfo` magic signature (`0x434C4956` — "CLIV") that
+  we stamp on every SendInput. Third-party synthetic inputs (gaming mice,
+  auto-clickers) that carry the injected bit but not our signature are
+  blocked. `BlockInput` is no longer used — it was the source of the
+  "sluggish takeover" symptom.
+- **Ctrl+Alt+Del / Win+L:** the OS forwards SAS keys to a secure desktop
+  no user-mode hook can intercept — same behavior as under the old
+  `BlockInput`. This is by design and is the local user's guaranteed
+  escape hatch.
+
 ## Dead-man safety
 
-- Heartbeat fails 3× in a row → `InputBlocker.Release()` + curtain hides. The local user always regains their machine on a broken admin link.
-- Curtain heartbeat ping stops for >5 s → same release path (independent watchdog inside `InputBlocker`).
+- Heartbeat fails 3× in a row → hooks uninstalled, curtain hides. The local user always regains their machine on a broken admin link.
+- Curtain heartbeat ping stops for >5 s → same release path (watchdog inside the input pump).
 - Process exit / `Ctrl+Alt+Del` (`SessionSwitch`) → same release.
 
 ## Multi-monitor mouse mapping
