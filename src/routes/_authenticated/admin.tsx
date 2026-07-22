@@ -857,11 +857,37 @@ function VirtualTrackpad({
     );
   }
 
-  const ArrowBtn = ({ label, vk, ariaLabel }: { label: string; vk: number; ariaLabel: string }) => (
+  // Press-and-hold cursor nudge. First tick fires immediately, then a
+  // 24ms interval keeps sending the same delta with a mild acceleration
+  // curve while the pointer stays down. Matches analog behaviour but
+  // gives pixel-level precision for the final destination.
+  const startNudge = (dx: number, dy: number) => {
+    if (nudgeTimerRef.current != null) window.clearInterval(nudgeTimerRef.current);
+    onNudge(dx, dy);
+    let ticks = 0;
+    nudgeTimerRef.current = window.setInterval(() => {
+      ticks += 1;
+      const accel = Math.min(4, 1 + ticks * 0.15);
+      onNudge(Math.round(dx * accel), Math.round(dy * accel));
+    }, 24);
+  };
+  const stopNudge = () => {
+    if (nudgeTimerRef.current != null) {
+      window.clearInterval(nudgeTimerRef.current);
+      nudgeTimerRef.current = null;
+    }
+  };
+  useEffect(() => () => stopNudge(), []);
+
+  const NudgeBtn = ({ label, dx, dy, ariaLabel }: { label: string; dx: number; dy: number; ariaLabel: string }) => (
     <button
-      onPointerDown={(e) => { e.preventDefault(); onArrow(vk); }}
+      onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); startNudge(dx, dy); }}
+      onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); stopNudge(); }}
+      onPointerLeave={stopNudge}
+      onPointerCancel={stopNudge}
       aria-label={ariaLabel}
-      className="rounded bg-white/10 px-2 py-1 text-xs leading-4 hover:bg-white/20"
+      title={ariaLabel}
+      className="rounded bg-white/10 px-2 py-1 text-xs leading-4 hover:bg-white/20 active:bg-white/25"
     >
       {label}
     </button>
