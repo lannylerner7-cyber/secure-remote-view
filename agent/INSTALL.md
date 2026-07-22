@@ -68,6 +68,12 @@ Self-elevating one-liner from the `agent\src` folder:
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process dotnet -ArgumentList 'run' -Verb RunAs -WorkingDirectory (Get-Location)"
 ```
 
+Or from the `agent\` folder, run the packaged helper:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run-elevated.ps1
+```
+
 Or open **Command Prompt / PowerShell as Administrator** first:
 
 ```cmd
