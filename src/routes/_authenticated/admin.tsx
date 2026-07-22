@@ -836,7 +836,7 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
 
 function OnScreenKeyboard({ onKey, onCombo }: { onKey: (vk: number) => void; onCombo: (vks: number[]) => void }) {
   const [open, setOpen] = useState(false);
-  const VK = { BACK: 8, TAB: 9, ENTER: 13, CTRL: 17, ESC: 27, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, DEL: 46, A: 65, C: 67, V: 86, X: 88, Z: 90, HOME: 36, END: 35 };
+  const VK = { BACK: 8, TAB: 9, ENTER: 13, CTRL: 17, ESC: 27, SPACE: 32, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, DEL: 46, A: 65, C: 67, V: 86, X: 88, Z: 90, HOME: 36, END: 35 };
 
   const Key = ({ label, vk, wide, tone }: { label: string; vk: number; wide?: boolean; tone?: "accent" }) => (
     <button
@@ -885,6 +885,7 @@ function OnScreenKeyboard({ onKey, onCombo }: { onKey: (vk: number) => void; onC
           <Key label="Enter" vk={VK.ENTER} tone="accent" />
           <Key label="⌫ Back" vk={VK.BACK} />
           <Key label="Del" vk={VK.DEL} />
+          <Key label="Space" vk={VK.SPACE} wide />
           <Key label="Home" vk={VK.HOME} />
           <Key label="End" vk={VK.END} />
         </div>

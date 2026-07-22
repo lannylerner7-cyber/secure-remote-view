@@ -328,7 +328,7 @@ public static class InputRelay
             int index = 0;
             for (int i = 0; i < count; i++)
             {
-                ushort ch = text[offset + i];
+                ushort ch = (ushort)text[offset + i];
 
                 var down = new INPUT { type = INPUT_KEYBOARD };
                 down.U.ki = new KEYBDINPUT
