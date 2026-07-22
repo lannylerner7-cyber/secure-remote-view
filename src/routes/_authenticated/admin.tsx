@@ -268,8 +268,12 @@ function AdminPage() {
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
   // Coordinates are normalized (0..1) relative to the rendered image.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    // Continuous mouse streams stay RTC-only to avoid flooding the DB.
+    // Discrete "one-shot" events (clicks, keys, text) go BOTH via RTC and DB
+    // so an unhealthy data channel can never silently drop a keystroke.
+    const continuous = kind === "mousemove" || kind === "mousemove_rel" || kind === "wheel";
     const sentRealtime = rtcRef.current?.sendInput({ kind, payload }) ?? false;
-    if (sentRealtime && kind !== "curtain_off" && kind !== "release_inputs") return;
+    if (continuous && sentRealtime) return;
     await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload: payload as never });
   }
 
