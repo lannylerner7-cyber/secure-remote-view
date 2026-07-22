@@ -794,6 +794,16 @@ function VirtualTrackpad({
   });
   const [resizing, setResizing] = useState(false);
   const radius = size / 2 - 8;
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem("connectlive:trackpad-pos");
+      if (raw) { const p = JSON.parse(raw); if (typeof p?.x === "number" && typeof p?.y === "number") return p; }
+    } catch { /* ignore */ }
+    return null;
+  });
+  const dragPadRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try { window.localStorage.setItem("connectlive:trackpad-size", String(size)); } catch { /* ignore */ }
@@ -801,6 +811,37 @@ function VirtualTrackpad({
   useEffect(() => {
     try { window.localStorage.setItem("connectlive:trackpad-open", open ? "1" : "0"); } catch { /* ignore */ }
   }, [open]);
+  useEffect(() => {
+    if (!pos) return;
+    try { window.localStorage.setItem("connectlive:trackpad-pos", JSON.stringify(pos)); } catch { /* ignore */ }
+  }, [pos]);
+
+  const clampPos = (x: number, y: number) => {
+    const el = panelRef.current;
+    const w = el?.offsetWidth ?? size + 24;
+    const h = el?.offsetHeight ?? size + 120;
+    const maxX = Math.max(0, window.innerWidth - w - 4);
+    const maxY = Math.max(0, window.innerHeight - h - 4);
+    return { x: Math.max(4, Math.min(maxX, x)), y: Math.max(4, Math.min(maxY, y)) };
+  };
+  const onPanelDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const el = panelRef.current;
+    const rect = el?.getBoundingClientRect();
+    const origX = pos?.x ?? (rect?.left ?? 0);
+    const origY = pos?.y ?? (rect?.top ?? 0);
+    dragPadRef.current = { startX: e.clientX, startY: e.clientY, origX, origY };
+  };
+  const onPanelDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragPadRef.current;
+    if (!d) return;
+    setPos(clampPos(d.origX + (e.clientX - d.startX), d.origY + (e.clientY - d.startY)));
+  };
+  const onPanelDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    dragPadRef.current = null;
+  };
 
   useEffect(() => {
     if (!dragging || !knob) return;
@@ -894,10 +935,21 @@ function VirtualTrackpad({
   );
 
   return (
-    <div className="absolute bottom-4 right-4 flex select-none flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/70 p-3 backdrop-blur-md">
-      <div className="flex w-full items-center justify-between gap-3">
-        <span className="text-[10px] uppercase tracking-widest text-white/50">Trackpad</span>
-        <div className="flex items-center gap-1">
+    <div
+      ref={panelRef}
+      className={`${pos ? "fixed" : "absolute bottom-4 right-4"} z-20 flex select-none flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/70 p-3 backdrop-blur-md`}
+      style={pos ? { left: pos.x, top: pos.y } : undefined}
+    >
+      <div
+        className="flex w-full cursor-grab items-center justify-between gap-3 active:cursor-grabbing"
+        onPointerDown={onPanelDragStart}
+        onPointerMove={onPanelDragMove}
+        onPointerUp={onPanelDragEnd}
+        onPointerCancel={onPanelDragEnd}
+        title="Drag to move"
+      >
+        <span className="text-[10px] uppercase tracking-widest text-white/50">⋮⋮ Trackpad</span>
+        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
           <button
             onClick={() => setSize((s) => Math.max(96, s - 16))}
             className="rounded bg-white/10 px-1.5 text-xs leading-4 hover:bg-white/20"
