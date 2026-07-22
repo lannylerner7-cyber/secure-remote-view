@@ -24,13 +24,6 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/input
         if (!session || session.device_id !== ctx.device.id) {
           return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
         }
-        // Only relay when the admin has explicitly taken control.
-        if (session.state !== "active" || session.mode !== "control") {
-          return new Response(JSON.stringify({ max: since, items: [] }), {
-            headers: { "content-type": "application/json" },
-          });
-        }
-
         const { data, error } = await ctx.admin
           .from("session_inputs")
           .select("id, kind, payload")
@@ -40,8 +33,14 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/input
           .limit(200);
         if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 
-        const items = data ?? [];
-        const max = items.length ? Number(items[items.length - 1].id) : since;
+        const rows = data ?? [];
+        const max = rows.length ? Number(rows[rows.length - 1].id) : since;
+        // Normal mouse/keyboard relay only runs during an active control session.
+        // Safety cleanup commands must always be delivered, even after the admin
+        // has already flipped the session back to view mode or ended it.
+        const items = session.state === "active" && session.mode === "control"
+          ? rows
+          : rows.filter((row) => row.kind === "curtain_off" || row.kind === "release_inputs");
         return new Response(JSON.stringify({ max, items }), {
           headers: { "content-type": "application/json" },
         });

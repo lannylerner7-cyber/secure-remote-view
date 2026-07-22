@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
@@ -21,11 +22,11 @@ public static class InputRelay
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
         long since = 0;
+        using var pump = new InputPump();
         // Auto-release the curtain if the token gets cancelled from anywhere.
         using var _ = ct.Register(() =>
         {
-            try { InputBlocker.Release("session_cancelled"); } catch { }
-            try { System.Windows.Application.Current?.Dispatcher.Invoke(CurtainOverlay.Hide); } catch { }
+            try { pump.Release("session_cancelled"); } catch { }
         });
 
         while (!ct.IsCancellationRequested)
@@ -37,7 +38,7 @@ public static class InputRelay
                 {
                     foreach (var it in items)
                     {
-                        try { Apply(it); } catch (Exception ex) { Log.Warn($"input apply: {ex.Message}"); }
+                        try { pump.Enqueue(it); } catch (Exception ex) { Log.Warn($"input enqueue: {ex.Message}"); }
                     }
                     if (max > since) since = max;
                 }
@@ -61,9 +62,71 @@ public static class InputRelay
             case "wheel": Wheel(GetInt(p, "dy")); break;
             case "keydown": Key(GetInt(p, "vk"), true); break;
             case "keyup": Key(GetInt(p, "vk"), false); break;
+            case "key_sequence": KeySequence(p); break;
             case "note": NoteOverlay.Update(p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) ? t.GetString() : null); break;
             case "curtain_on": EngageCurtain(); break;
             case "curtain_off": ReleaseCurtain(); break;
+            case "release_inputs": ReleaseCurtain(); break;
+        }
+    }
+
+    private sealed class InputPump : IDisposable
+    {
+        private readonly BlockingCollection<Action> _queue = new(new ConcurrentQueue<Action>());
+        private readonly Thread _thread;
+
+        public InputPump()
+        {
+            _thread = new Thread(Run) { IsBackground = true, Name = "connectlive-input-pump" };
+            _thread.SetApartmentState(ApartmentState.STA);
+            _thread.Start();
+        }
+
+        public void Enqueue(JsonElement item)
+        {
+            var clone = item.Clone();
+            _queue.Add(() => Apply(clone));
+        }
+
+        public void Release(string reason)
+        {
+            if (!_queue.IsAddingCompleted)
+                _queue.Add(() => ReleaseCurtain(reason));
+        }
+
+        private void Run()
+        {
+            try
+            {
+                while (!_queue.IsCompleted)
+                {
+                    try
+                    {
+                        if (_queue.TryTake(out var action, 250)) action();
+                        if (InputBlocker.CheckWatchdog(TimeSpan.FromSeconds(5)))
+                            HideCurtainOnUiThread();
+                    }
+                    catch (InvalidOperationException) { break; }
+                    catch (Exception ex) { Log.Warn($"input pump: {ex.Message}"); }
+                }
+            }
+            finally
+            {
+                try { InputBlocker.Release("input_pump_exit"); } catch { }
+                HideCurtainOnUiThread();
+            }
+        }
+
+        public void Dispose()
+        {
+            try { Release("session_disposed"); } catch { }
+            try { _queue.CompleteAdding(); } catch { }
+            if (!_thread.Join(2000))
+            {
+                try { InputBlocker.Release("dispose_timeout"); } catch { }
+                HideCurtainOnUiThread();
+            }
+            _queue.Dispose();
         }
     }
 
@@ -71,32 +134,36 @@ public static class InputRelay
     {
         // Every curtain_on message doubles as the watchdog heartbeat.
         InputBlocker.Heartbeat();
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        bool ok = InputBlocker.Engage(_ => HideCurtainOnUiThread());
+        if (ok)
         {
-            bool ok = InputBlocker.Engage(_ =>
-            {
-                // Auto-release path (watchdog / session switch / process exit):
-                // tear down the overlay from the UI thread so the user isn't
-                // left staring at a dark screen after Ctrl+Alt+Del.
-                try { System.Windows.Application.Current?.Dispatcher.Invoke(CurtainOverlay.Hide); } catch { }
-            });
-            if (ok)
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
                 CurtainOverlay.Show(SessionBanner);
-            }
-            else
-            {
-                Log.Warn("curtain unavailable — agent is not elevated");
-            }
-        });
+            });
+        }
+        else
+        {
+            Log.Warn("curtain unavailable — agent is not elevated");
+        }
     }
 
     private static void ReleaseCurtain()
     {
+        ReleaseCurtain("admin_off");
+    }
+
+    private static void ReleaseCurtain(string reason)
+    {
+        InputBlocker.Release(reason);
+        HideCurtainOnUiThread();
+    }
+
+    private static void HideCurtainOnUiThread()
+    {
         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
             CurtainOverlay.Hide();
-            InputBlocker.Release("admin_off");
         });
     }
 
@@ -202,5 +269,19 @@ public static class InputRelay
         var inp = new INPUT { type = INPUT_KEYBOARD };
         inp.U.ki = new KEYBDINPUT { wVk = (ushort)vk, dwFlags = down ? 0 : KEYEVENTF_KEYUP };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+    }
+
+    private static void KeySequence(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("events", out var events) || events.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var ev in events.EnumerateArray())
+        {
+            var vk = GetInt(ev, "vk");
+            var down = ev.TryGetProperty("down", out var d) && d.GetBoolean();
+            if (vk <= 0) continue;
+            Key(vk, down);
+            Thread.Sleep(10);
+        }
     }
 }

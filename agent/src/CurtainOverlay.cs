@@ -22,10 +22,16 @@ public sealed class CurtainOverlay
 {
     [DllImport("user32.dll")] private static extern uint SetWindowDisplayAffinity(IntPtr hwnd, uint dwAffinity);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll", SetLastError = true)] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll", SetLastError = true)] private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
     private const uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_NOACTIVATE = 0x0010;
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TRANSPARENT = 0x00000020;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int WS_EX_LAYERED = 0x00080000;
 
     private static readonly List<Window> _windows = new();
     private static bool _active;
@@ -43,6 +49,7 @@ public sealed class CurtainOverlay
             _windows.Add(w);
             w.Show();
             var hwnd = new WindowInteropHelper(w).Handle;
+            ApplyGhostStyles(hwnd);
             // Hide from screen capture so admin sees the desktop, not the curtain.
             SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
         }
@@ -77,7 +84,9 @@ public sealed class CurtainOverlay
             AllowsTransparency = true,
             Background = new SolidColorBrush(Color.FromArgb(140, 8, 12, 24)),
             Topmost = true,
+            ShowActivated = false,
             ShowInTaskbar = false,
+            Focusable = false,
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = screen.Bounds.Left,
             Top = screen.Bounds.Top,
@@ -127,5 +136,15 @@ public sealed class CurtainOverlay
         card.Child = stack;
         w.Content = card;
         return w;
+    }
+
+    private static void ApplyGhostStyles(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+        var style = GetWindowLong(hwnd, GWL_EXSTYLE);
+        // Layered keeps transparency; transparent/noactivate make the curtain a
+        // true "ghost" overlay so focus stays on the app underneath while local
+        // physical input is blocked separately by InputBlocker.
+        SetWindowLong(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
     }
 }

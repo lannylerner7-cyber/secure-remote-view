@@ -58,7 +58,23 @@ Uninstall:
 
 ## Dev / quick iteration (no service)
 
-You don't need the Watcher during development — just run the Worker directly in an **elevated** shell so `BlockInput` / curtain mode work:
+You don't need the Watcher during development — just run the Worker directly in an **elevated** shell so `BlockInput` / curtain mode work.
+
+If you run `dotnet run` from a normal terminal, Windows will stop it with `Win32Exception (740): The requested operation requires elevation`. That is expected because the agent manifest asks Windows for administrator rights before Curtain Mode can block local input.
+
+Self-elevating one-liner from the `agent\src` folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process dotnet -ArgumentList 'run' -Verb RunAs -WorkingDirectory (Get-Location)"
+```
+
+Or from the `agent\` folder, run the packaged helper:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run-elevated.ps1
+```
+
+Or open **Command Prompt / PowerShell as Administrator** first:
 
 ```cmd
 cd src
