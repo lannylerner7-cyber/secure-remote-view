@@ -140,6 +140,8 @@ function AdminPage() {
   }
 
   async function endSession(s: Session) {
+    await sendInput(s.id, "release_inputs", {});
+    await sendInput(s.id, "curtain_off", {});
     await supabase.from("sessions").update({ state: "ended", ended_at: new Date().toISOString(), pairing_code: null }).eq("id", s.id);
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
     void notify({ data: { kind: "session_end", text: `⏹️ Session ended on <b>${dev?.display_name ?? "device"}</b>` } });
@@ -519,11 +521,13 @@ function AdminPage() {
                       onClick={(button) => void sendInput(s.id, "click", { button })}
                     />
                     <OnScreenKeyboard
-                      onKey={async (vk) => { await sendInput(s.id, "keydown", { vk }); await sendInput(s.id, "keyup", { vk }); }}
-                      onCombo={async (vks) => {
-                        for (const vk of vks) await sendInput(s.id, "keydown", { vk });
-                        for (const vk of [...vks].reverse()) await sendInput(s.id, "keyup", { vk });
-                      }}
+                      onKey={(vk) => sendInput(s.id, "key_sequence", { events: [{ vk, down: true }, { vk, down: false }] })}
+                      onCombo={(vks) => sendInput(s.id, "key_sequence", {
+                        events: [
+                          ...vks.map((vk) => ({ vk, down: true })),
+                          ...[...vks].reverse().map((vk) => ({ vk, down: false })),
+                        ],
+                      })}
                     />
                   </>
                 )}
@@ -607,17 +611,14 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
   useEffect(() => {
     if (!dragging || !knob) return;
     const iv = setInterval(() => {
-      // Speed stays consistent across sizes by normalizing on the pad radius.
-      const scale = 1.2 / (size / 2);
-      const dx = Math.round(knob.x * scale * (size / 2) * 0.6 / (size / 2));
-      const dy = Math.round(knob.y * scale * (size / 2) * 0.6 / (size / 2));
-      const nx = Math.round(knob.x * 0.6);
-      const ny = Math.round(knob.y * 0.6);
+      const strength = Math.min(1, Math.hypot(knob.x, knob.y) / Math.max(1, radius));
+      const maxStep = 26;
+      const nx = Math.round((knob.x / Math.max(1, radius)) * maxStep * strength);
+      const ny = Math.round((knob.y / Math.max(1, radius)) * maxStep * strength);
       if (nx !== 0 || ny !== 0) onMove(nx, ny);
-      void dx; void dy;
-    }, 30);
+    }, 50);
     return () => clearInterval(iv);
-  }, [dragging, knob, onMove, size]);
+  }, [dragging, knob, onMove, radius]);
 
   const radius = size / 2 - 8;
   function updateFromPointer(e: React.PointerEvent<HTMLDivElement>) {
