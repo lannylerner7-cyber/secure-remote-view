@@ -748,7 +748,18 @@ function getContainedImagePoint(
   return { x, y };
 }
 
-function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number) => void; onClick: (button: number) => void }) {
+function VirtualTrackpad({
+  onMove,
+  onClick,
+  onDoubleClick,
+  onArrow,
+}: {
+  onMove: (dx: number, dy: number) => void;
+  onClick: (button: number) => void;
+  onDoubleClick: () => void;
+  onArrow: (vk: number) => void;
+}) {
+  const VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28;
   const [knob, setKnob] = useState<{ x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [size, setSize] = useState<number>(() => {
@@ -757,12 +768,19 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
     const n = raw ? Number(raw) : NaN;
     return Number.isFinite(n) && n >= 96 && n <= 240 ? n : 128;
   });
+  const [open, setOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("connectlive:trackpad-open") !== "0";
+  });
   const [resizing, setResizing] = useState(false);
   const radius = size / 2 - 8;
 
   useEffect(() => {
     try { window.localStorage.setItem("connectlive:trackpad-size", String(size)); } catch { /* ignore */ }
   }, [size]);
+  useEffect(() => {
+    try { window.localStorage.setItem("connectlive:trackpad-open", open ? "1" : "0"); } catch { /* ignore */ }
+  }, [open]);
 
   useEffect(() => {
     if (!dragging || !knob) return;
@@ -805,6 +823,30 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
 
   const knobSize = Math.max(20, Math.round(size * 0.24));
 
+  // Hidden state: only render a small pull-tab so the panel is off the way.
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="absolute bottom-4 right-0 z-10 flex items-center gap-1 rounded-l-md border border-r-0 border-white/15 bg-black/70 px-2 py-3 text-[10px] uppercase tracking-widest text-white/70 hover:bg-black/90"
+        aria-label="Show trackpad"
+      >
+        <span>‹</span>
+        <span className="[writing-mode:vertical-rl] rotate-180">Pad</span>
+      </button>
+    );
+  }
+
+  const ArrowBtn = ({ label, vk, ariaLabel }: { label: string; vk: number; ariaLabel: string }) => (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); onArrow(vk); }}
+      aria-label={ariaLabel}
+      className="rounded bg-white/10 px-2 py-1 text-xs leading-4 hover:bg-white/20"
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="absolute bottom-4 right-4 flex select-none flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/70 p-3 backdrop-blur-md">
       <div className="flex w-full items-center justify-between gap-3">
@@ -820,6 +862,12 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
             className="rounded bg-white/10 px-1.5 text-xs leading-4 hover:bg-white/20"
             aria-label="Grow trackpad"
           >+</button>
+          <button
+            onClick={() => setOpen(false)}
+            className="rounded bg-white/10 px-1.5 text-xs leading-4 hover:bg-white/20"
+            aria-label="Hide trackpad"
+            title="Hide"
+          >✕</button>
         </div>
       </div>
       <div
@@ -844,13 +892,28 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
           title="Drag up/down to resize"
         />
       </div>
+      {/* Click row */}
       <div className="flex gap-2">
-        <button onClick={() => onClick(0)} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Left click</button>
-        <button onClick={() => onClick(2)} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Right click</button>
+        <button onPointerDown={(e) => { e.preventDefault(); onClick(0); }} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Left</button>
+        <button onPointerDown={(e) => { e.preventDefault(); onDoubleClick(); }} className="rounded bg-[#4F7CFF]/80 px-3 py-1 text-xs text-white hover:bg-[#4F7CFF]">Double</button>
+        <button onPointerDown={(e) => { e.preventDefault(); onClick(2); }} className="rounded bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Right</button>
+      </div>
+      {/* Directional pad — nudges cursor selection / navigation on the remote */}
+      <div className="grid grid-cols-3 gap-1 pt-1">
+        <span />
+        <ArrowBtn label="▲" vk={VK_UP} ariaLabel="Arrow up" />
+        <span />
+        <ArrowBtn label="◀" vk={VK_LEFT} ariaLabel="Arrow left" />
+        <span />
+        <ArrowBtn label="▶" vk={VK_RIGHT} ariaLabel="Arrow right" />
+        <span />
+        <ArrowBtn label="▼" vk={VK_DOWN} ariaLabel="Arrow down" />
+        <span />
       </div>
     </div>
   );
 }
+
 
 function OnScreenKeyboard({ onKey, onCombo }: { onKey: (vk: number) => void; onCombo: (vks: number[]) => void }) {
   const [open, setOpen] = useState(false);
