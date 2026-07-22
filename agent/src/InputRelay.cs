@@ -193,6 +193,22 @@ public static class InputRelay
     private const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020, MOUSEEVENTF_MIDDLEUP = 0x0040;
     private const uint MOUSEEVENTF_WHEEL = 0x0800;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+
+    // Virtual-keys that MUST carry the extended-key flag or Windows treats
+    // them as their numpad twins (arrows become "5"/nothing when NumLock is
+    // off, so the cursor never moves in the remote app). Covers arrows,
+    // navigation cluster, and right-hand modifiers.
+    private static bool IsExtendedKey(int vk) => vk switch
+    {
+        0x21 or 0x22 or 0x23 or 0x24 => true,          // PgUp, PgDn, End, Home
+        0x25 or 0x26 or 0x27 or 0x28 => true,          // Left, Up, Right, Down
+        0x2D or 0x2E => true,                          // Insert, Delete
+        0x5B or 0x5C or 0x5D => true,                  // LWin, RWin, Apps
+        0x6F => true,                                  // Numpad divide
+        0x0D => false,                                 // Enter (numpad-enter would need it; main Enter does not)
+        _ => false,
+    };
 
     // Virtual-screen metrics — spans every connected monitor.
     private const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77;
