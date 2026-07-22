@@ -90,6 +90,7 @@ function AdminPage() {
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
   const rtcRef = useRef<WebRtcLive | null>(null);
   const lastScreenMoveAtRef = useRef(0);
+  const mouseButtonDownRef = useRef(false);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
