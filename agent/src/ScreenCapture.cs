@@ -37,12 +37,14 @@ public static class ScreenCapture
             {
                 var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds
                              ?? new Rectangle(0, 0, 1920, 1080);
-                ulong cursorKey = 0;
                 using var raw = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
                 using (var g = Graphics.FromImage(raw))
                 {
+                    // NOTE: cursor is intentionally NOT burned into the frame.
+                    // CursorPump streams x/y + kind at ~30Hz on a side channel
+                    // and the admin renders an SVG overlay — decouples pointer
+                    // smoothness from JPEG frame cadence (Phase 1 upgrade).
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
-                    DrawCursor(g, bounds, out cursorKey);
                 }
 
                 int maxEdge = 1280;
