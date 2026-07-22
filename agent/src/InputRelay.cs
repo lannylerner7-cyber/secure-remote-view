@@ -65,7 +65,7 @@ public static class InputRelay
             case "key_sequence": KeySequence(p); break;
             case "unicode_text": InjectUnicodeString(GetString(p, "text")); break;
             case "text": InjectUnicodeString(GetString(p, "text")); break;
-            case "note": NoteOverlay.Update(p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) ? t.GetString() : null); break;
+            
             case "curtain_on": EngageCurtain(); break;
             case "curtain_off": ReleaseCurtain(); break;
             case "release_inputs": ReleaseCurtain(); break;

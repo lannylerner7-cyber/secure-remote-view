@@ -38,11 +38,9 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/input
         // Normal mouse/keyboard relay only runs during an active control session.
         // Safety cleanup commands must always be delivered, even after the admin
         // has already flipped the session back to view mode or ended it.
-        // "note" (shared on-screen message) is a view-mode feature too — the admin
-        // must be able to talk to the user without taking control of the machine.
         const items = session.state === "active" && session.mode === "control"
           ? rows
-          : rows.filter((row) => row.kind === "curtain_off" || row.kind === "release_inputs" || row.kind === "note");
+          : rows.filter((row) => row.kind === "curtain_off" || row.kind === "release_inputs");
 
         return new Response(JSON.stringify({ max, items }), {
           headers: { "content-type": "application/json" },
