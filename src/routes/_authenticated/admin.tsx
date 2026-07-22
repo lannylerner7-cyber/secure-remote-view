@@ -37,6 +37,7 @@ function AdminPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [audit, setAudit] = useState<Tables<"audit_logs">[]>([]);
   const [userEmail, setUserEmail] = useState<string>("");
+  const [userId, setUserId] = useState<string | null>(null);
   const [liveId, setLiveId] = useState<string | null>(null);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
@@ -49,7 +50,7 @@ function AdminPage() {
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ""));
+    supabase.auth.getUser().then(({ data }) => { setUserEmail(data.user?.email ?? ""); setUserId(data.user?.id ?? null); });
     void refresh();
     void loadTg();
     fetchRole().then((r) => setRole(r.role)).catch(() => setRole(null));
@@ -295,14 +296,17 @@ function AdminPage() {
         <div className="flex-1">
           <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
             <h1 className="text-lg font-semibold capitalize">{nav}</h1>
-            {role !== "viewer" && (
-              <button
-                onClick={generateCode}
-                className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
-              >
-                + Generate meeting code
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              <NotificationBell userId={userId} />
+              {role !== "viewer" && (
+                <button
+                  onClick={generateCode}
+                  className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
+                >
+                  + Generate meeting code
+                </button>
+              )}
+            </div>
           </header>
 
           {reconnecting.length > 0 && (
