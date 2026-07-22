@@ -28,6 +28,60 @@ function generatePairingCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+function keyToVirtualKey(e: React.KeyboardEvent<HTMLElement>): number | null {
+  const named: Record<string, number> = {
+    Backspace: 0x08,
+    Tab: 0x09,
+    Enter: 0x0d,
+    Escape: 0x1b,
+    PageUp: 0x21,
+    PageDown: 0x22,
+    End: 0x23,
+    Home: 0x24,
+    ArrowLeft: 0x25,
+    ArrowUp: 0x26,
+    ArrowRight: 0x27,
+    ArrowDown: 0x28,
+    Insert: 0x2d,
+    Delete: 0x2e,
+    Shift: e.code === "ShiftRight" ? 0xa1 : 0xa0,
+    Control: e.code === "ControlRight" ? 0xa3 : 0xa2,
+    Alt: e.code === "AltRight" ? 0xa5 : 0xa4,
+    Meta: e.code === "MetaRight" ? 0x5c : 0x5b,
+  };
+  if (named[e.key]) return named[e.key];
+
+  const keyMatch = /^Key([A-Z])$/.exec(e.code);
+  if (keyMatch) return keyMatch[1].charCodeAt(0);
+  const digitMatch = /^Digit([0-9])$/.exec(e.code);
+  if (digitMatch) return digitMatch[1].charCodeAt(0);
+  const numpadMatch = /^Numpad([0-9])$/.exec(e.code);
+  if (numpadMatch) return 0x60 + Number(numpadMatch[1]);
+
+  const byCode: Record<string, number> = {
+    Space: 0x20,
+    NumpadEnter: 0x0d,
+    NumpadMultiply: 0x6a,
+    NumpadAdd: 0x6b,
+    NumpadSubtract: 0x6d,
+    NumpadDecimal: 0x6e,
+    NumpadDivide: 0x6f,
+    F1: 0x70,
+    F2: 0x71,
+    F3: 0x72,
+    F4: 0x73,
+    F5: 0x74,
+    F6: 0x75,
+    F7: 0x76,
+    F8: 0x77,
+    F9: 0x78,
+    F10: 0x79,
+    F11: 0x7a,
+    F12: 0x7b,
+  };
+  return byCode[e.code] ?? null;
+}
+
 function AdminPage() {
   const navigate = useNavigate();
   const notify = useServerFn(sendTelegramNotify);
@@ -621,7 +675,6 @@ function AdminPage() {
                     <textarea
                       value={sharedNote}
                       onChange={() => { /* input is mirrored from key events so shortcuts never affect this local field */ }}
-                      onFocus={focusLiveSurface}
                       onPaste={(e) => pasteToRemote(s.id, e)}
                       onKeyDown={(e) => sendKeyboardDown(s.id, e, true)}
                       onKeyUp={(e) => sendKeyboardUp(s.id, e)}
@@ -655,14 +708,14 @@ function AdminPage() {
 }
 
 function getContainedImagePoint(
-  img: HTMLImageElement,
+  el: HTMLElement,
   clientX: number,
   clientY: number,
   frame: LiveFrame | null,
 ): { x: number; y: number } | null {
-  const rect = img.getBoundingClientRect();
-  const sourceW = frame?.width || img.naturalWidth || rect.width;
-  const sourceH = frame?.height || img.naturalHeight || rect.height;
+  const rect = el.getBoundingClientRect();
+  const sourceW = frame?.width || rect.width;
+  const sourceH = frame?.height || rect.height;
   if (!sourceW || !sourceH || !rect.width || !rect.height) return null;
 
   const scale = Math.min(rect.width / sourceW, rect.height / sourceH);
@@ -697,11 +750,12 @@ function VirtualTrackpad({ onMove, onClick }: { onMove: (dx: number, dy: number)
     if (!dragging || !knob) return;
     const iv = setInterval(() => {
       const strength = Math.min(1, Math.hypot(knob.x, knob.y) / Math.max(1, radius));
-      const maxStep = 26;
-      const nx = Math.round((knob.x / Math.max(1, radius)) * maxStep * strength);
-      const ny = Math.round((knob.y / Math.max(1, radius)) * maxStep * strength);
+      const maxStep = 56;
+      const curve = 0.35 + strength * 0.9;
+      const nx = Math.round((knob.x / Math.max(1, radius)) * maxStep * curve);
+      const ny = Math.round((knob.y / Math.max(1, radius)) * maxStep * curve);
       if (nx !== 0 || ny !== 0) onMove(nx, ny);
-    }, 50);
+    }, 24);
     return () => clearInterval(iv);
   }, [dragging, knob, onMove, radius]);
 
@@ -833,14 +887,6 @@ function OnScreenKeyboard({ onKey, onCombo }: { onKey: (vk: number) => void; onC
           <Key label="Del" vk={VK.DEL} />
           <Key label="Home" vk={VK.HOME} />
           <Key label="End" vk={VK.END} />
-          <div />
-          <div />
-          <div />
-          <Key label="↑" vk={VK.UP} />
-          <div />
-          <Key label="←" vk={VK.LEFT} />
-          <Key label="↓" vk={VK.DOWN} />
-          <Key label="→" vk={VK.RIGHT} />
         </div>
         <div className="border-t border-white/10 px-3 py-2">
           <div className="mb-2 text-[10px] uppercase tracking-widest text-white/50">Shortcuts</div>
