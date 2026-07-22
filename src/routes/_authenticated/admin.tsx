@@ -165,6 +165,26 @@ function AdminPage() {
     }
   }, [liveId, sessions]);
 
+  // Keep the live surface focused across tab switches, notification pop-ups,
+  // and OSK re-renders — otherwise Enter/keys silently route to the browser
+  // after long control sessions.
+  useEffect(() => {
+    if (!liveId) return;
+    const s = sessions.find((x) => x.id === liveId);
+    if (s?.mode !== "control") return;
+    const restore = () => {
+      if (document.visibilityState === "visible") {
+        requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
+      }
+    };
+    window.addEventListener("focus", restore);
+    document.addEventListener("visibilitychange", restore);
+    return () => {
+      window.removeEventListener("focus", restore);
+      document.removeEventListener("visibilitychange", restore);
+    };
+  }, [liveId, sessions]);
+
   async function refresh() {
     const [d, s, a] = await Promise.all([
       supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
