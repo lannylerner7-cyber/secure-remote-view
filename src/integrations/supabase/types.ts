@@ -152,6 +152,47 @@ export type Database = {
         }
         Relationships: []
       }
+      session_cursors: {
+        Row: {
+          frame_h: number | null
+          frame_w: number | null
+          kind: string
+          session_id: string
+          updated_at: string
+          visible: boolean
+          x: number
+          y: number
+        }
+        Insert: {
+          frame_h?: number | null
+          frame_w?: number | null
+          kind?: string
+          session_id: string
+          updated_at?: string
+          visible?: boolean
+          x: number
+          y: number
+        }
+        Update: {
+          frame_h?: number | null
+          frame_w?: number | null
+          kind?: string
+          session_id?: string
+          updated_at?: string
+          visible?: boolean
+          x?: number
+          y?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_cursors_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       session_frames: {
         Row: {
           frame: string
