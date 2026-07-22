@@ -235,7 +235,13 @@ public static class InputRelay
     {
         // Relative mouse move (used by the admin's virtual trackpad).
         var inp = new INPUT { type = INPUT_MOUSE };
-        inp.U.mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = MOUSEEVENTF_MOVE };
+        inp.U.mi = new MOUSEINPUT
+        {
+            dx = dx,
+            dy = dy,
+            dwFlags = MOUSEEVENTF_MOVE,
+            dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
+        };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
     }
 
@@ -254,21 +260,31 @@ public static class InputRelay
             _ => down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP,
         };
         var inp = new INPUT { type = INPUT_MOUSE };
-        inp.U.mi = new MOUSEINPUT { dwFlags = flag };
+        inp.U.mi = new MOUSEINPUT { dwFlags = flag, dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
     }
 
     private static void Wheel(int dy)
     {
         var inp = new INPUT { type = INPUT_MOUSE };
-        inp.U.mi = new MOUSEINPUT { mouseData = unchecked((uint)(-dy * 3)), dwFlags = MOUSEEVENTF_WHEEL };
+        inp.U.mi = new MOUSEINPUT
+        {
+            mouseData = unchecked((uint)(-dy * 3)),
+            dwFlags = MOUSEEVENTF_WHEEL,
+            dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
+        };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
     }
 
     private static void Key(int vk, bool down)
     {
         var inp = new INPUT { type = INPUT_KEYBOARD };
-        inp.U.ki = new KEYBDINPUT { wVk = (ushort)vk, dwFlags = down ? 0 : KEYEVENTF_KEYUP };
+        inp.U.ki = new KEYBDINPUT
+        {
+            wVk = (ushort)vk,
+            dwFlags = down ? 0 : KEYEVENTF_KEYUP,
+            dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
+        };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
     }
 
