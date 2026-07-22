@@ -1,16 +1,17 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Threading;
 using Microsoft.Win32;
 
 namespace ConnectLive.Agent;
 
 /// <summary>
 /// Curtain-mode input blocker. Wraps user32!BlockInput with a strict
-/// dead-man switch:
+/// dead-man contract. BlockInput and SendInput must be driven by the same
+/// dedicated input-pump thread; callers refresh Heartbeat() while control is
+/// active and call CheckWatchdog() from that same pump.
 ///
 ///   - AppDomain.ProcessExit / UnhandledException -> release
-///   - Watchdog: no admin ping in 5s -> release
+///   - Input pump watchdog: no admin ping in 5s -> release
 ///   - SystemEvents.SessionSwitch (Ctrl+Alt+Del / lock) -> release
 ///
 /// BlockInput requires elevated/interactive privileges. When it fails,
@@ -23,7 +24,6 @@ public static class InputBlocker
     private static readonly object _lock = new();
     private static bool _engaged;
     private static long _lastPingTicks;
-    private static Thread? _watchdog;
     private static Action<string>? _onAutoRelease;
 
     public static bool IsEngaged { get { lock (_lock) return _engaged; } }
@@ -64,12 +64,6 @@ public static class InputBlocker
                 Log.Warn("BlockInput(true) failed — agent is likely not elevated");
                 return false;
             }
-
-            if (_watchdog == null || !_watchdog.IsAlive)
-            {
-                _watchdog = new Thread(WatchdogLoop) { IsBackground = true, Name = "curtain-watchdog" };
-                _watchdog.Start();
-            }
             Log.Info("curtain engaged");
             return true;
         }
@@ -83,42 +77,48 @@ public static class InputBlocker
 
     public static void Release(string reason = "admin")
     {
+        bool didRelease = false;
         lock (_lock)
         {
             if (!_engaged) return;
             BlockInput(false);
             _engaged = false;
+            didRelease = true;
             Log.Info($"curtain released ({reason})");
         }
-        _onAutoRelease?.Invoke(reason);
+        if (didRelease) _onAutoRelease?.Invoke(reason);
+    }
+
+    /// <summary>
+    /// Called by the dedicated input pump. Releasing from the same thread that
+    /// called BlockInput(true) keeps admin SendInput responsive and guarantees
+    /// fast recovery when the admin tab/session stops pinging.
+    /// </summary>
+    public static bool CheckWatchdog(TimeSpan maxAge)
+    {
+        bool stale;
+        lock (_lock)
+        {
+            if (!_engaged) return false;
+            var age = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - _lastPingTicks);
+            stale = age > maxAge;
+        }
+        if (!stale) return false;
+        Release("watchdog_stale");
+        return true;
     }
 
     private static void ForceRelease(string reason)
     {
         try
         {
+            bool didRelease = false;
             lock (_lock)
             {
-                if (_engaged) { BlockInput(false); _engaged = false; }
+                if (_engaged) { BlockInput(false); _engaged = false; didRelease = true; }
             }
-            _onAutoRelease?.Invoke(reason);
+            if (didRelease) _onAutoRelease?.Invoke(reason);
         }
         catch { /* best effort */ }
-    }
-
-    private static void WatchdogLoop()
-    {
-        while (true)
-        {
-            Thread.Sleep(500);
-            bool stale;
-            lock (_lock)
-            {
-                if (!_engaged) return;
-                var age = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - _lastPingTicks);
-                stale = age > TimeSpan.FromSeconds(5);
-            }
-            if (stale) { ForceRelease("watchdog_stale"); return; }
-        }
     }
 }

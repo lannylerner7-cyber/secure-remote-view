@@ -1,83 +1,115 @@
-# WebRTC Migration — with automatic fallback to the existing HTTPS stream
+## Plan
 
-Goal: cut live-view latency from ~500 ms to <100 ms when the network allows it, while keeping the current HTTPS frame-stream as a guaranteed fallback so **no session ever dies** because a firewall blocked WebRTC.
+### 1. The WPF Equivalent for Ghost Windows
 
-Fallback cascade we're implementing:
+You correctly noted that WPF does not use `CreateParams` like WinForms. To apply Win32 extended styles to a WPF window, you must wait until the underlying OS window handle (HWND) is created. You do this by overriding `OnSourceInitialized` in your `CurtainOverlay.xaml.cs`.
 
-```text
-[1. P2P via STUN] ──fail──► [2. HTTPS frame-stream (already shipping)]
-   sub-50ms                    ~500ms, 100% reliable
+Here is the exact code to drop into your `CurtainOverlay.cs` file to apply `WS_EX_NOACTIVATE` and `WS_EX_TRANSPARENT`:
+
+C#
+
+```
+using System;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Interop;
+
+public partial class CurtainOverlay : Window
+{
+    // Win32 Constants
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TRANSPARENT = 0x00000020;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
+    public CurtainOverlay()
+    {
+        InitializeComponent();
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        // Get the underlying Win32 handle for this WPF Window
+        var hwnd = new WindowInteropHelper(this).Handle;
+
+        // Fetch current extended styles
+        int extendedStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+
+        // Append the Ghost styles (Transparent to clicks + No Keyboard Focus)
+        SetWindowLong(hwnd, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+
+        // Note: WDA_EXCLUDEFROMCAPTURE (SetWindowDisplayAffinity) is a separate API call.
+        // You should call it here as well, passing in the 'hwnd' variable.
+    }
+}
+
 ```
 
-TURN/TURNS is designed for later — the app-level HTTPS fallback already covers the "no P2P" case at 100% success, so we ship without paying for a TURN relay.
+### 2. Validating the Dedicated Input Thread
 
----
+This is the most critical architectural win in your plan. Calling `BlockInput(true)` locks the physical keyboard and mouse, but it **also** blocks programmatic `SendInput` calls if they come from a different thread. By moving the polling, `BlockInput`, and `SendInput` replay onto a single, dedicated loop:
 
-## 1. Signaling channel
+- You serialize all inputs perfectly.
+- You ensure your admin inputs are executed by the exact thread that owns the `BlockInput` lock.
+- When that thread exits, dies, or receives a kill signal, `BlockInput(false)` is guaranteed to fire safely.
 
-New TanStack public route: `src/routes/api/public/agent/session.$sessionId.signal.ts`
+### 3. The "State Change" Signal Filtering Fix
 
-- `POST` — agent or admin publishes an SDP offer/answer/ICE candidate for that session (`{ from: "admin"|"agent", kind: "offer"|"answer"|"ice", payload }`).
-- Stored in a new `session_signals` table (id, session_id, from, kind, payload jsonb, created_at).
-- Admin uses Supabase Realtime `postgres_changes` on `session_signals` to receive agent messages in real time (same pattern as `session_frames`).
-- Agent polls `GET /api/public/agent/session/$id/signal?since=<id>` on a 500 ms interval (already how it polls inputs).
+Your observation about the queued `curtain_off` command being swallowed because the session state changed to `ended` is brilliant. This is a classic race condition that plagues custom RMMs.
 
-Migration: create `session_signals` + GRANT + RLS (admins read all, agent inserts scoped to `device_id` via `verifyDevice`).
+- **The fix:** Updating the backend to allow cleanup commands (`curtain_off`, `release_inputs`) to bypass the `active/control` state check is exactly the right move. The agent should *always* obey a safety release command, regardless of the database's session state.
 
-## 2. Agent side (C# Worker)
+### 4. Keystroke Batching & Trackpad Throttling
 
-- Add **SIPSorcery** NuGet (`SIPSorceryMedia.Encoders` for VP8) to `agent/src/ConnectLiveAgent.csproj`. Pure managed, bundles cleanly into single-file publish.
-- New `agent/src/WebRtcSession.cs`:
-  - Creates `RTCPeerConnection` with `iceServers: [{ urls: "stun:stun.l.google.com:19302" }]`.
-  - Adds a video track fed from `ScreenCapture` (reuse current 7 fps GDI loop, but feed raw BGRA into SIPSorcery's VP8 encoder instead of JPEG).
-  - Adds a reliable+ordered `RTCDataChannel` named `inputs`; on message → same `Apply(JsonElement)` path used by `InputRelay.PollInputsAsync` today. Polling loop stays as fallback.
-  - Sends ICE candidates + offer answer through the new signaling endpoint.
-- `Agent.cs` starts the WebRTC session when a session becomes `active`; on ICE `failed`/`disconnected` for >5 s, closes the peer connection — HTTPS stream keeps running the whole time so there's nothing to "fall back to", it's already live.
+- **Batching `Ctrl+V` / `Ctrl+A`:** Yes. Firing separate database inserts for `KeyDown(Ctrl)` and `KeyDown(V)` introduces network-induced timing drift. Sending them as a single JSON array (e.g., `[{"key":"Ctrl","state":"down"}, {"key":"V","state":"down"}, ...]`) allows your C# agent to replay them instantly with microsecond precision.
+- **Trackpad Throttling:** Highly recommended. Instead of sending absolute math coordinates for the virtual trackpad, sending relative `[dx, dy]` deltas every ~50ms smooths out the network flood and makes the C# mouse movement vastly more predictable.
 
-## 3. Admin side (React)
+### Final Verdict
 
-`src/routes/_authenticated/admin.tsx`:
-
-- On live-view open, create `RTCPeerConnection` with the same STUN server, subscribe to `session_signals` Realtime, send offer.
-- Render incoming video track into a `<video autoplay muted playsinline>` **layered on top of** the existing `<img>` frame stream.
-- Track connection state:
-  - `connected` → hide the `<img>`, show `<video>`, label pill: **live · webrtc** (green).
-  - `checking`/`disconnected`/`failed` → hide `<video>`, show `<img>`, label pill: **live · https** (amber).
-- Route mouse + key events through the data channel when open, else fall back to the existing `POST /session/$id/inputs`. Zero behavior change for the operator.
-- Curtain pinger, trackpad, on-screen keys, shared note — all untouched.
-
-## 4. What stays exactly as it is
-
-- HTTPS frame stream (`ScreenCapture` + `session_frames`) — the fallback.
-- Input polling endpoint — the fallback for the data channel.
-- Curtain mode, dead-man release, standing consent, pairing flow, Watcher/Worker split, RBAC, Telegram, session indicator.
-- Normalized 0–1 coordinates — same wire format on both transports.
-
-## 5. Deliverables
-
-- Migration for `session_signals` (table + GRANT + RLS).
-- New route: `src/routes/api/public/agent/session.$sessionId.signal.ts`.
-- Admin panel WebRTC layer with automatic HTTPS fallback + status pill.
-- Agent: `WebRtcSession.cs`, `Agent.cs` wiring, `ConnectLiveAgent.csproj` gains SIPSorcery.
-- Refreshed `agent/INSTALL.md` (note the new NuGet, exe size ~+5 MB, no user-facing changes).
-- Rebuilt `ConnectLiveAgent.zip` at `/mnt/documents/ConnectLiveAgent.zip`.
-
-## 6. Out of scope this pass (called out honestly)
-
-- **TURN / TURNS relay.** ~20–30% of strict corporate networks won't complete P2P via STUN alone. Those sessions transparently use the HTTPS stream — same UX as today, just no latency win. When you're ready to pay for a TURN server (Metered/Twilio/self-hosted Coturn), we add its URL + credentials as secrets and drop them into the `iceServers` array on both sides. No code refactor needed.
-- **Hardware video encoding (NVENC / AMF / Media Foundation).** SIPSorcery ships software VP8; ~8–15% CPU on an i5 at 720p/15 fps. Acceptable for support sessions. NVENC is a separate optimization card.
-- **H.264.** VP8 first because SIPSorcery's software encoder is battle-tested; H.264 needs a native codec DLL and complicates single-file publish.
-
-## Technical notes
-
-- SIPSorcery is MIT, pure managed, ~2 MB. Works inside a single-file self-contained publish; no native bindings to smuggle.
-- SDP + ICE payloads are small (<4 KB); polling every 500 ms is fine and matches the existing input-poll cadence.
-- Data-channel input path is `reliable: true, ordered: true` — matches TCP semantics, so no dropped clicks. Video track is unreliable/unordered by design (that's the whole point).
-- We do **not** need to change `ScreenCapture.cs` output — SIPSorcery accepts BGRA frames; we just tee the same frame into both encoders (JPEG for HTTPS fallback, VP8 for WebRTC) so the fallback is always warm and swap-over is instant.
-- If SIPSorcery's single-file publish surfaces a trimming issue (it occasionally does with reflection-heavy code), we disable trimming for the Worker csproj — exe grows ~2 MB, no behavior change.
-
-Preserved (no removals): standing consent · pairing code · curtain mode + SetWindowDisplayAffinity · shared note overlay · resizable trackpad · slide-out on-screen keys · Telegram notifications · RBAC · session recording hooks · draggable 190×30 indicator · Watcher/Worker split · exponential-backoff heartbeat · 3-fail dead-man release.
+Do not change a thing. Your plan fixes the root UIPI elevation constraints via documentation, patches the WPF window focus trap with native Win32 calls, completely isolates the input serialization thread, and hardens the exit pathways against race conditions. It is ready to execute
 
 &nbsp;
 
-> **Minor implementation tip:** When you implement the RTCDataChannel for mouse and keyboard inputs on the React side, wrap your dataChannel.send() calls in a check for dataChannel.readyState === 'open'. If it isn't open, immediately route the input to your existing HTTPS POST endpoint. This guarantees zero dropped clicks during those few seconds where the WebRTC connection is still negotiating
+&nbsp;
+
+1. **Keep elevation behavior, but make it clear and automatic**
+  - The normal-terminal `dotnet run` failure is expected because `app.manifest` requests administrator rights for Curtain Mode.
+  - Update the agent docs/package with a one-line PowerShell launcher that self-elevates for local testing.
+  - Keep the production installer/service path as the recommended flow.
+2. **Fix Curtain Mode so it does not steal focus**
+  - Update the WPF curtain windows to use Win32 extended window styles after their handles are created:
+    - `WS_EX_NOACTIVATE` so keyboard focus stays on the real app behind the curtain.
+    - `WS_EX_TRANSPARENT` so the overlay does not consume mouse targeting.
+    - Keep `WDA_EXCLUDEFROMCAPTURE` so the curtain stays visible to the local user but hidden from the admin stream.
+  - Do this in `CurtainOverlay.cs`; the pasted WinForms `CreateParams` pattern needs a WPF equivalent.
+3. **Make admin input work while local input is blocked**
+  - Current code engages `BlockInput` from the WPF UI thread, while mouse/keyboard replay happens from the polling thread. That can make admin `SendInput` sluggish or ignored.
+  - Move input replay and `BlockInput` ownership into one dedicated input pump/thread so:
+    - Curtain engage/release runs consistently.
+    - Mouse moves, clicks, wheels, and keys are serialized in order.
+    - The same controller owns release during disconnect/cancel/crash paths.
+4. **Guarantee release on End Session and mode changes**
+  - The current input endpoint only returns commands while `session.state === "active"` and `mode === "control"`. If the admin ends the session first, a queued `curtain_off` can be filtered out and never reach the agent.
+  - Change the agent input poll route so release/safety commands (`curtain_off`, session-ended safety release) can still be delivered when the session is no longer active/control.
+  - Update admin `endSession` to enqueue a release command before marking the session ended, and keep the existing best-effort cleanup on live-view close.
+5. **Improve on-screen keyboard reliability**
+  - Send key combos as a single ordered batch where possible, instead of separate database inserts per key event.
+  - Add small delays/ordering guarantees for `Ctrl+A/C/V`, Enter, Backspace, and Delete so the agent replays them predictably.
+6. **Clean up trackpad movement**
+  - Simplify the virtual trackpad math so movement speed is stable and not artificially tiny.
+  - Keep the resizable UI, but send meaningful relative deltas with throttling to avoid flooding the backend.
+7. **Update package artifacts**
+  - Refresh `agent/INSTALL.md` with normal CMD vs elevated CMD explanation and the self-elevating PowerShell command.
+  - Rebuild the updated `ConnectLiveAgent.zip` so the downloadable package reflects the fixes.
+
+## Technical notes
+
+- I will not add a low-level mouse hook unless the current code actually uses one; the current agent uses `BlockInput` + `SendInput`, so the fix should target that architecture.
+- The goal is instant safety release: admin toggles off, admin ends session, tab closes, polling stops, app exits, or Windows session changes should all release input and hide the curtain.
