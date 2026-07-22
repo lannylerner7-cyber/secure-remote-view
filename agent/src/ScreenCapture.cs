@@ -60,7 +60,8 @@ public static class ScreenCapture
                 }
 
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
-                ulong hash = HashBitmap(scaled) ^ cursorKey;
+                // Cursor motion no longer forces a frame — CursorPump handles it.
+                ulong hash = HashBitmap(scaled);
                 bool unchanged = hash == lastHash;
                 // Force a keyframe every ~2s even when idle, so a fresh admin
                 // subscriber still sees the current screen.
