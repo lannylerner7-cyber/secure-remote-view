@@ -225,6 +225,7 @@ public static class InputRelay
             dx = absX,
             dy = absY,
             dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+            dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
         };
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
     }
