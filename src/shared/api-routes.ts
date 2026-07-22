@@ -15,6 +15,7 @@ export const API_ROUTES = {
   agentFrame: (sessionId: string) => `/api/public/agent/session/${sessionId}/frame`,
   agentInputs: (sessionId: string) => `/api/public/agent/session/${sessionId}/inputs`,
   agentSignal: (sessionId: string) => `/api/public/agent/session/${sessionId}/signal`,
+  agentCursor: (sessionId: string) => `/api/public/agent/session/${sessionId}/cursor`,
 
   // One-time bootstrap (gated by BOOTSTRAP_TOKEN)
   adminBootstrap: "/api/public/admin/bootstrap",
