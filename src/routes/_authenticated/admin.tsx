@@ -772,12 +772,12 @@ function VirtualTrackpad({
   onMove,
   onClick,
   onDoubleClick,
-  onArrow,
+  onNudge,
 }: {
   onMove: (dx: number, dy: number) => void;
   onClick: (button: number) => void;
   onDoubleClick: () => void;
-  onArrow: (vk: number) => void;
+  onNudge: (dx: number, dy: number) => void;
 }) {
   const VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28;
   const [knob, setKnob] = useState<{ x: number; y: number } | null>(null);
