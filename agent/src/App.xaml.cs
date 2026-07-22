@@ -46,6 +46,7 @@ public partial class App : Application
 
             _ = ScreenCapture.RunAsync(api, sessionId, _cts.Token);
             _ = InputRelay.RunAsync(api, sessionId, _cts.Token);
+            _ = CursorPump.RunAsync(api, sessionId, _cts.Token);
 
 
 
