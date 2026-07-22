@@ -668,7 +668,7 @@ function AdminPage() {
                   </>
                 )}
               </div>
-              {s.device_id && role !== "viewer" && (
+              {s.device_id && role !== "viewer" && s.mode === "control" && (
                 <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
                   <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Typing tunnel to remote PC</label>
                   <div className="mt-2 flex items-start gap-2">
