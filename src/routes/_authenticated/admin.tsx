@@ -779,7 +779,7 @@ function VirtualTrackpad({
   onDoubleClick: () => void;
   onNudge: (dx: number, dy: number) => void;
 }) {
-  const VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28;
+  const nudgeTimerRef = useRef<number | null>(null);
   const [knob, setKnob] = useState<{ x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [size, setSize] = useState<number>(() => {
