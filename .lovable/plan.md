@@ -1,75 +1,59 @@
 ## Goal
 
-1. Trackpad gets **Left/Right click + Up/Down/Left/Right arrow buttons** and a **hide/show toggle** (same pattern as the on-screen keys panel).
-2. Every special key (`Esc Tab Enter Back Del Space Home End`) and shortcut (`Ctrl+A/C/V/X/Z`) reliably fires on the remote PC — single-click AND double-click — whether the admin is hovering the live screen, dragging over a file, or has clicked into an app.
-3. Drag-to-select across a remote file/app works: mouse-down → move → up keeps the left button held on the remote side.
+1. The 4 directional buttons on the trackpad **move the mouse cursor** on the remote (nudge / press-and-hold to glide), matching what the analog knob does — not fire keyboard arrows.
+2. The "Left" / "Right" text labels on the click row are replaced with clear mouse-click glyphs so admins immediately read them as clicks (not directions).
+3. Double-click reliably opens things on the remote (email message, file, folder) — timing tuned to Windows' `GetDoubleClickTime` window.
+4. Enter (and every other OSK key) keeps working after the admin has been in control mode for minutes — no silent drop-off.
 
-## Root causes (verified against current code)
+## Root causes (verified)
 
-Verified reads:
-- `src/routes/_authenticated/admin.tsx` L269-303, L588-670, L733-905
-- `agent/src/InputRelay.cs` L51-73, L302-371
-- `src/routes/api/public/agent/session.$sessionId.inputs.ts` L37-44
+- `admin.tsx` L840-848 + L901-912: `ArrowBtn` sends `key_sequence` with VK 0x25-0x28. Those are keyboard arrows on the remote — they only "move" if a text field is focused, so on the desktop they do nothing visible. That's why "the 4 control button didn't move & shift the mouse".
+- `admin.tsx` L897-899: click buttons are labelled with the words "Left" / "Right", which reads as direction next to a joystick. That's the "meaningless" text.
+- `admin.tsx` L666-670 `onDoubleClick`: sends two `click` events back-to-back with no spacing. Agent's `Click()` (`InputRelay.cs` L271-275) runs down→up→down→up with zero delay — Windows Explorer/Outlook interpret bursts under a few ms as one click, so the double-click "works kind of different". Needs ~40-60ms between the two clicks (well under Windows' default 500ms threshold).
+- Enter drop after long control: `sendInput` already dual-transports discrete events, so the DB path never drops. What drops is **focus**: after the admin scrolls the page, opens the notifications bell, or the OSK panel re-renders, `liveSurfaceRef` loses focus and physical Enter goes to the browser instead of the remote. On-screen Enter still fires, but only if the click actually hits the button; when the OSK panel re-collapses on hover-out it stops registering. Need: (a) refocus after every OSK press (already partially in place, verify), (b) re-arm focus on window blur/visibility change, (c) explicit `pointerdown` handler that survives panel re-renders.
 
-Findings:
+## Changes — `src/routes/_authenticated/admin.tsx` only
 
-**A. On-screen keys silently drop when RTC is "open" but agent bridge doesn't replay.**
-`sendInput()` (admin.tsx L269-273) short-circuits after `rtcRef.current?.sendInput(...)` returns true. If the WebRTC data channel is `open` but the agent's `WebRtcSession` bridge doesn't forward the payload into `InputRelay.Apply`, the event is dropped — no DB fallback runs. This matches "none of this actually works" for OSK keys while normal mouse works (mouse uses the same path but is spammed so at least some frames land via DB when RTC hiccups).
+### 1. Arrow buttons nudge the mouse
 
-**B. Special keys throttled/blocked by focus loss.**
-Clicking a `<button>` in `OnScreenKeyboard` fires `onPointerDown` (good — preventDefault), but subsequent physical Enter/arrow presses on the admin keyboard don't reach the live surface because focus moved. Only on-screen taps work, and even those depend on (A).
+Replace the current `ArrowBtn` (which sends `key_sequence`) with a mouse-nudge button:
 
-**C. mousemove throttle drops drag frames.**
-`onMouseMove` throttles at 24ms unconditionally (admin.tsx L594-596). During a drag-select the intermediate points are the selection — throttling makes drags register as click-through on the remote and no selection happens.
+- On `pointerdown`: fire one `mousemove_rel` with a small step (e.g. `{dx: -12, dy: 0}` for ◀), then start a `setInterval(24ms)` that keeps sending the same delta with a mild acceleration curve (cap ~48px/tick) for as long as the pointer is held.
+- On `pointerup` / `pointerleave` / `pointercancel`: clear the interval.
+- Rename the callback prop from `onArrow(vk)` to `onNudge(dx, dy)`; delete the `VK_LEFT/UP/RIGHT/DOWN` constants inside `VirtualTrackpad`.
+- Keep the same 3×3 grid layout so muscle memory is preserved.
 
-**D. Enter/Ctrl combos on agent side are correct** — `KeySequence` in `InputRelay.cs` L359-371 executes down→up per vk with 10ms delay. No fix needed there; the failure is upstream at the transport (A).
+### 2. Click row — icons, not directions
 
-## Changes
+- Replace text "Left" → `🖱` glyph + tooltip "Left click" (or SVG left-mouse-button icon).
+- Replace text "Right" → mirrored glyph + tooltip "Right click".
+- Middle "Double" button stays but relabelled with tooltip "Double click (open)".
+- No behavioural change to left/right click.
 
-### Admin UI — `src/routes/_authenticated/admin.tsx`
+### 3. Reliable double-click
 
-1. **`sendInput` transport hardening (fixes A):**
-   - Send via RTC data channel **and** enqueue to `session_inputs` for `key_sequence`, `keydown`, `keyup`, `unicode_text`, `click`, `mousedown`, `mouseup` (all "one-shot" events). Only continuous mouse streams (`mousemove`, `mousemove_rel`, `wheel`) keep the "RTC-only when open" short-circuit.
-   - Rationale: agent's DB poll (`/session/:id/inputs`) is authoritative and idempotent-by-id; double-delivery of a discrete key is harmless (agent applies once per row), but drop of a discrete key is catastrophic. Continuous streams stay RTC-only to preserve bandwidth.
+- Change `onDoubleClick` in the trackpad wiring (`admin.tsx` L666-670) to send a **single new event kind** `doubleclick { button: 0 }` OR keep the two `click` events but space them by 60ms via `setTimeout`.
+- Chose the second option — no agent change needed. Payload: `sendInput(s.id, "click", { button: 0 })` then `setTimeout(() => sendInput(s.id, "click", { button: 0 }), 60)`. 60ms is well inside `GetDoubleClickTime` (default 500ms) and long enough for Explorer to treat the pair as a double-click.
 
-2. **Focus preservation:**
-   - After any `OnScreenKeyboard` / trackpad button press, call `focusLiveSurface()` so admin's physical keyboard keeps flowing.
-   - Add `onPointerDown` `e.preventDefault()` on new arrow / click buttons.
+### 4. Widen the tunnel so Enter never drops
 
-3. **Mouse-drag continuity (fixes C):**
-   - Track `mouseButtonDownRef` on `mousedown`/`mouseup`; skip the 24ms throttle while a button is held so drag frames all propagate.
+- Add a `useEffect` on the admin panel that, whenever `s.mode === "control"`, listens on `window` for `visibilitychange` and `focus` and re-calls `focusLiveSurface()` — restores keyboard routing after the admin tabs away and back.
+- In `OnScreenKeyboard`, change every key `<button>` from `onClick` to `onPointerDown` with `e.preventDefault()` so the browser never steals focus from the live surface between the down and up events. (Verify current state; some may already be pointerdown.)
+- After each OSK press, call `focusLiveSurface()` — already wired at L674 but confirm it survives the panel's collapse/expand re-render.
+- Keep the existing dual-transport (RTC + `session_inputs`) for all discrete events; no change there.
 
-4. **Trackpad panel — new buttons + hideable (feature 1):**
-   - Add a **directional pad** (Up/Down/Left/Right) beside the click row, each sending `key_sequence` with VK 0x25/0x26/0x27/0x28.
-   - Keep Left click / Right click; add **Double-click** button (two `click` events, 60ms apart) for common file-open cases.
-   - Add a slide/toggle handle on the left edge of the trackpad (mirror of the keys panel's right-edge tab). When hidden, only the toggle stub remains; state persisted in `localStorage` (`connectlive:trackpad-open`).
+## Not changed
 
-5. **OSK Enter reliability:**
-   - Replace `onPointerDown={() => onKey(VK.ENTER)}` behaviour with a small helper that fires `key_sequence` + then refocuses the live surface. Double-tap works naturally because each tap is one full down/up sequence.
-
-### API — `src/routes/api/public/agent/session.$sessionId.inputs.ts`
-
-No behavioural change required — filter already allows `mouse`/`key`/`unicode_text`/`curtain_*`/`release_inputs` on active+control sessions. Add `key_sequence` explicitly to the safety pass-through list is **not** needed (it only runs during active control).
-
-### Agent — no code change
-
-The C# side already handles `key_sequence`, `unicode_text`, `keydown/up`, `click`, `mousedown/up`, `mousemove_rel`, extended-key flag for arrows, and virtual-desktop mapping. The bug is transport-only on the admin side.
-
-### Packaging
-
-Refresh `/mnt/documents/ConnectLiveAgent.zip` from unchanged `agent/src/` so the archive keeps parity with the repo (no source diff, just re-zip).
+- No agent (`InputRelay.cs`) changes — `mousemove_rel`, `click`, and `key_sequence` all work correctly server-side; the ZIP does not need re-packing this turn.
+- No API, DB, RLS, or migration changes.
+- Keyboard panel content (Esc/Tab/Enter/Back/Del/Space/Home/End/Ctrl+…) stays as-is; only focus behaviour is hardened.
+- Analog knob behaviour, resize handle, and hide/show pull-tab all stay as-is.
 
 ## Verification
 
 1. `tsgo --noEmit` clean.
-2. Playwright against `http://localhost:8080/admin` (Lovable session injected): open live view for a mocked control session, click each OSK key, confirm a `session_inputs` row is inserted per press (query via `stack_modern--invoke-server-function` or a temporary read endpoint is not needed — verify at the network layer that the `POST /rest/v1/session_inputs` call fires per press).
-3. Manual on-device sanity (out-of-sandbox): Enter opens a highlighted file, Ctrl+A selects all in Notepad, drag across the desktop draws a rubber-band.
-
-## Out of scope
-
-- WebRTC signaling changes, curtain/coop logic, cursor telemetry, screen capture pipeline, typing tunnel field (already works).
-- Any change to `.env`, migrations, RLS, or agent C# source.
+2. Manual (out-of-sandbox): hold ▶ on the trackpad → remote cursor glides right smoothly; tap Double on a highlighted email row → message opens; leave control mode focused for 5 min, tab to another browser tab and back, press Enter on the OSK → still lands on remote.
 
 ## Result
 
-Trackpad becomes a full directional + click pad you can hide off-screen; every OSK key and shortcut lands on the remote reliably via dual RTC+DB transport; drag-selection preserves all intermediate positions.
+The four arrow buttons become a real cursor nudge pad (matching analog behaviour but precise), the click row reads as clicks not directions, Double reliably opens things, and Enter/OSK keys survive long control sessions.
