@@ -688,7 +688,7 @@ function AdminPage() {
                         window.setTimeout(() => { void sendInput(s.id, "click", { button: 0 }); }, 60);
                         focusLiveSurface();
                       }}
-                      onArrow={(vk) => { void sendInput(s.id, "key_sequence", { events: [{ vk, down: true }, { vk, down: false }] }); focusLiveSurface(); }}
+                      onNudge={(dx, dy) => { void sendInput(s.id, "mousemove_rel", { dx, dy }); }}
                     />
                     <OnScreenKeyboard
                       onKey={(vk) => { void sendInput(s.id, "key_sequence", { events: [{ vk, down: true }, { vk, down: false }] }); focusLiveSurface(); }}
