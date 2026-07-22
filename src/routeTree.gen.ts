@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
 import { Route as ApiPublicAgentPairRouteImport } from './routes/api/public/agent/pair'
 import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
 import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
@@ -42,6 +43,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiPublicAuthLoginRoute = ApiPublicAuthLoginRouteImport.update({
+  id: '/api/public/auth/login',
+  path: '/api/public/auth/login',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicAgentPairRoute = ApiPublicAgentPairRouteImport.update({
   id: '/api/public/agent/pair',
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
+  '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
+  '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
+  '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
+    | '/api/public/auth/login'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
+    | '/api/public/auth/login'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
+    | '/api/public/auth/login'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -204,6 +216,7 @@ export interface RootRouteChildren {
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
   ApiPublicAgentHelloRoute: typeof ApiPublicAgentHelloRoute
   ApiPublicAgentPairRoute: typeof ApiPublicAgentPairRoute
+  ApiPublicAuthLoginRoute: typeof ApiPublicAuthLoginRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
   ApiPublicAgentSessionSessionIdCursorRoute: typeof ApiPublicAgentSessionSessionIdCursorRoute
   ApiPublicAgentSessionSessionIdFrameRoute: typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin'
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/auth/login': {
+      id: '/api/public/auth/login'
+      path: '/api/public/auth/login'
+      fullPath: '/api/public/auth/login'
+      preLoaderRoute: typeof ApiPublicAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/agent/pair': {
       id: '/api/public/agent/pair'
@@ -334,6 +354,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
   ApiPublicAgentHelloRoute: ApiPublicAgentHelloRoute,
   ApiPublicAgentPairRoute: ApiPublicAgentPairRoute,
+  ApiPublicAuthLoginRoute: ApiPublicAuthLoginRoute,
   ApiPublicAgentSessionSessionIdConsentRoute:
     ApiPublicAgentSessionSessionIdConsentRoute,
   ApiPublicAgentSessionSessionIdCursorRoute:
