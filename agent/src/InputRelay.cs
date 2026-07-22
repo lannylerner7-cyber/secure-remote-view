@@ -294,7 +294,12 @@ public static class InputRelay
 
     private static void Key(int vk, bool down)
     {
-        uint flags = down ? 0u : KEYEVENTF_KEYUP;
+        // Sanitize: Windows virtual-key codes live in 0x01..0xFE. Reject
+        // anything outside that band so a malformed or hostile payload can't
+        // trigger reserved codes (0x00, 0xFF) or overflow the ushort cast.
+        if (vk < 0x01 || vk > 0xFE) return;
+        uint flags = down ? KEYEVENTF_KEYUP ^ KEYEVENTF_KEYUP : 0u; // 0 for down
+        if (!down) flags |= KEYEVENTF_KEYUP;
         if (IsExtendedKey(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
         var inp = new INPUT { type = INPUT_KEYBOARD };
         inp.U.ki = new KEYBDINPUT
@@ -306,15 +311,22 @@ public static class InputRelay
         SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
     }
 
+    // Cap sequence length so a single admin message (or a compromised token)
+    // can't stall the input pump by queueing thousands of synthetic keys.
+    private const int MAX_SEQUENCE_EVENTS = 64;
+
     private static void KeySequence(JsonElement payload)
     {
         if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("events", out var events) || events.ValueKind != JsonValueKind.Array)
             return;
+        int count = 0;
         foreach (var ev in events.EnumerateArray())
         {
+            if (++count > MAX_SEQUENCE_EVENTS) break;
+            if (ev.ValueKind != JsonValueKind.Object) continue;
             var vk = GetInt(ev, "vk");
-            var down = ev.TryGetProperty("down", out var d) && d.GetBoolean();
-            if (vk <= 0) continue;
+            if (vk < 0x01 || vk > 0xFE) continue;
+            var down = ev.TryGetProperty("down", out var d) && d.ValueKind == JsonValueKind.True;
             Key(vk, down);
             Thread.Sleep(10);
         }
