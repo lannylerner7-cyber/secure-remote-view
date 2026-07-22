@@ -59,9 +59,9 @@ public sealed class WebRtcSession : IDisposable
             _pc?.SendVideo(durationRtpUnits, sample);
         };
 
-        _pc.OnDataChannelOpened += (label) => Log.Info($"webrtc dc open: {label}");
         _pc.ondatachannel += (dc) =>
         {
+            Log.Info($"webrtc dc open: {dc.label}");
             dc.onmessage += (_, __, data) =>
             {
                 try

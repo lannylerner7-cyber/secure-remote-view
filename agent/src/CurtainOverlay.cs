@@ -93,8 +93,8 @@ public sealed class CurtainOverlay
             BorderBrush = new SolidColorBrush(Color.FromArgb(90, 0x4F, 0x7C, 0xFF)),
             BorderThickness = new Thickness(1),
             Padding = new Thickness(28, 22, 28, 22),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = System.Windows.VerticalAlignment.Center,
             MaxWidth = 520,
         };
 
