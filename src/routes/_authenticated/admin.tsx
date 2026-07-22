@@ -935,10 +935,21 @@ function VirtualTrackpad({
   );
 
   return (
-    <div className="absolute bottom-4 right-4 flex select-none flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/70 p-3 backdrop-blur-md">
-      <div className="flex w-full items-center justify-between gap-3">
-        <span className="text-[10px] uppercase tracking-widest text-white/50">Trackpad</span>
-        <div className="flex items-center gap-1">
+    <div
+      ref={panelRef}
+      className={`${pos ? "fixed" : "absolute bottom-4 right-4"} z-20 flex select-none flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/70 p-3 backdrop-blur-md`}
+      style={pos ? { left: pos.x, top: pos.y } : undefined}
+    >
+      <div
+        className="flex w-full cursor-grab items-center justify-between gap-3 active:cursor-grabbing"
+        onPointerDown={onPanelDragStart}
+        onPointerMove={onPanelDragMove}
+        onPointerUp={onPanelDragEnd}
+        onPointerCancel={onPanelDragEnd}
+        title="Drag to move"
+      >
+        <span className="text-[10px] uppercase tracking-widest text-white/50">⋮⋮ Trackpad</span>
+        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
           <button
             onClick={() => setSize((s) => Math.max(96, s - 16))}
             className="rounded bg-white/10 px-1.5 text-xs leading-4 hover:bg-white/20"
