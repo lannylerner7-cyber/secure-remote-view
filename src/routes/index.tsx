@@ -56,7 +56,7 @@ function Home() {
             muted
             playsInline
             preload="auto"
-            className="mx-auto mt-8 w-full max-w-[360px] rounded-2xl shadow-[0_10px_30px_rgba(31,42,68,0.15)]"
+            className="mx-auto mt-8 w-full max-w-[220px] rounded-2xl shadow-[0_10px_30px_rgba(31,42,68,0.15)]"
           />
 
           <p className="mt-8 text-[15px] text-[#4B5568]">
