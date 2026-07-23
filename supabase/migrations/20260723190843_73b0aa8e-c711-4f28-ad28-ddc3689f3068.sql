@@ -1,0 +1,3 @@
+UPDATE public.plans SET name = 'Starter — 10 devices', description = 'Remote-support license for up to 10 devices.' WHERE code = 'starter';
+UPDATE public.plans SET name = 'Team — 20 devices', description = 'Fleet license for up to 20 devices.' WHERE code = 'team';
+UPDATE public.plans SET name = 'Business — 50 devices', description = 'SMB fleet license for up to 50 devices with priority support.' WHERE code = 'business';

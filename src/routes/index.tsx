@@ -1,70 +1,71 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import {
-  Monitor,
-  MousePointerClick,
-  Activity,
-  LifeBuoy,
-  Video,
-  Lock,
-  Receipt,
-  Users,
-  ShieldCheck,
-  Download,
-  CheckCircle2,
-} from "lucide-react";
-import videoAsset from "@/assets/connectlive.mp4.asset.json";
-import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
+import heroFloat1 from "@/assets/hero-float-1.png";
+import heroFloat2 from "@/assets/hero-float-2.png";
+import heroFloat3 from "@/assets/hero-float-3.png";
 
-const AGENT_DOWNLOAD_URL = "/downloads/ConnectLiveAgent.zip";
-
-type Dept = "all" | "it" | "helpdesk" | "finance" | "hr" | "sales";
-
-type Tool = {
-  id: string;
-  title: string;
-  desc: string;
-  icon: React.ComponentType<{ className?: string }>;
-  depts: Exclude<Dept, "all">[];
-  action: "download" | "checkout";
+type PlanCard = {
+  code: string;
+  name: string;
+  devices: string;
+  blurb: string;
+  cta: string;
+  href: string;
+  featured?: boolean;
 };
 
-const TOOLS: Tool[] = [
-  { id: "screen-share", title: "Live Screen Share", desc: "Consent-based screen viewing with a persistent on-screen indicator.", icon: Monitor, depts: ["it", "helpdesk"], action: "download" },
-  { id: "remote-access", title: "Remote Access", desc: "Take control of an endpoint after the user approves the session.", icon: MousePointerClick, depts: ["it", "helpdesk"], action: "download" },
-  { id: "diagnostics", title: "Device Diagnostics", desc: "Inspect device health, uptime, and network status in real time.", icon: Activity, depts: ["it"], action: "download" },
-  { id: "ticketing", title: "Help Desk Ticketing", desc: "Attach live sessions to tickets and keep a full audit trail.", icon: LifeBuoy, depts: ["helpdesk", "hr", "sales"], action: "download" },
-  { id: "recording", title: "Session Recording", desc: "Optional recording with consent for training and compliance.", icon: Video, depts: ["it", "helpdesk"], action: "download" },
-  { id: "team", title: "Team Directory", desc: "Route sessions to the right department in one click.", icon: Users, depts: ["it", "helpdesk", "hr", "sales"], action: "download" },
-  { id: "checkout", title: "Secure Checkout", desc: "Purchase or renew a ConnectLive license.", icon: Lock, depts: ["finance"], action: "checkout" },
-  { id: "billing", title: "Account Billing", desc: "Review invoices and subscription status.", icon: Receipt, depts: ["finance"], action: "checkout" },
-];
-
-const DEPTS: { id: Dept; label: string }[] = [
-  { id: "all", label: "All departments" },
-  { id: "it", label: "IT Admin" },
-  { id: "helpdesk", label: "Help Desk" },
-  { id: "finance", label: "Finance" },
-  { id: "hr", label: "HR" },
-  { id: "sales", label: "Sales" },
+const PLAN_CARDS: PlanCard[] = [
+  {
+    code: "starter",
+    name: "Starter",
+    devices: "10 devices",
+    blurb: "Small teams getting remote support off the ground.",
+    cta: "Order Starter",
+    href: "/order",
+  },
+  {
+    code: "team",
+    name: "Team",
+    devices: "20 devices",
+    blurb: "Growing help desks with multi-department coverage.",
+    cta: "Order Team",
+    href: "/order",
+    featured: true,
+  },
+  {
+    code: "business",
+    name: "Business",
+    devices: "50 devices",
+    blurb: "SMB fleets with priority response and full audit trail.",
+    cta: "Order Business",
+    href: "/order",
+  },
+  {
+    code: "custom",
+    name: "Custom",
+    devices: "Unlimited devices",
+    blurb: "Enterprise fleets — manual order handled by our team.",
+    cta: "Request Custom",
+    href: "/contact",
+  },
 ];
 
 export const Route = createFileRoute("/")({
   component: Home,
   head: () => ({
     meta: [
-      { title: "ConnectLive — Remote Support Platform for IT, Help Desk & Finance" },
+      { title: "ConnectLive — Cinematic Remote Support Platform" },
       {
         name: "description",
         content:
-          "ConnectLive is a modular remote-support platform. Consent-based screen sharing, remote access, ticketing, and secure billing in one workspace.",
+          "ConnectLive is a consent-based remote-support platform for IT, help desks, and enterprise fleets. Order a license or track your order.",
       },
       { property: "og:title", content: "ConnectLive — Remote Support Platform" },
       {
         property: "og:description",
         content:
-          "Modular remote-support workspace for IT, Help Desk, HR, Finance, and Sales teams.",
+          "Consent-based remote support for 10 to unlimited devices. Cinematic, secure, minimal.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -73,10 +74,9 @@ export const Route = createFileRoute("/")({
 });
 
 function Home() {
-  const [installOpen, setInstallOpen] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const navigate = useNavigate();
   const [userCount, setUserCount] = useState<number | null>(null);
-  const [dept, setDept] = useState<Dept>("all");
+  const [orderId, setOrderId] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -98,255 +98,181 @@ function Home() {
     };
   }, []);
 
-  const startDownload = () => {
-    if (installOpen) return;
-    setInstallOpen(true);
-    setProgress(0);
-    const started = Date.now();
-    const iv = setInterval(() => {
-      const pct = Math.min(100, ((Date.now() - started) / 5000) * 100);
-      setProgress(pct);
-      if (pct >= 100) {
-        clearInterval(iv);
-        window.location.href = AGENT_DOWNLOAD_URL;
-        setTimeout(() => setInstallOpen(false), 800);
-      }
-    }, 60);
+  const trackOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = orderId.trim();
+    if (!v) return;
+    navigate({ to: "/order/$id", params: { id: v } });
   };
 
-  const filteredTools = useMemo(
-    () => (dept === "all" ? TOOLS : TOOLS.filter((t) => t.depts.includes(dept))),
-    [dept],
-  );
-
   return (
-    <div className="min-h-screen bg-[#F7F8FC] font-sans text-[#1F2A44] antialiased">
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 border-b border-[#E6E9F2] bg-white/85 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-lg bg-[#4F7CFF]">
-              <video
-                src={videoAsset.url}
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="auto"
-                className="h-8 w-8 object-cover"
-              />
-            </div>
-            <span className="text-[15px] font-semibold tracking-tight">ConnectLive</span>
-            <span className="ml-3 hidden items-center gap-1.5 rounded-full bg-[#EAF7EF] px-2 py-0.5 text-[11px] font-medium text-[#227A44] sm:inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" />
-              All systems operational
-            </span>
+    <div className="relative min-h-screen overflow-hidden bg-[#0B1024] font-sans text-white antialiased">
+      {/* Cinematic moonstone background */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+        <div className="absolute inset-0 bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(160,190,240,0.28),transparent_60%),radial-gradient(900px_500px_at_90%_10%,rgba(120,150,220,0.22),transparent_60%),radial-gradient(700px_500px_at_50%_110%,rgba(190,210,255,0.18),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,#0B1024_0%,#0E1734_45%,#0B1024_100%)]" />
+        <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(#ffffff_1px,transparent_1px)] [background-size:22px_22px]" />
+      </div>
+
+      {/* Floating generated images */}
+      <FloatingArt />
+
+      {/* Top bar (no sign in button) */}
+      <header className="relative z-10 mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+        <div className="flex items-center gap-2">
+          <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/15">
+            <img src={heroFloat2} alt="" className="h-9 w-9 object-cover" />
           </div>
-          <Link
-            to="/admin"
-            rel="nofollow"
-            className="rounded-md border border-[#E6E9F2] bg-white px-3 py-1.5 text-[13px] font-medium text-[#1F2A44] hover:border-[#4F7CFF] hover:text-[#4F7CFF]"
-          >
-            Sign in
-          </Link>
+          <span className="text-[15px] font-semibold tracking-tight">ConnectLive</span>
+          <span className="ml-3 hidden items-center gap-1.5 rounded-full bg-white/5 px-2 py-0.5 text-[11px] font-medium text-emerald-300 ring-1 ring-white/10 sm:inline-flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            All systems operational
+          </span>
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        {/* Sidebar */}
-        <aside className="lg:sticky lg:top-20 lg:h-fit">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#8792A6]">
-            Departments
+      {/* Hero */}
+      <section className="relative z-10 mx-auto max-w-7xl px-4 pt-10 pb-16 sm:px-6 sm:pt-16">
+        <div className="mx-auto max-w-3xl text-center">
+          {userCount !== null && (
+            <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-[11px] font-medium text-white/70 ring-1 ring-white/10 backdrop-blur">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8FB4FF]" />
+              Trusted by {userCount.toLocaleString()} {userCount === 1 ? "user" : "users"}
+            </div>
+          )}
+          <h1 className="text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
+            <span className="bg-gradient-to-b from-white via-[#DCE7FF] to-[#8FB4FF] bg-clip-text text-transparent">
+              Remote support,
+            </span>
+            <br />
+            <span className="bg-gradient-to-b from-[#B8CCFF] via-[#7FA1E8] to-[#4F7CFF] bg-clip-text text-transparent">
+              rendered in moonlight.
+            </span>
+          </h1>
+          <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-white/70">
+            A consent-based platform for IT, help desks, and enterprise fleets. Pick a license,
+            we deliver access within 24 hours.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              to="/order"
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-[13px] font-semibold text-[#0B1024] shadow-[0_10px_40px_-10px_rgba(143,180,255,0.6)] transition hover:bg-[#EAF0FF]"
+            >
+              Order a license →
+            </Link>
+            <a
+              href="#plans"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-[13px] font-semibold text-white/90 backdrop-blur transition hover:bg-white/10"
+            >
+              See plans
+            </a>
           </div>
-          <nav className="mt-3 flex flex-wrap gap-2 lg:flex-col">
-            {DEPTS.map((d) => {
-              const active = dept === d.id;
-              return (
-                <button
-                  key={d.id}
-                  onClick={() => setDept(d.id)}
-                  className={`rounded-lg px-3 py-2 text-left text-[13px] font-medium transition ${
-                    active
-                      ? "bg-[#4F7CFF] text-white shadow-sm"
-                      : "bg-white text-[#1F2A44] hover:bg-[#EEF3FF] hover:text-[#4F7CFF]"
-                  } border border-transparent`}
-                >
-                  {d.label}
-                </button>
-              );
-            })}
-          </nav>
 
-          <div className="mt-6 hidden rounded-xl border border-[#E6E9F2] bg-white p-4 lg:block">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#8792A6]">
-              Trust
-            </div>
-            <ul className="mt-2 space-y-1.5 text-[12px] text-[#4B5568]">
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />Consent-based</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />Encrypted transport</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />No background install</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />Full audit trail</li>
-            </ul>
-          </div>
-        </aside>
-
-        {/* Main */}
-        <main className="min-w-0">
-          {/* Hero */}
-          <section className="grid grid-cols-1 gap-6 rounded-2xl border border-[#E6E9F2] bg-white p-6 sm:p-8 md:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="min-w-0">
-              {userCount !== null && (
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#EEF3FF] px-3 py-1 text-[11px] font-medium text-[#4F7CFF]">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#4F7CFF]" />
-                  Trusted by {userCount.toLocaleString()} {userCount === 1 ? "user" : "users"}
-                </div>
-              )}
-              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-[#1F2A44] sm:text-[32px]">
-                One workspace for remote support,
-                <br className="hidden sm:block" /> across every department.
-              </h1>
-              <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-[#4B5568]">
-                ConnectLive brings live screen sharing, remote access, ticketing, and secure
-                billing into a single, consent-based platform your team can trust.
-              </p>
-
-              <div className="mt-5 flex flex-wrap gap-3">
-                <button
-                  onClick={startDownload}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#4F7CFF] px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#3E67E0]"
-                >
-                  <Download className="h-4 w-4" />
-                  Download for Windows
-                  <span className="ml-1 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-normal">64-bit</span>
-                </button>
-                <button
-                  disabled
-                  className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg border border-[#E6E9F2] bg-[#F3F5FA] px-4 py-2.5 text-[13px] font-semibold text-[#8792A6]"
-                >
-                  <Download className="h-4 w-4" />
-                  Download for macOS
-                  <span className="ml-1 rounded bg-[#E6E9F2] px-1.5 py-0.5 text-[10px] font-normal">Coming soon</span>
-                </button>
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#8792A6]">
-                <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-[#22C55E]" />Consent-based</span>
-                <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-[#22C55E]" />Encrypted transport</span>
-                <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-[#22C55E]" />No background install</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center md:pl-6">
-              <video
-                src={videoAsset.url}
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="auto"
-                className="w-full max-w-[220px] rounded-2xl shadow-[0_10px_30px_rgba(31,42,68,0.12)]"
-              />
-            </div>
-          </section>
-
-          {/* Tool grid */}
-          <section className="mt-8">
-            <div className="mb-3 flex items-end justify-between">
-              <div>
-                <h2 className="text-[16px] font-semibold text-[#1F2A44]">Tools</h2>
-                <p className="text-[12px] text-[#8792A6]">
-                  {dept === "all" ? "All available modules" : `Prioritised for ${DEPTS.find((d) => d.id === dept)?.label}`}
-                </p>
-              </div>
-              <span className="text-[12px] text-[#8792A6]">{filteredTools.length} modules</span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {filteredTools.map((tool) => (
-                <ToolCard
-                  key={tool.id}
-                  tool={tool}
-                  onDownload={startDownload}
-                />
-              ))}
-            </div>
-          </section>
-
-          {/* Banner */}
-          <section className="mt-8 overflow-hidden rounded-2xl border border-[#E6E9F2] bg-white p-2">
-            <img
-              src={bannerAsset.url}
-              alt="ConnectLive session preview"
-              className="mx-auto block w-full rounded-xl"
-              loading="lazy"
+          {/* Order tracker */}
+          <form
+            onSubmit={trackOrder}
+            className="mx-auto mt-8 flex max-w-md items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur"
+          >
+            <input
+              value={orderId}
+              onChange={(e) => setOrderId(e.target.value)}
+              placeholder="Track order — paste your order ID"
+              className="flex-1 rounded-xl bg-transparent px-3 py-2 text-[13px] text-white placeholder:text-white/40 focus:outline-none"
             />
-          </section>
+            <button
+              type="submit"
+              className="rounded-xl bg-[#4F7CFF] px-4 py-2 text-[12px] font-semibold text-white transition hover:bg-[#3E67E0]"
+            >
+              Track
+            </button>
+          </form>
+        </div>
+      </section>
 
-          {/* Quick setup */}
-          <section className="mt-6 rounded-xl border border-[#E6E9F2] bg-white p-5 text-[13px] leading-relaxed text-[#4B5568]">
-            <strong className="text-[#1F2A44]">Quick setup:</strong> download ConnectLive, open the
-            application, and enter your 6-digit meeting ID to join. Your technician sees only what
-            you approve.
-          </section>
-        </main>
-      </div>
-
-      <Footer />
-
-      {installOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#050B1F]/60 backdrop-blur-sm">
-          <div className="w-[320px] rounded-2xl bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[#4F7CFF]/10">
-              <span className="inline-block h-4 w-4 animate-pulse rounded-full bg-[#4F7CFF]" />
-            </div>
-            <div className="text-[15px] font-semibold text-[#1F2A44]">Preparing ConnectLive</div>
-            <div className="mt-1 text-[12px] text-[#8792A6]">Your download will start automatically…</div>
-            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-[#EEF0F6]">
-              <div
-                className="h-full rounded-full bg-[#4F7CFF] transition-[width] duration-100 ease-linear"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <div className="mt-2 text-[11px] text-[#8792A6]">{Math.round(progress)}%</div>
+      {/* Plan cards — dynamic marketing surface */}
+      <section id="plans" className="relative z-10 mx-auto max-w-7xl px-4 pb-16 sm:px-6">
+        <div className="mb-6 flex items-end justify-between">
+          <div>
+            <h2 className="text-[22px] font-semibold tracking-tight">Choose your surface area</h2>
+            <p className="mt-1 text-[13px] text-white/60">
+              From ten devices to unlimited fleets. Custom is handled by our team directly.
+            </p>
           </div>
         </div>
-      )}
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {PLAN_CARDS.map((p, i) => (
+            <PlanCardView key={p.code} plan={p} index={i} />
+          ))}
+        </div>
+      </section>
+
+      <Footer />
     </div>
   );
 }
 
-function ToolCard({ tool, onDownload }: { tool: Tool; onDownload: () => void }) {
-  const Icon = tool.icon;
-  const isCheckout = tool.action === "checkout";
-
-  const body = (
-    <div className="group relative flex h-full flex-col rounded-xl border border-[#E6E9F2] bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-[#4F7CFF]/40 hover:shadow-[0_8px_24px_rgba(31,42,68,0.08)]">
-      <div className="flex items-start justify-between">
-        <div className={`grid h-10 w-10 place-items-center rounded-lg ${isCheckout ? "bg-[#EAF7EF] text-[#227A44]" : "bg-[#EEF3FF] text-[#4F7CFF]"}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <span className="rounded-full border border-[#E6E9F2] px-2 py-0.5 text-[10px] font-medium text-[#8792A6]">
-          {isCheckout ? "Billing" : "Module"}
-        </span>
-      </div>
-      <div className="mt-3 text-[14px] font-semibold text-[#1F2A44]">{tool.title}</div>
-      <div className="mt-1 text-[12px] leading-relaxed text-[#4B5568]">{tool.desc}</div>
-      <div className="mt-4 inline-flex items-center gap-1 text-[12px] font-medium text-[#4F7CFF] group-hover:gap-1.5">
-        {isCheckout ? "Open" : "Requires ConnectLive agent"} <span aria-hidden>→</span>
-      </div>
-    </div>
-  );
-
-  if (isCheckout) {
-    return (
-      <Link to="/order" className="block h-full">
-        {body}
-      </Link>
-    );
-  }
+function PlanCardView({ plan, index }: { plan: PlanCard; index: number }) {
+  const art = [heroFloat2, heroFloat3, heroFloat1, heroFloat2][index % 4];
   return (
-    <button type="button" onClick={onDownload} className="block h-full w-full">
-      {body}
-    </button>
+    <Link
+      to={plan.href}
+      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border p-5 backdrop-blur transition hover:-translate-y-0.5 ${
+        plan.featured
+          ? "border-[#8FB4FF]/40 bg-gradient-to-b from-white/[0.08] to-white/[0.02] shadow-[0_20px_60px_-20px_rgba(143,180,255,0.35)]"
+          : "border-white/10 bg-white/[0.04] hover:border-white/25"
+      }`}
+    >
+      {/* Card ambient art */}
+      <div aria-hidden className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 opacity-40 transition group-hover:opacity-60">
+        <img src={art} alt="" className="h-full w-full object-contain" />
+      </div>
+
+      <div className="relative z-10 flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-white/60">
+          {plan.name}
+        </span>
+        {plan.featured && (
+          <span className="rounded-full bg-[#4F7CFF]/20 px-2 py-0.5 text-[10px] font-semibold text-[#B8CCFF] ring-1 ring-[#4F7CFF]/40">
+            Popular
+          </span>
+        )}
+      </div>
+
+      <div className="relative z-10 mt-3 text-2xl font-semibold tracking-tight">{plan.devices}</div>
+      <p className="relative z-10 mt-2 text-[13px] leading-relaxed text-white/70">{plan.blurb}</p>
+
+      <div className="relative z-10 mt-6 inline-flex items-center gap-1 text-[13px] font-semibold text-white group-hover:gap-2">
+        {plan.cta} <span aria-hidden>→</span>
+      </div>
+    </Link>
+  );
+}
+
+function FloatingArt() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 -z-0 overflow-hidden">
+      <img
+        src={heroFloat2}
+        alt=""
+        className="absolute -left-24 top-24 h-[340px] w-[340px] opacity-70 blur-[0.5px] [animation:float1_16s_ease-in-out_infinite]"
+      />
+      <img
+        src={heroFloat3}
+        alt=""
+        className="absolute right-[-60px] top-40 h-[380px] w-[380px] opacity-80 [animation:float2_20s_ease-in-out_infinite]"
+      />
+      <img
+        src={heroFloat1}
+        alt=""
+        className="absolute left-1/2 top-[52%] hidden h-[280px] w-[520px] -translate-x-1/2 opacity-50 md:block [animation:float3_22s_ease-in-out_infinite]"
+      />
+      <style>{`
+        @keyframes float1 { 0%,100%{transform:translateY(0) rotate(0)} 50%{transform:translateY(-18px) rotate(2deg)} }
+        @keyframes float2 { 0%,100%{transform:translateY(0) rotate(0)} 50%{transform:translateY(22px) rotate(-2deg)} }
+        @keyframes float3 { 0%,100%{transform:translate(-50%,0)} 50%{transform:translate(-50%,-16px)} }
+      `}</style>
+    </div>
   );
 }
