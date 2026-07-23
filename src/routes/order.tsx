@@ -120,8 +120,21 @@ function OrderPage() {
                   No active plans configured yet.
                 </div>
               )}
+              <Link
+                to="/contact"
+                className="flex items-start justify-between rounded-lg border border-dashed border-white/20 bg-white/[0.03] p-3 text-sm hover:border-[#4F7CFF]/60"
+              >
+                <div>
+                  <div className="font-medium">Custom — Unlimited devices</div>
+                  <div className="mt-0.5 text-xs text-white/50">
+                    Enterprise fleets — manual order handled by our team.
+                  </div>
+                </div>
+                <div className="text-xs font-semibold text-[#4F7CFF]">Contact us →</div>
+              </Link>
             </div>
           </label>
+
 
           <Field label="Full name" required value={form.full_name} onChange={(v) => setForm({ ...form, full_name: v })} />
           <Field label="Email" required type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
