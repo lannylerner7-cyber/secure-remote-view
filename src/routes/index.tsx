@@ -4,6 +4,8 @@ import { Footer } from "@/components/Footer";
 import heroFloat1 from "@/assets/hero-float-1.png";
 import heroFloat2 from "@/assets/hero-float-2.png";
 import heroFloat3 from "@/assets/hero-float-3.png";
+import videoAsset from "@/assets/connectlive.mp4.asset.json";
+import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 
 type PlanCard = {
   code: string;
@@ -51,6 +53,16 @@ const PLAN_CARDS: PlanCard[] = [
   },
 ];
 
+const FEATURE_STRIP = [
+  "Consent-based",
+  "Curtain mode",
+  "Sub-50ms WebRTC",
+  "Multi-monitor precision",
+  "SYSTEM service",
+  "Encrypted transport",
+  "Full audit trail",
+];
+
 export const Route = createFileRoute("/")({
   component: Home,
   head: () => ({
@@ -59,7 +71,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "ConnectLive is a consent-based remote-support platform for IT, help desks, and enterprise fleets. Order a license or track your order.",
+          "ConnectLive is a consent-based remote-support platform for IT, help desks, and enterprise fleets. Sub-50ms sessions, curtain mode, and a full audit trail.",
       },
       { property: "og:title", content: "ConnectLive — Remote Support Platform" },
       {
@@ -68,7 +80,9 @@ export const Route = createFileRoute("/")({
           "Consent-based remote support for 10 to unlimited devices. Cinematic, secure, minimal.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:image", content: bannerAsset.url },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: bannerAsset.url },
     ],
   }),
 });
@@ -114,10 +128,9 @@ function Home() {
         <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(#ffffff_1px,transparent_1px)] [background-size:22px_22px]" />
       </div>
 
-      {/* Floating generated images */}
       <FloatingArt />
 
-      {/* Top bar (no sign in button) */}
+      {/* Top bar */}
       <header className="relative z-10 mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-2">
           <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/15">
@@ -129,15 +142,24 @@ function Home() {
             All systems operational
           </span>
         </div>
+        {userCount !== null && (
+          <div className="hidden items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-[11px] font-medium text-white/70 ring-1 ring-white/10 sm:inline-flex">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8FB4FF]" />
+            {userCount.toLocaleString()} {userCount === 1 ? "session" : "sessions"} delivered
+          </div>
+        )}
       </header>
 
-      {/* Hero */}
-      <section className="relative z-10 mx-auto max-w-7xl px-4 pt-10 pb-16 sm:px-6 sm:pt-16">
-        <div className="mx-auto max-w-3xl text-center">
+      {/* Hero — split: copy + device mockup */}
+      <section className="relative z-10 mx-auto grid max-w-7xl gap-10 px-4 pt-8 pb-14 sm:px-6 sm:pt-14 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
+        <div className="flex flex-col justify-center">
           {userCount !== null && (
-            <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-[11px] font-medium text-white/70 ring-1 ring-white/10 backdrop-blur">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8FB4FF]" />
-              Trusted by {userCount.toLocaleString()} {userCount === 1 ? "user" : "users"}
+            <div className="mb-5 inline-flex w-fit items-center gap-2 rounded-full bg-[#4F7CFF]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-[#8FB4FF] ring-1 ring-[#4F7CFF]/30 backdrop-blur">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              Trusted by {userCount.toLocaleString()} operators
             </div>
           )}
           <h1 className="text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
@@ -149,12 +171,12 @@ function Home() {
               rendered in moonlight.
             </span>
           </h1>
-          <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-white/70">
-            A consent-based platform for IT, help desks, and enterprise fleets. Pick a license,
-            we deliver access within 24 hours.
+          <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-white/70">
+            A consent-based platform for IT, help desks, and enterprise fleets. Sub-50ms sessions,
+            curtain mode, and a full audit trail — delivered within 24 hours.
           </p>
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link
               to="/order"
               className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-[13px] font-semibold text-[#0B1024] shadow-[0_10px_40px_-10px_rgba(143,180,255,0.6)] transition hover:bg-[#EAF0FF]"
@@ -172,7 +194,7 @@ function Home() {
           {/* Order tracker */}
           <form
             onSubmit={trackOrder}
-            className="mx-auto mt-8 flex max-w-md items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur"
+            className="mt-8 flex max-w-md items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur"
           >
             <input
               value={orderId}
@@ -188,13 +210,87 @@ function Home() {
             </button>
           </form>
         </div>
+
+        {/* Product device mockup with looping video */}
+        <DeviceMockup />
       </section>
 
-      {/* Plan cards — dynamic marketing surface */}
-      <section id="plans" className="relative z-10 mx-auto max-w-7xl px-4 pb-16 sm:px-6">
+      {/* Feature marquee */}
+      <div className="relative z-10 border-y border-white/5 bg-white/[0.02] py-4 backdrop-blur">
+        <div className="marquee-wrap flex overflow-hidden">
+          <div className="marquee flex shrink-0 items-center gap-10 whitespace-nowrap px-6">
+            {[...FEATURE_STRIP, ...FEATURE_STRIP].map((f, i) => (
+              <span
+                key={i}
+                className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40"
+              >
+                <span className="h-1 w-1 rounded-full bg-[#4F7CFF]" />
+                {f}
+              </span>
+            ))}
+          </div>
+        </div>
+        <style>{`
+          @keyframes cl-marquee { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+          .marquee-wrap { mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent); }
+          .marquee { animation: cl-marquee 32s linear infinite; }
+        `}</style>
+      </div>
+
+      {/* Deployment tracker band */}
+      <section className="relative z-10 mx-auto max-w-7xl px-4 pt-14 sm:px-6">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur sm:p-8">
+          <div className="mb-6 flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#8FB4FF]">
+              Instance deployment
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#4F7CFF]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#8FB4FF] ring-1 ring-[#4F7CFF]/30">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4F7CFF]" />
+              Live
+            </span>
+          </div>
+          <div className="relative">
+            <div className="absolute left-0 right-0 top-3 h-px bg-white/10" />
+            <div className="absolute left-0 top-3 h-px w-2/3 bg-[#4F7CFF] shadow-[0_0_10px_#4F7CFF]" />
+            <div className="relative z-10 grid grid-cols-3 gap-2">
+              {[
+                { label: "Order", done: true },
+                { label: "Provision", active: true },
+                { label: "Activate", done: false },
+              ].map((s) => (
+                <div key={s.label} className="flex flex-col items-center gap-2">
+                  <div
+                    className={`grid h-6 w-6 place-items-center rounded-full border-4 border-[#0B1024] ${
+                      s.done
+                        ? "bg-[#4F7CFF]"
+                        : s.active
+                          ? "bg-[#4F7CFF] animate-pulse"
+                          : "bg-slate-700"
+                    }`}
+                  >
+                    {s.done && (
+                      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <span className={`text-[11px] font-semibold ${s.done || s.active ? "text-white" : "text-white/40"}`}>
+                    {s.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Plan cards */}
+      <section id="plans" className="relative z-10 mx-auto max-w-7xl px-4 pt-14 pb-16 sm:px-6">
         <div className="mb-6 flex items-end justify-between">
           <div>
-            <h2 className="text-[22px] font-semibold tracking-tight">Choose your surface area</h2>
+            <h2 className="text-[22px] font-semibold tracking-tight sm:text-3xl">
+              Choose your surface area
+            </h2>
             <p className="mt-1 text-[13px] text-white/60">
               From ten devices to unlimited fleets. Custom is handled by our team directly.
             </p>
@@ -208,7 +304,100 @@ function Home() {
         </div>
       </section>
 
+      {/* Ambient banner */}
+      <section className="relative z-10 mx-auto max-w-7xl px-4 pb-20 sm:px-6">
+        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] shadow-[0_30px_80px_-30px_rgba(79,124,255,0.35)]">
+          <img
+            src={bannerAsset.url}
+            alt="ConnectLive multi-participant collaboration surface"
+            className="h-56 w-full object-cover opacity-90 sm:h-80"
+            loading="lazy"
+          />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0B1024] via-[#0B1024]/40 to-transparent" />
+          <div className="absolute bottom-0 left-0 p-6 sm:p-8">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8FB4FF]">
+              Enterprise ready
+            </div>
+            <div className="mt-1 max-w-xl text-lg font-semibold sm:text-2xl">
+              One surface for every department — IT, help desk, finance, HR.
+            </div>
+          </div>
+        </div>
+      </section>
+
       <Footer />
+    </div>
+  );
+}
+
+function DeviceMockup() {
+  return (
+    <div className="relative flex items-center justify-center">
+      {/* Ambient glow */}
+      <div
+        aria-hidden
+        className="absolute -inset-6 rounded-[36px] bg-gradient-to-tr from-[#4F7CFF]/25 via-[#8FB4FF]/15 to-transparent blur-2xl"
+      />
+      <div className="relative w-full max-w-md rounded-[28px] border border-white/10 bg-[#0D1430]/80 p-2 shadow-[0_40px_80px_-30px_rgba(79,124,255,0.5)] backdrop-blur">
+        <div className="overflow-hidden rounded-[22px] border border-white/5 bg-[#050814]">
+          {/* window chrome */}
+          <div className="flex items-center justify-between border-b border-white/5 bg-white/5 px-4 py-2">
+            <div className="flex gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-red-400/60" />
+              <span className="h-2 w-2 rounded-full bg-yellow-400/60" />
+              <span className="h-2 w-2 rounded-full bg-emerald-400/60" />
+            </div>
+            <div className="font-mono text-[10px] uppercase tracking-widest text-white/40">
+              Live session · 882-CL
+            </div>
+            <div className="rounded bg-[#4F7CFF]/20 px-2 py-0.5 text-[9px] font-bold text-[#B8CCFF] ring-1 ring-[#4F7CFF]/40">
+              CURTAIN
+            </div>
+          </div>
+
+          {/* video with cursor telemetry overlay */}
+          <div className="relative aspect-video bg-black">
+            <video
+              src={videoAsset.url}
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="h-full w-full object-cover opacity-90"
+            />
+            {/* Cursor telemetry */}
+            <div className="absolute left-[38%] top-[42%] text-[#8FB4FF] drop-shadow-[0_0_6px_rgba(143,180,255,0.9)]">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M5.23 3l15.43 12.83-6.5 1.15 3.53 7.02-2.5 1.25-3.53-7.02-6.43 5.4V3z" />
+              </svg>
+            </div>
+            {/* HUD */}
+            <div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-end justify-between">
+              <div className="rounded-lg border border-white/10 bg-black/50 px-2.5 py-1.5 backdrop-blur">
+                <div className="text-[9px] uppercase tracking-widest text-white/50">Latency</div>
+                <div className="font-mono text-sm text-white">42 ms</div>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-black/50 px-2.5 py-1.5 backdrop-blur">
+                <div className="text-[9px] uppercase tracking-widest text-white/50">Encoder</div>
+                <div className="font-mono text-sm text-white">H.264 · HW</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* Under-panel telemetry */}
+        <div className="grid grid-cols-3 gap-2 p-3">
+          {[
+            { k: "FPS", v: "60" },
+            { k: "Uplink", v: "3.4 Mb/s" },
+            { k: "P2P", v: "WebRTC" },
+          ].map((m) => (
+            <div key={m.k} className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
+              <div className="text-[9px] uppercase tracking-widest text-white/40">{m.k}</div>
+              <div className="mt-0.5 font-mono text-[12px] text-white/90">{m.v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -224,7 +413,6 @@ function PlanCardView({ plan, index }: { plan: PlanCard; index: number }) {
           : "border-white/10 bg-white/[0.04] hover:border-white/25"
       }`}
     >
-      {/* Card ambient art */}
       <div aria-hidden className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 opacity-40 transition group-hover:opacity-60">
         <img src={art} alt="" className="h-full w-full object-contain" />
       </div>
@@ -256,17 +444,17 @@ function FloatingArt() {
       <img
         src={heroFloat2}
         alt=""
-        className="absolute -left-24 top-24 h-[340px] w-[340px] opacity-70 blur-[0.5px] [animation:float1_16s_ease-in-out_infinite]"
+        className="absolute -left-24 top-24 h-[340px] w-[340px] opacity-60 blur-[0.5px] [animation:float1_16s_ease-in-out_infinite]"
       />
       <img
         src={heroFloat3}
         alt=""
-        className="absolute right-[-60px] top-40 h-[380px] w-[380px] opacity-80 [animation:float2_20s_ease-in-out_infinite]"
+        className="absolute right-[-60px] top-40 hidden h-[380px] w-[380px] opacity-60 md:block [animation:float2_20s_ease-in-out_infinite]"
       />
       <img
         src={heroFloat1}
         alt=""
-        className="absolute left-1/2 top-[52%] hidden h-[280px] w-[520px] -translate-x-1/2 opacity-50 md:block [animation:float3_22s_ease-in-out_infinite]"
+        className="absolute left-1/2 top-[62%] hidden h-[280px] w-[520px] -translate-x-1/2 opacity-40 md:block [animation:float3_22s_ease-in-out_infinite]"
       />
       <style>{`
         @keyframes float1 { 0%,100%{transform:translateY(0) rotate(0)} 50%{transform:translateY(-18px) rotate(2deg)} }
