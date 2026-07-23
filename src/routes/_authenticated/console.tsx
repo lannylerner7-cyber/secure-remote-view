@@ -922,6 +922,14 @@ function VirtualTrackpad({
       nudgeTimerRef.current = null;
     }
   };
+  const hideTrackpad = () => {
+    stopNudge();
+    dragPadRef.current = null;
+    setDragging(false);
+    setKnob(null);
+    setResizing(false);
+    setOpen(false);
+  };
   useEffect(() => () => {
     if (nudgeTimerRef.current != null) {
       window.clearInterval(nudgeTimerRef.current);
@@ -987,7 +995,16 @@ function VirtualTrackpad({
             aria-label="Grow trackpad"
           >+</button>
           <button
-            onClick={() => setOpen(false)}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              hideTrackpad();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              hideTrackpad();
+            }}
             className="rounded bg-white/10 px-1.5 text-xs leading-4 hover:bg-white/20"
             aria-label="Hide trackpad"
             title="Hide"
