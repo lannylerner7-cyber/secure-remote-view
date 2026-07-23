@@ -1,4 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import videoAsset from "@/assets/connectlive.mp4.asset.json";
+import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 
 // Direct download URL for the compiled agent. Swap this one line to point at
 // the hosted ConnectLiveAgent.exe / .zip artifact.
@@ -45,31 +47,17 @@ function Home() {
             <span className="text-[#4F7CFF]">ConnectLive</span>
           </h1>
 
-          {/* 3D spinning cube — ConnectLive-native faces only. No third-party
-              logos on the cube: we do not impersonate other remote-support
-              brands. */}
-          <div className="scene mx-auto mt-8">
-            <div className="cube">
-              <div className="face front">
-                <CLMark />
-              </div>
-              <div className="face back">
-                <CLMark />
-              </div>
-              <div className="face right">
-                <CLWord />
-              </div>
-              <div className="face left">
-                <CLWord />
-              </div>
-              <div className="face top">
-                <CLShield />
-              </div>
-              <div className="face bottom">
-                <CLShield />
-              </div>
-            </div>
-          </div>
+          {/* Hero loop — replaces the previous 3D cube. Muted + playsInline so
+              browsers allow autoplay. */}
+          <video
+            src={videoAsset.url}
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            className="mx-auto mt-8 w-full max-w-[360px] rounded-2xl shadow-[0_10px_30px_rgba(31,42,68,0.15)]"
+          />
 
           <p className="mt-8 text-[15px] text-[#4B5568]">
             First, download the ConnectLive app for Windows.
@@ -88,6 +76,14 @@ function Home() {
             your session instantly. Your technician sees only what you approve.
           </div>
 
+          <div className="mt-6">
+            <img
+              src={bannerAsset.url}
+              alt="ConnectLive session preview"
+              className="mx-auto block w-full rounded-xl"
+            />
+          </div>
+
           <div className="mt-8 border-t border-[#EEF0F6] pt-4 text-[11px] text-[#8792A6]">
             <Link
               to="/admin"
@@ -99,86 +95,6 @@ function Home() {
           </div>
         </section>
       </main>
-
-      <style>{`
-        .scene {
-          width: 140px;
-          height: 140px;
-          perspective: 480px;
-        }
-        .cube {
-          width: 100%;
-          height: 100%;
-          position: relative;
-          transform-style: preserve-3d;
-          animation: cl-spin 14s infinite linear;
-        }
-        .cube:hover { animation-play-state: paused; cursor: grab; }
-        .face {
-          position: absolute;
-          width: 140px;
-          height: 140px;
-          border-radius: 18px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: linear-gradient(135deg, #ffffff 0%, #EEF2FF 100%);
-          border: 1px solid #E4E9F5;
-          box-shadow: 0 6px 18px rgba(31, 42, 68, 0.08);
-          backface-visibility: visible;
-        }
-        .face.top, .face.bottom {
-          background: linear-gradient(135deg, #4F7CFF 0%, #1F2A44 100%);
-          border-color: rgba(255,255,255,0.15);
-        }
-        .front  { transform: rotateY(  0deg) translateZ(70px); }
-        .back   { transform: rotateY(180deg) translateZ(70px); }
-        .right  { transform: rotateY( 90deg) translateZ(70px); }
-        .left   { transform: rotateY(-90deg) translateZ(70px); }
-        .top    { transform: rotateX( 90deg) translateZ(70px); }
-        .bottom { transform: rotateX(-90deg) translateZ(70px); }
-        @keyframes cl-spin {
-          0%   { transform: rotateX(0deg)   rotateY(0deg)   rotateZ(0deg); }
-          100% { transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg); }
-        }
-      `}</style>
     </div>
-  );
-}
-
-function CLMark() {
-  return (
-    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4F7CFF] to-[#1F2A44] text-2xl font-bold text-white shadow-inner">
-      CL
-    </div>
-  );
-}
-
-function CLWord() {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="inline-block h-2 w-2 rounded-full bg-[#4F7CFF]" />
-      <span className="text-[13px] font-semibold tracking-wide text-[#1F2A44]">
-        ConnectLive
-      </span>
-    </div>
-  );
-}
-
-function CLShield() {
-  return (
-    <svg
-      viewBox="0 0 48 48"
-      className="h-14 w-14 text-white"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M24 4l16 6v12c0 10-7 18-16 22-9-4-16-12-16-22V10l16-6z" />
-      <path d="M17 24l5 5 10-11" />
-    </svg>
   );
 }
