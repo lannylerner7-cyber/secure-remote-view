@@ -9,10 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TermsRouteImport } from './routes/terms'
+import { Route as RefundRouteImport } from './routes/refund'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as OrderRouteImport } from './routes/order'
+import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as OrderIdRouteImport } from './routes/order.$id'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
+import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
+import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
+import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
 import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
 import { Route as ApiPublicAgentPairRouteImport } from './routes/api/public/agent/pair'
 import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
@@ -26,6 +35,31 @@ import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './route
 import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './routes/api/public/agent/session.$sessionId.cursor'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
 
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RefundRoute = RefundRouteImport.update({
+  id: '/refund',
+  path: '/refund',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrderRoute = OrderRouteImport.update({
+  id: '/order',
+  path: '/order',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -40,11 +74,32 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrderIdRoute = OrderIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => OrderRoute,
+} as any)
 const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   id: '/console',
   path: '/console',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicWebhooksCdpRoute = ApiPublicWebhooksCdpRouteImport.update({
+  id: '/api/public/webhooks/cdp',
+  path: '/api/public/webhooks/cdp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicStatsOrdersRoute = ApiPublicStatsOrdersRouteImport.update({
+  id: '/api/public/stats/orders',
+  path: '/api/public/stats/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicCronReconcileOrdersRoute =
+  ApiPublicCronReconcileOrdersRouteImport.update({
+    id: '/api/public/cron/reconcile-orders',
+    path: '/api/public/cron/reconcile-orders',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAuthLoginRoute = ApiPublicAuthLoginRouteImport.update({
   id: '/api/public/auth/login',
   path: '/api/public/auth/login',
@@ -115,13 +170,22 @@ const ApiPublicAgentSessionSessionIdConsentRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/contact': typeof ContactRoute
+  '/order': typeof OrderRouteWithChildren
+  '/privacy': typeof PrivacyRoute
+  '/refund': typeof RefundRoute
+  '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
+  '/order/$id': typeof OrderIdRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
+  '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
+  '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -132,13 +196,22 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/contact': typeof ContactRoute
+  '/order': typeof OrderRouteWithChildren
+  '/privacy': typeof PrivacyRoute
+  '/refund': typeof RefundRoute
+  '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
+  '/order/$id': typeof OrderIdRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
+  '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
+  '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -151,13 +224,22 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/admin': typeof AdminRoute
+  '/contact': typeof ContactRoute
+  '/order': typeof OrderRouteWithChildren
+  '/privacy': typeof PrivacyRoute
+  '/refund': typeof RefundRoute
+  '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
+  '/order/$id': typeof OrderIdRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/pair': typeof ApiPublicAgentPairRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
+  '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
+  '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -170,13 +252,22 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/contact'
+    | '/order'
+    | '/privacy'
+    | '/refund'
+    | '/terms'
     | '/console'
+    | '/order/$id'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
     | '/api/public/auth/login'
+    | '/api/public/cron/reconcile-orders'
+    | '/api/public/stats/orders'
+    | '/api/public/webhooks/cdp'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -187,13 +278,22 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/contact'
+    | '/order'
+    | '/privacy'
+    | '/refund'
+    | '/terms'
     | '/console'
+    | '/order/$id'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
     | '/api/public/auth/login'
+    | '/api/public/cron/reconcile-orders'
+    | '/api/public/stats/orders'
+    | '/api/public/webhooks/cdp'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -205,13 +305,22 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/admin'
+    | '/contact'
+    | '/order'
+    | '/privacy'
+    | '/refund'
+    | '/terms'
     | '/_authenticated/console'
+    | '/order/$id'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/pair'
     | '/api/public/auth/login'
+    | '/api/public/cron/reconcile-orders'
+    | '/api/public/stats/orders'
+    | '/api/public/webhooks/cdp'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -224,12 +333,20 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AdminRoute: typeof AdminRoute
+  ContactRoute: typeof ContactRoute
+  OrderRoute: typeof OrderRouteWithChildren
+  PrivacyRoute: typeof PrivacyRoute
+  RefundRoute: typeof RefundRoute
+  TermsRoute: typeof TermsRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
   ApiPublicAgentHelloRoute: typeof ApiPublicAgentHelloRoute
   ApiPublicAgentPairRoute: typeof ApiPublicAgentPairRoute
   ApiPublicAuthLoginRoute: typeof ApiPublicAuthLoginRoute
+  ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
+  ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
+  ApiPublicWebhooksCdpRoute: typeof ApiPublicWebhooksCdpRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
   ApiPublicAgentSessionSessionIdCursorRoute: typeof ApiPublicAgentSessionSessionIdCursorRoute
   ApiPublicAgentSessionSessionIdFrameRoute: typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -240,6 +357,41 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/refund': {
+      id: '/refund'
+      path: '/refund'
+      fullPath: '/refund'
+      preLoaderRoute: typeof RefundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/order': {
+      id: '/order'
+      path: '/order'
+      fullPath: '/order'
+      preLoaderRoute: typeof OrderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin': {
       id: '/admin'
       path: '/admin'
@@ -261,12 +413,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/order/$id': {
+      id: '/order/$id'
+      path: '/$id'
+      fullPath: '/order/$id'
+      preLoaderRoute: typeof OrderIdRouteImport
+      parentRoute: typeof OrderRoute
+    }
     '/_authenticated/console': {
       id: '/_authenticated/console'
       path: '/console'
       fullPath: '/console'
       preLoaderRoute: typeof AuthenticatedConsoleRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/webhooks/cdp': {
+      id: '/api/public/webhooks/cdp'
+      path: '/api/public/webhooks/cdp'
+      fullPath: '/api/public/webhooks/cdp'
+      preLoaderRoute: typeof ApiPublicWebhooksCdpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/stats/orders': {
+      id: '/api/public/stats/orders'
+      path: '/api/public/stats/orders'
+      fullPath: '/api/public/stats/orders'
+      preLoaderRoute: typeof ApiPublicStatsOrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/cron/reconcile-orders': {
+      id: '/api/public/cron/reconcile-orders'
+      path: '/api/public/cron/reconcile-orders'
+      fullPath: '/api/public/cron/reconcile-orders'
+      preLoaderRoute: typeof ApiPublicCronReconcileOrdersRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/auth/login': {
       id: '/api/public/auth/login'
@@ -366,16 +546,34 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface OrderRouteChildren {
+  OrderIdRoute: typeof OrderIdRoute
+}
+
+const OrderRouteChildren: OrderRouteChildren = {
+  OrderIdRoute: OrderIdRoute,
+}
+
+const OrderRouteWithChildren = OrderRoute._addFileChildren(OrderRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AdminRoute: AdminRoute,
+  ContactRoute: ContactRoute,
+  OrderRoute: OrderRouteWithChildren,
+  PrivacyRoute: PrivacyRoute,
+  RefundRoute: RefundRoute,
+  TermsRoute: TermsRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
   ApiPublicAgentHelloRoute: ApiPublicAgentHelloRoute,
   ApiPublicAgentPairRoute: ApiPublicAgentPairRoute,
   ApiPublicAuthLoginRoute: ApiPublicAuthLoginRoute,
+  ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
+  ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
+  ApiPublicWebhooksCdpRoute: ApiPublicWebhooksCdpRoute,
   ApiPublicAgentSessionSessionIdConsentRoute:
     ApiPublicAgentSessionSessionIdConsentRoute,
   ApiPublicAgentSessionSessionIdCursorRoute:
@@ -392,13 +590,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

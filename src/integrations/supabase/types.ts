@@ -19,6 +19,9 @@ export type Database = {
           notify_on_control_taken: boolean
           notify_on_device_offline: boolean
           notify_on_session_start: boolean
+          payout_address_btc: string | null
+          payout_address_eth: string | null
+          sweep_to_exchange_enabled: boolean
           telegram_bot_token: string | null
           telegram_chat_id: string | null
           updated_at: string
@@ -28,6 +31,9 @@ export type Database = {
           notify_on_control_taken?: boolean
           notify_on_device_offline?: boolean
           notify_on_session_start?: boolean
+          payout_address_btc?: string | null
+          payout_address_eth?: string | null
+          sweep_to_exchange_enabled?: boolean
           telegram_bot_token?: string | null
           telegram_chat_id?: string | null
           updated_at?: string
@@ -37,10 +43,46 @@ export type Database = {
           notify_on_control_taken?: boolean
           notify_on_device_offline?: boolean
           notify_on_session_start?: boolean
+          payout_address_btc?: string | null
+          payout_address_eth?: string | null
+          sweep_to_exchange_enabled?: boolean
           telegram_bot_token?: string | null
           telegram_chat_id?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      admin_wallets: {
+        Row: {
+          addresses_issued: number
+          cdp_wallet_id: string
+          chain: string
+          coin: string
+          created_at: string
+          id: string
+          updated_at: string
+          xpub: string | null
+        }
+        Insert: {
+          addresses_issued?: number
+          cdp_wallet_id: string
+          chain: string
+          coin: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          xpub?: string | null
+        }
+        Update: {
+          addresses_issued?: number
+          cdp_wallet_id?: string
+          chain?: string
+          coin?: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          xpub?: string | null
         }
         Relationships: []
       }
@@ -182,6 +224,157 @@ export type Database = {
           sender_id?: string | null
           severity?: string
           title?: string
+        }
+        Relationships: []
+      }
+      orders: {
+        Row: {
+          access_link: string | null
+          access_link_sent_at: string | null
+          amount_coin: number
+          amount_usd: number
+          coin: string
+          company: string | null
+          confirmations: number
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          notes: string | null
+          phone: string | null
+          plan_code: string
+          price_expires_at: string
+          price_locked_at: string
+          receive_address: string | null
+          status: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_link?: string | null
+          access_link_sent_at?: string | null
+          amount_coin: number
+          amount_usd: number
+          coin: string
+          company?: string | null
+          confirmations?: number
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          notes?: string | null
+          phone?: string | null
+          plan_code: string
+          price_expires_at: string
+          price_locked_at?: string
+          receive_address?: string | null
+          status?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_link?: string | null
+          access_link_sent_at?: string | null
+          amount_coin?: number
+          amount_usd?: number
+          coin?: string
+          company?: string | null
+          confirmations?: number
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          notes?: string | null
+          phone?: string | null
+          plan_code?: string
+          price_expires_at?: string
+          price_locked_at?: string
+          receive_address?: string | null
+          status?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_plan_code_fkey"
+            columns: ["plan_code"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      payment_events: {
+        Row: {
+          confirmations: number | null
+          created_at: string
+          event_type: string
+          id: string
+          order_id: string
+          raw: Json | null
+          source: string
+          tx_hash: string | null
+        }
+        Insert: {
+          confirmations?: number | null
+          created_at?: string
+          event_type: string
+          id?: string
+          order_id: string
+          raw?: Json | null
+          source: string
+          tx_hash?: string | null
+        }
+        Update: {
+          confirmations?: number | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          order_id?: string
+          raw?: Json | null
+          source?: string
+          tx_hash?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_events_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plans: {
+        Row: {
+          active: boolean
+          amount_usd: number
+          code: string
+          created_at: string
+          description: string | null
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          amount_usd: number
+          code: string
+          created_at?: string
+          description?: string | null
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          amount_usd?: number
+          code?: string
+          created_at?: string
+          description?: string | null
+          name?: string
+          sort_order?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -422,6 +615,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_paid_order_count: { Args: never; Returns: number }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

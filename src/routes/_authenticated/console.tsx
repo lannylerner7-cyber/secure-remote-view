@@ -6,6 +6,7 @@ import { sendTelegramNotify } from "@/lib/notify.functions";
 import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type AppRole, type AdminRow } from "@/lib/admins.functions";
 import { broadcastNotification, sendNotification, type NotificationSeverity } from "@/lib/notifications.functions";
 import { NotificationBell } from "@/components/NotificationBell";
+import { PaymentsPanel } from "@/components/PaymentsPanel";
 import { startWebRtcLive, type WebRtcLive } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -22,7 +23,7 @@ export const Route = createFileRoute("/_authenticated/console")({
 const STALE_MS = 45_000;
 const OFFLINE_MS = 180_000;
 
-type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team";
+type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team" | "payments";
 
 function generatePairingCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -445,6 +446,7 @@ function AdminPage() {
             <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
             <NavBtn id="audit" label="Audit log" />
             {role === "super_admin" && <NavBtn id="team" label="Team" />}
+            {(role === "super_admin" || role === "admin") && <NavBtn id="payments" label="Payments" />}
             {role === "super_admin" && <NavBtn id="settings" label="Settings" />}
           </nav>
           <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/50">
@@ -574,6 +576,10 @@ function AdminPage() {
             )}
 
             {nav === "team" && role === "super_admin" && <TeamPanel />}
+
+            {nav === "payments" && (role === "super_admin" || role === "admin") && (
+              <PaymentsPanel isSuperAdmin={role === "super_admin"} />
+            )}
           </main>
         </div>
       </div>
