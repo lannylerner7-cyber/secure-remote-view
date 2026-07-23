@@ -199,7 +199,7 @@ export const markOrderPaid = createServerFn({ method: "POST" })
       raw: { by: context.userId, note: data.note ?? null },
     });
     await supabaseAdmin.from("audit_logs").insert({
-      actor_id: context.userId,
+      actor: context.userId,
       event: "order.manual_paid",
       detail: { order_id: data.id, note: data.note ?? null },
     });
