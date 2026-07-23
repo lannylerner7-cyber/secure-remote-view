@@ -6,6 +6,7 @@ import { sendTelegramNotify } from "@/lib/notify.functions";
 import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type AppRole, type AdminRow } from "@/lib/admins.functions";
 import { broadcastNotification, sendNotification, type NotificationSeverity } from "@/lib/notifications.functions";
 import { NotificationBell } from "@/components/NotificationBell";
+import { PaymentsPanel } from "@/components/PaymentsPanel";
 import { startWebRtcLive, type WebRtcLive } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 
