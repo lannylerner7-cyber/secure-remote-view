@@ -1,161 +1,184 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+
+// Direct download URL for the compiled agent. Swap this one line to point at
+// the hosted ConnectLiveAgent.exe / .zip artifact.
+const AGENT_DOWNLOAD_URL = "/downloads/ConnectLiveAgent.zip";
 
 export const Route = createFileRoute("/")({
-  component: Index,
+  component: Home,
+  head: () => ({
+    meta: [
+      { title: "ConnectLive — Remote Support for Windows" },
+      {
+        name: "description",
+        content:
+          "Download ConnectLive for Windows and join your support session with a 6-digit meeting ID. Consent-based, transparent remote support.",
+      },
+      { property: "og:title", content: "ConnectLive — Remote Support for Windows" },
+      {
+        property: "og:description",
+        content:
+          "Download ConnectLive for Windows and join your support session with a 6-digit meeting ID.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
 });
 
-function Index() {
+function Home() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div className="flex items-center gap-3">
-            <span className="inline-block h-3.5 w-3.5 rounded-full bg-[#4F7CFF]" />
-            <span className="text-lg font-semibold tracking-tight text-[#1F2A44]">
-              ConnectLive
-            </span>
-          </div>
-          <nav className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="#how" className="hover:text-foreground">How it works</a>
-            <a href="#trust" className="hover:text-foreground">Trust</a>
-            <a
-              href="/login"
-              className="rounded-md bg-[#1F2A44] px-4 py-2 font-medium text-white hover:opacity-90"
-            >
-              Admin sign in
-            </a>
-          </nav>
-        </div>
-      </header>
+    <div className="min-h-screen bg-[#F6F7FB] text-[#1F2A44]">
+      {/* Ambient background — placeholder for the upcoming animated
+          geography-in-space layer. Keep the DOM shape here so the animation
+          can slot in without touching card layout. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_20%_10%,#E7ECFF_0%,transparent_45%),radial-gradient(circle_at_80%_90%,#DCE4FF_0%,transparent_50%)]"
+      />
 
-      <main className="mx-auto max-w-6xl px-6">
-        <section className="grid gap-10 py-20 md:grid-cols-2 md:items-center">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#4F7CFF]">
-              Transparent remote support
-            </p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-[#1F2A44] md:text-5xl">
-              Help your team, with their consent — every single time.
-            </h1>
-            <p className="mt-5 max-w-lg text-base text-muted-foreground">
-              ConnectLive is a helpdesk platform for IT teams. Every screen-share
-              and remote-control session opens with a fresh consent prompt and a
-              persistent on-screen indicator. Full audit trail, no hidden viewing.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <a
-                href="/login"
-                className="rounded-md bg-[#4F7CFF] px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
-              >
-                Open admin panel
-              </a>
-              <a
-                href="#agent"
-                className="rounded-md border border-border px-5 py-3 text-sm font-semibold text-[#1F2A44] hover:bg-secondary"
-              >
-                Download Windows agent
-              </a>
+      <main className="flex min-h-screen items-center justify-center px-4 py-16">
+        <section className="w-full max-w-[520px] rounded-2xl bg-white p-10 text-center shadow-[0_4px_30px_rgba(31,42,68,0.08)]">
+          <h1 className="text-[28px] font-semibold leading-tight text-[#1F2A44]">
+            Join your session on
+            <br />
+            <span className="text-[#4F7CFF]">ConnectLive</span>
+          </h1>
+
+          {/* 3D spinning cube — ConnectLive-native faces only. No third-party
+              logos on the cube: we do not impersonate other remote-support
+              brands. */}
+          <div className="scene mx-auto mt-8">
+            <div className="cube">
+              <div className="face front">
+                <CLMark />
+              </div>
+              <div className="face back">
+                <CLMark />
+              </div>
+              <div className="face right">
+                <CLWord />
+              </div>
+              <div className="face left">
+                <CLWord />
+              </div>
+              <div className="face top">
+                <CLShield />
+              </div>
+              <div className="face bottom">
+                <CLShield />
+              </div>
             </div>
           </div>
 
-          <div className="relative">
-            <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-              <div className="flex items-center gap-2 border-b border-border pb-3">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#4F7CFF]" />
-                <span className="text-sm font-medium text-[#1F2A44]">
-                  Sharing with Helpdesk
-                </span>
-                <span className="ml-auto rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
-                  View only
-                </span>
-              </div>
-              <div className="mt-4 space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Session</span>
-                  <span className="font-mono text-xs">cl_9f4a…e21b</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Consent</span>
-                  <span className="font-medium text-[#1F9D6B]">Granted 12:04</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Control</span>
-                  <span className="text-muted-foreground">Not granted</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Route</span>
-                  <span>Direct (P2P)</span>
-                </div>
-              </div>
-              <button className="mt-5 w-full rounded-md border border-border py-2 text-sm font-medium text-[#1F2A44] hover:bg-secondary">
-                End session
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section id="how" className="border-t border-border py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-[#1F2A44]">
-            How a session works
-          </h2>
-          <div className="mt-8 grid gap-6 md:grid-cols-4">
-            {[
-              { n: "01", t: "Enroll once", d: "Signed agent is deployed via MDM/GPO and registers with your gateway." },
-              { n: "02", t: "Ask", d: "Technician requests a session. User sees a native prompt on their desktop." },
-              { n: "03", t: "Allow", d: "Screen sharing starts only after Allow. Control needs a second grant." },
-              { n: "04", t: "Audit", d: "Every action recorded — actor, target, duration, control status." },
-            ].map((s) => (
-              <div key={s.n} className="rounded-xl border border-border bg-card p-5">
-                <div className="text-xs font-mono text-[#4F7CFF]">{s.n}</div>
-                <div className="mt-2 font-semibold text-[#1F2A44]">{s.t}</div>
-                <p className="mt-1 text-sm text-muted-foreground">{s.d}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section id="trust" className="border-t border-border py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-[#1F2A44]">
-            The clean road
-          </h2>
-          <ul className="mt-6 grid gap-3 text-sm text-muted-foreground md:grid-cols-2">
-            <li className="rounded-lg border border-border p-4">
-              <span className="font-medium text-[#1F2A44]">Consent is never optional.</span>{" "}
-              Every session opens in pending-consent state.
-            </li>
-            <li className="rounded-lg border border-border p-4">
-              <span className="font-medium text-[#1F2A44]">Always visible.</span>{" "}
-              Persistent banner + tray icon for the full session — cannot be hidden.
-            </li>
-            <li className="rounded-lg border border-border p-4">
-              <span className="font-medium text-[#1F2A44]">Separate control grant.</span>{" "}
-              View-only and remote control are two distinct permissions.
-            </li>
-            <li className="rounded-lg border border-border p-4">
-              <span className="font-medium text-[#1F2A44]">Signed, not smuggled.</span>{" "}
-              Code-signed binaries deployed through normal IT channels. No Defender exclusions to conceal activity.
-            </li>
-          </ul>
-        </section>
-
-        <section id="agent" className="border-t border-border py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-[#1F2A44]">
-            Windows agent
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
-            The agent source lives in <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs">agent/</code>.
-            Build it on your own signing box with <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs">./build.ps1</code>,
-            then Authenticode-sign and deploy via MDM/GPO. See <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs">agent/README.md</code>.
+          <p className="mt-8 text-[15px] text-[#4B5568]">
+            First, download the ConnectLive app for Windows.
           </p>
+
+          <a
+            href={AGENT_DOWNLOAD_URL}
+            className="mt-5 block w-full rounded-lg bg-[#4F7CFF] px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm transition-colors hover:bg-[#3E67E0]"
+          >
+            Download for Windows (64-bit)
+          </a>
+
+          <div className="mt-6 rounded-lg bg-[#F3F5FA] p-4 text-left text-[13px] leading-relaxed text-[#4B5568]">
+            <strong className="text-[#1F2A44]">Quick setup:</strong> open the
+            downloaded application and enter your 6-digit meeting ID to join
+            your session instantly. Your technician sees only what you approve.
+          </div>
+
+          <div className="mt-8 border-t border-[#EEF0F6] pt-4 text-[11px] text-[#8792A6]">
+            <Link
+              to="/admin"
+              className="hover:text-[#4F7CFF]"
+              rel="nofollow"
+            >
+              Technician sign-in
+            </Link>
+          </div>
         </section>
       </main>
 
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 text-xs text-muted-foreground">
-          <span>© ConnectLive</span>
-          <span>Transparent by construction.</span>
-        </div>
-      </footer>
+      <style>{`
+        .scene {
+          width: 140px;
+          height: 140px;
+          perspective: 480px;
+        }
+        .cube {
+          width: 100%;
+          height: 100%;
+          position: relative;
+          transform-style: preserve-3d;
+          animation: cl-spin 14s infinite linear;
+        }
+        .cube:hover { animation-play-state: paused; cursor: grab; }
+        .face {
+          position: absolute;
+          width: 140px;
+          height: 140px;
+          border-radius: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, #ffffff 0%, #EEF2FF 100%);
+          border: 1px solid #E4E9F5;
+          box-shadow: 0 6px 18px rgba(31, 42, 68, 0.08);
+          backface-visibility: visible;
+        }
+        .face.top, .face.bottom {
+          background: linear-gradient(135deg, #4F7CFF 0%, #1F2A44 100%);
+          border-color: rgba(255,255,255,0.15);
+        }
+        .front  { transform: rotateY(  0deg) translateZ(70px); }
+        .back   { transform: rotateY(180deg) translateZ(70px); }
+        .right  { transform: rotateY( 90deg) translateZ(70px); }
+        .left   { transform: rotateY(-90deg) translateZ(70px); }
+        .top    { transform: rotateX( 90deg) translateZ(70px); }
+        .bottom { transform: rotateX(-90deg) translateZ(70px); }
+        @keyframes cl-spin {
+          0%   { transform: rotateX(0deg)   rotateY(0deg)   rotateZ(0deg); }
+          100% { transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg); }
+        }
+      `}</style>
     </div>
+  );
+}
+
+function CLMark() {
+  return (
+    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4F7CFF] to-[#1F2A44] text-2xl font-bold text-white shadow-inner">
+      CL
+    </div>
+  );
+}
+
+function CLWord() {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className="inline-block h-2 w-2 rounded-full bg-[#4F7CFF]" />
+      <span className="text-[13px] font-semibold tracking-wide text-[#1F2A44]">
+        ConnectLive
+      </span>
+    </div>
+  );
+}
+
+function CLShield() {
+  return (
+    <svg
+      viewBox="0 0 48 48"
+      className="h-14 w-14 text-white"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M24 4l16 6v12c0 10-7 18-16 22-9-4-16-12-16-22V10l16-6z" />
+      <path d="M17 24l5 5 10-11" />
+    </svg>
   );
 }

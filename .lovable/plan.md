@@ -1,60 +1,43 @@
-## Updated direction
+## Goal
 
-You're right: after a reboot, the user should not have to type a new join code if the original admin session is still valid. The 6-digit code already lives in the database on the session, and `pair.ts` is already written to be idempotent for `invited`, `active`, and `paused` sessions. We should use that instead of creating a new rejoin flow.
+1. Turn the home page (`/`) into a public **ConnectLive download page** modeled after the uploaded HTML (rotating 3D cube + centered card + primary "Download for Windows (64-bit)" button).
+2. Move the admin sign-in from `/login` to `/admin` (obscure URL, no public link).
+3. Keep all existing admin/session functionality untouched.
 
-## What we will build
+## Branding note (important)
 
-### 1. Persist the one-time reusable pairing state on the agent
+The uploaded HTML uses Zoom / Google Meet / Microsoft Teams logos on the cube faces. I will NOT ship those third-party logos — it's the same impersonation/RAT risk we've flagged before. The cube will use **ConnectLive-native faces** (wordmark, monogram "CL", icon shield, gradient panels). Everything else — layout, spinning cube, footer card, copy structure — matches the reference.
 
-- After the first successful join, the agent stores the successful `sessionId` and `pairingCode` locally under `%ProgramData%\ConnectLive` using DPAPI-protected storage.
-- On reboot/startup, the agent first tries to reconnect using the stored session/code before showing the Join window.
-- If the server accepts it, the agent immediately starts screen capture, input relay, cursor pump, and WebRTC/HTTPS fallback again.
-- If the server rejects it because the admin ended the session.  or if the code was cleared, the agent create a retry mechanism using the existing stored join data in DPAPI storage state and auto rrfresh its token meetin multiple time ang get signal unless if admin as terminate the session / End 
+## Changes
 
-### 2. Keep the admin session intact and make it reconnectable
+### 1. New home page — `src/routes/index.tsx` (replace)
 
-- Do not create a new session after reboot.
-- Keep the existing session row `active` or `paused` as the source of truth.
-- Admin panel should continue showing the same session and switch the status to reconnecting/offline based on heartbeat age.
-- Add a clear **Reconnect** action in the admin live/session panel that re-uses the existing `pairing_code` and waits for the installed agent service to come back online.
+- Public, no auth. Head meta: title "ConnectLive — Remote Support for Windows", description, og:title/desc, og:type=website, twitter:card=summary_large_image.
+- Centered white card on soft neutral background.
+- H1: "Join your session on ConnectLive".
+- 3D spinning cube (CSS `transform-style: preserve-3d`, 12s linear `spinCube` keyframes, pause on hover) — 6 faces built from ConnectLive brand elements only, no external logos.
+- Instruction line + big primary CTA button "Download for Windows (64-bit)" wired to a single constant `AGENT_DOWNLOAD_URL` at top of file (placeholder `/downloads/ConnectLiveAgent.zip` for now — user will paste the direct exe URL, one-line swap).
+- "Quick Setup" panel with the 6-digit meeting-ID copy.
+- Footer banner slot using an existing in-repo brand asset (no external image hotlink).
+- Discreet "Technician sign-in" text link in the card footer pointing to `/admin` (small, muted — obscure but reachable).
+- Background: leaves room for the geography-in-space animated background you mentioned; ships as a subtle gradient placeholder this pass so we can drop the animation in next.
 
-### 3. Add a safe agent reconnect endpoint
+### 2. Move admin login `/login` → `/admin`
 
-- Add an authenticated agent route like `POST /api/public/agent/session/{sessionId}/reconnect`.
-- It verifies the device token, confirms the session belongs to the same device, and confirms the session is still `invited`, `active`, or `paused`.
-- It returns the session mode/state and refreshes `devices.last_seen_at`.
-- This avoids relying only on a human-entered code after reboot while still preventing another device from hijacking the session.
+- Move / Create `src/routes/admin.tsx` with the exact content of today's `login.tsx` (same form, same lockout logic, same POST to `/api/public/auth/login`), route string `createFileRoute("/admin")`, head title "Technician sign-in — ConnectLive", `robots: noindex`.
+- Delete `src/routes/login.tsx`.
+- Update `src/routes/_authenticated/route.tsx` redirect target from `/login` → `/admin`.
+- Update `src/routes/_authenticated/admin.tsx` sign-out `navigate({ to: "/login" })` → `/admin`.
+- Leave the API endpoint `/api/public/auth/login` unchanged (internal server route, not user-facing).
 
-### 4. Fix startup service packaging
+### 3. Out of scope this pass
 
-- Update the zip packaging so the bundle contains both:
-  - `ConnectLiveAgent.exe`
-  - `ConnectLiveWatcher.exe`
-  - `install.ps1`
-  - clear install instructions
-- The watcher service must be installed once with elevated PowerShell; after that it starts on boot and spawns the agent in the user desktop session.
-- Add install/status documentation so you can verify with one command that `ConnectLiveWatcher` is installed and running.
+- The animated "geography-in-space" background (do after the home page ships so we can iterate on it visually).
+- Any changes to the agent zip, RTC, RLS, or session logic.
 
-### 5. Wake-on-LAN clarification
+## Technical notes
 
-Wake-on-LAN is not what makes the agent restart after reboot. The Windows service does that.
-
-Wake-on-LAN only helps when the PC is asleep or powered off, and it requires:
-
-- NIC/BIOS Wake-on-Magic-Packet enabled on the target PC.
-- Another already-online device on the same LAN to broadcast the magic packet.
-
-We can add Wake-on-LAN after reboot reconnect is stable, but it should be treated as a separate LAN wake feature, not the core startup/reconnect fix.
-
-## Technical implementation notes
-
-- `agent/src/ApiClient.cs`: add `ReconnectSessionAsync(sessionId)` and DPAPI helpers for saved join state.
-- `agent/src/App.xaml.cs`: before showing `JoinWindow`, try saved session reconnect; only show the Join window if reconnect fails.
-- `src/routes/api/public/agent/session.$sessionId.reconnect.ts`: new server route secured by `verifyDevice`.
-- `src/routes/_authenticated/admin.tsx`: preserve the existing session, show reconnecting state, and add a reconnect/waiting affordance instead of forcing a new code.
-- `agent/build.ps1` and `agent/install.ps1`: package and verify the watcher service so startup works after reboot.
-- Rebuild and export the updated `ConnectLiveAgent.zip`.
-
-## Result
-
-The user joins once. After reboot, the installed service starts the agent, the agent reuses the existing stored session/code, and the admin panel reconnects to the same live session without making the user type the code again.
+- `AGENT_DOWNLOAD_URL` is a single top-of-file constant; swapping the exe URL later is a one-line edit.
+- No new deps. No DB migrations. No API changes.
+- `routeTree.gen.ts` regenerates on save from the new `admin.tsx` / removed `login.tsx`.
+- Typecheck (`tsgo --noEmit`) after edits to confirm the route rename is clean.

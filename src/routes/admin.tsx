@@ -2,11 +2,11 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-export const Route = createFileRoute("/login")({
+export const Route = createFileRoute("/admin")({
   component: LoginPage,
   head: () => ({
     meta: [
-      { title: "Sign in — ConnectLive" },
+      { title: "Technician sign-in — ConnectLive" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -65,7 +65,7 @@ function LoginPage() {
         setError(setErr.message);
         return;
       }
-      navigate({ to: "/admin" });
+      navigate({ to: "/console" });
     } catch {
       setLoading(false);
       setError("Network error. Please try again.");
