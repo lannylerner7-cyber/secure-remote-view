@@ -27,16 +27,41 @@ public partial class App : Application
         {
             splash.SetStatus("Registering with ConnectLive…");
             await api.EnrollIfNeededAsync(_cts.Token);
-            splash.SetStatus("Ready");
-            await Task.Delay(400);
-            splash.Close();
+            string? sessionId = null;
 
-            // Join window collects the 6-digit code from the dashboard.
-            var join = new JoinWindow(api);
-            var ok = join.ShowDialog();
-            if (ok != true || string.IsNullOrEmpty(join.JoinedSessionId)) { Shutdown(); return; }
+            var saved = api.LoadSessionBinding();
+            if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
+            {
+                splash.SetStatus("Restoring previous session…");
+                var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
+                if (restored.Ok && !string.IsNullOrEmpty(restored.SessionId))
+                {
+                    sessionId = restored.SessionId;
+                }
+                else
+                {
+                    ApiClient.ClearSessionBinding();
+                }
+            }
 
-            var sessionId = join.JoinedSessionId!;
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                splash.SetStatus("Ready");
+                await Task.Delay(400);
+                splash.Close();
+
+                // Join window collects the reusable 6-digit code from the dashboard.
+                var join = new JoinWindow(api);
+                var ok = join.ShowDialog();
+                if (ok != true || string.IsNullOrEmpty(join.JoinedSessionId)) { Shutdown(); return; }
+                sessionId = join.JoinedSessionId!;
+            }
+            else
+            {
+                splash.SetStatus("Session restored");
+                await Task.Delay(400);
+                splash.Close();
+            }
 
             // Tray + persistent banner + screen capture loop.
             _ = new TrayIcon(onQuit: Shutdown);

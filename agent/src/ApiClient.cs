@@ -17,7 +17,8 @@ namespace ConnectLive.Agent;
 ///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }
 ///   POST /api/public/agent/hello                -> presence "arrived" signal
 ///   POST /api/public/agent/heartbeat            -> pending session invites
-///   POST /api/public/agent/session/:id/consent  -> user consent result
+///   POST /api/public/agent/session/:id/reconnect -> resume same device/session after reboot
+///   POST /api/public/agent/session/:id/consent   -> user consent result
 ///   WS   /api/ws?token=...                      -> realtime signaling
 /// Every authenticated request sends BOTH X-Device-Id AND X-Device-Token.
 /// </summary>
@@ -30,6 +31,7 @@ public sealed class ApiClient
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
     private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
     private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
+    private static readonly string SessionPath = Path.Combine(ConfigDir, "session.dat");
 
     private readonly HttpClient _http;
     public string ApiBaseUrl { get; }
@@ -124,11 +126,44 @@ public sealed class ApiClient
             catch { return new PairResult(false, null, resp.StatusCode.ToString()); }
         }
         var ok = System.Text.Json.JsonSerializer.Deserialize<PairOk>(body);
+        if (!string.IsNullOrEmpty(ok?.sessionId)) SaveSessionBinding(new SessionBinding(ok.sessionId, code, DateTimeOffset.UtcNow));
         return new PairResult(true, ok?.sessionId, null);
     }
 
     private sealed record PairOk(bool ok, string sessionId, string mode, string state);
     private sealed record PairErr(string error);
+
+    // ---- Reusable reconnect --------------------------------------------
+
+    public async Task<PairResult> ReconnectSessionAsync(string sessionId, string? code, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/reconnect")
+        {
+            Content = JsonContent.Create(new { code })
+        };
+        AddAuth(req);
+        try
+        {
+            using var resp = await _http.SendAsync(req, ct);
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                try
+                {
+                    var err = JsonSerializer.Deserialize<PairErr>(body);
+                    return new PairResult(false, null, err?.error ?? resp.StatusCode.ToString());
+                }
+                catch { return new PairResult(false, null, resp.StatusCode.ToString()); }
+            }
+            var ok = JsonSerializer.Deserialize<PairOk>(body);
+            if (!string.IsNullOrEmpty(ok?.sessionId)) SaveSessionBinding(new SessionBinding(ok.sessionId, code, DateTimeOffset.UtcNow));
+            return new PairResult(true, ok?.sessionId, null);
+        }
+        catch (Exception ex)
+        {
+            return new PairResult(false, null, ex.Message);
+        }
+    }
 
     // ---- Live frame upload --------------------------------------------
 
@@ -260,6 +295,35 @@ public sealed class ApiClient
         File.WriteAllBytes(DevicePath, enc);
     }
 
+    public SessionBinding? LoadSessionBinding()
+    {
+        if (!File.Exists(SessionPath)) return null;
+        try
+        {
+            var enc = File.ReadAllBytes(SessionPath);
+            var dec = ProtectedData.Unprotect(enc, null, DataProtectionScope.LocalMachine);
+            var json = Encoding.UTF8.GetString(dec);
+            return JsonSerializer.Deserialize<SessionBinding>(json);
+        }
+        catch
+        {
+            ClearSessionBinding();
+            return null;
+        }
+    }
+
+    public static void SaveSessionBinding(SessionBinding binding)
+    {
+        var json = JsonSerializer.Serialize(binding);
+        var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
+        File.WriteAllBytes(SessionPath, enc);
+    }
+
+    public static void ClearSessionBinding()
+    {
+        try { if (File.Exists(SessionPath)) File.Delete(SessionPath); } catch { }
+    }
+
     private static AgentConfig? LoadConfig() =>
         File.Exists(ConfigPath) ? JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(ConfigPath)) : null;
 
@@ -269,5 +333,6 @@ public sealed class ApiClient
     // ---- DTOs ----------------------------------------------------------
 
     public sealed record EnrollResponse(string DeviceId, string DeviceToken);
+    public sealed record SessionBinding(string SessionId, string? PairingCode, DateTimeOffset SavedAt);
     public sealed record AgentConfig(string ApiBaseUrl);
 }
