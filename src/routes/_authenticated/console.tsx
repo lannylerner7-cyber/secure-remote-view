@@ -903,24 +903,9 @@ function VirtualTrackpad({
 
   const knobSize = Math.max(20, Math.round(size * 0.24));
 
-  // Hidden state: only render a small pull-tab so the panel is off the way.
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="absolute bottom-4 right-0 z-10 flex items-center gap-1 rounded-l-md border border-r-0 border-white/15 bg-black/70 px-2 py-3 text-[10px] uppercase tracking-widest text-white/70 hover:bg-black/90"
-        aria-label="Show trackpad"
-      >
-        <span>‹</span>
-        <span className="[writing-mode:vertical-rl] rotate-180">Pad</span>
-      </button>
-    );
-  }
-
   // Press-and-hold cursor nudge. First tick fires immediately, then a
   // 24ms interval keeps sending the same delta with a mild acceleration
-  // curve while the pointer stays down. Matches analog behaviour but
-  // gives pixel-level precision for the final destination.
+  // curve while the pointer stays down.
   const startNudge = (dx: number, dy: number) => {
     if (nudgeTimerRef.current != null) window.clearInterval(nudgeTimerRef.current);
     onNudge(dx, dy);
@@ -937,7 +922,29 @@ function VirtualTrackpad({
       nudgeTimerRef.current = null;
     }
   };
-  useEffect(() => () => stopNudge(), []);
+  useEffect(() => () => {
+    if (nudgeTimerRef.current != null) {
+      window.clearInterval(nudgeTimerRef.current);
+      nudgeTimerRef.current = null;
+    }
+  }, []);
+
+  // Hidden state: only render a small pull-tab so the panel is off the way.
+  // NOTE: all hooks MUST be declared above this early return.
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="absolute bottom-4 right-0 z-10 flex items-center gap-1 rounded-l-md border border-r-0 border-white/15 bg-black/70 px-2 py-3 text-[10px] uppercase tracking-widest text-white/70 hover:bg-black/90"
+        aria-label="Show trackpad"
+      >
+        <span>‹</span>
+        <span className="[writing-mode:vertical-rl] rotate-180">Pad</span>
+      </button>
+    );
+  }
+
+
 
   const NudgeBtn = ({ label, dx, dy, ariaLabel }: { label: string; dx: number; dy: number; ariaLabel: string }) => (
     <button
