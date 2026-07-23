@@ -1,26 +1,70 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Monitor,
+  MousePointerClick,
+  Activity,
+  LifeBuoy,
+  Video,
+  Lock,
+  Receipt,
+  Users,
+  ShieldCheck,
+  Download,
+  CheckCircle2,
+} from "lucide-react";
 import videoAsset from "@/assets/connectlive.mp4.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 import { Footer } from "@/components/Footer";
 
 const AGENT_DOWNLOAD_URL = "/downloads/ConnectLiveAgent.zip";
 
+type Dept = "all" | "it" | "helpdesk" | "finance" | "hr" | "sales";
+
+type Tool = {
+  id: string;
+  title: string;
+  desc: string;
+  icon: React.ComponentType<{ className?: string }>;
+  depts: Exclude<Dept, "all">[];
+  action: "download" | "checkout";
+};
+
+const TOOLS: Tool[] = [
+  { id: "screen-share", title: "Live Screen Share", desc: "Consent-based screen viewing with a persistent on-screen indicator.", icon: Monitor, depts: ["it", "helpdesk"], action: "download" },
+  { id: "remote-access", title: "Remote Access", desc: "Take control of an endpoint after the user approves the session.", icon: MousePointerClick, depts: ["it", "helpdesk"], action: "download" },
+  { id: "diagnostics", title: "Device Diagnostics", desc: "Inspect device health, uptime, and network status in real time.", icon: Activity, depts: ["it"], action: "download" },
+  { id: "ticketing", title: "Help Desk Ticketing", desc: "Attach live sessions to tickets and keep a full audit trail.", icon: LifeBuoy, depts: ["helpdesk", "hr", "sales"], action: "download" },
+  { id: "recording", title: "Session Recording", desc: "Optional recording with consent for training and compliance.", icon: Video, depts: ["it", "helpdesk"], action: "download" },
+  { id: "team", title: "Team Directory", desc: "Route sessions to the right department in one click.", icon: Users, depts: ["it", "helpdesk", "hr", "sales"], action: "download" },
+  { id: "checkout", title: "Secure Checkout", desc: "Purchase or renew a ConnectLive license.", icon: Lock, depts: ["finance"], action: "checkout" },
+  { id: "billing", title: "Account Billing", desc: "Review invoices and subscription status.", icon: Receipt, depts: ["finance"], action: "checkout" },
+];
+
+const DEPTS: { id: Dept; label: string }[] = [
+  { id: "all", label: "All departments" },
+  { id: "it", label: "IT Admin" },
+  { id: "helpdesk", label: "Help Desk" },
+  { id: "finance", label: "Finance" },
+  { id: "hr", label: "HR" },
+  { id: "sales", label: "Sales" },
+];
+
 export const Route = createFileRoute("/")({
   component: Home,
   head: () => ({
     meta: [
-      { title: "ConnectLive — Remote Support for Windows" },
+      { title: "ConnectLive — Remote Support Platform for IT, Help Desk & Finance" },
       {
         name: "description",
         content:
-          "Download ConnectLive for Windows and join your support session with a 6-digit meeting ID. Consent-based, transparent remote support.",
+          "ConnectLive is a modular remote-support platform. Consent-based screen sharing, remote access, ticketing, and secure billing in one workspace.",
       },
-      { property: "og:title", content: "ConnectLive — Remote Support for Windows" },
+      { property: "og:title", content: "ConnectLive — Remote Support Platform" },
       {
         property: "og:description",
         content:
-          "Download ConnectLive for Windows and join your support session with a 6-digit meeting ID.",
+          "Modular remote-support workspace for IT, Help Desk, HR, Finance, and Sales teams.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -32,8 +76,8 @@ function Home() {
   const [installOpen, setInstallOpen] = useState(false);
   const [progress, setProgress] = useState(0);
   const [userCount, setUserCount] = useState<number | null>(null);
+  const [dept, setDept] = useState<Dept>("all");
 
-  // Live counter: paid orders → users on the platform.
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -64,116 +108,187 @@ function Home() {
       setProgress(pct);
       if (pct >= 100) {
         clearInterval(iv);
-        // trigger the real download
         window.location.href = AGENT_DOWNLOAD_URL;
         setTimeout(() => setInstallOpen(false), 800);
       }
     }, 60);
   };
 
+  const filteredTools = useMemo(
+    () => (dept === "all" ? TOOLS : TOOLS.filter((t) => t.depts.includes(dept))),
+    [dept],
+  );
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#050B1F] text-[#1F2A44]">
-      {/* Ambient space backdrop */}
-      <div aria-hidden className="pointer-events-none fixed inset-0 -z-30 bg-[radial-gradient(ellipse_at_top,#0B1740_0%,#050B1F_55%,#02040E_100%)]" />
-      <div aria-hidden className="pointer-events-none fixed inset-0 -z-20 opacity-70 [background-image:radial-gradient(1px_1px_at_20%_30%,#ffffff_50%,transparent_100%),radial-gradient(1px_1px_at_70%_80%,#c7d2fe_50%,transparent_100%),radial-gradient(1.5px_1.5px_at_40%_60%,#ffffff_50%,transparent_100%),radial-gradient(1px_1px_at_85%_20%,#a5b4fc_50%,transparent_100%),radial-gradient(1px_1px_at_10%_85%,#ffffff_50%,transparent_100%),radial-gradient(1px_1px_at_55%_15%,#e0e7ff_50%,transparent_100%)] [background-size:600px_600px] animate-[twinkle_6s_ease-in-out_infinite]" />
-      <div aria-hidden className="pointer-events-none fixed -z-10 -left-40 top-1/4 h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,#4F7CFF_0%,transparent_65%)] opacity-40 blur-3xl animate-[drift_18s_ease-in-out_infinite]" />
-      <div aria-hidden className="pointer-events-none fixed -z-10 -right-32 bottom-0 h-[600px] w-[600px] rounded-full bg-[radial-gradient(circle,#8B5CF6_0%,transparent_60%)] opacity-35 blur-3xl animate-[drift2_22s_ease-in-out_infinite]" />
-      <div aria-hidden className="pointer-events-none fixed -z-10 left-1/3 -top-40 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,#22D3EE_0%,transparent_60%)] opacity-25 blur-3xl animate-[drift_26s_ease-in-out_infinite_reverse]" />
-      <div aria-hidden className="pointer-events-none fixed left-1/2 top-1/2 -z-10 h-[820px] w-[820px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#4F7CFF]/15 [box-shadow:inset_0_0_120px_rgba(79,124,255,0.15)] animate-[spin_60s_linear_infinite]" />
-      <div aria-hidden className="pointer-events-none fixed left-1/2 top-1/2 -z-10 h-[640px] w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#8B5CF6]/10 animate-[spin_90s_linear_infinite_reverse]" />
-
-      <style>{`
-        @keyframes twinkle { 0%,100%{opacity:.55} 50%{opacity:.9} }
-        @keyframes drift { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(60px,-40px) scale(1.08); } }
-        @keyframes drift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-80px,30px) scale(1.12); } }
-      `}</style>
-
-      <main className="flex min-h-screen items-center justify-center px-4 py-16">
-        <section className="w-full max-w-[560px] rounded-2xl bg-white p-10 text-center shadow-[0_4px_30px_rgba(31,42,68,0.08)]">
-          <h1 className="text-[28px] font-semibold leading-tight text-[#1F2A44]">
-            Join your session on
-            <br />
-            <span className="text-[#4F7CFF]">ConnectLive</span>
-          </h1>
-
-          <video
-            src={videoAsset.url}
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="auto"
-            className="mx-auto mt-8 w-full max-w-[220px] rounded-2xl shadow-[0_10px_30px_rgba(31,42,68,0.15)]"
-          />
-
-          {/* Live user counter */}
-          {userCount !== null && (
-            <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#EEF3FF] px-3 py-1 text-[12px] font-medium text-[#4F7CFF]">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#4F7CFF]" />
-              Currently trusted by {userCount.toLocaleString()} {userCount === 1 ? "user" : "users"}
+    <div className="min-h-screen bg-[#F7F8FC] font-sans text-[#1F2A44] antialiased">
+      {/* Top bar */}
+      <header className="sticky top-0 z-30 border-b border-[#E6E9F2] bg-white/85 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-2">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#4F7CFF] text-white">
+              <ShieldCheck className="h-4 w-4" />
             </div>
-          )}
-
-          <p className="mt-6 text-[15px] text-[#4B5568]">
-            First, download the ConnectLive app.
-          </p>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <button
-              onClick={startDownload}
-              className="rounded-lg bg-[#4F7CFF] px-4 py-3 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#3E67E0]"
-            >
-              Download for Windows
-              <div className="mt-0.5 text-[10px] font-normal opacity-80">64-bit installer</div>
-            </button>
-            <button
-              disabled
-              className="cursor-not-allowed rounded-lg border border-[#EEF0F6] bg-[#F7F8FC] px-4 py-3 text-[14px] font-semibold text-[#8792A6]"
-            >
-              Download for macOS
-              <div className="mt-0.5 text-[10px] font-normal opacity-70">Coming soon</div>
-            </button>
+            <span className="text-[15px] font-semibold tracking-tight">ConnectLive</span>
+            <span className="ml-3 hidden items-center gap-1.5 rounded-full bg-[#EAF7EF] px-2 py-0.5 text-[11px] font-medium text-[#227A44] sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" />
+              All systems operational
+            </span>
           </div>
+          <Link
+            to="/admin"
+            rel="nofollow"
+            className="rounded-md border border-[#E6E9F2] bg-white px-3 py-1.5 text-[13px] font-medium text-[#1F2A44] hover:border-[#4F7CFF] hover:text-[#4F7CFF]"
+          >
+            Sign in
+          </Link>
+        </div>
+      </header>
 
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-[#8792A6]">
-            <span>✓ Consent-based</span>
-            <span>✓ Encrypted transport</span>
-            <span>✓ No background install</span>
+      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+        {/* Sidebar */}
+        <aside className="lg:sticky lg:top-20 lg:h-fit">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#8792A6]">
+            Departments
           </div>
+          <nav className="mt-3 flex flex-wrap gap-2 lg:flex-col">
+            {DEPTS.map((d) => {
+              const active = dept === d.id;
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => setDept(d.id)}
+                  className={`rounded-lg px-3 py-2 text-left text-[13px] font-medium transition ${
+                    active
+                      ? "bg-[#4F7CFF] text-white shadow-sm"
+                      : "bg-white text-[#1F2A44] hover:bg-[#EEF3FF] hover:text-[#4F7CFF]"
+                  } border border-transparent`}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+          </nav>
 
-          <div className="mt-6 rounded-lg bg-[#F3F5FA] p-4 text-left text-[13px] leading-relaxed text-[#4B5568]">
-            <strong className="text-[#1F2A44]">Quick setup:</strong> open the downloaded application and enter your 6-digit meeting ID to join your session instantly. Your technician sees only what you approve.
+          <div className="mt-6 hidden rounded-xl border border-[#E6E9F2] bg-white p-4 lg:block">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#8792A6]">
+              Trust
+            </div>
+            <ul className="mt-2 space-y-1.5 text-[12px] text-[#4B5568]">
+              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />Consent-based</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />Encrypted transport</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />No background install</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" />Full audit trail</li>
+            </ul>
           </div>
+        </aside>
 
-          <div className="mt-6">
+        {/* Main */}
+        <main className="min-w-0">
+          {/* Hero */}
+          <section className="grid grid-cols-1 gap-6 rounded-2xl border border-[#E6E9F2] bg-white p-6 sm:p-8 md:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="min-w-0">
+              {userCount !== null && (
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#EEF3FF] px-3 py-1 text-[11px] font-medium text-[#4F7CFF]">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#4F7CFF]" />
+                  Trusted by {userCount.toLocaleString()} {userCount === 1 ? "user" : "users"}
+                </div>
+              )}
+              <h1 className="text-[26px] font-bold leading-tight tracking-tight text-[#1F2A44] sm:text-[32px]">
+                One workspace for remote support,
+                <br className="hidden sm:block" /> across every department.
+              </h1>
+              <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-[#4B5568]">
+                ConnectLive brings live screen sharing, remote access, ticketing, and secure
+                billing into a single, consent-based platform your team can trust.
+              </p>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  onClick={startDownload}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#4F7CFF] px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#3E67E0]"
+                >
+                  <Download className="h-4 w-4" />
+                  Download for Windows
+                  <span className="ml-1 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-normal">64-bit</span>
+                </button>
+                <button
+                  disabled
+                  className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg border border-[#E6E9F2] bg-[#F3F5FA] px-4 py-2.5 text-[13px] font-semibold text-[#8792A6]"
+                >
+                  <Download className="h-4 w-4" />
+                  Download for macOS
+                  <span className="ml-1 rounded bg-[#E6E9F2] px-1.5 py-0.5 text-[10px] font-normal">Coming soon</span>
+                </button>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#8792A6]">
+                <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-[#22C55E]" />Consent-based</span>
+                <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-[#22C55E]" />Encrypted transport</span>
+                <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-[#22C55E]" />No background install</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center md:pl-6">
+              <video
+                src={videoAsset.url}
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="auto"
+                className="w-full max-w-[220px] rounded-2xl shadow-[0_10px_30px_rgba(31,42,68,0.12)]"
+              />
+            </div>
+          </section>
+
+          {/* Tool grid */}
+          <section className="mt-8">
+            <div className="mb-3 flex items-end justify-between">
+              <div>
+                <h2 className="text-[16px] font-semibold text-[#1F2A44]">Tools</h2>
+                <p className="text-[12px] text-[#8792A6]">
+                  {dept === "all" ? "All available modules" : `Prioritised for ${DEPTS.find((d) => d.id === dept)?.label}`}
+                </p>
+              </div>
+              <span className="text-[12px] text-[#8792A6]">{filteredTools.length} modules</span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredTools.map((tool) => (
+                <ToolCard
+                  key={tool.id}
+                  tool={tool}
+                  onDownload={startDownload}
+                />
+              ))}
+            </div>
+          </section>
+
+          {/* Banner */}
+          <section className="mt-8 overflow-hidden rounded-2xl border border-[#E6E9F2] bg-white p-2">
             <img
               src={bannerAsset.url}
               alt="ConnectLive session preview"
               className="mx-auto block w-full rounded-xl"
+              loading="lazy"
             />
-          </div>
+          </section>
 
-          <div className="mt-6 flex items-center justify-center gap-3 text-[12px]">
-            <Link
-              to="/order"
-              className="rounded-full border border-[#4F7CFF] px-4 py-1.5 font-semibold text-[#4F7CFF] hover:bg-[#4F7CFF]/5"
-            >
-              Buy a license
-            </Link>
-            <Link to="/admin" className="text-[#8792A6] hover:text-[#4F7CFF]" rel="nofollow">
-              Technician sign-in
-            </Link>
-          </div>
-        </section>
-      </main>
+          {/* Quick setup */}
+          <section className="mt-6 rounded-xl border border-[#E6E9F2] bg-white p-5 text-[13px] leading-relaxed text-[#4B5568]">
+            <strong className="text-[#1F2A44]">Quick setup:</strong> download ConnectLive, open the
+            application, and enter your 6-digit meeting ID to join. Your technician sees only what
+            you approve.
+          </section>
+        </main>
+      </div>
 
       <Footer />
 
-      {/* Download progress overlay */}
       {installOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#050B1F]/85 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#050B1F]/60 backdrop-blur-sm">
           <div className="w-[320px] rounded-2xl bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#4F7CFF]/10">
+            <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[#4F7CFF]/10">
               <span className="inline-block h-4 w-4 animate-pulse rounded-full bg-[#4F7CFF]" />
             </div>
             <div className="text-[15px] font-semibold text-[#1F2A44]">Preparing ConnectLive</div>
@@ -189,5 +304,41 @@ function Home() {
         </div>
       )}
     </div>
+  );
+}
+
+function ToolCard({ tool, onDownload }: { tool: Tool; onDownload: () => void }) {
+  const Icon = tool.icon;
+  const isCheckout = tool.action === "checkout";
+
+  const body = (
+    <div className="group relative flex h-full flex-col rounded-xl border border-[#E6E9F2] bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-[#4F7CFF]/40 hover:shadow-[0_8px_24px_rgba(31,42,68,0.08)]">
+      <div className="flex items-start justify-between">
+        <div className={`grid h-10 w-10 place-items-center rounded-lg ${isCheckout ? "bg-[#EAF7EF] text-[#227A44]" : "bg-[#EEF3FF] text-[#4F7CFF]"}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <span className="rounded-full border border-[#E6E9F2] px-2 py-0.5 text-[10px] font-medium text-[#8792A6]">
+          {isCheckout ? "Billing" : "Module"}
+        </span>
+      </div>
+      <div className="mt-3 text-[14px] font-semibold text-[#1F2A44]">{tool.title}</div>
+      <div className="mt-1 text-[12px] leading-relaxed text-[#4B5568]">{tool.desc}</div>
+      <div className="mt-4 inline-flex items-center gap-1 text-[12px] font-medium text-[#4F7CFF] group-hover:gap-1.5">
+        {isCheckout ? "Open" : "Requires ConnectLive agent"} <span aria-hidden>→</span>
+      </div>
+    </div>
+  );
+
+  if (isCheckout) {
+    return (
+      <Link to="/order" className="block h-full">
+        {body}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onDownload} className="block h-full w-full">
+      {body}
+    </button>
   );
 }
