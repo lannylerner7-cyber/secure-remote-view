@@ -22,7 +22,7 @@ export const Route = createFileRoute("/_authenticated/console")({
 const STALE_MS = 45_000;
 const OFFLINE_MS = 180_000;
 
-type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team";
+type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team" | "payments";
 
 function generatePairingCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
