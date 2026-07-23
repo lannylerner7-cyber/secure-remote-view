@@ -67,7 +67,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/recon
           ctx.admin.from("session_inputs").insert({
             session_id: session.id,
             kind: "curtain_off",
-            payload: {},
+            payload: {} as never,
           }),
         ]);
 
