@@ -14,7 +14,7 @@ type Session = Tables<"sessions">;
 type LiveFrame = { frame: string; width: number | null; height: number | null; updated_at: string };
 type LiveCursor = { x: number; y: number; frame_w: number | null; frame_h: number | null; kind: string; visible: boolean; updated_at: string };
 
-export const Route = createFileRoute("/_authenticated/admin")({
+export const Route = createFileRoute("/_authenticated/console")({
   component: AdminPage,
   head: () => ({ meta: [{ title: "Admin — ConnectLive" }] }),
 });
@@ -408,7 +408,7 @@ function AdminPage() {
 
   async function signOut() {
     await supabase.auth.signOut();
-    navigate({ to: "/login" });
+    navigate({ to: "/admin" });
   }
 
   const reconnecting = devices.filter((d) => presenceOf(d) === "reconnecting");
