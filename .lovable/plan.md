@@ -1,43 +1,50 @@
-## Goal
+## Change
 
-1. Turn the home page (`/`) into a public **ConnectLive download page** modeled after the uploaded HTML (rotating 3D cube + centered card + primary "Download for Windows (64-bit)" button).
-2. Move the admin sign-in from `/login` to `/admin` (obscure URL, no public link).
-3. Keep all existing admin/session functionality untouched.
+Edit `src/routes/index.tsx` only. No other files touched.
 
-## Branding note (important)
+### 1. Upload the two user assets to Lovable CDN
+- `user-uploads://ConnectLive.MP4` → `src/assets/connectlive.mp4.asset.json`
+- `user-uploads://ConnectLive.jpg` → `src/assets/connectlive-banner.jpg.asset.json`
 
-The uploaded HTML uses Zoom / Google Meet / Microsoft Teams logos on the cube faces. I will NOT ship those third-party logos — it's the same impersonation/RAT risk we've flagged before. The cube will use **ConnectLive-native faces** (wordmark, monogram "CL", icon shield, gradient panels). Everything else — layout, spinning cube, footer card, copy structure — matches the reference.
+(Uses `lovable-assets create --file ... --filename ...` so the binaries stay out of the repo.)
 
-## Changes
+### 2. Replace the 3D cube block with a looping video
+Remove the entire `<div class="scene">…</div>` cube markup, the `CLMark` / `CLWord` / `CLShield` helper components, and the cube `<style>` block. In their place, render:
 
-### 1. New home page — `src/routes/index.tsx` (replace)
+```tsx
+<video
+  src={videoAsset.url}
+  autoPlay
+  loop
+  muted
+  playsInline
+  preload="auto"
+  className="mx-auto mt-8 w-full max-w-[360px] rounded-2xl shadow-[0_10px_30px_rgba(31,42,68,0.15)]"
+/>
+```
 
-- Public, no auth. Head meta: title "ConnectLive — Remote Support for Windows", description, og:title/desc, og:type=website, twitter:card=summary_large_image.
-- Centered white card on soft neutral background.
-- H1: "Join your session on ConnectLive".
-- 3D spinning cube (CSS `transform-style: preserve-3d`, 12s linear `spinCube` keyframes, pause on hover) — 6 faces built from ConnectLive brand elements only, no external logos.
-- Instruction line + big primary CTA button "Download for Windows (64-bit)" wired to a single constant `AGENT_DOWNLOAD_URL` at top of file (placeholder `/downloads/ConnectLiveAgent.zip` for now — user will paste the direct exe URL, one-line swap).
-- "Quick Setup" panel with the 6-digit meeting-ID copy.
-- Footer banner slot using an existing in-repo brand asset (no external image hotlink).
-- Discreet "Technician sign-in" text link in the card footer pointing to `/admin` (small, muted — obscure but reachable).
-- Background: leaves room for the geography-in-space animated background you mentioned; ships as a subtle gradient placeholder this pass so we can drop the animation in next.
+Autoplay works because it's `muted` + `playsInline` (required on iOS/Safari).
 
-### 2. Move admin login `/login` → `/admin`
+### 3. Add the JPG footer banner
+Directly under the "Quick setup" panel, before the technician sign-in link:
 
-- Move / Create `src/routes/admin.tsx` with the exact content of today's `login.tsx` (same form, same lockout logic, same POST to `/api/public/auth/login`), route string `createFileRoute("/admin")`, head title "Technician sign-in — ConnectLive", `robots: noindex`.
-- Delete `src/routes/login.tsx`.
-- Update `src/routes/_authenticated/route.tsx` redirect target from `/login` → `/admin`.
-- Update `src/routes/_authenticated/admin.tsx` sign-out `navigate({ to: "/login" })` → `/admin`.
-- Leave the API endpoint `/api/public/auth/login` unchanged (internal server route, not user-facing).
+```tsx
+<div className="mt-6">
+  <img
+    src={bannerAsset.url}
+    alt="ConnectLive session preview"
+    className="w-full rounded-xl"
+  />
+</div>
+```
 
-### 3. Out of scope this pass
+Sized to the card width so it fits cleanly with rounded corners matching the card radius.
 
-- The animated "geography-in-space" background (do after the home page ships so we can iterate on it visually).
-- Any changes to the agent zip, RTC, RLS, or session logic.
+### 4. Untouched
+- Card layout, H1, download CTA, `AGENT_DOWNLOAD_URL` constant, ambient gradient background, technician sign-in link, `head()` SEO all stay as-is.
+- No changes to `/admin` login, `/console`, or any API/agent code.
 
-## Technical notes
-
-- `AGENT_DOWNLOAD_URL` is a single top-of-file constant; swapping the exe URL later is a one-line edit.
-- No new deps. No DB migrations. No API changes.
-- `routeTree.gen.ts` regenerates on save from the new `admin.tsx` / removed `login.tsx`.
-- Typecheck (`tsgo --noEmit`) after edits to confirm the route rename is clean.
+## Notes
+- No new deps.
+- Assets served from Lovable CDN, cached globally.
+- Video element has no controls (clean auto-loop hero, like the cube it replaces).
