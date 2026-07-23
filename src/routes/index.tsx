@@ -30,14 +30,54 @@ export const Route = createFileRoute("/")({
 
 function Home() {
   return (
-    <div className="min-h-screen bg-[#F6F7FB] text-[#1F2A44]">
-      {/* Ambient background — placeholder for the upcoming animated
-          geography-in-space layer. Keep the DOM shape here so the animation
-          can slot in without touching card layout. */}
+    <div className="relative min-h-screen overflow-hidden bg-[#050B1F] text-[#1F2A44]">
+      {/* Animated space background — deep gradient, drifting aurora blobs,
+          twinkling starfield, and a slow-rotating meridian ring evoking a
+          globe in space. Pure CSS, GPU-friendly, no extra deps. */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_20%_10%,#E7ECFF_0%,transparent_45%),radial-gradient(circle_at_80%_90%,#DCE4FF_0%,transparent_50%)]"
+        className="pointer-events-none fixed inset-0 -z-30 bg-[radial-gradient(ellipse_at_top,#0B1740_0%,#050B1F_55%,#02040E_100%)]"
       />
+      {/* Starfield */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-20 opacity-70 [background-image:radial-gradient(1px_1px_at_20%_30%,#ffffff_50%,transparent_100%),radial-gradient(1px_1px_at_70%_80%,#c7d2fe_50%,transparent_100%),radial-gradient(1.5px_1.5px_at_40%_60%,#ffffff_50%,transparent_100%),radial-gradient(1px_1px_at_85%_20%,#a5b4fc_50%,transparent_100%),radial-gradient(1px_1px_at_10%_85%,#ffffff_50%,transparent_100%),radial-gradient(1px_1px_at_55%_15%,#e0e7ff_50%,transparent_100%)] [background-size:600px_600px] animate-[twinkle_6s_ease-in-out_infinite]"
+      />
+      {/* Aurora drift blobs */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed -z-10 -left-40 top-1/4 h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,#4F7CFF_0%,transparent_65%)] opacity-40 blur-3xl animate-[drift_18s_ease-in-out_infinite]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed -z-10 -right-32 bottom-0 h-[600px] w-[600px] rounded-full bg-[radial-gradient(circle,#8B5CF6_0%,transparent_60%)] opacity-35 blur-3xl animate-[drift2_22s_ease-in-out_infinite]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed -z-10 left-1/3 -top-40 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,#22D3EE_0%,transparent_60%)] opacity-25 blur-3xl animate-[drift_26s_ease-in-out_infinite_reverse]"
+      />
+      {/* Slow rotating meridian ring — the "geography in space" cue */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed left-1/2 top-1/2 -z-10 h-[820px] w-[820px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#4F7CFF]/15 [box-shadow:inset_0_0_120px_rgba(79,124,255,0.15)] animate-[spin_60s_linear_infinite]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed left-1/2 top-1/2 -z-10 h-[640px] w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#8B5CF6]/10 animate-[spin_90s_linear_infinite_reverse]"
+      />
+
+      <style>{`
+        @keyframes twinkle { 0%,100%{opacity:.55} 50%{opacity:.9} }
+        @keyframes drift {
+          0%,100% { transform: translate(0,0) scale(1); }
+          50%     { transform: translate(60px,-40px) scale(1.08); }
+        }
+        @keyframes drift2 {
+          0%,100% { transform: translate(0,0) scale(1); }
+          50%     { transform: translate(-80px,30px) scale(1.12); }
+        }
+      `}</style>
+
 
       <main className="flex min-h-screen items-center justify-center px-4 py-16">
         <section className="w-full max-w-[520px] rounded-2xl bg-white p-10 text-center shadow-[0_4px_30px_rgba(31,42,68,0.08)]">
