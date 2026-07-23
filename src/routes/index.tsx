@@ -125,8 +125,16 @@ function Home() {
       <header className="sticky top-0 z-30 border-b border-[#E6E9F2] bg-white/85 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-2">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#4F7CFF] text-white">
-              <ShieldCheck className="h-4 w-4" />
+            <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-lg bg-[#4F7CFF]">
+              <video
+                src={videoAsset.url}
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="auto"
+                className="h-8 w-8 object-cover"
+              />
             </div>
             <span className="text-[15px] font-semibold tracking-tight">ConnectLive</span>
             <span className="ml-3 hidden items-center gap-1.5 rounded-full bg-[#EAF7EF] px-2 py-0.5 text-[11px] font-medium text-[#227A44] sm:inline-flex">
