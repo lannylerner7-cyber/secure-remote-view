@@ -446,6 +446,7 @@ function AdminPage() {
             <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
             <NavBtn id="audit" label="Audit log" />
             {role === "super_admin" && <NavBtn id="team" label="Team" />}
+            {(role === "super_admin" || role === "admin") && <NavBtn id="payments" label="Payments" />}
             {role === "super_admin" && <NavBtn id="settings" label="Settings" />}
           </nav>
           <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/50">
@@ -575,6 +576,10 @@ function AdminPage() {
             )}
 
             {nav === "team" && role === "super_admin" && <TeamPanel />}
+
+            {nav === "payments" && (role === "super_admin" || role === "admin") && (
+              <PaymentsPanel isSuperAdmin={role === "super_admin"} />
+            )}
           </main>
         </div>
       </div>
