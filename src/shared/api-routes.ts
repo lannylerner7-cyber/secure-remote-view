@@ -11,6 +11,7 @@ export const API_ROUTES = {
   agentHeartbeat: "/api/public/agent/heartbeat",
   agentPair: "/api/public/agent/pair",
   agentSessionPoll: (sessionId: string) => `/api/public/agent/session/${sessionId}`,
+  agentReconnect: (sessionId: string) => `/api/public/agent/session/${sessionId}/reconnect`,
   agentConsent: (sessionId: string) => `/api/public/agent/session/${sessionId}/consent`,
   agentFrame: (sessionId: string) => `/api/public/agent/session/${sessionId}/frame`,
   agentInputs: (sessionId: string) => `/api/public/agent/session/${sessionId}/inputs`,

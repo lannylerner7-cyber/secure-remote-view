@@ -50,6 +50,8 @@ From the `agent\` directory in **elevated PowerShell**:
 
 This copies both exes to `C:\Program Files\ConnectLive\` and registers `ConnectLiveWatcher` as an auto-start Windows service running under `LocalSystem`. The Watcher then spawns the Agent inside the interactive desktop automatically.
 
+After the first successful code join, the Agent stores the session id + meeting code in DPAPI-protected local machine storage. On reboot, it tries `POST /api/public/agent/session/{id}/reconnect` first, so the admin sees the same existing session come back online without asking the user to re-enter the code.
+
 Uninstall:
 
 ```powershell
@@ -81,7 +83,7 @@ cd src
 dotnet run
 ```
 
-The Worker will splash → prompt for a meeting code → heartbeat with exponential backoff (1 → 2 → 4 → 8 → 16 → 30 s).
+The Worker will splash → restore the last still-open session if one exists → otherwise prompt for a meeting code → heartbeat with exponential backoff (1 → 2 → 4 → 8 → 16 → 30 s).
 
 ## Control modes
 

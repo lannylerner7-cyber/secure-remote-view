@@ -1,59 +1,60 @@
-## Goal
+## Updated direction
 
-1. The 4 directional buttons on the trackpad **move the mouse cursor** on the remote (nudge / press-and-hold to glide), matching what the analog knob does — not fire keyboard arrows.
-2. The "Left" / "Right" text labels on the click row are replaced with clear mouse-click glyphs so admins immediately read them as clicks (not directions).
-3. Double-click reliably opens things on the remote (email message, file, folder) — timing tuned to Windows' `GetDoubleClickTime` window.
-4. Enter (and every other OSK key) keeps working after the admin has been in control mode for minutes — no silent drop-off.
+You're right: after a reboot, the user should not have to type a new join code if the original admin session is still valid. The 6-digit code already lives in the database on the session, and `pair.ts` is already written to be idempotent for `invited`, `active`, and `paused` sessions. We should use that instead of creating a new rejoin flow.
 
-## Root causes (verified)
+## What we will build
 
-- `admin.tsx` L840-848 + L901-912: `ArrowBtn` sends `key_sequence` with VK 0x25-0x28. Those are keyboard arrows on the remote — they only "move" if a text field is focused, so on the desktop they do nothing visible. That's why "the 4 control button didn't move & shift the mouse".
-- `admin.tsx` L897-899: click buttons are labelled with the words "Left" / "Right", which reads as direction next to a joystick. That's the "meaningless" text.
-- `admin.tsx` L666-670 `onDoubleClick`: sends two `click` events back-to-back with no spacing. Agent's `Click()` (`InputRelay.cs` L271-275) runs down→up→down→up with zero delay — Windows Explorer/Outlook interpret bursts under a few ms as one click, so the double-click "works kind of different". Needs ~40-60ms between the two clicks (well under Windows' default 500ms threshold).
-- Enter drop after long control: `sendInput` already dual-transports discrete events, so the DB path never drops. What drops is **focus**: after the admin scrolls the page, opens the notifications bell, or the OSK panel re-renders, `liveSurfaceRef` loses focus and physical Enter goes to the browser instead of the remote. On-screen Enter still fires, but only if the click actually hits the button; when the OSK panel re-collapses on hover-out it stops registering. Need: (a) refocus after every OSK press (already partially in place, verify), (b) re-arm focus on window blur/visibility change, (c) explicit `pointerdown` handler that survives panel re-renders.
+### 1. Persist the one-time reusable pairing state on the agent
 
-## Changes — `src/routes/_authenticated/admin.tsx` only
+- After the first successful join, the agent stores the successful `sessionId` and `pairingCode` locally under `%ProgramData%\ConnectLive` using DPAPI-protected storage.
+- On reboot/startup, the agent first tries to reconnect using the stored session/code before showing the Join window.
+- If the server accepts it, the agent immediately starts screen capture, input relay, cursor pump, and WebRTC/HTTPS fallback again.
+- If the server rejects it because the admin ended the session.  or if the code was cleared, the agent create a retry mechanism using the existing stored join data in DPAPI storage state and auto rrfresh its token meetin multiple time ang get signal unless if admin as terminate the session / End 
 
-### 1. Arrow buttons nudge the mouse
+### 2. Keep the admin session intact and make it reconnectable
 
-Replace the current `ArrowBtn` (which sends `key_sequence`) with a mouse-nudge button:
+- Do not create a new session after reboot.
+- Keep the existing session row `active` or `paused` as the source of truth.
+- Admin panel should continue showing the same session and switch the status to reconnecting/offline based on heartbeat age.
+- Add a clear **Reconnect** action in the admin live/session panel that re-uses the existing `pairing_code` and waits for the installed agent service to come back online.
 
-- On `pointerdown`: fire one `mousemove_rel` with a small step (e.g. `{dx: -12, dy: 0}` for ◀), then start a `setInterval(24ms)` that keeps sending the same delta with a mild acceleration curve (cap ~48px/tick) for as long as the pointer is held.
-- On `pointerup` / `pointerleave` / `pointercancel`: clear the interval.
-- Rename the callback prop from `onArrow(vk)` to `onNudge(dx, dy)`; delete the `VK_LEFT/UP/RIGHT/DOWN` constants inside `VirtualTrackpad`.
-- Keep the same 3×3 grid layout so muscle memory is preserved.
+### 3. Add a safe agent reconnect endpoint
 
-### 2. Click row — icons, not directions
+- Add an authenticated agent route like `POST /api/public/agent/session/{sessionId}/reconnect`.
+- It verifies the device token, confirms the session belongs to the same device, and confirms the session is still `invited`, `active`, or `paused`.
+- It returns the session mode/state and refreshes `devices.last_seen_at`.
+- This avoids relying only on a human-entered code after reboot while still preventing another device from hijacking the session.
 
-- Replace text "Left" → `🖱` glyph + tooltip "Left click" (or SVG left-mouse-button icon).
-- Replace text "Right" → mirrored glyph + tooltip "Right click".
-- Middle "Double" button stays but relabelled with tooltip "Double click (open)".
-- No behavioural change to left/right click.
+### 4. Fix startup service packaging
 
-### 3. Reliable double-click
+- Update the zip packaging so the bundle contains both:
+  - `ConnectLiveAgent.exe`
+  - `ConnectLiveWatcher.exe`
+  - `install.ps1`
+  - clear install instructions
+- The watcher service must be installed once with elevated PowerShell; after that it starts on boot and spawns the agent in the user desktop session.
+- Add install/status documentation so you can verify with one command that `ConnectLiveWatcher` is installed and running.
 
-- Change `onDoubleClick` in the trackpad wiring (`admin.tsx` L666-670) to send a **single new event kind** `doubleclick { button: 0 }` OR keep the two `click` events but space them by 60ms via `setTimeout`.
-- Chose the second option — no agent change needed. Payload: `sendInput(s.id, "click", { button: 0 })` then `setTimeout(() => sendInput(s.id, "click", { button: 0 }), 60)`. 60ms is well inside `GetDoubleClickTime` (default 500ms) and long enough for Explorer to treat the pair as a double-click.
+### 5. Wake-on-LAN clarification
 
-### 4. Widen the tunnel so Enter never drops
+Wake-on-LAN is not what makes the agent restart after reboot. The Windows service does that.
 
-- Add a `useEffect` on the admin panel that, whenever `s.mode === "control"`, listens on `window` for `visibilitychange` and `focus` and re-calls `focusLiveSurface()` — restores keyboard routing after the admin tabs away and back.
-- In `OnScreenKeyboard`, change every key `<button>` from `onClick` to `onPointerDown` with `e.preventDefault()` so the browser never steals focus from the live surface between the down and up events. (Verify current state; some may already be pointerdown.)
-- After each OSK press, call `focusLiveSurface()` — already wired at L674 but confirm it survives the panel's collapse/expand re-render.
-- Keep the existing dual-transport (RTC + `session_inputs`) for all discrete events; no change there.
+Wake-on-LAN only helps when the PC is asleep or powered off, and it requires:
 
-## Not changed
+- NIC/BIOS Wake-on-Magic-Packet enabled on the target PC.
+- Another already-online device on the same LAN to broadcast the magic packet.
 
-- No agent (`InputRelay.cs`) changes — `mousemove_rel`, `click`, and `key_sequence` all work correctly server-side; the ZIP does not need re-packing this turn.
-- No API, DB, RLS, or migration changes.
-- Keyboard panel content (Esc/Tab/Enter/Back/Del/Space/Home/End/Ctrl+…) stays as-is; only focus behaviour is hardened.
-- Analog knob behaviour, resize handle, and hide/show pull-tab all stay as-is.
+We can add Wake-on-LAN after reboot reconnect is stable, but it should be treated as a separate LAN wake feature, not the core startup/reconnect fix.
 
-## Verification
+## Technical implementation notes
 
-1. `tsgo --noEmit` clean.
-2. Manual (out-of-sandbox): hold ▶ on the trackpad → remote cursor glides right smoothly; tap Double on a highlighted email row → message opens; leave control mode focused for 5 min, tab to another browser tab and back, press Enter on the OSK → still lands on remote.
+- `agent/src/ApiClient.cs`: add `ReconnectSessionAsync(sessionId)` and DPAPI helpers for saved join state.
+- `agent/src/App.xaml.cs`: before showing `JoinWindow`, try saved session reconnect; only show the Join window if reconnect fails.
+- `src/routes/api/public/agent/session.$sessionId.reconnect.ts`: new server route secured by `verifyDevice`.
+- `src/routes/_authenticated/admin.tsx`: preserve the existing session, show reconnecting state, and add a reconnect/waiting affordance instead of forcing a new code.
+- `agent/build.ps1` and `agent/install.ps1`: package and verify the watcher service so startup works after reboot.
+- Rebuild and export the updated `ConnectLiveAgent.zip`.
 
 ## Result
 
-The four arrow buttons become a real cursor nudge pad (matching analog behaviour but precise), the click row reads as clicks not directions, Double reliably opens things, and Enter/OSK keys survive long control sessions.
+The user joins once. After reboot, the installed service starts the agent, the agent reuses the existing stored session/code, and the admin panel reconnects to the same live session without making the user type the code again.
