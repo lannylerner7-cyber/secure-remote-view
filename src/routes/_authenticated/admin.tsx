@@ -285,6 +285,23 @@ function AdminPage() {
     });
   }
 
+  async function requestReconnect(s: Session) {
+    if (!s.device_id) {
+      if (s.pairing_code) setCodeModal({ code: s.pairing_code, sessionId: s.id });
+      return;
+    }
+    await sendInput(s.id, "curtain_off", {});
+    const { error } = await supabase
+      .from("sessions")
+      .update({ state: "active", mode: "view", updated_at: new Date().toISOString() })
+      .eq("id", s.id);
+    if (error) return alert(error.message);
+    setLiveId(s.id);
+    const dev = devices.find((d) => d.id === s.device_id);
+    void notify({ data: { kind: "session_start", text: `🔁 Waiting for <b>${dev?.display_name ?? "device"}</b> to reconnect to the existing session.` } });
+    void refresh();
+  }
+
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
   // Coordinates are normalized (0..1) relative to the rendered image.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
@@ -522,9 +539,11 @@ function AdminPage() {
                 devices={devices}
                 onLive={(s) => setLiveId(s.id)}
                 onToggleControl={toggleControl}
+                onReconnect={requestReconnect}
                 onEnd={endSession}
                 onDelete={deleteSession}
                 onShowCode={(s) => s.pairing_code && setCodeModal({ code: s.pairing_code, sessionId: s.id })}
+                presenceOf={presenceOf}
               />
             )}
 
@@ -1148,13 +1167,15 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
   );
 }
 
-function SessionsTable({ sessions, devices, onLive, onToggleControl, onEnd, onDelete, onShowCode }: {
+function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect, onEnd, onDelete, onShowCode, presenceOf }: {
   sessions: Session[]; devices: Device[];
   onLive: (s: Session) => void;
   onToggleControl: (s: Session) => void;
+  onReconnect: (s: Session) => void;
   onEnd: (s: Session) => void;
   onDelete: (s: Session) => void;
   onShowCode: (s: Session) => void;
+  presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1F2A44]">
@@ -1173,9 +1194,13 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onEnd, onDe
           {sessions.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-white/40">No sessions yet.</td></tr>}
           {sessions.map((s) => {
             const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
+            const presence = dev ? presenceOf(dev) : null;
             return (
               <tr key={s.id} className="border-t border-white/5">
-                <td className="px-4 py-2">{dev?.display_name ?? <span className="text-white/40">waiting…</span>}</td>
+                <td className="px-4 py-2">
+                  <div>{dev?.display_name ?? <span className="text-white/40">waiting…</span>}</div>
+                  {presence && presence !== "online" && <div className="text-[10px] uppercase tracking-wider text-amber-300">{presence}</div>}
+                </td>
                 <td className="px-4 py-2 font-mono text-white/70">{s.pairing_code ?? "—"}</td>
                 <td className="px-4 py-2 text-white/70">{s.mode}</td>
                 <td className="px-4 py-2">
@@ -1197,6 +1222,9 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onEnd, onDe
                   {(s.state === "active" || s.state === "paused") && (
                     <>
                       <button onClick={() => onLive(s)} className="rounded bg-[#4F7CFF] px-2 py-1 text-xs font-medium hover:opacity-90">Live</button>
+                      {presence !== "online" && (
+                        <button onClick={() => onReconnect(s)} className="rounded bg-amber-500/80 px-2 py-1 text-xs font-medium text-white hover:bg-amber-500">Reconnect</button>
+                      )}
                       <button onClick={() => onToggleControl(s)} className="rounded bg-white/10 px-2 py-1 text-xs">
                         {s.mode === "control" ? "Resume" : "Pause"}
                       </button>
