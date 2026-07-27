@@ -1,28 +1,26 @@
-## Goal
-Replace the default Lovable favicon (`public/favicon.ico`) with a custom, on-brand ConnectLive favicon so browser tabs and bookmarks show our own identity.
+## Problem
 
-## What we know
-- `src/routes/__root.tsx` currently links `{ rel: "icon", href: "/favicon.ico", type: "image/x-icon" }`.
-- `public/favicon.ico` exists and is the Lovable default.
-- Brand palette is navy/moonstone (`#1F2A44`, `#4F7CFF`) with an Inter typeface.
-- User chose an **abstract node/eye** concept for the mark.
+Clicking **Continue to invoice** on `/order` calls the `createOrder` server fn, which calls `getUsdToCoinRates()` in `src/lib/pricing.server.ts`. That helper hits `api.coingecko.com` directly from Cloudflare Workers. CoinGecko's free public endpoint frequently returns **HTTP 403** to Cloudflare/edge egress IPs (they rate-limit/block datacenter ranges without an API key). The single-provider path has no fallback and no key, so every user gets `Pricing feed unavailable (403)`.
 
-## Plan
-1. **Generate the favicon**
-   - Use the agent-side image generator to create a 512×512 PNG favicon:
-     - Concept: abstract node/eye (transparency/vision motif)
-     - Palette: deep navy background (`#1F2A44`) with moonstone/blue accent (`#4F7CFF`)
-     - Style: minimal, flat, readable at 16×16 px
-   - Save to `public/favicon.png`.
+## Fix
 
-2. **Wire it into the app**
-   - Update `src/routes/__root.tsx` head `links`:
-     - Replace the `/favicon.ico` entry with `/favicon.png` (`type: "image/png"`).
-   - Delete the old `public/favicon.ico` so crawlers/clients don’t keep serving the Lovable icon.
+Rewrite `src/lib/pricing.server.ts` to be resilient:
 
-3. **Verify**
-   - Run a quick build check to ensure no broken links.
-   - Optionally load the preview and confirm the new favicon appears in the browser tab.
+1. **Multi-provider chain** (try in order, first success wins):
+   - **Coinbase** — `https://api.coinbase.com/v2/prices/{BTC,USDT,USDC}-USD/spot` (edge-friendly, no key, very reliable).
+   - **Kraken** — `https://api.kraken.com/0/public/Ticker?pair=XBTUSD,USDTUSD,USDCUSD` (no key).
+   - **CoinGecko** — kept as last resort with a real browser `User-Agent` header (403s are UA/IP driven; keeping it in the chain preserves current behavior when it works).
+   - Assume `USDT_ERC20` / `USDC_ERC20` ≈ $1 if their spot lookup fails but BTC succeeds (stablecoins).
 
-## Deliverable
-A custom ConnectLive favicon served from `/favicon.png`, referenced in the root route, with the old Lovable icon removed.
+2. **Stale-cache safety net**: keep the existing 10-min in-memory cache, and if every provider fails but we still have a cached value, return it (log a warning) instead of throwing. Only throw when there is no cached rate at all.
+
+3. **Timeouts**: wrap each `fetch` in an `AbortController` with a 3s timeout so one slow provider can't block the whole request.
+
+4. **Clearer error**: when everything fails and no cache exists, throw a user-friendly message ("Live pricing temporarily unavailable, please retry in a moment.") instead of exposing the raw upstream status.
+
+No schema changes, no other files touched. `usdToCoin` and the `CoinKey` type stay identical, so `orders.functions.ts` and the reconcile cron keep working unchanged.
+
+## Verification
+
+- Invoke `createOrder` via a test call and confirm it returns an invoice with a non-zero `amount_coin` for BTC.
+- Force-fail the primary (temporarily point Coinbase URL at a bad host in a scratch check) and confirm Kraken fallback still produces a rate.
