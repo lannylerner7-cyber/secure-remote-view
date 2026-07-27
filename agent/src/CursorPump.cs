@@ -14,12 +14,12 @@ namespace ConnectLive.Agent;
 /// video drops to 2 fps. Matches the technique ConnectWise / Parsec use.
 ///
 /// Coordinates are emitted in the same scaled space the frame stream uses
-/// (max 1280px long edge) so admin math is trivial: overlay uses the same
+/// (max 960px long edge) so admin math is trivial: overlay uses the same
 /// image element bounds.
 /// </summary>
 public static class CursorPump
 {
-    private const int MaxEdge = 1280;         // must match ScreenCapture
+    private const int MaxEdge = 960;          // must match ScreenCapture performance mode
     private const int PeriodMs = 33;          // ~30 Hz
 
     private const uint CURSOR_SHOWING = 0x00000001;
