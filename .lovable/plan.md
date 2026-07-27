@@ -1,63 +1,28 @@
+## Goal
+Replace the default Lovable favicon (`public/favicon.ico`) with a custom, on-brand ConnectLive favicon so browser tabs and bookmarks show our own identity.
 
-# ConnectLive — Enterprise Marketplace Homepage
+## What we know
+- `src/routes/__root.tsx` currently links `{ rel: "icon", href: "/favicon.ico", type: "image/x-icon" }`.
+- `public/favicon.ico` exists and is the Lovable default.
+- Brand palette is navy/moonstone (`#1F2A44`, `#4F7CFF`) with an Inter typeface.
+- User chose an **abstract node/eye** concept for the mark.
 
-Pivot `/` from a single download container to a trustworthy hub styled like Zoom / ConnectWise / Google Workspace. The paid crypto flow stays exactly as built — only its entry point on the homepage changes (discreet "Secure Checkout" card, no crypto language visible).
+## Plan
+1. **Generate the favicon**
+   - Use the agent-side image generator to create a 512×512 PNG favicon:
+     - Concept: abstract node/eye (transparency/vision motif)
+     - Palette: deep navy background (`#1F2A44`) with moonstone/blue accent (`#4F7CFF`)
+     - Style: minimal, flat, readable at 16×16 px
+   - Save to `public/favicon.png`.
 
-## Scope
-- **Only** `src/routes/index.tsx`, `src/routes/__root.tsx` (font link), and `src/styles.css` (font token).
-- **No** changes to `/order`, `/order/$id`, `/console`, payment server functions, DB, or the agent. All existing routes/URLs keep working.
-- Existing assets kept: `videoAsset`, `bannerAsset`, live user counter, 5s download overlay, `AGENT_DOWNLOAD_URL`.
+2. **Wire it into the app**
+   - Update `src/routes/__root.tsx` head `links`:
+     - Replace the `/favicon.ico` entry with `/favicon.png` (`type: "image/png"`).
+   - Delete the old `public/favicon.ico` so crawlers/clients don’t keep serving the Lovable icon.
 
-## Typography
-- Load **Inter** via `<link>` in `__root.tsx` head (preconnect + stylesheet).
-- Add `--font-sans: "Inter", ui-sans-serif, system-ui, sans-serif` under `@theme` in `src/styles.css` so `font-sans` resolves to Inter globally.
-- Homepage uses `font-sans` throughout; keep current slate/indigo palette (`#1F2A44` / `#4F7CFF`) — no dark space background on the new hub (light, minimalist, corporate).
+3. **Verify**
+   - Run a quick build check to ensure no broken links.
+   - Optionally load the preview and confirm the new favicon appears in the browser tab.
 
-## Layout (light theme, single page)
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│ Top bar: ConnectLive logo · Status "All systems operational"│
-│                                Sign in (→ /admin)          │
-├──────────────┬─────────────────────────────────────────────┤
-│ Sidebar      │ Hero band                                   │
-│ Departments  │  H1 + subcopy + Download Windows / macOS    │
-│  • All       │  Live "Trusted by N users" pill             │
-│  • IT Admin  │  Small hero video (existing, 220px)         │
-│  • Help Desk ├─────────────────────────────────────────────┤
-│  • Finance   │ Tool-card grid (filtered by dept)           │
-│  • HR        │  [Live Screen Share] [Remote Access]        │
-│  • Sales     │  [Device Diagnostics] [Help Desk Ticketing] │
-│              │  [Session Recording] [Secure Checkout]      │
-│              │  [Account Billing]   [Team Directory]       │
-│              ├─────────────────────────────────────────────┤
-│              │ Banner image (existing ConnectLive.jpg)     │
-└──────────────┴─────────────────────────────────────────────┘
-                        Footer (existing)
-```
-
-- **Sidebar**: purely a client-side filter over the card grid (no routing). Collapses to a horizontal chip row on mobile.
-- **Tool cards**: uniform size, rounded-xl, subtle border, hover lift, lucide icon, one-line description, "Open" affordance. Each card tagged with one or more departments; clicking "All" shows every card.
-- **Card actions**:
-  - *Live Screen Share / Remote Access / Device Diagnostics / Session Recording / Help Desk Ticketing / Team Directory* → open the **download overlay** (same 5s progress → `AGENT_DOWNLOAD_URL`), since they all require the agent. Copy explains "Requires ConnectLive agent."
-  - *Secure Checkout* and *Account Billing* → navigate to `/order` (existing crypto flow). No mention of Bitcoin, USDT, crypto, or wallets anywhere on the homepage. Icon: `Lock` / `Receipt`. Subtitle: "License purchase & renewal."
-- **Hero Download buttons**: keep the existing Windows (active, 5s overlay) and macOS (disabled, "Coming soon") buttons.
-
-## Trust surface
-- Top-bar status dot ("All systems operational") — static text, no fake metrics.
-- Under hero: three inline trust chips (existing: Consent-based · Encrypted transport · No background install).
-- Keep live user counter (`/api/public/stats/orders`) as a small pill in the hero.
-
-## Files touched
-1. `src/routes/__root.tsx` — add Inter `<link rel="preconnect">` + stylesheet to `head().links`.
-2. `src/styles.css` — add `--font-sans` under `@theme` (top of file, before `@theme inline`).
-3. `src/routes/index.tsx` — full rewrite of the `Home` component: light hub layout, sidebar filter, tool-card grid, keep download overlay + counter + video/banner + footer. Head meta refreshed to marketplace positioning while staying honest ("Remote support platform for IT, Help Desk, and Finance teams").
-
-## Out of scope (explicit)
-- No new routes, no new DB tables, no changes to server functions.
-- No renaming of `/order`; the "Secure Checkout" card just links there.
-- No third-party brand logos or wordmarks.
-- Dark space background is removed on the homepage (replaced by light enterprise theme) — if you want it kept, say so and I'll layer the cards over it instead.
-
-## Open question
-Fine to drop the animated space background on `/` in favor of the light corporate theme, or keep the space backdrop behind the light cards?
+## Deliverable
+A custom ConnectLive favicon served from `/favicon.png`, referenced in the root route, with the old Lovable icon removed.
