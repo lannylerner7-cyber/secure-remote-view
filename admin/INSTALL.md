@@ -51,7 +51,26 @@ the current user.
 
 - Login: `POST /api/public/auth/login` (unchanged from web).
 - Devices + sessions + inputs + signals: authenticated Supabase REST as the
-  signed-in technician (RLS applies).
-- Live pixels: WebRTC (H.264 via SIPSorcery) with automatic fallback to the
+  signed-in technician (RLS applies). The access token stored in
+  `AuthStore.cs` (DPAPI-protected) doubles as the signaling bearer for
+  `/api/public/agent/session/*/signal`.
+- Live pixels: WebRTC (VP8 via SIPSorcery) with automatic fallback to the
   same JPEG frame stream the web console uses.
 - Cursor telemetry: overlay rendered locally from `session_cursors`.
+
+## Codec pinning guardrail
+
+Both `admin/src/Media/WebRtcClient.cs` and `agent/src/WebRtcSession.cs`
+advertise **exactly one** video format (VP8, payload 96, 90000 Hz). Do not
+add H.264 to one side without adding the identical
+`profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1`
+line to the other — a codec mismatch shows up as a permanent black frame,
+not an error.
+
+## D3DImage / STA marshaling
+
+`admin/src/Media/D3DImageHost.cs` is scaffolded for a future
+Media-Foundation H.264 decoder. All Lock/SetBackBuffer/AddDirtyRect/Unlock
+calls are dispatched onto `Application.Current.Dispatcher` because decoder
+events fire on worker threads; touching `D3DImage` off the UI thread throws
+`InvalidOperationException`.
