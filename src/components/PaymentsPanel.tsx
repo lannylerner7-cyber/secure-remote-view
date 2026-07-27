@@ -106,8 +106,50 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     }
   };
 
+  const missing: string[] = [];
+  if (health) {
+    if (!health.wallets.BTC) missing.push("BTC wallet");
+    if (!health.wallets.USDT_ERC20) missing.push("USDT wallet");
+    if (!health.wallets.USDC_ERC20) missing.push("USDC wallet");
+    if (!health.webhook_secret_set) missing.push("CDP_WEBHOOK_SECRET");
+  }
+
   return (
     <div className="space-y-6">
+      {missing.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+          <strong className="font-semibold">Payments not fully live.</strong>{" "}
+          Missing: {missing.join(", ")}.{" "}
+          {isSuperAdmin && !health?.wallets.BTC && (
+            <button onClick={() => setTab("wallets")} className="underline">
+              Configure wallets →
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-2 text-xs">
+        <button
+          onClick={() => setTab("orders")}
+          className={`rounded px-3 py-1.5 ${tab === "orders" ? "bg-[#4F7CFF] text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
+        >
+          Orders
+        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={() => setTab("wallets")}
+            className={`rounded px-3 py-1.5 ${tab === "wallets" ? "bg-[#4F7CFF] text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
+          >
+            Wallets
+          </button>
+        )}
+      </div>
+
+      {tab === "wallets" && isSuperAdmin && <WalletsTab />}
+
+      {tab === "orders" && (
+        <>
       {/* Totals ticker */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card label="Total deposited" value={`$${totals?.total_deposited_usd.toFixed(2) ?? "0.00"}`} tone="green" />
