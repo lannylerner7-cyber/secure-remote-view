@@ -557,6 +557,14 @@ function AdminPage() {
                 onClearSelected={() => setSelected(new Set())}
                 onConnect={connectDevice}
                 canConnect={role !== "viewer"}
+                canDelete={role === "super_admin" || role === "admin"}
+                onDelete={async (d) => {
+                  if (!confirm(`Remove ${d.display_name} from the device list? The agent will need to re-enroll to reconnect.`)) return;
+                  const { error } = await supabase.from("devices").delete().eq("id", d.id);
+                  if (error) { alert(`Delete failed: ${error.message}`); return; }
+                  setDevices((prev) => prev.filter((x) => x.id !== d.id));
+                  setSelected((prev) => { const n = new Set(prev); n.delete(d.id); return n; });
+                }}
               />
             )}
 
