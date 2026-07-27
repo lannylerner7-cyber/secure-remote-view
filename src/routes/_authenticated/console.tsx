@@ -532,6 +532,8 @@ function AdminPage() {
                 onBulkEnd={bulkEndSessions}
                 onBulkRestart={bulkRestartAgent}
                 onClearSelected={() => setSelected(new Set())}
+                onConnect={connectDevice}
+                canConnect={role !== "viewer"}
               />
             )}
 
