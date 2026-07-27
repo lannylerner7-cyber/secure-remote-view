@@ -13,6 +13,23 @@ Production endpoint is baked in: **https://secure-remote-view.lovable.app**.
 
 ---
 
+## Deployment Key (silent auto-enrollment)
+
+The old 6-digit PIN pairing flow is gone. On first boot, the Watcher (or Agent) calls `POST /api/public/agent/enroll` with an `X-Deployment-Key` header. The server verifies it against the `AGENT_DEPLOYMENT_KEY` secret (timing-safe) and returns a permanent per-device token — no user interaction required.
+
+Where the key is read from, in order:
+
+1. `%ProgramData%\ConnectLive\deployment.key` — plain-text, one line. Ops-rotatable without rebuilding.
+2. `AGENT_DEPLOYMENT_KEY` environment variable — for dev / CI.
+3. The `EmbeddedDeploymentKey` constant in `agent/src/DeploymentKey.cs` and `agent/watcher/Program.cs` — overwrite before `dotnet publish` if you want a single-file exe that carries its own key. **Never commit the real value.**
+
+Rotating the server-side secret does not invalidate already-enrolled devices — they keep their per-device tokens. Rotation only prevents *new* enrollments with the old key.
+
+The legacy `POST /api/public/agent/pair` endpoint now returns `410 Gone`; upgrade any older agents.
+
+---
+
+
 ## Prerequisites
 
 - Windows 10 / 11 / Server 2019+
