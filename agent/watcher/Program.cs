@@ -189,6 +189,72 @@ internal sealed class WatcherService : BackgroundService
         catch { return (null, null); }
     }
 
+    private static readonly string DeploymentKeyFile = Path.Combine(ConfigDir, "deployment.key");
+    // Embedded fallback — overwrite before `dotnet publish` if you want a
+    // single-file exe that carries its own key. Leave empty in source control.
+    private const string EmbeddedDeploymentKey = "";
+
+    private static string? ResolveDeploymentKey()
+    {
+        try
+        {
+            if (File.Exists(DeploymentKeyFile))
+            {
+                var v = File.ReadAllText(DeploymentKeyFile).Trim();
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+        }
+        catch { }
+        var env = Environment.GetEnvironmentVariable("AGENT_DEPLOYMENT_KEY");
+        if (!string.IsNullOrWhiteSpace(env)) return env.Trim();
+        if (!string.IsNullOrWhiteSpace(EmbeddedDeploymentKey)) return EmbeddedDeploymentKey.Trim();
+        return null;
+    }
+
+    private async Task<bool> TryEnrollAsync(CancellationToken ct)
+    {
+        var key = ResolveDeploymentKey();
+        if (string.IsNullOrEmpty(key)) return false;
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll");
+            req.Headers.Add("X-Deployment-Key", key);
+            var payload = new
+            {
+                hostname = Environment.MachineName,
+                os = Environment.OSVersion.VersionString,
+                displayName = Environment.MachineName,
+                agentVersion = "watcher/1.1.0",
+            };
+            req.Content = JsonContent.Create(payload);
+            using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return false;
+
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var deviceId = root.TryGetProperty("deviceId", out var d) ? d.GetString() : null;
+            var deviceToken = root.TryGetProperty("deviceToken", out var t) ? t.GetString() : null;
+            if (string.IsNullOrEmpty(deviceId) || string.IsNullOrEmpty(deviceToken)) return false;
+
+            var creds = JsonSerializer.Serialize(new { DeviceId = deviceId, DeviceToken = deviceToken });
+            var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(creds), null, DataProtectionScope.LocalMachine);
+            Directory.CreateDirectory(ConfigDir);
+            File.WriteAllBytes(DevicePath, enc);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                EventLog.WriteEntry("Application",
+                    $"[ConnectLiveWatcher] auto-enroll failed: {ex.Message}", EventLogEntryType.Warning);
+            }
+            catch { }
+            return false;
+        }
+    }
+
     private void KillWorker()
     {
         try { if (_worker is { HasExited: false }) _worker.Kill(entireProcessTree: true); } catch { }
