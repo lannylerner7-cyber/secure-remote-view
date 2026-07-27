@@ -1,66 +1,47 @@
-# Route & Resilience Audit — Admin ↔ Agent ↔ Watcher
+# Verify all routes & signal handshake — Agent (C#) ↔ Web ↔ Admin (C#)
 
-Read every route call site in `agent/src/ApiClient.cs`, `agent/watcher/Program.cs`, and `admin/src/**` against the server routes in `src/routes/api/public/**` and `src/shared/api-routes.ts`. Findings and the small tightening pass below.
+Goal: prove every endpoint referenced by the two C# clients exists on the web backend with matching method, auth header, and payload shape — before we repack the zips. No code changes yet; this pass is read-only diffing plus a smoke script.
 
-## 1. Endpoint parity — 100% matched
+## What I already confirmed from the source
 
-### Agent → Server (`agent/src/ApiClient.cs` + watcher)
-| Call | Server file | Status |
-| --- | --- | --- |
-| `POST /api/public/agent/enroll` (X-Deployment-Key) | `agent/enroll.ts` | ✅ |
-| `POST /api/public/agent/hello` | `agent/hello.ts` | ✅ |
-| `POST /api/public/agent/heartbeat` (watcher + agent) | `agent/heartbeat.ts` | ✅ |
-| `POST /api/public/agent/session/{id}/reconnect` | `session.$sessionId.reconnect.ts` | ✅ |
-| `POST /api/public/agent/session/{id}/consent` | `session.$sessionId.consent.ts` | ✅ (kept for legacy; auto-activation) |
-| `POST /api/public/agent/session/{id}/frame` | `session.$sessionId.frame.ts` | ✅ |
-| `POST /api/public/agent/session/{id}/cursor` | `session.$sessionId.cursor.ts` | ✅ |
-| `GET  /api/public/agent/session/{id}/inputs?since=` | `session.$sessionId.inputs.ts` | ✅ |
-| `POST /api/public/agent/session/{id}/signal` | `session.$sessionId.signal.ts` | ✅ |
-| `GET  /api/public/agent/session/{id}/signal?since=` | `session.$sessionId.signal.ts` | ✅ |
-| `POST /api/public/agent/pair` | `agent/pair.ts` (410 Gone) | ✅ intentionally dead |
+**Agent → server (`agent/src/ApiClient.cs`, `agent/watcher/Program.cs`)**
+Every path used by the agent has a matching file under `src/routes/api/public/agent/`:
 
-### Admin → Server (`admin/src/Api/ApiClient.cs`)
-| Call | Target | Status |
-| --- | --- | --- |
-| `POST /api/public/auth/login` | `auth/login.ts` (3-strike lockout) | ✅ |
-| `POST {supabase}/auth/v1/token?grant_type=refresh_token` | Supabase Auth | ✅ |
-| `GET/DELETE /rest/v1/devices` | RLS (staff) | ✅ |
-| `POST/PATCH /rest/v1/sessions` | RLS | ✅ |
-| `POST /rest/v1/session_inputs` | RLS | ✅ |
-| `POST + GET /rest/v1/session_signals` | RLS (fallback poll) | ✅ |
-| `GET /rest/v1/session_frames` (HTTPS fallback) | RLS | ✅ |
 
-No orphan route on server, no missing route in either client.
+| Client call                               | Method          | Server file                       | Auth                 |
+| ----------------------------------------- | --------------- | --------------------------------- | -------------------- |
+| `/api/public/agent/enroll`                | POST            | `enroll.ts`                       | `X-Deployment-Key` ✅ |
+| `/api/public/agent/hello`                 | POST            | `hello.ts`                        | device token         |
+| `/api/public/agent/heartbeat`             | POST            | `heartbeat.ts`                    | device token         |
+| `/api/public/agent/session/:id/reconnect` | POST            | `session.$sessionId.reconnect.ts` | device token         |
+| `/api/public/agent/session/:id/consent`   | POST            | `session.$sessionId.consent.ts`   | device token         |
+| `/api/public/agent/session/:id/frame`     | POST            | `session.$sessionId.frame.ts`     | device token         |
+| `/api/public/agent/session/:id/cursor`    | POST            | `session.$sessionId.cursor.ts`    | device token         |
+| `/api/public/agent/session/:id/inputs`    | GET (long-poll) | `session.$sessionId.inputs.ts`    | device token         |
+| `/api/public/agent/session/:id/signal`    | POST + GET      | `session.$sessionId.signal.ts`    | device token         |
+| `/api/public/agent/pair`                  | POST            | `pair.ts`                         | 410 Gone (legacy) ✅  |
 
-## 2. Retry / resilience mesh
 
-**Watcher (`agent/watcher/Program.cs`)** — persistent SYSTEM service:
-- Heartbeat back-off `5→10→20→40→60s`, resets on 2xx.
-- Detects fast-user-switch via `WTSGetActiveConsoleSessionId` and respawns worker in the new session.
-- Detects worker exit (`HasExited`) each tick and re-launches via `CreateProcessAsUser` — this is the "auto-execute even if agent was killed" path the user asked about. ✅
-- Enrolls silently on first tick if creds are missing.
+**Admin → server (`admin/src/Api/ApiClient.cs`)**
 
-**Agent (`Agent.cs` / `App.xaml.cs`)**:
-- Cold-boot: DPAPI-restore last session → `/reconnect` before idling.
-- Heartbeat loop with 1→2→4→8→16→30s back-off.
-- `EnsureSessionLoops` self-heals capture / cursor / input / signal loops on unexpected exit.
+- `POST /api/public/auth/login` → `src/routes/api/public/auth/login.ts` ✅
+- Direct Supabase REST (with `apikey` + `Bearer <access_token>` — RLS as technician) against `devices`, `sessions`, `session_inputs`, `session_signals`, `session_frames`. All four tables are defined in migrations and typed in `src/integrations/supabase/types.ts`. ✅
 
-**Admin (`admin/src/**`)**:
-- `ApiClient.SendSupabaseAsync` auto-refreshes and retries on 401. ✅
-- `DevicesViewModel.PollLoop` polls every 5s.
-- `WebRtcClient` re-offers every 12s while unconnected, polls agent signals every 500ms.
-- `FrameFallbackPump` pulls latest JPEG every 200ms until WebRTC links.
+**Central registry (`src/shared/api-routes.ts`)** matches both clients 1:1, incl. legacy `agentPair` marker.
 
-## 3. Small tightening pass (only changes in this plan)
+## Verification steps (this pass only)
 
-1. **`agent/watcher/Program.cs` L141** — remove dead `|| true` in `(isSessionActive || true)`; keep unconditional spawn but drop the misleading expression + add comment that this is intentional (tray must appear at login even before an admin session exists).
-2. **`admin/src/ViewModels/DevicesViewModel.cs` `PollLoop`** — add exponential back-off (5→10→20→30s cap) on consecutive `Refresh()` failures so a flaky network doesn't hammer the gateway; reset on success. Mirrors the watcher pattern.
-3. **`admin/src/Media/WebRtcClient.cs` `PollAgentSignals`** — wrap the loop body's `PollAgentSignalsAsync` in try/catch that only sleeps 500ms on success and 2s on error, so a transient 5xx doesn't spin.
-4. **`src/shared/api-routes.ts`** — add `agentPair` (410 legacy) entry so the registry documents every reachable path, plus a top-of-file comment listing the two client consumers (agent C# / admin C#) that must stay in sync.
+1. **Route/method parity table** — walk every `HttpRequestMessage` in the three C# files and every `fetch/xhr` in web admin, cross-check against `src/routes/api/public/**` file names and their `handlers.{METHOD}`. Flag any orphaned route (server has it, no client uses it) and any missing route (client calls it, server file absent or wrong method).
+2. **Handshake shape check** — for enroll/hello/heartbeat/reconnect/consent/frame/cursor/inputs/signal: confirm request body keys and response JSON keys used by the C# deserializers match the server handlers (case-sensitive fields such as `deviceId`, `deviceToken`, `sessionId`, `mode`, `state`, `since`, `max`, `items[].from_side`).
+3. **Auth header parity** — every `/api/public/agent/*` `enroll` + `pair`) `X-Device-Id` + `X-Device-Token`; `enroll` must require `X-Deployment-Key`; admin REST must send both `apikey` and `Authorization: Bearer`.
+4. **Signal direction & session-state gates** — re-read `session.$sessionId.signal.ts`: POST inserts `from_side="agent"`, GET filters `from_side=eq.admin`, state must be `active`. Confirm admin's `PollAgentSignalsAsync` uses `from_side=eq.agent` (it does) and `PushSignalAsync` inserts `from_side="admin"` (it does).
+5. **Smoke script** — reuse the pattern from `scripts/verify-payment-routes.ts` and add `scripts/verify-agent-routes.ts` that hits each `/api/public/agent/*` unauthenticated and asserts the expected 401/410/400 (not 404/500). Runs against `https://secure-remote-view.lovable.app`.
+6. **Report** — output a single pass/fail matrix per route with the exact HTTP code observed. If everything is green, we proceed to repack the zips. If not, list the mismatches and propose the minimal fix (in a follow-up plan).
 
-No server route, schema, RLS policy, auth flow, or UI behavior changes. Purely a documented audit + three defensive client tweaks.
+## Deliverable of this pass
 
-## Out of scope
-- Moving frames off Postgres onto Realtime/Storage.
-- TURN, DXGI, or H.264 pinning (previously planned separately).
-- Any change to the payment / order surface.
+- `scripts/verify-agent-routes.ts` (new, read-only smoke checker).
+- A printed verification matrix in chat covering all 11 agent routes + 1 admin auth route + 6 Supabase REST tables.
+- Explicit "no mismatches found → safe to repack" or a numbered list of defects.
+
+No agent/admin/web source is modified in this step. Repackaging the two zips is a separate follow-up once the matrix is green.
