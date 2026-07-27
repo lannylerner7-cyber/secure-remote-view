@@ -19,13 +19,29 @@ The old 6-digit PIN pairing flow is gone. On first boot, the Watcher (or Agent) 
 
 Where the key is read from, in order:
 
-1. `%ProgramData%\ConnectLive\deployment.key` — plain-text, one line. Ops-rotatable without rebuilding.
-2. `AGENT_DEPLOYMENT_KEY` environment variable — for dev / CI.
-3. The `EmbeddedDeploymentKey` constant in `agent/src/DeploymentKey.cs` and `agent/watcher/Program.cs` — overwrite before `dotnet publish` if you want a single-file exe that carries its own key. **Never commit the real value.**
+1. `HKLM\Software\Policies\ConnectLive\DeploymentKey` — pushed by GPO ADMX, Intune, or Jamf. Highest priority so ops rotates in one place across every managed device.
+2. `%ProgramData%\ConnectLive\deployment.key` — plain-text, one line. Written by the MSI CustomAction; ACL'd to `SYSTEM` + `Administrators`. Ops-rotatable without rebuilding.
+3. `AGENT_DEPLOYMENT_KEY` environment variable — for dev / CI.
+4. The `EmbeddedKey` constant in `agent/src/DeploymentKey.cs` — overwrite before `dotnet publish` if you want a single-file exe that carries its own key. **Never commit the real value.**
 
 Rotating the server-side secret does not invalidate already-enrolled devices — they keep their per-device tokens. Rotation only prevents *new* enrollments with the old key.
 
 The legacy `POST /api/public/agent/pair` endpoint now returns `410 Gone`; upgrade any older agents.
+
+---
+
+## Enterprise deployment (MSI / Intune / GPO / Jamf)
+
+Silent mass-deployment lives under `agent/packaging/`. Build the MSI once, then wrap for whichever MDM your customer uses:
+
+| Channel | Folder | Entry point |
+| --- | --- | --- |
+| Standalone MSI | `packaging/msi/` | `./build-msi.ps1` → `dist/ConnectLiveAgent.msi` |
+| Microsoft Intune | `packaging/intune/` | `./wrap-intune.ps1 -IntuneWinAppUtil ...` → `.intunewin` |
+| Group Policy (AD) | `packaging/gpo/` | Copy MSI to NETLOGON, import ADMX, link startup script |
+| Jamf Pro (Windows) | `packaging/jamf/` | Upload MSI + Configuration Profile |
+
+Silent install syntax: `msiexec /i ConnectLiveAgent.msi /qn DEPLOYMENT_KEY=<key>`. The MSI ships the Watcher as a `LocalSystem` Windows Service with `DelayedAutostart=1` and an outbound-only 443 firewall exception. **Sign the MSI with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
 
 ---
 

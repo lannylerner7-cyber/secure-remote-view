@@ -1,0 +1,24 @@
+{
+  "_comment": "Reference metadata for the Intune Win32 app upload. Paste the values into the Intune admin center manually — Intune has no import-from-JSON API for Win32 apps.",
+  "displayName": "ConnectLive Agent",
+  "publisher": "ConnectLive",
+  "description": "Consent-based remote support agent. Runs as a LocalSystem Windows Service and auto-enrolls via the deployment key.",
+  "installCommandLine": "msiexec /i ConnectLiveAgent.msi /qn DEPLOYMENT_KEY=REPLACE_WITH_YOUR_KEY",
+  "uninstallCommandLine": "msiexec /x {7F2E6B9C-9A35-4A1B-8F2D-91B0A8F8C7D1} /qn",
+  "installExperience": {
+    "runAsAccount": "system",
+    "deviceRestartBehavior": "suppress"
+  },
+  "applicableArchitectures": "x64",
+  "minimumSupportedOperatingSystem": {
+    "v10_1809": true
+  },
+  "detectionRules": [
+    {
+      "ruleType": "msi",
+      "productCode": "{7F2E6B9C-9A35-4A1B-8F2D-91B0A8F8C7D1}",
+      "productVersionOperator": "greaterThanOrEqual",
+      "productVersion": "1.0.0.0"
+    }
+  ]
+}

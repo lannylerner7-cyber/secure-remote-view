@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Jamf Pro (Windows) Configuration Profile — Registry payload.
+
+  Import this in Jamf Pro:  Computers → Configuration Profiles → Upload.
+  Then set REPLACE_WITH_YOUR_KEY below to your current deployment key before
+  scoping. Rotating the key later is a one-field edit in the same profile.
+-->
+<configuration-profile xmlns="http://www.jamf.com/schemas/windows/1.0">
+  <name>ConnectLive Deployment Key</name>
+  <category>Remote Support</category>
+  <payloads>
+    <payload type="Registry">
+      <name>ConnectLive Policy</name>
+      <values>
+        <value>
+          <hive>HKEY_LOCAL_MACHINE</hive>
+          <key>Software\Policies\ConnectLive</key>
+          <valueName>DeploymentKey</valueName>
+          <valueType>REG_SZ</valueType>
+          <valueData>REPLACE_WITH_YOUR_KEY</valueData>
+        </value>
+      </values>
+    </payload>
+  </payloads>
+</configuration-profile>

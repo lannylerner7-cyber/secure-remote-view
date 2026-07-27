@@ -39,11 +39,20 @@ public sealed class WebRtcClient
         };
         _pc = new RTCPeerConnection(cfg);
 
+        // Codec pinning guardrail: the agent encodes VP8 today (software VideoEncoderEndPoint,
+        // single-file-safe). Both sides MUST advertise exactly one identical video format so
+        // SIPSorcery cannot renegotiate to a codec the peer can't decode → black screen.
+        //
+        // If/when the agent moves to H.264 (Media Foundation / OpenH264), swap the format below
+        // to: new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "H264", 90000,
+        //   "profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1")
+        // (Constrained Baseline 3.1) AND change the agent's WebRtcSession.cs to match, byte-for-byte.
         _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video,
             false, new System.Collections.Generic.List<SDPAudioVideoMediaFormat>
             {
-                new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "H264", 90000, "packetization-mode=1"),
+                new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000),
             }, MediaStreamStatusEnum.RecvOnly));
+
 
         _pc.onicecandidate += async (c) =>
         {

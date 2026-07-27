@@ -1,0 +1,21 @@
+{
+  "_comment": "Reference metadata for a Jamf Pro (Windows) Package + Policy. Paste values manually in the Jamf Pro admin console — Jamf has no bulk import for Windows packages.",
+  "package": {
+    "displayName": "ConnectLive Agent",
+    "fileName": "ConnectLiveAgent.msi",
+    "category": "Remote Support",
+    "installMethod": "msi",
+    "installArguments": "/qn /norestart"
+  },
+  "policy": {
+    "displayName": "Install ConnectLive Agent",
+    "trigger": "Enrollment Complete + Recurring Check-In",
+    "frequency": "Once per computer",
+    "scope": "Smart Group: Windows 10/11 x64 without ConnectLive installed"
+  },
+  "configurationProfile": {
+    "displayName": "ConnectLive Deployment Key",
+    "reference": "configuration-profile.xml",
+    "note": "Registry payload writing HKLM\\Software\\Policies\\ConnectLive\\DeploymentKey. Rotate the value here — no MSI rebuild required."
+  }
+}
