@@ -1309,7 +1309,18 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
                           Connect
                         </button>
                       )}
-                      {canDelete && (
+                      {canPower && p !== "online" && (
+                        <button
+                          onClick={() => onWake(d)}
+                          className="rounded border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
+                          title="Wake this machine via a peer on the same LAN (magic packet)"
+                        >
+                          Wake
+                        </button>
+                      )}
+                      {canPower && p === "online" && (
+                        <PowerMenu onSelect={(k) => onPower(d, k)} canShutdown={canShutdown} />
+                      )}
                         <button
                           onClick={() => onDelete(d)}
                           className="rounded border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:bg-red-500/20"
