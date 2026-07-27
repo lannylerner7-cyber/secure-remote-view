@@ -61,16 +61,17 @@ export const Route = createFileRoute("/api/public/webhooks/cdp")({
           .eq("id", orderId);
         await supabaseAdmin
           .from("payment_events")
-          .insert({
-            order_id: orderId,
-            source: "cdp_webhook",
-            event_type: nextStatus,
-            tx_hash: payload.tx_hash ?? null,
-            confirmations: payload.confirmations ?? null,
-            raw: payload,
-          })
-          .select()
-          .maybeSingle();
+          .upsert(
+            {
+              order_id: orderId,
+              source: "cdp_webhook",
+              event_type: nextStatus,
+              tx_hash: payload.tx_hash ?? null,
+              confirmations: payload.confirmations ?? null,
+              raw: payload,
+            },
+            { onConflict: "order_id,tx_hash,event_type", ignoreDuplicates: true },
+          );
 
         return Response.json({ ok: true });
       },

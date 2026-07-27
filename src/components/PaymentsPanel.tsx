@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { listOrdersAdmin, getOrderTotals, setOrderAccessLink, markOrderPaid } from "@/lib/orders.functions";
+import {
+  listOrdersAdmin,
+  getOrderTotals,
+  setOrderAccessLink,
+  markOrderPaid,
+  listWalletsAdmin,
+  upsertWalletAdmin,
+  getPaymentsHealth,
+} from "@/lib/orders.functions";
 
 type OrderRow = {
   id: string;
@@ -34,8 +42,14 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const loadTotals = useServerFn(getOrderTotals);
   const setLink = useServerFn(setOrderAccessLink);
   const markPaid = useServerFn(markOrderPaid);
+  const loadHealth = useServerFn(getPaymentsHealth);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
+  const [health, setHealth] = useState<{
+    wallets: Record<"BTC" | "USDT_ERC20" | "USDC_ERC20", boolean>;
+    webhook_secret_set: boolean;
+  } | null>(null);
+  const [tab, setTab] = useState<"orders" | "wallets">("orders");
   const [filter, setFilter] = useState<(typeof STATUSES)[number]>("");
   const [editingLink, setEditingLink] = useState<string | null>(null);
   const [linkDraft, setLinkDraft] = useState("");
@@ -43,12 +57,14 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 
   const reload = async () => {
     try {
-      const [os, t] = await Promise.all([
+      const [os, t, h] = await Promise.all([
         loadOrders({ data: { status: filter || undefined, limit: 200 } }),
         loadTotals(),
+        loadHealth().catch(() => null),
       ]);
       setOrders(os as OrderRow[]);
       setTotals(t as Totals);
+      if (h) setHealth(h as NonNullable<typeof health>);
     } catch (e) {
       console.error(e);
     }
@@ -90,8 +106,50 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     }
   };
 
+  const missing: string[] = [];
+  if (health) {
+    if (!health.wallets.BTC) missing.push("BTC wallet");
+    if (!health.wallets.USDT_ERC20) missing.push("USDT wallet");
+    if (!health.wallets.USDC_ERC20) missing.push("USDC wallet");
+    if (!health.webhook_secret_set) missing.push("CDP_WEBHOOK_SECRET");
+  }
+
   return (
     <div className="space-y-6">
+      {missing.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+          <strong className="font-semibold">Payments not fully live.</strong>{" "}
+          Missing: {missing.join(", ")}.{" "}
+          {isSuperAdmin && !health?.wallets.BTC && (
+            <button onClick={() => setTab("wallets")} className="underline">
+              Configure wallets →
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-2 text-xs">
+        <button
+          onClick={() => setTab("orders")}
+          className={`rounded px-3 py-1.5 ${tab === "orders" ? "bg-[#4F7CFF] text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
+        >
+          Orders
+        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={() => setTab("wallets")}
+            className={`rounded px-3 py-1.5 ${tab === "wallets" ? "bg-[#4F7CFF] text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
+          >
+            Wallets
+          </button>
+        )}
+      </div>
+
+      {tab === "wallets" && isSuperAdmin && <WalletsTab />}
+
+      {tab === "orders" && (
+        <>
       {/* Totals ticker */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card label="Total deposited" value={`$${totals?.total_deposited_usd.toFixed(2) ?? "0.00"}`} tone="green" />
@@ -230,9 +288,93 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </div>
   );
 }
+
+function WalletsTab() {
+  const load = useServerFn(listWalletsAdmin);
+  const save = useServerFn(upsertWalletAdmin);
+  const [rows, setRows] = useState<Array<{ coin: string; cdp_wallet_id: string; updated_at: string }>>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const reload = async () => {
+    const r = (await load()) as Array<{ coin: string; cdp_wallet_id: string; updated_at: string }>;
+    setRows(r);
+    const d: Record<string, string> = {};
+    r.forEach((w) => (d[w.coin] = w.cdp_wallet_id));
+    setDrafts((prev) => ({ ...d, ...prev }));
+  };
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const coins: Array<{ code: "BTC" | "USDT_ERC20" | "USDC_ERC20"; label: string; hint: string }> = [
+    { code: "BTC", label: "Bitcoin (BTC)", hint: "bc1… / 1… / 3… address" },
+    { code: "USDT_ERC20", label: "Tether (USDT · ERC-20)", hint: "0x… Ethereum address" },
+    { code: "USDC_ERC20", label: "USD Coin (USDC · ERC-20)", hint: "0x… Ethereum address" },
+  ];
+
+  const submit = async (coin: string) => {
+    setBusy(coin);
+    setMsg(null);
+    try {
+      await save({ data: { coin: coin as "BTC" | "USDT_ERC20" | "USDC_ERC20", address: drafts[coin] ?? "" } });
+      setMsg(`${coin} saved.`);
+      await reload();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-[#4F7CFF]/30 bg-[#4F7CFF]/5 p-3 text-xs text-white/70">
+        These addresses receive buyer payments. Every new order for a given coin is issued the address
+        stored here. Use one you control (hardware wallet, exchange deposit, or custody).
+      </div>
+      {msg && <div className="rounded bg-white/5 p-2 text-xs">{msg}</div>}
+      {coins.map((c) => {
+        const existing = rows.find((r) => r.coin === c.code);
+        return (
+          <div key={c.code} className="rounded-lg border border-white/10 bg-[#1F2A44] p-4">
+            <div className="flex items-baseline justify-between">
+              <div className="font-medium">{c.label}</div>
+              {existing && (
+                <div className="text-[10px] text-white/40">
+                  updated {new Date(existing.updated_at).toLocaleString()}
+                </div>
+              )}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={drafts[c.code] ?? ""}
+                onChange={(e) => setDrafts((d) => ({ ...d, [c.code]: e.target.value }))}
+                placeholder={c.hint}
+                className="flex-1 rounded bg-black/40 px-2 py-1.5 font-mono text-[11px]"
+              />
+              <button
+                disabled={busy === c.code || !drafts[c.code]}
+                onClick={() => submit(c.code)}
+                className="rounded bg-[#4F7CFF] px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+              >
+                {busy === c.code ? "Saving…" : existing ? "Update" : "Save"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 
 function Card({ label, value, tone }: { label: string; value: string; tone: "green" | "amber" | "red" | "blue" }) {
   const tones = {

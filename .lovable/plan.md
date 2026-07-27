@@ -1,45 +1,79 @@
-## Route audit: agent ↔ watcher ↔ backend
 
-Cross-checked every URL the agent, watcher, `src/shared/api-routes.ts` registry, and admin panel touch against the actual handler files under `src/routes/api/public/`. Four mismatches would cause silent runtime failures — the rest matches.
+## Route audit — what I verified
 
-### Findings
+**Buyer funnel (public)**
+- `/order` → `src/routes/order.tsx` ✓ loads plans via `getActivePlansPublic`, submits via `createOrderPublic`, navigates to `/order/$id`.
+- `/order/$id` → `src/routes/order.$id.tsx` ✓ polls `getOrderPublic` every 10s, renders address, QR, confirmations, access-link CTA.
+- Homepage `src/routes/index.tsx` links to `/order` in 4 spots ✓ and fetches `/api/public/stats/orders` for the paid-orders ticker.
 
-| # | Caller | Route | Backend handler | Status |
-|---|---|---|---|---|
-| 1 | `agent/src/ApiClient.cs:122` (`PairAsync`) | `POST /api/public/agent/pair` | Returns **410 Gone** after auto-enroll rewrite | ❌ dead call still shipped |
-| 2 | `agent/src/ApiClient.cs:274` (`ConnectRealtimeAsync`) | `WS /api/ws?deviceId&token` | **No route file exists** | ❌ WS connect will 404 |
-| 3 | `src/shared/api-routes.ts:14` (`agentSessionPoll`) | `GET /api/public/agent/session/:id` | **No handler** (only `.consent`, `.frame`, etc. leaves exist) | ❌ registry entry lies |
-| 4 | `src/routes/_authenticated/console.tsx` (10+ sites) | Generates/shows `pairing_code`, "Show code" modal, pending-invite banner | Pairing is deprecated | ❌ leftover UI from old flow |
-| ✅ | `enroll`, `hello`, `heartbeat`, `session/:id/consent`, `/reconnect`, `/frame`, `/cursor`, `/inputs`, `/signal` | — | Handler files present | OK |
-| ✅ | Watcher `/heartbeat` + `/enroll` (Program.cs:104,220) | — | Match | OK |
-| ✅ | `X-Device-Id` + `X-Device-Token` headers on every authed call, `X-Deployment-Key` only on `/enroll` | — | Match `agent-auth.server.ts` + `enroll.ts` | OK |
+**Server functions** (`src/lib/orders.functions.ts`)
+- `createOrderPublic`, `getOrderPublic`, `getActivePlansPublic` — anon-callable ✓
+- `listOrdersAdmin`, `getOrderTotals`, `setOrderAccessLink`, `markOrderPaid` — behind `requireSupabaseAuth` ✓; `markOrderPaid` also re-checks `super_admin`.
 
-### Fixes
+**HTTP routes** (`src/routes/api/public/...`)
+- `webhooks/cdp` ✓ HMAC-verified with timing-safe compare, resolves by `order_id` or `receive_address`.
+- `cron/reconcile-orders` ✓ gated on Supabase publishable key header.
+- `stats/orders` ✓ 30s-cached paid count.
 
-1. **Remove dead pair path from the agent.**
-   - Delete `PairAsync` + `PairResult`/`PairOk`/`PairErr` records in `agent/src/ApiClient.cs`.
-   - Drop the `/api/public/agent/pair` line from the header doc-block.
-   - `JoinWindow.cs` is already unused after the auto-enroll cutover — remove its `<Compile>` if referenced or leave dormant (it's not wired from `App.xaml.cs` anymore).
+**Payment-admin UI** (`src/components/PaymentsPanel.tsx`, mounted in `_authenticated/console.tsx`)
+- Nav item "Payments" gated to `admin` + `super_admin` ✓, `Mark paid` gated to `super_admin` only ✓.
+- Totals, filter, access-link editor, manual mark-paid — all wired to the server fns ✓.
 
-2. **Decide the realtime transport.** The agent's main loop uses HTTP long-poll (`PollSignalsAsync`, `PollInputsAsync`) — the WebSocket path is optional. Two options, need your call:
-   - **A. Drop it** — remove `ConnectRealtimeAsync` from `ApiClient.cs` and the `using var ws = ...` block in `Agent.cs:92`. Simpler, one less surface. Recommended since polling already works end-to-end.
-   - **B. Implement it** — add `src/routes/api/ws.ts` server route that validates `deviceId`+`token` against `agent-auth.server.ts` and bridges to a Supabase Realtime channel. Bigger change; only worth it if you want push-based signaling.
+**Data / infra check (live DB)**
+- `plans` table: Starter $49, Team $199, Business $799 — all active ✓.
+- `admin_wallets` table: **empty** — no receive addresses configured.
+- `pg_cron`: `cron.job` not present — reconcile poller **never runs**.
+- Secrets: `CDP_WEBHOOK_SECRET` **missing** — webhook returns 503 for every hit.
 
-3. **Reconcile `agentSessionPoll` in `src/shared/api-routes.ts`.** Either remove the entry (agent never calls it) or add a thin `GET /api/public/agent/session/:id` handler returning `{state, mode}` for future use. Remove is safer.
+## Gaps that block real payments
 
-4. **Strip pairing UI from `src/routes/_authenticated/console.tsx`.**
-   - Delete the "Show code" buttons, the pending-invite banner (line ~421+), the code-modal state, and the `pairing_code` column in the sessions table.
-   - When a session is created for an auto-enrolled device, skip the code generation branch entirely — session goes straight to `invited` and the watcher picks it up on the next heartbeat.
-   - Keep the `pairing_code` DB column (harmless, per the earlier plan).
+1. **No wallet configured** → every new order gets `receive_address = null`; the invoice page shows "address being provisioned" forever. There is no admin UI to set the payout address.
+2. **No poller schedule** → detection depends on the CDP webhook alone. If the webhook secret isn't set, no order ever moves past `pending`.
+3. **Idempotency drift on `payment_events`** → each poller tick inserts a new event row for the same tx. Should upsert on `(order_id, tx_hash, event_type)`.
+4. **No license lookup for buyers** → if a buyer loses the invoice URL, they can't recover it (order ID is the only key).
+5. **`src/shared/api-routes.ts`** doesn't list the order/webhook/cron/stats routes — same drift risk we fixed for agent routes.
 
-5. **Sanity script.** Add a small `scripts/verify-routes.ts` that greps `API_ROUTES` values + `agent/src/**/*.cs` route literals against `src/routes/api/public/**` handler files and fails CI on any mismatch. Prevents this class of drift returning.
+## Fixes (small, surgical, no feature removal)
 
-### Deliverables
+### 1. Wallet-management panel (super-admin only)
+- Add a "Wallets" tab inside `PaymentsPanel.tsx` visible only when `isSuperAdmin`.
+- New server fns in `src/lib/orders.functions.ts`: `listWalletsAdmin`, `upsertWalletAdmin({ coin, chain, address })`. Both require `requireSupabaseAuth` + inline `super_admin` check.
+- One row per coin (BTC / USDT_ERC20 / USDC_ERC20). Saving upserts into `admin_wallets` with `cdp_wallet_id = address` (matches the v1 shim contract).
 
-- Patched `agent/src/ApiClient.cs`, `agent/src/Agent.cs` (WS block removed if 2A), `src/shared/api-routes.ts`, `src/routes/_authenticated/console.tsx`.
-- New `scripts/verify-routes.ts` + a one-line npm script.
-- Rebuilt `ConnectLiveAgent.zip` and refreshed `agent/INSTALL.md` mentioning the removed pair/WS paths.
+### 2. Migration: pg_cron + payment_events idempotency
+- New migration:
+  - `SELECT cron.schedule('reconcile-orders', '*/1 * * * *', $$ SELECT net.http_post( url := '<STABLE_URL>/api/public/cron/reconcile-orders', headers := jsonb_build_object('apikey', current_setting('app.settings.anon_key', true), 'Content-Type', 'application/json'), body := '{}'::jsonb) $$)` — with fallback if `net.http_post` isn't enabled, we document a manual External-Cron path in `COOLIFY.md`.
+  - Add `CREATE UNIQUE INDEX IF NOT EXISTS payment_events_dedupe ON public.payment_events(order_id, COALESCE(tx_hash, ''), event_type);` then switch cron+webhook inserts to `.upsert(..., { onConflict: 'order_id,tx_hash,event_type', ignoreDuplicates: true })`.
 
-### One decision needed
+### 3. Prompt operator to set `CDP_WEBHOOK_SECRET`
+- Detect at runtime in `PaymentsPanel` via a tiny `getPaymentsHealth` server fn that returns `{ wallets_configured, webhook_secret_set, cron_running_estimate }`. Show an amber banner listing whatever is missing so the operator sees the gap.
 
-For step 2, do you want to **drop the WebSocket path (recommended)** or **implement the missing `/api/ws` route**?
+### 4. `/license` lookup page (buyer self-service)
+- New route `src/routes/license.tsx` — email-only lookup form.
+- New server fn `lookupLicenseByEmail({ email })` that returns the most recent `paid` order for that email (id, plan, access_link). Rate-limited by inserting into a small `license_lookups` table (email + ts) and rejecting > 5/hour per email.
+- Homepage adds a subtle "Have a license? Look it up" link next to the "Order a license" CTA.
+
+### 5. Registry hygiene
+- Extend `src/shared/api-routes.ts` with a `PAYMENT_ROUTES` block: `webhookCdp`, `cronReconcileOrders`, `statsOrders`. No runtime behavior change — just single-source-of-truth.
+
+### 6. Verify script
+- Add `scripts/verify-payment-routes.ts` (Node, run manually): hits `/api/public/stats/orders`, posts an unsigned request to `/api/public/webhooks/cdp` (expects 401), posts to `/api/public/cron/reconcile-orders` without apikey (expects 401), and calls the two public server fns via TanStack `_serverFn` URL to prove they're mounted. Prints a PASS/FAIL table.
+
+## Technical notes
+
+- `getOrderPublic` intentionally uses `supabaseAdmin` because the invoice must render for the unauthenticated buyer; the UUID acts as an unguessable bearer. Left as-is.
+- `access_link_sent_at` column already exists (used by `setOrderAccessLink`); no schema change needed for the access-link editor.
+- The wallet panel writes the plain address into `cdp_wallet_id` — matches the current `issueReceiveAddress` v1 shim so no code churn in `cdp.server.ts`.
+- No plan tier, price, RLS policy, or route path is removed. Every change is additive.
+
+## Files touched
+
+- `src/lib/orders.functions.ts` — add `listWalletsAdmin`, `upsertWalletAdmin`, `getPaymentsHealth`, `lookupLicenseByEmail`.
+- `src/components/PaymentsPanel.tsx` — add "Wallets" sub-tab + health banner.
+- `src/routes/license.tsx` — new buyer lookup page.
+- `src/routes/index.tsx` — add "Look up license" link near the order CTA.
+- `src/shared/api-routes.ts` — export `PAYMENT_ROUTES`.
+- `src/routes/api/public/webhooks/cdp.ts` and `cron/reconcile-orders.ts` — switch `payment_events` insert to upsert.
+- New migration for `payment_events_dedupe` unique index (and optional `cron.schedule` if `pg_net` is available).
+- `scripts/verify-payment-routes.ts` — smoke check.
+- `COOLIFY.md` — note about `CDP_WEBHOOK_SECRET` and external cron fallback.
