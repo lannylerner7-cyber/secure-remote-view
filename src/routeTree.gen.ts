@@ -12,13 +12,13 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as RefundRouteImport } from './routes/refund'
 import { Route as PrivacyRouteImport } from './routes/privacy'
-import { Route as OrderRouteImport } from './routes/order'
 import { Route as LicenseRouteImport } from './routes/license'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as OrderIndexRouteImport } from './routes/order.index'
 import { Route as OrderIdRouteImport } from './routes/order.$id'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
@@ -53,11 +53,6 @@ const PrivacyRoute = PrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrderRoute = OrderRouteImport.update({
-  id: '/order',
-  path: '/order',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LicenseRoute = LicenseRouteImport.update({
   id: '/license',
   path: '/license',
@@ -87,10 +82,15 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrderIndexRoute = OrderIndexRouteImport.update({
+  id: '/order/',
+  path: '/order/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrderIdRoute = OrderIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => OrderRoute,
+  id: '/order/$id',
+  path: '/order/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   id: '/console',
@@ -191,12 +191,12 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
-  '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/order/$id': typeof OrderIdRoute
+  '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
@@ -220,12 +220,12 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
-  '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/order/$id': typeof OrderIdRoute
+  '/order': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
@@ -251,12 +251,12 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
-  '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/order/$id': typeof OrderIdRoute
+  '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
@@ -282,12 +282,12 @@ export interface FileRouteTypes {
     | '/contact'
     | '/health'
     | '/license'
-    | '/order'
     | '/privacy'
     | '/refund'
     | '/terms'
     | '/console'
     | '/order/$id'
+    | '/order/'
     | '/api/public/health'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
@@ -311,12 +311,12 @@ export interface FileRouteTypes {
     | '/contact'
     | '/health'
     | '/license'
-    | '/order'
     | '/privacy'
     | '/refund'
     | '/terms'
     | '/console'
     | '/order/$id'
+    | '/order'
     | '/api/public/health'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
@@ -341,12 +341,12 @@ export interface FileRouteTypes {
     | '/contact'
     | '/health'
     | '/license'
-    | '/order'
     | '/privacy'
     | '/refund'
     | '/terms'
     | '/_authenticated/console'
     | '/order/$id'
+    | '/order/'
     | '/api/public/health'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
@@ -372,10 +372,11 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   HealthRoute: typeof HealthRoute
   LicenseRoute: typeof LicenseRoute
-  OrderRoute: typeof OrderRouteWithChildren
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
   TermsRoute: typeof TermsRoute
+  OrderIdRoute: typeof OrderIdRoute
+  OrderIndexRoute: typeof OrderIndexRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
@@ -415,13 +416,6 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/order': {
-      id: '/order'
-      path: '/order'
-      fullPath: '/order'
-      preLoaderRoute: typeof OrderRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/license': {
@@ -466,12 +460,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/order/': {
+      id: '/order/'
+      path: '/order'
+      fullPath: '/order/'
+      preLoaderRoute: typeof OrderIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/order/$id': {
       id: '/order/$id'
-      path: '/$id'
+      path: '/order/$id'
       fullPath: '/order/$id'
       preLoaderRoute: typeof OrderIdRouteImport
-      parentRoute: typeof OrderRoute
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/console': {
       id: '/_authenticated/console'
@@ -606,16 +607,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
-interface OrderRouteChildren {
-  OrderIdRoute: typeof OrderIdRoute
-}
-
-const OrderRouteChildren: OrderRouteChildren = {
-  OrderIdRoute: OrderIdRoute,
-}
-
-const OrderRouteWithChildren = OrderRoute._addFileChildren(OrderRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
@@ -623,10 +614,11 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   HealthRoute: HealthRoute,
   LicenseRoute: LicenseRoute,
-  OrderRoute: OrderRouteWithChildren,
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
   TermsRoute: TermsRoute,
+  OrderIdRoute: OrderIdRoute,
+  OrderIndexRoute: OrderIndexRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
