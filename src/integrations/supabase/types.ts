@@ -399,6 +399,69 @@ export type Database = {
         }
         Relationships: []
       }
+      power_commands: {
+        Row: {
+          created_at: string
+          delivered_at: string | null
+          device_id: string
+          dispatched_at: string | null
+          error: string | null
+          expires_at: string
+          id: string
+          kind: string
+          payload: Json
+          relay_device_id: string | null
+          requested_by: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          delivered_at?: string | null
+          device_id: string
+          dispatched_at?: string | null
+          error?: string | null
+          expires_at?: string
+          id?: string
+          kind: string
+          payload?: Json
+          relay_device_id?: string | null
+          requested_by?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          delivered_at?: string | null
+          device_id?: string
+          dispatched_at?: string | null
+          error?: string | null
+          expires_at?: string
+          id?: string
+          kind?: string
+          payload?: Json
+          relay_device_id?: string | null
+          requested_by?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "power_commands_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "power_commands_relay_device_id_fkey"
+            columns: ["relay_device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
