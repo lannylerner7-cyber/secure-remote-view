@@ -28,6 +28,20 @@ public sealed class Agent
     private WebRtcSession? _rtc;
     private readonly HashSet<string> _acceptedSessions = new();
     private string? _currentSessionId;
+    private CancellationTokenSource? _sessionCts;
+    private CancellationToken _outerCt;
+
+    /// <summary>
+    /// Pre-seed a session id restored from disk on cold boot so the next
+    /// heartbeat's "active" entry is treated as an already-consented session
+    /// rather than a fresh invite.
+    /// </summary>
+    public void SeedRestoredSession(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) return;
+        _acceptedSessions.Add(sessionId);
+        _currentSessionId = sessionId;
+    }
 
     public Agent(ApiClient api, Action<string> splashStatus, Dispatcher ui)
     {
