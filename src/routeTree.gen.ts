@@ -37,6 +37,7 @@ import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './rout
 import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './routes/api/public/agent/session.$sessionId.frame'
 import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './routes/api/public/agent/session.$sessionId.cursor'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
+import { Route as ApiPublicAgentPowerCmdIdAckRouteImport } from './routes/api/public/agent/power.$cmdId.ack'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -184,6 +185,12 @@ const ApiPublicAgentSessionSessionIdConsentRoute =
     path: '/api/public/agent/session/$sessionId/consent',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicAgentPowerCmdIdAckRoute =
+  ApiPublicAgentPowerCmdIdAckRouteImport.update({
+    id: '/api/public/agent/power/$cmdId/ack',
+    path: '/api/public/agent/power/$cmdId/ack',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -207,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
+  '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -236,6 +244,7 @@ export interface FileRoutesByTo {
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
+  '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -267,6 +276,7 @@ export interface FileRoutesById {
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
+  '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -298,6 +308,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -327,6 +338,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -357,6 +369,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
     | '/api/public/agent/session/$sessionId/frame'
@@ -387,6 +400,7 @@ export interface RootRouteChildren {
   ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
   ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
   ApiPublicWebhooksCdpRoute: typeof ApiPublicWebhooksCdpRoute
+  ApiPublicAgentPowerCmdIdAckRoute: typeof ApiPublicAgentPowerCmdIdAckRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
   ApiPublicAgentSessionSessionIdCursorRoute: typeof ApiPublicAgentSessionSessionIdCursorRoute
   ApiPublicAgentSessionSessionIdFrameRoute: typeof ApiPublicAgentSessionSessionIdFrameRoute
@@ -593,6 +607,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentSessionSessionIdConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/power/$cmdId/ack': {
+      id: '/api/public/agent/power/$cmdId/ack'
+      path: '/api/public/agent/power/$cmdId/ack'
+      fullPath: '/api/public/agent/power/$cmdId/ack'
+      preLoaderRoute: typeof ApiPublicAgentPowerCmdIdAckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -629,6 +650,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
   ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
   ApiPublicWebhooksCdpRoute: ApiPublicWebhooksCdpRoute,
+  ApiPublicAgentPowerCmdIdAckRoute: ApiPublicAgentPowerCmdIdAckRoute,
   ApiPublicAgentSessionSessionIdConsentRoute:
     ApiPublicAgentSessionSessionIdConsentRoute,
   ApiPublicAgentSessionSessionIdCursorRoute:
@@ -645,13 +667,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

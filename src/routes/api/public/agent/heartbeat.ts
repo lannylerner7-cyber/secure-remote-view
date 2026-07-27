@@ -20,15 +20,37 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         const ctx = await verifyDevice(request);
         if (!ctx) return new Response("unauthorized", { status: 401 });
 
+        // Optional LAN fingerprint (best-effort) used for Wake-on-LAN peer selection.
+        const body = (await request.json().catch(() => ({}))) as {
+          lan?: { subnet_v4?: string; mac?: string; ipv4?: string };
+        };
+
         const nowIso = new Date().toISOString();
         const prevStatus = ctx.device.status;
         const prevSeen = ctx.device.last_seen_at ? new Date(ctx.device.last_seen_at).getTime() : 0;
         const gap = Date.now() - prevSeen;
         const wasOffline = prevStatus !== "online" || gap > RECONNECT_GAP_MS;
 
+        // Merge LAN fingerprint into metadata without clobbering existing keys.
+        let mergedMetadata: Record<string, unknown> | undefined;
+        if (body.lan && (body.lan.subnet_v4 || body.lan.mac || body.lan.ipv4)) {
+          const prevMeta = (ctx.device.metadata ?? {}) as Record<string, unknown>;
+          mergedMetadata = {
+            ...prevMeta,
+            lan_subnet_v4: body.lan.subnet_v4 ?? prevMeta.lan_subnet_v4 ?? null,
+            mac: body.lan.mac ?? prevMeta.mac ?? null,
+            lan_ipv4: body.lan.ipv4 ?? prevMeta.lan_ipv4 ?? null,
+            lan_updated_at: nowIso,
+          };
+        }
+
         await ctx.admin
           .from("devices")
-          .update({ status: "online", last_seen_at: nowIso })
+          .update({
+            status: "online",
+            last_seen_at: nowIso,
+            ...(mergedMetadata ? { metadata: mergedMetadata as never } : {}),
+          })
           .eq("id", ctx.device.id);
 
         const { data: pending } = await ctx.admin
@@ -40,8 +62,35 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
 
         const isSessionActive = (pending ?? []).length > 0;
 
+        // Fetch queued power commands where this device is either
+        //   (a) the target of a local action (device_id), OR
+        //   (b) the LAN relay peer for a Wake-on-LAN broadcast (relay_device_id).
+        const { data: powerRows } = await ctx.admin
+          .from("power_commands")
+          .select("id, kind, payload, device_id, relay_device_id, expires_at")
+          .in("state", ["queued", "dispatched"])
+          .or(`device_id.eq.${ctx.device.id},relay_device_id.eq.${ctx.device.id}`)
+          .gt("expires_at", nowIso)
+          .order("created_at", { ascending: true })
+          .limit(8);
+
+        const powerCommands = (powerRows ?? []).map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          payload: r.payload,
+          role: r.relay_device_id === ctx.device.id && r.device_id !== ctx.device.id ? "relay" : "target",
+        }));
+
+        if (powerCommands.length > 0) {
+          const ids = powerCommands.map((c) => c.id);
+          await ctx.admin
+            .from("power_commands")
+            .update({ state: "dispatched", dispatched_at: nowIso })
+            .in("id", ids)
+            .eq("state", "queued");
+        }
+
         if (wasOffline) {
-          // Broadcast to all admins (recipient_id NULL); RLS allows read for authenticated.
           await ctx.admin.from("notifications").insert({
             recipient_id: null,
             title: "Device reconnected",
@@ -55,6 +104,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             ok: true,
             is_session_active: isSessionActive,
             sessions: pending ?? [],
+            power_commands: powerCommands,
           }),
           { headers: { "content-type": "application/json" } },
         );

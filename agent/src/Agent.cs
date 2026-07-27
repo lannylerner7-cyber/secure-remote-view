@@ -93,6 +93,7 @@ public sealed class Agent
                 deadManTripped = false;
 
                 await DispatchPendingSessions(body, ct);
+                await DispatchPowerCommands(body, ct);
 
                 try { await Task.Delay(baseDelay, ct); } catch { }
             }
@@ -114,6 +115,24 @@ public sealed class Agent
             }
         }
     }
+
+    private async Task DispatchPowerCommands(string body, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("power_commands", out var arr)) return;
+            if (arr.ValueKind != JsonValueKind.Array) return;
+            foreach (var el in arr.EnumerateArray())
+            {
+                // Fire-and-forget so slow relays don't back the heartbeat loop up.
+                var cmd = el.Clone();
+                _ = Task.Run(() => PowerRelay.HandleAsync(_api, cmd, ct), ct);
+            }
+        }
+        catch (Exception ex) { Log.Warn($"power dispatch: {ex.Message}"); }
+    }
+
 
     private async Task DispatchPendingSessions(string body, CancellationToken ct)
     {
