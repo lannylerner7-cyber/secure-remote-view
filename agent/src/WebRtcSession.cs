@@ -52,8 +52,15 @@ public sealed class WebRtcSession : IDisposable
         _pc = new RTCPeerConnection(cfg);
 
         _videoEnd = new VideoEncoderEndPoint();
+        // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
+        // Restrict to a single VP8 format so SDP negotiation cannot fall back to a codec the
+        // admin can't decode (which manifests as a permanent black frame).
+        // If this ever moves to H.264, both sides must advertise:
+        //   profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1
+        try { _videoEnd.RestrictFormats(f => f.Codec == VideoCodecsEnum.VP8); } catch { }
         MediaStreamTrack videoTrack = new(_videoEnd.GetVideoSourceFormats(), MediaStreamStatusEnum.SendOnly);
         _pc.addTrack(videoTrack);
+
         _videoEnd.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
         {
             _pc?.SendVideo(durationRtpUnits, sample);
