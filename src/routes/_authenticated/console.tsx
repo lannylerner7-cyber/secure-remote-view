@@ -106,6 +106,7 @@ function AdminPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [liveId, setLiveId] = useState<string | null>(null);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
+  const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
@@ -148,7 +149,17 @@ function AdminPage() {
     const ch = supabase
       .channel(`frames-${liveId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
-        (payload) => { const row = payload.new as never as LiveFrame; if (row) setLiveFrame(row); })
+        (payload) => {
+          const row = payload.new as never as LiveFrame;
+          if (row) {
+            setLiveFrame(row);
+            // FPS counter
+            const c = fpsCounterRef.current;
+            c.count++;
+            const elapsed = Date.now() - c.lastReset;
+            if (elapsed >= 1000) { c.fps = Math.round(c.count * 1000 / elapsed); c.count = 0; c.lastReset = Date.now(); }
+          }
+        })
       .on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
         (payload) => { const row = payload.new as never as LiveCursor; if (row) setLiveCursor(row); })
       .subscribe();
@@ -696,6 +707,7 @@ function AdminPage() {
                     );
                   })()}
                   <span>session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}</span>
+                  <span>· {fpsCounterRef.current.fps} fps</span>
                   {liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
                 </div>
 

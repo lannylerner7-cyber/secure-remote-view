@@ -1,80 +1,58 @@
 
-## Two things in this plan
+# Smooth Live View — Agent & Admin Performance Upgrade
 
-1. Replace the separate "Payments admin" login route with a button on the existing `/admin` page (safer — no duplicate auth surface).
-2. Wire the uploaded Coinbase CDP API key into the backend as **secrets**, and validate its shape before anything else in the app touches it.
+## Problem
 
----
+`ScreenCapture.cs` runs at ~7 FPS (140ms delay + GDI copy + JPEG encode). Fast-moving content (CSS animations, video) looks choppy in the admin panel.
 
-## Security note about the key you pasted
+## Changes
 
-The key `d6913747-…-b0085` and its `privateKey` value were pasted in plain chat. **Treat that key as compromised** and rotate it in the Coinbase CDP dashboard once we're done wiring the new one. I'll store whatever value you keep as a proper server secret so it never lands in the codebase or client bundle.
+### 1. Agent — `ScreenCapture.cs`: Triple the frame rate
 
----
+- **Drop `Task.Delay` from 140ms → 33ms** (target ~30 FPS).
+- **Lower default resolution from 1280 → 960px** long edge — cuts pixel count ~44%, proportionally faster GDI copy + JPEG encode.
+- **Drop JPEG quality from 55 → 40** during motion (hash changed), bump back to 55 on idle keyframes. Visually imperceptible on video; saves ~30% bandwidth per frame.
+- **Adaptive idle backoff**: if 3+ consecutive unchanged frames, increase delay to 100ms to save CPU when the screen is static. Reset to 33ms on any change.
 
-## Part 1 — "Payment admin" button on `/admin`
+### 2. Agent — `ScreenCapture.cs`: Eliminate redundant Bitmap allocation
 
-No new route, no second login page.
+Currently allocates `raw` (full-res) + `scaled` every frame. Reuse a pair of pre-allocated bitmaps across the loop (only reallocate if screen bounds change). Cuts GC pressure ~50%.
 
-- **Edit `src/routes/admin.tsx`**:
-  - Add a `mode` state (`"technician" | "payments"`). Default `"technician"`.
-  - Above the form, two segmented buttons: **Technician** and **Payment admin**. Purely a UI toggle — same fields, same `/api/public/auth/login` call, same lockout logic. No new endpoints.
-  - On successful login, if `mode === "payments"` → `navigate({ to: "/console", search: { tab: "payments" } })`. Otherwise → `/console` as today.
-  - Payment-admin mode shows a subtitle: "Sign in with a super-admin technician ID (e.g. `197200`). Non-admins will be routed to the dashboard."
-- **Edit `src/routes/_authenticated/console.tsx`**:
-  - Declare `validateSearch` to accept `{ tab?: Nav }`.
-  - Seed `useState<Nav>` from the search param, but only when the resolved `role` allows that tab (matches existing sidebar gates on line 452). Non-admin requesting `payments` silently falls back to `dashboard`.
-- **No changes** to `_authenticated/route.tsx`, `PaymentsPanel.tsx`, RLS, or the auth endpoint.
+### 3. Agent — `WebRtcSession.cs`: Match higher cadence
 
-Result: `/admin` handles both flows; no extra route, no extra attack surface.
+`PushFrame` duration hint is hardcoded to `33` (30 FPS RTP timestamp). This already matches the new target — no change needed, but verify the VP8 encoder doesn't throttle.
 
----
+### 4. Admin panel — `console.tsx` live view
 
-## Part 2 — Attach & validate the CDP API config
+- **Add an FPS counter overlay** (small badge, top-right of the video frame) so you can see actual throughput.
+- **Add a "Quality" toggle** (Normal / Performance) that sends a preference flag to the session. Agent reads it on next heartbeat and switches between 960px/q40 (Performance) and 1280px/q55 (Normal).
 
-### Storage (secrets — never in code)
-Store the uploaded credentials as two backend secrets:
-- `CDP_API_KEY_NAME` — the full `organizations/…/apiKeys/…` string.
-- `CDP_API_KEY_PRIVATE_KEY` — the base64 `privateKey` value.
+### 5. Agent — New `DxgiCapture.cs` (Phase 2 stub)
 
-I'll use `set_secret` for both since you've already supplied the values. If you plan to rotate first (recommended), I can switch to `add_secret` and you paste the new values into the secure form instead — tell me which.
+Create a DXGI Desktop Duplication wrapper behind a feature flag (`--use-dxgi`). When enabled, replaces GDI `CopyFromScreen` with `IDXGIOutputDuplication.AcquireNextFrame`. This is the path to 60 FPS with < 1ms capture latency. The stub will:
+- P/Invoke `CreateDXGIFactory1`, enumerate outputs, acquire the duplication interface.
+- Fall back to GDI if DXGI init fails (RDP sessions, older GPUs, Session 0).
+- Log capture timing so you can compare GDI vs DXGI on your hardware.
 
-### Validation (before injection anywhere)
-- **New file `src/lib/cdp-config.server.ts`** (server-only, `.server.ts` so it's blocked from client bundles):
-  - `getCdpConfig()` → reads both env vars.
-  - `validateCdpConfig()` → returns `{ ok: true } | { ok: false, reason }`. Checks:
-    - Both env vars present and non-empty.
-    - `CDP_API_KEY_NAME` matches `/^organizations\/[0-9a-f-]{36}\/apiKeys\/[0-9a-f-]{36}$/`.
-    - `CDP_API_KEY_PRIVATE_KEY` is valid base64 that decodes to exactly 64 bytes (CDP Ed25519 key length).
-  - No parsing or SDK calls yet — purely shape validation, so it can't leak the key or make outbound requests.
-- **Edit `src/lib/cdp.server.ts`**:
-  - `issueReceiveAddress()` gets a preflight `validateCdpConfig()` call. If invalid, log a server-side warning (no key material) and fall through to the existing `admin_wallets.cdp_wallet_id` shim — nothing breaks, and the app still runs.
-  - This is the only place that reads the config right now, so validation happens once at the injection point.
-- **Edit `src/lib/orders.functions.ts`** — extend the existing `getPaymentsHealth` server fn (super-admin only) to include `cdp_configured: boolean` and `cdp_reason: string | null` from `validateCdpConfig()`. Never returns the key material itself.
-- **Edit `src/components/PaymentsPanel.tsx`** — the existing health banner adds a new line: "CDP API key: configured ✓ / not configured — <reason>". No new tab, no new UI page.
+Full DXGI + hardware H.264 encoding is a follow-up milestone.
 
-### What this does NOT do (kept for a future turn)
-- No `@coinbase/cdp-sdk` install, no per-order address derivation. The existing `admin_wallets` shim keeps issuing addresses so nothing regresses. Wiring the SDK is a separate, riskier change (Cloudflare Worker compat, private-key handling, deriv paths) and I'd rather do it as its own plan once this validation is green.
+### 6. Repackage agent ZIP
 
----
+Output updated `ConnectLiveAgent.zip` with all changes.
 
 ## Files touched
 
-- **Edit** `src/routes/admin.tsx` — technician/payments toggle
-- **Edit** `src/routes/_authenticated/console.tsx` — accept `?tab=` search param, role-gate
-- **New** `src/lib/cdp-config.server.ts` — read + validate CDP secrets
-- **Edit** `src/lib/cdp.server.ts` — preflight validate before use
-- **Edit** `src/lib/orders.functions.ts` — extend `getPaymentsHealth`
-- **Edit** `src/components/PaymentsPanel.tsx` — show CDP status in health banner
-- **Secrets** (via `set_secret`) — `CDP_API_KEY_NAME`, `CDP_API_KEY_PRIVATE_KEY`
+| File | Action |
+|------|--------|
+| `agent/src/ScreenCapture.cs` | Rewrite loop timing, resolution, quality, bitmap reuse |
+| `agent/src/DxgiCapture.cs` | New — DXGI stub with GDI fallback |
+| `agent/src/WebRtcSession.cs` | Verify VP8 duration hint (likely no change) |
+| `src/routes/_authenticated/console.tsx` | FPS counter + quality toggle in live view |
 
-## Verification after build
+## What this does NOT change
 
-- `/admin` shows two mode buttons; signing in under "Payment admin" as `197200` lands on `/console?tab=payments` with the Payments panel open.
-- Signing in under "Technician" still lands on the dashboard tab.
-- Payments Health banner shows "CDP API key: configured ✓" once secrets are set; toggling either secret off shows the exact validation reason.
-- `issueReceiveAddress` continues to return the `admin_wallets` address (no behavior regression).
-
-## One question before I implement
-
-Do you want me to store the pasted values as-is with `set_secret`, or rotate the key in Coinbase first and then use `add_secret` so you paste the new values into a secure form? Default, if you don't reply, is `add_secret` — safer because the pasted key is now in chat history.
+- Cursor pump (already 30 Hz, working well)
+- WebRTC signaling flow
+- HTTPS frame upload endpoint
+- Input relay / trackpad / OSK
+- Any database schema
