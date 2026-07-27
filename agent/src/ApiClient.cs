@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Net.WebSockets;
+
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,15 +12,21 @@ using System.Threading.Tasks;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Thin HTTP + WebSocket client for the ConnectLive gateway.
+/// Thin HTTP client for the ConnectLive gateway.
 /// Routes (kept in sync with src/shared/api-routes.ts):
-///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }
+///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }  (gated by X-Deployment-Key)
 ///   POST /api/public/agent/hello                -> presence "arrived" signal
-///   POST /api/public/agent/heartbeat            -> pending session invites
+///   POST /api/public/agent/heartbeat            -> pending session invites + is_session_active
 ///   POST /api/public/agent/session/:id/reconnect -> resume same device/session after reboot
 ///   POST /api/public/agent/session/:id/consent   -> user consent result
-///   WS   /api/ws?token=...                      -> realtime signaling
-/// Every authenticated request sends BOTH X-Device-Id AND X-Device-Token.
+///   POST /api/public/agent/session/:id/frame     -> JPEG screen frame
+///   POST /api/public/agent/session/:id/cursor    -> cursor telemetry
+///   GET  /api/public/agent/session/:id/inputs    -> admin input queue (long-poll)
+///   POST /api/public/agent/session/:id/signal    -> WebRTC signaling
+///   GET  /api/public/agent/session/:id/signal    -> WebRTC signaling (poll)
+/// All authenticated requests send X-Device-Id + X-Device-Token.
+/// Transport is HTTPS-only; the old realtime WebSocket path was removed
+/// (heartbeat + long-poll already deliver invites and signaling).
 /// </summary>
 public sealed class ApiClient
 {
@@ -104,42 +110,23 @@ public sealed class ApiClient
 
     public async Task SubmitConsentAsync(string sessionId, bool accepted, CancellationToken ct)
     {
+        // Server expects { decision: "accept" | "decline" } — see
+        // src/routes/api/public/agent/session.$sessionId.consent.ts.
+        var decision = accepted ? "accept" : "decline";
         using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/consent")
         {
-            Content = JsonContent.Create(new { accepted })
+            Content = JsonContent.Create(new { decision })
         };
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
     }
 
-    // ---- Pairing (meeting-code join) ----------------------------------
+    // ---- (Removed) Meeting-code pairing --------------------------------
+    // The old /api/public/agent/pair endpoint returns 410 Gone; auto-enroll
+    // + admin-initiated session creation replaces it end-to-end.
 
     public sealed record PairResult(bool Ok, string? SessionId, string? Error);
-
-    public async Task<PairResult> PairAsync(string code, CancellationToken ct)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/pair")
-        {
-            Content = JsonContent.Create(new { code })
-        };
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            try
-            {
-                var err = System.Text.Json.JsonSerializer.Deserialize<PairErr>(body);
-                return new PairResult(false, null, err?.error ?? resp.StatusCode.ToString());
-            }
-            catch { return new PairResult(false, null, resp.StatusCode.ToString()); }
-        }
-        var ok = System.Text.Json.JsonSerializer.Deserialize<PairOk>(body);
-        if (!string.IsNullOrEmpty(ok?.sessionId)) SaveSessionBinding(new SessionBinding(ok.sessionId, code, DateTimeOffset.UtcNow));
-        return new PairResult(true, ok?.sessionId, null);
-    }
-
     private sealed record PairOk(bool ok, string sessionId, string mode, string state);
     private sealed record PairErr(string error);
 
@@ -269,17 +256,10 @@ public sealed class ApiClient
         catch { return (since, null); }
     }
 
-    // ---- Realtime WebSocket -------------------------------------------
-
-    public async Task<ClientWebSocket> ConnectRealtimeAsync(CancellationToken ct)
-    {
-        var uri = new Uri(new Uri(ApiBaseUrl.Replace("https://", "wss://").Replace("http://", "ws://")),
-                          $"/api/ws?deviceId={Uri.EscapeDataString(DeviceId!)}&token={Uri.EscapeDataString(DeviceToken!)}");
-        var ws = new ClientWebSocket();
-        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
-        await ws.ConnectAsync(uri, ct);
-        return ws;
-    }
+    // ---- (Removed) Realtime WebSocket ---------------------------------
+    // Session invites and WebRTC signaling both travel over HTTPS
+    // (heartbeat + /signal long-poll). Removing WS keeps the transport
+    // surface minimal and eliminates a whole class of NAT/idle failures.
 
     // ---- DPAPI-encrypted local storage --------------------------------
 
