@@ -1,26 +1,92 @@
-## Problem
 
-Clicking **Continue to invoice** on `/order` calls the `createOrder` server fn, which calls `getUsdToCoinRates()` in `src/lib/pricing.server.ts`. That helper hits `api.coingecko.com` directly from Cloudflare Workers. CoinGecko's free public endpoint frequently returns **HTTP 403** to Cloudflare/edge egress IPs (they rate-limit/block datacenter ranges without an API key). The single-provider path has no fallback and no key, so every user gets `Pricing feed unavailable (403)`.
+# Double-Vouch Architecture + Production Hardening
 
-## Fix
+Persistent heartbeat (Watcher, SYSTEM) + persistent live session (Agent, user desktop), designed to survive Windows reboots, boot-time network latency, and mid-session crashes — plus real-time "Device connected" alerts in the admin panel.
 
-Rewrite `src/lib/pricing.server.ts` to be resilient:
+```text
+┌────────────────────── ADMIN BACKEND ──────────────────────┐
+│  /agent/heartbeat  ◀── control plane                      │
+│  /agent/session/*  ◀── data plane (WebRTC + HTTPS frames) │
+│  notifications (Realtime broadcast)                       │
+└────────▲───────────────────────────────▲──────────────────┘
+         │ (1) Heartbeat 5-15s           │ (2) Live session
+┌────────┴───────────┐            ┌──────┴───────────────┐
+│ ConnectLiveWatcher │── spawns ─▶│  ConnectLiveAgent    │
+│ (SYSTEM service)   │            │  (interactive user)  │
+└────────────────────┘            └──────────────────────┘
+```
 
-1. **Multi-provider chain** (try in order, first success wins):
-   - **Coinbase** — `https://api.coinbase.com/v2/prices/{BTC,USDT,USDC}-USD/spot` (edge-friendly, no key, very reliable).
-   - **Kraken** — `https://api.kraken.com/0/public/Ticker?pair=XBTUSD,USDTUSD,USDCUSD` (no key).
-   - **CoinGecko** — kept as last resort with a real browser `User-Agent` header (403s are UA/IP driven; keeping it in the chain preserves current behavior when it works).
-   - Assume `USDT_ERC20` / `USDC_ERC20` ≈ $1 if their spot lookup fails but BTC succeeds (stablecoins).
+## 1. Backend — heartbeat becomes reconnect-aware
 
-2. **Stale-cache safety net**: keep the existing 10-min in-memory cache, and if every provider fails but we still have a cached value, return it (log a warning) instead of throwing. Only throw when there is no cached rate at all.
+`src/routes/api/public/agent/heartbeat.ts`
+- Read current `status` and `last_seen_at` before updating.
+- Compute `wasOffline = status !== 'online' OR (now - last_seen_at) > 60s`.
+  Timestamp-delta catches reboots even when the row is still stale-marked `online`.
+- Update `status='online'`, `last_seen_at=now()`.
+- Compute `is_session_active` = exists `sessions` row for this device with `state IN ('invited','consented','active','paused')`.
+- Return `{ ok, is_session_active, sessions }`.
+- If `wasOffline`, insert into `notifications` (recipient_id NULL = broadcast) titled `Device reconnected`, body `${display_name} (${device_id}) is back online`.
 
-3. **Timeouts**: wrap each `fetch` in an `AbortController` with a 3s timeout so one slow provider can't block the whole request.
+No schema migration needed for the flag/toast — reuses existing tables.
 
-4. **Clearer error**: when everything fails and no cache exists, throw a user-friendly message ("Live pricing temporarily unavailable, please retry in a moment.") instead of exposing the raw upstream status.
+## 2. Realtime for the toast
 
-No schema changes, no other files touched. `usdToCoin` and the `CoinKey` type stay identical, so `orders.functions.ts` and the reconcile cron keep working unchanged.
+Migration: `ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;`
 
-## Verification
+## 3. Watcher — infinite retry with exponential back-off + session supervision
 
-- Invoke `createOrder` via a test call and confirm it returns an invoice with a non-zero `amount_coin` for BTC.
-- Force-fail the primary (temporarily point Coinbase URL at a bad host in a scratch check) and confirm Kraken fallback still produces a rate.
+`agent/watcher/Program.cs` (WatcherService.ExecuteAsync)
+- Read shared identity from `%ProgramData%\ConnectLive\device.json`.
+- Loop forever (never exits on network error — solves boot "no IP yet"):
+  - `POST /api/public/agent/heartbeat` with `X-Device-Id` + `X-Device-Token`.
+  - On success: cadence = **5s**; parse `is_session_active`.
+    - If true and no `ConnectLiveAgent.exe` in the active console session → `LaunchInSession` (existing helper).
+    - If false → leave agent alone (may be mid-consent).
+  - On failure: exponential back-off **5s → 10s → 20s → 40s → 60s cap**; reset to 5s on first success.
+- Keep existing user-switch detection and always-spawn-on-login behavior; the session-flag path is additive (revives agent if user closed it or it crashed).
+
+## 4. Agent — tighter heartbeat cadence
+
+`agent/src/Agent.cs`
+- Healthy heartbeat cadence 30s → **15s** so the 60s delta check reliably distinguishes "alive" from "rebooted".
+- Keep existing exponential backoff on failure and dead-man curtain-release.
+
+## 5. `%ProgramData%\ConnectLive` ACL lockdown
+
+`agent/install.ps1` (`Do-Install`, after `New-Item ... $DataDir`):
+- Disable ACL inheritance on `$DataDir`.
+- Explicit ACEs:
+  - SYSTEM → FullControl
+  - Administrators → FullControl
+  - Interactive Users → Read only (needs consent.flag; must not overwrite token)
+- Applied via `Get-Acl` / `SetAccessRuleProtection($true,$false)` / `SetAccessRule` / `Set-Acl`.
+- Add a one-liner to `agent/INSTALL.md` noting the elevated install is what applies the ACL.
+
+Standardize shared identity on `%ProgramData%\ConnectLive\device.json` (SYSTEM-writable, user-readable). If the agent still writes to `%AppData%`, add a one-time watcher-side copy on first successful heartbeat.
+
+## 6. Admin panel — live "Device connected" toast
+
+`src/routes/_authenticated/console.tsx` (and where `NotificationBell` lives):
+- Subscribe to Supabase Realtime on `notifications` where `recipient_id IS NULL OR recipient_id = auth.uid()`.
+- On INSERT with title `Device reconnected`, fire a `sonner` toast with the body text.
+- Bell badge count updates for free (same table).
+
+## 7. Repackage
+
+Rebuild `agent/` into `ConnectLiveAgent.zip` so the next download ships:
+- Watcher with back-off + session-flag supervision
+- Agent with 15s heartbeat
+- Installer with ACL lockdown
+
+## Technical notes
+
+- No EV cert required. The boot-time reconnect problem is pure network-latency, solved by the infinite loop.
+- `is_session_active` is server-computed from `sessions.state` — no new column.
+- RLS on `notifications` already allows broadcast reads (`recipient_id IS NULL`), so admins receive toasts without policy changes.
+- 60s delta threshold sits comfortably above the 15s cadence + normal jitter, so healthy machines never false-fire.
+
+## Out of scope
+
+- Server-side offline sweeper (delta check makes it optional).
+- WebRTC signaling changes.
+- UI redesign.
