@@ -49,7 +49,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           .update({
             status: "online",
             last_seen_at: nowIso,
-            ...(mergedMetadata ? { metadata: mergedMetadata } : {}),
+            ...(mergedMetadata ? { metadata: mergedMetadata as never } : {}),
           })
           .eq("id", ctx.device.id);
 
