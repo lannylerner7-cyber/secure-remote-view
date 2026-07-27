@@ -558,6 +558,10 @@ function AdminPage() {
                 onConnect={connectDevice}
                 canConnect={role !== "viewer"}
                 canDelete={role === "super_admin" || role === "admin"}
+                canPower={role === "super_admin" || role === "admin" || role === "technician"}
+                canShutdown={role === "super_admin" || role === "admin"}
+                onWake={(d) => queuePower(d, "wake")}
+                onPower={(d, kind) => queuePower(d, kind)}
                 onDelete={async (d) => {
                   if (!confirm(`Remove ${d.display_name} from the device list? The agent will need to re-enroll to reconnect.`)) return;
                   const { error } = await supabase.from("devices").delete().eq("id", d.id);
@@ -567,6 +571,7 @@ function AdminPage() {
                 }}
               />
             )}
+
 
             {nav === "sessions" && (
               <SessionsTable
