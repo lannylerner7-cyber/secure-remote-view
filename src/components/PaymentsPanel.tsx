@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { listOrdersAdmin, getOrderTotals, setOrderAccessLink, markOrderPaid } from "@/lib/orders.functions";
+import {
+  listOrdersAdmin,
+  getOrderTotals,
+  setOrderAccessLink,
+  markOrderPaid,
+  listWalletsAdmin,
+  upsertWalletAdmin,
+  getPaymentsHealth,
+} from "@/lib/orders.functions";
 
 type OrderRow = {
   id: string;
@@ -34,8 +42,14 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const loadTotals = useServerFn(getOrderTotals);
   const setLink = useServerFn(setOrderAccessLink);
   const markPaid = useServerFn(markOrderPaid);
+  const loadHealth = useServerFn(getPaymentsHealth);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
+  const [health, setHealth] = useState<{
+    wallets: Record<"BTC" | "USDT_ERC20" | "USDC_ERC20", boolean>;
+    webhook_secret_set: boolean;
+  } | null>(null);
+  const [tab, setTab] = useState<"orders" | "wallets">("orders");
   const [filter, setFilter] = useState<(typeof STATUSES)[number]>("");
   const [editingLink, setEditingLink] = useState<string | null>(null);
   const [linkDraft, setLinkDraft] = useState("");
@@ -43,12 +57,14 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 
   const reload = async () => {
     try {
-      const [os, t] = await Promise.all([
+      const [os, t, h] = await Promise.all([
         loadOrders({ data: { status: filter || undefined, limit: 200 } }),
         loadTotals(),
+        loadHealth().catch(() => null),
       ]);
       setOrders(os as OrderRow[]);
       setTotals(t as Totals);
+      if (h) setHealth(h as typeof health extends null ? never : NonNullable<typeof health>);
     } catch (e) {
       console.error(e);
     }
