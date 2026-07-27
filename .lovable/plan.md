@@ -1,112 +1,66 @@
-## Goal
+# Route & Resilience Audit — Admin ↔ Agent ↔ Watcher
 
-Ship two guardrails in `admin/` + `agent/`, then add MDM packaging so ConnectLive can be silently deployed via Intune, Jamf-style (Windows via Jamf Pro), or GPO.
+Read every route call site in `agent/src/ApiClient.cs`, `agent/watcher/Program.cs`, and `admin/src/**` against the server routes in `src/routes/api/public/**` and `src/shared/api-routes.ts`. Findings and the small tightening pass below.
 
-## 1. WebRTC guardrails (admin + agent)
+## 1. Endpoint parity — 100% matched
 
-### 1a. D3DImage STA marshaling (admin)
+### Agent → Server (`agent/src/ApiClient.cs` + watcher)
+| Call | Server file | Status |
+| --- | --- | --- |
+| `POST /api/public/agent/enroll` (X-Deployment-Key) | `agent/enroll.ts` | ✅ |
+| `POST /api/public/agent/hello` | `agent/hello.ts` | ✅ |
+| `POST /api/public/agent/heartbeat` (watcher + agent) | `agent/heartbeat.ts` | ✅ |
+| `POST /api/public/agent/session/{id}/reconnect` | `session.$sessionId.reconnect.ts` | ✅ |
+| `POST /api/public/agent/session/{id}/consent` | `session.$sessionId.consent.ts` | ✅ (kept for legacy; auto-activation) |
+| `POST /api/public/agent/session/{id}/frame` | `session.$sessionId.frame.ts` | ✅ |
+| `POST /api/public/agent/session/{id}/cursor` | `session.$sessionId.cursor.ts` | ✅ |
+| `GET  /api/public/agent/session/{id}/inputs?since=` | `session.$sessionId.inputs.ts` | ✅ |
+| `POST /api/public/agent/session/{id}/signal` | `session.$sessionId.signal.ts` | ✅ |
+| `GET  /api/public/agent/session/{id}/signal?since=` | `session.$sessionId.signal.ts` | ✅ |
+| `POST /api/public/agent/pair` | `agent/pair.ts` (410 Gone) | ✅ intentionally dead |
 
-`admin/src/Media/WebRtcClient.cs` currently only scaffolds the video track. When we wire a real Media Foundation / SIPSorcery H.264 decoder, the "sample ready" event will fire on a worker thread. Route every frame update through the WPF dispatcher:
+### Admin → Server (`admin/src/Api/ApiClient.cs`)
+| Call | Target | Status |
+| --- | --- | --- |
+| `POST /api/public/auth/login` | `auth/login.ts` (3-strike lockout) | ✅ |
+| `POST {supabase}/auth/v1/token?grant_type=refresh_token` | Supabase Auth | ✅ |
+| `GET/DELETE /rest/v1/devices` | RLS (staff) | ✅ |
+| `POST/PATCH /rest/v1/sessions` | RLS | ✅ |
+| `POST /rest/v1/session_inputs` | RLS | ✅ |
+| `POST + GET /rest/v1/session_signals` | RLS (fallback poll) | ✅ |
+| `GET /rest/v1/session_frames` (HTTPS fallback) | RLS | ✅ |
 
-- Add a `D3DImageHost` helper that owns the `D3DImage` and exposes `PushFrame(IntPtr surface, int w, int h)`.
-- Inside `PushFrame`, wrap the Lock / SetBackBuffer / AddDirtyRect / Unlock sequence in `Application.Current.Dispatcher.InvokeAsync(...)`.
-- Wire `WebRtcClient.OnVideoFrame` → `D3DImageHost.PushFrame`. Fall back to `Dispatcher.BeginInvoke` when the dispatcher is shutting down (session close race).
-- Bind the `D3DImage` to the existing `FrameImage` control in `LiveSessionWindow.xaml` behind a `ClientOnly`-style toggle so the JPEG fallback still works when WebRTC never connects.
+No orphan route on server, no missing route in either client.
 
-### 1b. H.264 profile pinning (agent + admin)
+## 2. Retry / resilience mesh
 
-Both sides must advertise the same profile so the admin's decoder does not black-screen.
+**Watcher (`agent/watcher/Program.cs`)** — persistent SYSTEM service:
+- Heartbeat back-off `5→10→20→40→60s`, resets on 2xx.
+- Detects fast-user-switch via `WTSGetActiveConsoleSessionId` and respawns worker in the new session.
+- Detects worker exit (`HasExited`) each tick and re-launches via `CreateProcessAsUser` — this is the "auto-execute even if agent was killed" path the user asked about. ✅
+- Enrolls silently on first tick if creds are missing.
 
-- `agent/src/WebRtcSession.cs`: replace the current default SDP with a `MediaStreamTrack` that lists exactly one H.264 format:
-`profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1` (Constrained Baseline 3.1).
-- `admin/src/Media/WebRtcClient.cs`: mirror the same format string when adding the recv-only video track (already `packetization-mode=1`, add `profile-level-id=42e01f` and `level-asymmetry-allowed=1`).
-- Drop any other H.264 payload types from the offer/answer so SIPSorcery cannot renegotiate to a mismatched profile.
+**Agent (`Agent.cs` / `App.xaml.cs`)**:
+- Cold-boot: DPAPI-restore last session → `/reconnect` before idling.
+- Heartbeat loop with 1→2→4→8→16→30s back-off.
+- `EnsureSessionLoops` self-heals capture / cursor / input / signal loops on unexpected exit.
 
-## 2. MDM / silent-enrollment packaging
+**Admin (`admin/src/**`)**:
+- `ApiClient.SendSupabaseAsync` auto-refreshes and retries on 401. ✅
+- `DevicesViewModel.PollLoop` polls every 5s.
+- `WebRtcClient` re-offers every 12s while unconnected, polls agent signals every 500ms.
+- `FrameFallbackPump` pulls latest JPEG every 200ms until WebRTC links.
 
-Goal: a workspace admin drops one file into Intune / a GPO / a Jamf Pro Windows policy and every endpoint auto-enrolls with a shared deployment key. No end-user interaction, no UAC prompts after install.
+## 3. Small tightening pass (only changes in this plan)
 
-### 2a. Deployment-key provisioning contract
+1. **`agent/watcher/Program.cs` L141** — remove dead `|| true` in `(isSessionActive || true)`; keep unconditional spawn but drop the misleading expression + add comment that this is intentional (tray must appear at login even before an admin session exists).
+2. **`admin/src/ViewModels/DevicesViewModel.cs` `PollLoop`** — add exponential back-off (5→10→20→30s cap) on consecutive `Refresh()` failures so a flaky network doesn't hammer the gateway; reset on success. Mirrors the watcher pattern.
+3. **`admin/src/Media/WebRtcClient.cs` `PollAgentSignals`** — wrap the loop body's `PollAgentSignalsAsync` in try/catch that only sleeps 500ms on success and 2s on error, so a transient 5xx doesn't spin.
+4. **`src/shared/api-routes.ts`** — add `agentPair` (410 legacy) entry so the registry documents every reachable path, plus a top-of-file comment listing the two client consumers (agent C# / admin C#) that must stay in sync.
 
-Reuse the existing `DeploymentKey.Resolve()` order (`%ProgramData%\ConnectLive\deployment.key` → env → embedded). MDM packages MUST write the key to the file path, never bake it into the MSI, so ops can rotate without repackaging:
+No server route, schema, RLS policy, auth flow, or UI behavior changes. Purely a documented audit + three defensive client tweaks.
 
-- Installer accepts `DEPLOYMENT_KEY="..."` as an MSI property.
-- On install, the CustomAction writes it to `%ProgramData%\ConnectLive\deployment.key` with ACL = `SYSTEM:F, Administrators:F` (no `Users` read). Documented in `agent/INSTALL.md`.
-
-### 2b. MSI build
-
-Add `agent/packaging/msi/`:
-
-- `ConnectLive.wxs` (WiX v4) that installs:
-  - `%ProgramFiles%\ConnectLive\ConnectLiveAgent.exe`
-  - `%ProgramFiles%\ConnectLive\ConnectLiveWatcher.exe`
-  - Registers the Watcher as a Windows Service under `LocalSystem`, `Start=Auto`, `DelayedAutostart=1`.
-  - Adds firewall rule for outbound 443 (no inbound).
-  - Writes the deployment key via a `Type 1` CustomAction reading the `DEPLOYMENT_KEY` property.
-- `build-msi.ps1` that calls `dotnet publish -c Release -r win-x64 --self-contained` for both projects, then `wix build ConnectLive.wxs`.
-- Output: `agent/dist/ConnectLiveAgent.msi` (per-machine, silent-capable: `msiexec /i ConnectLiveAgent.msi /qn DEPLOYMENT_KEY=xxxxx`).
-
-### 2c. Intune (.intunewin)
-
-Add `agent/packaging/intune/`:
-
-- `wrap-intune.ps1` that runs Microsoft's `IntuneWinAppUtil.exe` (documented download, not vendored) against the built MSI and emits `ConnectLiveAgent.intunewin`.
-- `intune-app.json` — Intune Win32 app metadata template (install command, uninstall command, detection rule via MSI ProductCode, requirements 64-bit Windows 10+, run context = System).
-- `README.md` with step-by-step "upload to Intune, set DEPLOYMENT_KEY in install command" instructions.
-
-### 2d. GPO (ADMX + startup script)
-
-Add `agent/packaging/gpo/`:
-
-- `ConnectLive.admx` + `en-US/ConnectLive.adml` exposing one policy: `DeploymentKey` (string) under `Computer Configuration → Policies → Administrative Templates → ConnectLive`. Value writes to `HKLM\Software\Policies\ConnectLive\DeploymentKey`.
-- Update `DeploymentKey.Resolve()` to check that registry key before the file path (new step 0). Documented in the ADMX and `agent/INSTALL.md`.
-- `install-gpo.ps1` startup script that runs `msiexec /i \\domain\netlogon\ConnectLive\ConnectLiveAgent.msi /qn` if the ProductCode is not already installed.
-- `README.md` for the "copy MSI to NETLOGON, import ADMX, link startup script" flow.
-
-### 2e. Jamf Pro (Windows)
-
-Add `agent/packaging/jamf/`:
-
-- Since Jamf Pro for Windows deploys MSIs directly, ship a `jamf-package-manifest.json` that describes the MSI, install command, and a `configuration-profile.xml` that pushes the deployment key via Jamf's Windows Configuration Profile → Registry payload writing `HKLM\Software\Policies\ConnectLive\DeploymentKey`.
-- `README.md` covering upload + smart-group targeting.
-
-(macOS Jamf is out of scope — the agent is Windows-only.)
-
-## 3. Docs
-
-- `agent/INSTALL.md`: new "Enterprise deployment" section pointing at each `packaging/*/README.md`.
-- `admin/INSTALL.md`: note the H.264 profile requirement so future forks don't drift.
-- No home-page changes; MDM is B2B and lives in docs.
-
-## Technical notes / non-goals
-
-- No IddCp phantom-monitor driver, no forced 4K/120Hz mode enumeration, no HDR passthrough — you picked "Guardrails + MDM" only. I'll leave `agent/src/DxgiCapture.cs` where it is.
-- No signing pipeline in this pass — MSI is unsigned; docs will call out that customers should re-sign with their own EV cert before wide rollout. If you want us to add a signing step (SignTool + timestamp), say so and I'll fold it in.
-- No new server routes. Enrollment still goes through the existing `/api/public/agent/enroll` with `X-Deployment-Key`.
-- No changes to `/connectlive/admin`, `/console`, payments, or any web route.
-
-## Deliverables
-
-- Updated `admin/src/Media/WebRtcClient.cs` + new `admin/src/Media/D3DImageHost.cs`.
-- Updated `agent/src/WebRtcSession.cs` (H.264 profile pinned).
-- Updated `agent/src/DeploymentKey.cs` (registry check).
-- New `agent/packaging/{msi,intune,gpo,jamf}/` trees with build scripts and READMEs.
-- Repackaged `public/ConnectLiveAgent.zip` including MSI + intunewin + ADMX artifacts.
-- Doc updates in `agent/INSTALL.md` and `admin/INSTALL.md`.
-- &nbsp;
-  ### Implementation Detail to Watch
-   * **WiX v4 CustomAction Execution Context:** When the WiX MSI executes the CustomAction that writes DEPLOYMENT_KEY to %ProgramData%\ConnectLive\deployment.key during a silent /qn install, ensure the CustomAction is marked with:
-     * Execute="deferred"
-     * Impersonate="no"
-     If Impersonate="yes" (the default), silent deployments pushed via Intune/GPO running in elevated context might attempt to write the file under a temporary user profile context rather than LocalSystem, leading to missing key errors on boot.
-  ## 3. Scope & Deliverables Checklist
-  | Module | Strategy | Security / Mechanics |
-  |---|---|---|
-  | **Admin UI** | D3DImageHost + WPF Dispatcher | Non-blocking frame drops; fallback to JPEG mode |
-  | **Agent Core** | Hardcoded Baseline 3.1 SDP | Prevents codec mismatch & hardware decode failure |
-  | **WiX MSI** | Per-machine installer | Watcher registered as LocalSystem with DelayedAutostart |
-  | **GPO / ADMX** | HKLM Policy Registry key | Step 0 override in DeploymentKey.Resolve() |
-  | **Intune / Jamf** | Silent MSI + Config Profiles | Standard /qn execution via SYSTEM context |
-  You have effectively eliminated all the common failure modes of enterprise agent deployments (UAC prompts, profile desyncs, thread crashes, and unmanageable key rotation).
-  Are you planning to compile the WiX v4 project directly via the dotnet wix CLI toolset inside build-msi.ps1, or will you be running the standalone WiX binaries? let just have both agent admin zip first we will desice later  once set as plan
-  &nbsp;
+## Out of scope
+- Moving frames off Postgres onto Realtime/Storage.
+- TURN, DXGI, or H.264 pinning (previously planned separately).
+- Any change to the payment / order surface.
