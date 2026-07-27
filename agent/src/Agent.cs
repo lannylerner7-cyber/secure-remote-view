@@ -15,9 +15,9 @@ namespace ConnectLive.Agent;
 /// idle/NAT disconnects and keeps the agent behind any egress-restricted
 /// network as long as HTTPS works.
 ///
-/// Every session is gated by user consent (standing flag or per-session
-/// dialog), and a non-hideable SessionIndicator banner stays on-screen for
-/// the entire session duration — the technician cannot suppress it.
+/// Every session shows a non-hideable SessionIndicator banner for the entire
+/// session duration, with curtain/input blocking controlled by explicit admin
+/// commands and dead-man release safeguards.
 /// </summary>
 public sealed class Agent
 {
@@ -235,7 +235,7 @@ public sealed class Agent
         catch (Exception ex) { Log.Warn($"webrtc start: {ex.Message}"); }
     }
 
-    // ---- Consent handshake --------------------------------------------
+    // ---- Session activation -------------------------------------------
 
     private async Task HandleInvite(string sessionId, string mode, CancellationToken ct)
     {
