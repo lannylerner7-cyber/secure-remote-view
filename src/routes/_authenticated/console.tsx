@@ -1225,8 +1225,8 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
                 </td>
                 <td className="px-4 py-2 text-white/60">{new Date(s.created_at).toLocaleTimeString()}</td>
                 <td className="px-4 py-2 text-right space-x-1">
-                  {s.state === "invited" && s.pairing_code && (
-                    <button onClick={() => onShowCode(s)} className="rounded bg-white/10 px-2 py-1 text-xs">Show code</button>
+                  {s.state === "invited" && (
+                    <span className="text-xs text-white/40">awaiting consent…</span>
                   )}
                   {(s.state === "active" || s.state === "paused") && (
                     <>
