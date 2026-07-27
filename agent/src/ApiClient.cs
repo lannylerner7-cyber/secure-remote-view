@@ -58,6 +58,11 @@ public sealed class ApiClient
     {
         if (!string.IsNullOrEmpty(DeviceToken)) return;
 
+        var deploymentKey = DeploymentKey.Resolve()
+            ?? throw new InvalidOperationException(
+                "No deployment key found. Drop the key at %ProgramData%\\ConnectLive\\deployment.key " +
+                "or set AGENT_DEPLOYMENT_KEY before running.");
+
         var payload = new
         {
             hostname = Environment.MachineName,
@@ -65,7 +70,12 @@ public sealed class ApiClient
             displayName = Environment.MachineName,
             agentVersion = typeof(ApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0"
         };
-        using var resp = await _http.PostAsJsonAsync("/api/public/agent/enroll", payload, ct);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll")
+        {
+            Content = JsonContent.Create(payload),
+        };
+        req.Headers.Add("X-Deployment-Key", deploymentKey);
+        using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
                    ?? throw new InvalidOperationException("Empty enrollment response");
