@@ -94,6 +94,7 @@ public sealed class WebRtcClient
     {
         while (!ct.IsCancellationRequested)
         {
+            bool ok = true;
             try
             {
                 var (max, items) = await App.Api.PollAgentSignalsAsync(_sessionId, _sinceSignalId, ct);
@@ -128,10 +129,13 @@ public sealed class WebRtcClient
                     }
                 }
             }
-            catch { }
-            try { await Task.Delay(500, ct); } catch { }
+            catch { ok = false; }
+            // 500 ms hot-poll while healthy; 2 s cool-down after a transient error
+            // so a flapping gateway can't spin this loop.
+            try { await Task.Delay(ok ? 500 : 2000, ct); } catch { }
         }
     }
+
 
     public void Close()
     {
