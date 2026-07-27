@@ -28,7 +28,11 @@ public sealed class Agent
     private WebRtcSession? _rtc;
     private readonly HashSet<string> _acceptedSessions = new();
     private string? _currentSessionId;
+    private string? _loopSessionId;
     private CancellationTokenSource? _sessionCts;
+    private Task? _screenTask;
+    private Task? _inputTask;
+    private Task? _cursorTask;
     private CancellationToken _outerCt;
 
     /// <summary>
@@ -62,7 +66,7 @@ public sealed class Agent
         // If a session was pre-seeded (cold-boot reconnect), start its loops
         // immediately so we don't wait a whole heartbeat cycle for pixels.
         if (_currentSessionId != null)
-            StartSessionLoops(_currentSessionId, "control");
+            JoinActiveSession(_currentSessionId, "view");
 
         _splashStatus("Waiting for helpdesk…");
         await HeartbeatLoop(ct);
@@ -137,13 +141,21 @@ public sealed class Agent
             {
                 await HandleInvite(s.id, s.mode, ct);
             }
-            else if (s.state == "active" && !_acceptedSessions.Contains(s.id))
+            else if (s.state == "active")
             {
-                // Cold-boot / reconnect edge: server already has consent + active
-                // state for this session, but this agent process never joined it.
-                // Skip the dialog (consent is on record) and start the loops.
-                _acceptedSessions.Add(s.id);
-                JoinActiveSession(s.id, s.mode);
+                if (!_acceptedSessions.Contains(s.id) || _currentSessionId != s.id)
+                {
+                    // Cold-boot / reconnect edge: server already has an active
+                    // state for this session, but this agent process never joined it.
+                    // Start the loops immediately so the admin does not see a stale
+                    // live view while waiting for a modal that may be hidden/minimized.
+                    _acceptedSessions.Add(s.id);
+                    JoinActiveSession(s.id, s.mode);
+                }
+                else
+                {
+                    EnsureSessionLoops(s.id, s.mode);
+                }
             }
         }
 
@@ -152,15 +164,56 @@ public sealed class Agent
             EndSession();
     }
 
+    private bool SessionLoopsHealthy(string sessionId)
+    {
+        return _loopSessionId == sessionId
+            && _sessionCts != null
+            && !_sessionCts.IsCancellationRequested
+            && _screenTask != null && !_screenTask.IsCompleted
+            && _inputTask != null && !_inputTask.IsCompleted
+            && _cursorTask != null && !_cursorTask.IsCompleted;
+    }
+
+    private void EnsureSessionLoops(string sessionId, string mode)
+    {
+        if (SessionLoopsHealthy(sessionId)) return;
+        Log.Warn($"session {sessionId} loop health check failed; restarting loops");
+        StartSessionLoops(sessionId, mode);
+    }
+
+    private Task RunSessionLoop(string name, string sessionId, Func<CancellationToken, Task> body, CancellationToken token)
+    {
+        return Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await body(token);
+                    if (!token.IsCancellationRequested)
+                        Log.Warn($"{name} loop exited unexpectedly for session {sessionId}; retrying");
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+                catch (Exception ex)
+                {
+                    Log.Warn($"{name} loop crashed for session {sessionId}: {ex.Message}");
+                }
+
+                try { await Task.Delay(1000, token); } catch { }
+            }
+        }, CancellationToken.None);
+    }
+
     private void StartSessionLoops(string sessionId, string mode)
     {
         _sessionCts?.Cancel();
         _sessionCts = CancellationTokenSource.CreateLinkedTokenSource(_outerCt);
         var t = _sessionCts.Token;
+        _loopSessionId = sessionId;
         try { InputRelay.SessionBanner = _indicator; } catch { }
-        _ = ScreenCapture.RunAsync(_api, sessionId, t);
-        _ = InputRelay.RunAsync(_api, sessionId, t);
-        _ = CursorPump.RunAsync(_api, sessionId, t);
+        _screenTask = RunSessionLoop("screen", sessionId, ct => ScreenCapture.RunAsync(_api, sessionId, ct), t);
+        _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct), t);
+        _cursorTask = RunSessionLoop("cursor", sessionId, ct => CursorPump.RunAsync(_api, sessionId, ct), t);
         Log.Info($"session {sessionId} loops started ({mode})");
     }
 
@@ -184,36 +237,9 @@ public sealed class Agent
 
     // ---- Consent handshake --------------------------------------------
 
-    // Standing-consent model: the local user granted permission at install time
-    // (stored in %ProgramData%\ConnectLive\consent.flag). Runtime signaling comes
-    // from the persistent on-screen banner + tray icon, not a modal popup.
-    // If the flag is missing, we fall back to the per-session modal.
-    private static bool HasStandingConsent()
-    {
-        try
-        {
-            var path = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "ConnectLive", "consent.flag");
-            return System.IO.File.Exists(path);
-        }
-        catch { return false; }
-    }
-
     private async Task HandleInvite(string sessionId, string mode, CancellationToken ct)
     {
         const string technician = "Helpdesk";
-
-        bool allowed = HasStandingConsent()
-            ? true
-            : await _ui.InvokeAsync(() => ConsentDialog.AskViewConsent(technician));
-
-        if (!allowed)
-        {
-            _acceptedSessions.Add(sessionId); // don't re-prompt
-            try { await _api.SubmitConsentAsync(sessionId, false, ct); } catch { }
-            return;
-        }
 
         try { await _api.SubmitConsentAsync(sessionId, true, ct); }
         catch (Exception ex) { Log.Warn($"consent submit: {ex.Message}"); return; }
@@ -248,6 +274,10 @@ public sealed class Agent
     {
         try { _sessionCts?.Cancel(); } catch { }
         _sessionCts = null;
+        _loopSessionId = null;
+        _screenTask = null;
+        _inputTask = null;
+        _cursorTask = null;
         _ui.Invoke(() =>
         {
             _indicator?.Close();
