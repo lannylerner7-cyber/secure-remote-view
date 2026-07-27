@@ -19,6 +19,7 @@ function formatLockout(seconds: number) {
 
 function LoginPage() {
   const navigate = useNavigate();
+  const [mode, setMode] = useState<"technician" | "payments">("technician");
   const [technicianId, setTechnicianId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +66,11 @@ function LoginPage() {
         setError(setErr.message);
         return;
       }
-      navigate({ to: "/console" });
+      if (mode === "payments") {
+        navigate({ to: "/console", search: { tab: "payments" } });
+      } else {
+        navigate({ to: "/console" });
+      }
     } catch {
       setLoading(false);
       setError("Network error. Please try again.");
@@ -79,11 +84,35 @@ function LoginPage() {
           <span className="inline-block h-3 w-3 rounded-full bg-[#4F7CFF]" />
           <span className="text-sm font-semibold text-white">ConnectLive</span>
         </Link>
-        <h1 className="text-xl font-semibold text-white">Technician sign in</h1>
+        <h1 className="text-xl font-semibold text-white">
+          {mode === "payments" ? "Payment admin sign in" : "Technician sign in"}
+        </h1>
         <p className="mt-1 text-xs text-white/60">
-          Use your ConnectLive technician ID. Three failed attempts trigger a
-          1-hour lockout.
+          {mode === "payments"
+            ? "Sign in with a super-admin technician ID (e.g. 197200). Non-admins will be routed to the dashboard."
+            : "Use your ConnectLive technician ID. Three failed attempts trigger a 1-hour lockout."}
         </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-1 rounded-md border border-white/10 bg-[#0F172A] p-1 text-xs">
+          <button
+            type="button"
+            onClick={() => setMode("technician")}
+            className={`rounded px-2 py-1.5 font-medium transition ${
+              mode === "technician" ? "bg-[#4F7CFF] text-white" : "text-white/60 hover:text-white"
+            }`}
+          >
+            Technician
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("payments")}
+            className={`rounded px-2 py-1.5 font-medium transition ${
+              mode === "payments" ? "bg-[#4F7CFF] text-white" : "text-white/60 hover:text-white"
+            }`}
+          >
+            Payment admin
+          </button>
+        </div>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>
