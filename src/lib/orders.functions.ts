@@ -300,16 +300,18 @@ export const upsertWalletAdmin = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Admin: payments-panel health status (wallets/webhook/cron). */
+/** Admin: payments-panel health status (wallets/webhook/cron/cdp). */
 export const getPaymentsHealth = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { validateCdpConfig } = await import("./cdp-config.server");
     const { data: wallets } = await supabaseAdmin
       .from("admin_wallets")
       .select("coin")
       .not("cdp_wallet_id", "is", null);
     const configured = new Set((wallets ?? []).map((w) => w.coin));
+    const cdp = validateCdpConfig();
     return {
       wallets: {
         BTC: configured.has("BTC"),
@@ -317,6 +319,8 @@ export const getPaymentsHealth = createServerFn({ method: "GET" })
         USDC_ERC20: configured.has("USDC_ERC20"),
       },
       webhook_secret_set: !!process.env.CDP_WEBHOOK_SECRET,
+      cdp_configured: cdp.ok,
+      cdp_reason: cdp.ok ? null : cdp.reason,
     };
   });
 

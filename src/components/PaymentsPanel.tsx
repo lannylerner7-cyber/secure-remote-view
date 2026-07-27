@@ -48,6 +48,8 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const [health, setHealth] = useState<{
     wallets: Record<"BTC" | "USDT_ERC20" | "USDC_ERC20", boolean>;
     webhook_secret_set: boolean;
+    cdp_configured?: boolean;
+    cdp_reason?: string | null;
   } | null>(null);
   const [tab, setTab] = useState<"orders" | "wallets">("orders");
   const [filter, setFilter] = useState<(typeof STATUSES)[number]>("");
@@ -112,6 +114,7 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     if (!health.wallets.USDT_ERC20) missing.push("USDT wallet");
     if (!health.wallets.USDC_ERC20) missing.push("USDC wallet");
     if (!health.webhook_secret_set) missing.push("CDP_WEBHOOK_SECRET");
+    if (health.cdp_configured === false) missing.push("CDP API key");
   }
 
   return (
@@ -124,6 +127,18 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
             <button onClick={() => setTab("wallets")} className="underline">
               Configure wallets →
             </button>
+          )}
+        </div>
+      )}
+      {health && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-[11px] text-white/60">
+          <span className="font-semibold text-white/80">CDP API key:</span>{" "}
+          {health.cdp_configured ? (
+            <span className="text-green-300">configured ✓</span>
+          ) : (
+            <span className="text-amber-200">
+              not configured{health.cdp_reason ? ` — ${health.cdp_reason}` : ""}
+            </span>
           )}
         </div>
       )}

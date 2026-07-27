@@ -15,9 +15,15 @@ type Session = Tables<"sessions">;
 type LiveFrame = { frame: string; width: number | null; height: number | null; updated_at: string };
 type LiveCursor = { x: number; y: number; frame_w: number | null; frame_h: number | null; kind: string; visible: boolean; updated_at: string };
 
+const NAV_VALUES = ["dashboard", "devices", "sessions", "audit", "settings", "team", "payments"] as const;
+
 export const Route = createFileRoute("/_authenticated/console")({
   component: AdminPage,
   head: () => ({ meta: [{ title: "Admin — ConnectLive" }] }),
+  validateSearch: (raw: Record<string, unknown>): { tab?: Nav } => {
+    const t = typeof raw.tab === "string" ? raw.tab : undefined;
+    return t && (NAV_VALUES as readonly string[]).includes(t) ? { tab: t as Nav } : {};
+  },
 });
 
 // Agent heartbeat cadence = 15s; backend flags reconnect after a 60s gap.
@@ -103,7 +109,8 @@ function AdminPage() {
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
-  const [nav, setNav] = useState<Nav>("dashboard");
+  const search = Route.useSearch();
+  const [nav, setNav] = useState<Nav>(search.tab ?? "dashboard");
   const [sharedNote, setSharedNote] = useState<string>("");
   const [tg, setTg] = useState({ telegram_bot_token: "", telegram_chat_id: "", notify_on_session_start: true, notify_on_control_taken: true, notify_on_device_offline: true });
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(null);
@@ -112,7 +119,12 @@ function AdminPage() {
     supabase.auth.getUser().then(({ data }) => { setUserEmail(data.user?.email ?? ""); setUserId(data.user?.id ?? null); });
     void refresh();
     void loadTg();
-    fetchRole().then((r) => setRole(r.role)).catch(() => setRole(null));
+    fetchRole().then((r) => {
+      setRole(r.role);
+      if (nav === "payments" && r.role !== "admin" && r.role !== "super_admin") {
+        setNav("dashboard");
+      }
+    }).catch(() => setRole(null));
     const ch = supabase
       .channel("admin-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, refresh)
