@@ -50,7 +50,7 @@ public sealed class Agent
         // consecutive failures we assume the admin is unreachable and trip the
         // dead-man fallback: release the input block + drop the curtain so the
         // local user is never left with a frozen machine on a broken link.
-        var baseDelay = TimeSpan.FromSeconds(30);   // healthy cadence
+        var baseDelay = TimeSpan.FromSeconds(15);   // healthy cadence — sits under the 60s reconnect-gap threshold
         var errDelay = TimeSpan.FromSeconds(1);     // backoff on failure
         int fails = 0;
         bool deadManTripped = false;
