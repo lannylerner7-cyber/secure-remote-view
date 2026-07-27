@@ -11,6 +11,9 @@
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { validateCdpConfig } from "./cdp-config.server";
+
+let cdpWarnedOnce = false;
 
 export type CoinKey = "BTC" | "USDT_ERC20" | "USDC_ERC20";
 
@@ -29,6 +32,15 @@ export type WalletRow = {
  * fresh BIP32 / EVM address per order.
  */
 export async function issueReceiveAddress(coin: CoinKey): Promise<string | null> {
+  // Preflight: validate CDP config shape before any future SDK path.
+  // v1 shim still falls through to admin_wallets, so an invalid/missing
+  // config is a warning, not a hard failure.
+  const check = validateCdpConfig();
+  if (!check.ok && !cdpWarnedOnce) {
+    console.warn(`[cdp] config not ready: ${check.reason} — using admin_wallets shim`);
+    cdpWarnedOnce = true;
+  }
+
   const chain = coin === "BTC" ? "bitcoin" : "ethereum";
   const { data } = await supabaseAdmin
     .from("admin_wallets")

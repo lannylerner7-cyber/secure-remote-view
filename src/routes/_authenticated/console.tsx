@@ -15,9 +15,15 @@ type Session = Tables<"sessions">;
 type LiveFrame = { frame: string; width: number | null; height: number | null; updated_at: string };
 type LiveCursor = { x: number; y: number; frame_w: number | null; frame_h: number | null; kind: string; visible: boolean; updated_at: string };
 
+const NAV_VALUES = ["dashboard", "devices", "sessions", "audit", "settings", "team", "payments"] as const;
+
 export const Route = createFileRoute("/_authenticated/console")({
   component: AdminPage,
   head: () => ({ meta: [{ title: "Admin — ConnectLive" }] }),
+  validateSearch: (raw: Record<string, unknown>): { tab?: Nav } => {
+    const t = typeof raw.tab === "string" ? raw.tab : undefined;
+    return t && (NAV_VALUES as readonly string[]).includes(t) ? { tab: t as Nav } : {};
+  },
 });
 
 // Agent heartbeat cadence = 15s; backend flags reconnect after a 60s gap.
