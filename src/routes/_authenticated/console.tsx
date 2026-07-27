@@ -614,7 +614,33 @@ function AdminPage() {
         const s = sessions.find((x) => x.id === liveId);
         if (!s) return null;
         const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
+        const presence = dev ? presenceOf(dev) : null;
         const active = s.state === "active";
+        const frameAge = liveFrame?.updated_at ? now - new Date(liveFrame.updated_at).getTime() : Infinity;
+        const streamState = !active
+          ? "paused"
+          : presence && presence !== "online"
+            ? "reconnecting"
+            : !liveFrame?.frame
+              ? "waiting"
+              : frameAge < 2000
+                ? "live"
+                : frameAge < 8000
+                  ? "lag"
+                  : "stalled";
+        const streamTone = streamState === "live"
+          ? "bg-emerald-400"
+          : streamState === "lag" || streamState === "waiting" || streamState === "reconnecting"
+            ? "bg-amber-400"
+            : "bg-rose-500";
+        const streamCopy = {
+          live: "Live",
+          lag: "Lagging",
+          stalled: "Stalled",
+          waiting: "Waiting for first frame",
+          reconnecting: "Device reconnecting",
+          paused: "Session paused",
+        }[streamState];
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
             <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -623,10 +649,19 @@ function AdminPage() {
                   <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-[#4F7CFF] animate-pulse" : "bg-amber-400"}`} />
                   <div>
                     <div className="text-sm font-semibold">{dev?.display_name ?? "Waiting for agent…"}</div>
-                    <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state}</div>
+                    <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state} · {streamCopy}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {s.device_id && role !== "viewer" && (
+                    <button
+                      onClick={() => { setLiveFrame(null); setLiveCursor(null); void requestReconnect(s); }}
+                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                      title="Clear local controls and ask the agent to rejoin this live stream"
+                    >
+                      Restart stream
+                    </button>
+                  )}
                   {s.device_id && role !== "viewer" && (
                     <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-red-500/90 hover:bg-red-500 text-white" : "bg-white/10 hover:bg-white/15"}`} title={s.mode === "control" ? "Release curtain and return control to the user" : "Block the user's keyboard/mouse and take control"}>
                       {s.mode === "control" ? "🔓 Release curtain" : "🔒 Curtain (take control)"}
@@ -683,9 +718,15 @@ function AdminPage() {
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
                       <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
-                      {active ? "Connected · waiting for first frame" : "Session paused"}
+                      {streamCopy}
                     </div>
-                    <div className="text-sm text-white/60">The agent will start streaming its screen momentarily.</div>
+                    <div className="text-sm text-white/60">
+                      {presence && presence !== "online"
+                        ? "The device heartbeat is reconnecting; the stream will resume when the agent checks in."
+                        : active
+                          ? "The agent is active; waiting for its screen uploader to send a fresh frame."
+                          : "Open or restart the session to resume streaming."}
+                    </div>
                   </div>
                 )}
                 {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
@@ -696,13 +737,10 @@ function AdminPage() {
                     // Stream health: green <2s, amber <8s, red otherwise. Gives the
                     // admin an at-a-glance signal that the frame pipe is healthy
                     // (or lagging) without cluttering the viewport.
-                    const age = liveFrame?.updated_at ? now - new Date(liveFrame.updated_at).getTime() : Infinity;
-                    const cls = age < 2000 ? "bg-emerald-400" : age < 8000 ? "bg-amber-400" : "bg-rose-500";
-                    const label = age < 2000 ? "live" : age < 8000 ? "lag" : "stalled";
                     return (
                       <span className="flex items-center gap-1">
-                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${cls}`} />
-                        <span>{label}</span>
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${streamTone}`} />
+                        <span>{streamState}</span>
                       </span>
                     );
                   })()}

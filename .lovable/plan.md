@@ -1,45 +1,34 @@
-## Root cause
+## Current verified state
 
-The Allow/Deny consent dialog works and the server correctly flips the session to `active`, but the admin panel stays blank because the agent never starts the three HTTPS loops that push data:
+- The latest session is `active` and the latest device is `online`.
+- The consent route did accept the session (`session.consent_granted` exists).
+- There are currently no rows in `session_frames` or `session_cursors`, so the admin live modal has no fresh pixels/cursor data to render. This points to the agent upload loops not running or failing after consent, not the admin image renderer itself.
 
-- `ScreenCapture.RunAsync` → `/api/public/agent/session/:id/frame`
-- `InputRelay.RunAsync` → `/api/public/agent/session/:id/inputs`
-- `CursorPump.RunAsync` → `/api/public/agent/session/:id/cursor`
+## Plan
 
-In `agent/src/App.xaml.cs`, those three loops are only launched on the cold-boot "restored session" path (lines 80–82). The normal live path — heartbeat delivers an invite → `Agent.HandleInvite` prompts consent → user clicks Allow — only starts `WebRtcSession` (agent/src/Agent.cs:175). No frame/input/cursor upload ever happens, so `session_frames` stays empty and the admin live view shows nothing. WebRTC alone can't cover it either: without a TURN server, ICE typically never reaches `connected` on the first try, and the HTTPS fallback that was supposed to carry the stream is exactly what's missing.
+1. **Remove the allow/deny blocker from the live path**
+   - Keep user-visible safety with the always-on session banner, tray end control, curtain icon/state, and live indicator.
+   - Change the agent invite flow so an `invited` session immediately acknowledges the session as active and starts `ScreenCapture`, `InputRelay`, and `CursorPump` loops.
+   - Avoid repeated modal prompts that can leave the backend `active` while the agent never starts streaming.
 
-Route audit (all correct on the server side, no changes needed):
-- `enroll`, `hello`, `heartbeat`, `reconnect`, `consent`, `frame`, `inputs`, `cursor`, `signal` all present under `src/routes/api/public/agent/` and each calls `verifyDevice`. `heartbeat` returns pending sessions in states `invited|consented|active|paused` so restored `active` sessions still surface. `consent` transitions `invited → active` and stamps `consent_at`. `pair` is intentionally 410 Gone.
+2. **Make session loops self-healing**
+   - Add guard logic in the agent heartbeat dispatch: if the backend says a session is `active`, always ensure frame/input/cursor loops are running for that session.
+   - If a loop crashes or upload returns repeated failures, log it and retry instead of silently leaving the admin stuck at “stalled”.
 
-## Changes
+3. **Fix frame/cursor scale mismatch**
+   - `ScreenCapture` currently streams at max edge 960 in performance mode, while `CursorPump` reports coordinates against 1280. Align them so the cursor overlay and live frame use the same coordinate system.
 
-### 1. `agent/src/Agent.cs` — launch the three loops on Allow
+4. **Improve admin live recovery UI**
+   - In the admin live modal, distinguish:
+     - connected but waiting for first frame,
+     - stalled frame upload,
+     - device offline/reconnecting.
+   - Add a lightweight “restart stream” action that reuses the existing session and sends safe cleanup commands (`curtain_off`, `release_inputs`) before waiting for the agent to rejoin.
 
-- Add a per-session `CancellationTokenSource _sessionCts` linked to the outer token.
-- In `HandleInvite`, after `SubmitConsentAsync(..., true)` succeeds and the indicator is shown, start the same three loops that `App.xaml.cs` uses on the restored-session path:
-  ```csharp
-  _sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-  InputRelay.SessionBanner = _indicator;
-  _ = ScreenCapture.RunAsync(_api, sessionId, _sessionCts.Token);
-  _ = InputRelay.RunAsync(_api, sessionId, _sessionCts.Token);
-  _ = CursorPump.RunAsync(_api, sessionId, _sessionCts.Token);
-  ```
-  Keep the existing `WebRtcSession` start immediately after — HTTPS carries the stream, WebRTC upgrades when ICE completes.
-- In `EndSession`, cancel and null out `_sessionCts` so the loops stop cleanly when the session ends server-side or the user hits End in the banner.
-- In `DispatchPendingSessions`, treat sessions returned in state `active` that this agent has never accepted (edge case: cold-boot with an already-active session that wasn't restored via `/reconnect`) the same as a fresh accept — join and start the loops, skipping the consent dialog since consent is already recorded.
+5. **Verify route wiring end-to-end**
+   - Re-check agent routes: heartbeat, consent/activation, frame, cursor, inputs, signal, reconnect.
+   - Confirm the active session produces fresh `session_frames` and `session_cursors` rows after the agent starts.
 
-### 2. `agent/src/App.xaml.cs` — remove the duplicate loop start
-
-The cold-boot restored-session path (lines 74–82) now duplicates what `Agent.HandleInvite` does. Simplify by always going through `Agent`: on a restored session, pre-seed `_acceptedSessions` and `_currentSessionId` inside `Agent`, then let the first heartbeat's `active` entry trigger the normal join path. This gives one code path for "session is running" so future fixes only touch one place.
-
-Concretely: replace the `if (string.IsNullOrEmpty(sessionId))` split with a single `agent.RunAsync(...)`, passing the restored `sessionId` (if any) into a new `Agent` ctor arg or a `SeedRestoredSession(sessionId)` call before `RunAsync`.
-
-### 3. No admin-panel or server-route changes
-
-`session_frames`, `session_cursors`, and `session_inputs` realtime subscriptions in `src/routes/_authenticated/console.tsx` are already wired correctly — they simply had nothing to display. Verified by re-reading the frame route and heartbeat route.
-
-## Verification
-
-- Build the agent locally (`dotnet build agent/src`) and confirm no new warnings.
-- Manual smoke: enroll a test device, click "Take control" in `/console`, then Allow on the agent. Within ~1s the live view should show frames; the FPS badge should read ~30; the SVG cursor overlay should track movement; typing in the input tunnel should land on the remote.
-- Repackage `ConnectLiveAgent.zip` after the fix is verified.
+6. **Repackage the Windows agent ZIP**
+   - Update the bundle so the downloadable agent contains the fixed code and production URL.
+   - Include the existing run/install scripts unchanged unless packaging requires refreshing the ZIP contents.

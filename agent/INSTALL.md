@@ -5,7 +5,7 @@ Two binaries, one solution:
 | Binary | Runs as | Job |
 | --- | --- | --- |
 | `ConnectLiveWatcher.exe` | LocalSystem (Windows Service) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. |
-| `ConnectLiveAgent.exe` | Interactive user (elevated) | Splash → Join code → screen capture, input relay, curtain overlay, shared note. |
+| `ConnectLiveAgent.exe` | Interactive user (elevated) | Splash → auto-session restore/invite handling → screen capture, input relay, curtain overlay, live banner. |
 
 Session 0 (services) can't capture screens or inject input — that's why the Watcher exists purely to launch the Worker inside the real user session via `CreateProcessAsUser`.
 
@@ -67,7 +67,7 @@ From the `agent\` directory in **elevated PowerShell**:
 
 This copies both exes to `C:\Program Files\ConnectLive\` and registers `ConnectLiveWatcher` as an auto-start Windows service running under `LocalSystem`. The Watcher then spawns the Agent inside the interactive desktop automatically. The installer also locks down `%ProgramData%\ConnectLive` so only `SYSTEM` and `Administrators` can write the shared device token (interactive users get read-only) — this only takes effect when running from an elevated PowerShell.
 
-After the first successful code join, the Agent stores the session id + meeting code in DPAPI-protected local machine storage. On reboot, it tries `POST /api/public/agent/session/{id}/reconnect` first, so the admin sees the same existing session come back online without asking the user to re-enter the code.
+After a successful active session, the Agent stores the session id + pairing code in DPAPI-protected local machine storage. On reboot, it tries `POST /api/public/agent/session/{id}/reconnect` first, so the admin sees the same existing session come back online without asking the user to re-enter a code.
 
 Uninstall:
 
@@ -100,7 +100,7 @@ cd src
 dotnet run
 ```
 
-The Worker will splash → restore the last still-open session if one exists → otherwise prompt for a meeting code → heartbeat with exponential backoff (1 → 2 → 4 → 8 → 16 → 30 s).
+The Worker will splash → restore the last still-open session if one exists → otherwise idle for admin-created invites → heartbeat with exponential backoff (1 → 2 → 4 → 8 → 16 → 30 s).
 
 ## Control modes
 

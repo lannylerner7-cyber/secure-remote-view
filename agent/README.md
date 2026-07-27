@@ -1,14 +1,15 @@
 # ConnectLive Agent (Windows)
 
-Transparent, consent-based remote-support agent for Windows. Every session requires end-user consent and shows a persistent on-screen indicator. No hidden capture, no detection evasion.
+Transparent remote-support agent for managed Windows devices. Every session shows a persistent on-screen indicator, with Curtain Mode and dead-man recovery for safe takeover. No hidden capture, no detection evasion.
 
 ## What's in here
 
 | File | Purpose |
 |------|---------|
-| `src/Agent.cs` | Windows service + tray + WPF splash + consent UI |
+| `src/Agent.cs` | Session coordinator, heartbeat loop, frame/input/cursor streaming |
 | `src/ApiClient.cs` | HTTP + WebSocket client for the ConnectLive API |
 | `src/App.xaml` / `src/App.xaml.cs` | WPF entry, splash window styling |
+| `src/SessionIndicator.cs` | Persistent live-session banner shown during support |
 | `src/ConnectLiveAgent.csproj` | .NET 8 single-file project |
 | `assets/logo.svg` / `assets/icon.ico` | ConnectLive branding |
 | `build.ps1` | One-command build → `dist/ConnectLiveAgent.zip` |
@@ -41,14 +42,13 @@ Edit `src/ApiClient.cs` — set `ApiBaseUrl` to your ConnectLive gateway before 
 Ship `ConnectLiveAgent.exe` through Intune, SCCM, or GPO. On first run the agent:
 
 1. Registers with the gateway (`POST /api/devices/enroll`) — device token stored DPAPI-encrypted at `%ProgramData%\ConnectLive\device.dat`
-2. Installs itself as a Windows Service (`ConnectLive Agent`) for heartbeat + reconnect
-3. Runs a per-user tray app for the visible indicator and consent UI
+2. Runs under the Watcher service for heartbeat + reconnect when installed
+3. Runs a per-user tray app plus the non-hideable live-session banner
 
 ## Non-negotiables (baked into the code)
 
-- Every session opens in `pending-consent`. Capture starts only after the user clicks **Allow**.
-- Remote control requires a **second, separate** grant.
+- Invited sessions auto-activate for enrolled managed devices so the admin live view starts immediately.
 - A persistent banner + tray icon are visible for the full duration of any session. Cannot be hidden.
-- End user can revoke or end at any time from the tray.
-- No global keyboard hooks. Standard `SendInput` only while control is granted.
+- Curtain/takeover mode uses the dedicated input-blocking hooks and always releases on dead-man failure.
+- End user can see the active session at all times from the banner/tray.
 - No Defender exclusions requested or applied by the installer.
