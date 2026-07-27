@@ -228,8 +228,12 @@ public sealed class Agent
             if (mode == "control") _indicator?.SetControlGranted(true);
         });
 
-        // Spin up WebRTC alongside the HTTPS frame stream. If ICE fails,
-        // admin auto-falls-back to the HTTPS <img> stream — zero regression.
+        // HTTPS is the primary transport: start the frame/input/cursor loops
+        // immediately so the admin panel gets pixels within one frame interval.
+        StartSessionLoops(sessionId, mode);
+
+        // WebRTC upgrades on top when ICE completes. If it never does (strict
+        // NAT, no TURN), the HTTPS loops above already carry the whole session.
         try
         {
             _rtc = new WebRtcSession(_api, sessionId);
@@ -242,6 +246,8 @@ public sealed class Agent
 
     private void EndSession()
     {
+        try { _sessionCts?.Cancel(); } catch { }
+        _sessionCts = null;
         _ui.Invoke(() =>
         {
             _indicator?.Close();
