@@ -288,9 +288,93 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </div>
   );
 }
+
+function WalletsTab() {
+  const load = useServerFn(listWalletsAdmin);
+  const save = useServerFn(upsertWalletAdmin);
+  const [rows, setRows] = useState<Array<{ coin: string; cdp_wallet_id: string; updated_at: string }>>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const reload = async () => {
+    const r = (await load()) as Array<{ coin: string; cdp_wallet_id: string; updated_at: string }>;
+    setRows(r);
+    const d: Record<string, string> = {};
+    r.forEach((w) => (d[w.coin] = w.cdp_wallet_id));
+    setDrafts((prev) => ({ ...d, ...prev }));
+  };
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const coins: Array<{ code: "BTC" | "USDT_ERC20" | "USDC_ERC20"; label: string; hint: string }> = [
+    { code: "BTC", label: "Bitcoin (BTC)", hint: "bc1… / 1… / 3… address" },
+    { code: "USDT_ERC20", label: "Tether (USDT · ERC-20)", hint: "0x… Ethereum address" },
+    { code: "USDC_ERC20", label: "USD Coin (USDC · ERC-20)", hint: "0x… Ethereum address" },
+  ];
+
+  const submit = async (coin: string) => {
+    setBusy(coin);
+    setMsg(null);
+    try {
+      await save({ data: { coin: coin as "BTC" | "USDT_ERC20" | "USDC_ERC20", address: drafts[coin] ?? "" } });
+      setMsg(`${coin} saved.`);
+      await reload();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-[#4F7CFF]/30 bg-[#4F7CFF]/5 p-3 text-xs text-white/70">
+        These addresses receive buyer payments. Every new order for a given coin is issued the address
+        stored here. Use one you control (hardware wallet, exchange deposit, or custody).
+      </div>
+      {msg && <div className="rounded bg-white/5 p-2 text-xs">{msg}</div>}
+      {coins.map((c) => {
+        const existing = rows.find((r) => r.coin === c.code);
+        return (
+          <div key={c.code} className="rounded-lg border border-white/10 bg-[#1F2A44] p-4">
+            <div className="flex items-baseline justify-between">
+              <div className="font-medium">{c.label}</div>
+              {existing && (
+                <div className="text-[10px] text-white/40">
+                  updated {new Date(existing.updated_at).toLocaleString()}
+                </div>
+              )}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={drafts[c.code] ?? ""}
+                onChange={(e) => setDrafts((d) => ({ ...d, [c.code]: e.target.value }))}
+                placeholder={c.hint}
+                className="flex-1 rounded bg-black/40 px-2 py-1.5 font-mono text-[11px]"
+              />
+              <button
+                disabled={busy === c.code || !drafts[c.code]}
+                onClick={() => submit(c.code)}
+                className="rounded bg-[#4F7CFF] px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+              >
+                {busy === c.code ? "Saving…" : existing ? "Update" : "Save"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 
 function Card({ label, value, tone }: { label: string; value: string; tone: "green" | "amber" | "red" | "blue" }) {
   const tones = {
