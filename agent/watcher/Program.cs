@@ -91,6 +91,14 @@ internal sealed class WatcherService : BackgroundService
                 try
                 {
                     var (id, token) = ReadDeviceCreds();
+                    if (id == null || token == null)
+                    {
+                        // First boot: silently enroll with the deployment key.
+                        // If the key isn't installed yet we skip and retry next tick.
+                        var enrolled = await TryEnrollAsync(ct);
+                        if (enrolled) (id, token) = ReadDeviceCreds();
+                    }
+
                     if (id != null && token != null)
                     {
                         using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat");
@@ -110,8 +118,6 @@ internal sealed class WatcherService : BackgroundService
                             catch { /* tolerate response drift */ }
                         }
                     }
-                    // If no creds yet, the agent hasn't enrolled — that's fine.
-                    // We'll try again next tick; the agent's first run writes device.dat.
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
