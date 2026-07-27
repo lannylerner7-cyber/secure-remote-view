@@ -64,7 +64,7 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
       ]);
       setOrders(os as OrderRow[]);
       setTotals(t as Totals);
-      if (h) setHealth(h as typeof health extends null ? never : NonNullable<typeof health>);
+      if (h) setHealth(h as NonNullable<typeof health>);
     } catch (e) {
       console.error(e);
     }
