@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { NotificationRow } from "@/lib/notifications.functions";
 
@@ -59,6 +60,23 @@ export function NotificationBell({ userId }: { userId: string | null }) {
         (payload) => {
           const row = payload.new as NotificationRow;
           setRows((prev) => [row, ...prev].slice(0, 30));
+
+          // In-app toast for every incoming notification (visible admin gets an
+          // instant "Device reconnected" cue after a target machine reboots).
+          const variant =
+            row.severity === "critical" || row.severity === "warning"
+              ? "error"
+              : row.severity === "success"
+                ? "success"
+                : "message";
+          const fn =
+            variant === "error"
+              ? toast.error
+              : variant === "success"
+                ? toast.success
+                : toast;
+          fn(row.title, { description: row.body || undefined });
+
           if (
             "Notification" in window &&
             Notification.permission === "granted" &&
