@@ -1245,15 +1245,26 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
                   </td>
                   <td className="px-4 py-2 text-white/60">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "—"}</td>
                   <td className="px-4 py-2 text-right">
-                    {canConnect && (
-                      <button
-                        onClick={() => onConnect(d)}
-                        disabled={p === "offline"}
-                        className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Connect
-                      </button>
-                    )}
+                    <div className="inline-flex items-center gap-2">
+                      {canConnect && (
+                        <button
+                          onClick={() => onConnect(d)}
+                          disabled={p === "offline"}
+                          className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Connect
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => onDelete(d)}
+                          className="rounded border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:bg-red-500/20"
+                          title="Remove device"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
