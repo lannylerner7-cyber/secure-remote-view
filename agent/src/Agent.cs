@@ -52,11 +52,17 @@ public sealed class Agent
 
     public async Task RunAsync(CancellationToken ct)
     {
+        _outerCt = ct;
         _splashStatus("Registering with ConnectLive…");
         await _api.EnrollIfNeededAsync(ct);
 
         _splashStatus("Sending heartbeat…");
         await _api.HeartbeatAsync(ct);
+
+        // If a session was pre-seeded (cold-boot reconnect), start its loops
+        // immediately so we don't wait a whole heartbeat cycle for pixels.
+        if (_currentSessionId != null)
+            StartSessionLoops(_currentSessionId, "control");
 
         _splashStatus("Waiting for helpdesk…");
         await HeartbeatLoop(ct);
