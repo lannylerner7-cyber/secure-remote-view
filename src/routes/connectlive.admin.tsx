@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-export const Route = createFileRoute("/admin")({
+export const Route = createFileRoute("/connectlive/admin")({
   component: LoginPage,
   head: () => ({
     meta: [
