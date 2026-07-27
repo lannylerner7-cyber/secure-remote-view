@@ -134,12 +134,52 @@ public sealed class Agent
         foreach (var s in pending)
         {
             if (s.state == "invited" && !_acceptedSessions.Contains(s.id))
+            {
                 await HandleInvite(s.id, s.mode, ct);
+            }
+            else if (s.state == "active" && !_acceptedSessions.Contains(s.id))
+            {
+                // Cold-boot / reconnect edge: server already has consent + active
+                // state for this session, but this agent process never joined it.
+                // Skip the dialog (consent is on record) and start the loops.
+                _acceptedSessions.Add(s.id);
+                JoinActiveSession(s.id, s.mode);
+            }
         }
 
         // Session ended on the server side: tear down local session state.
         if (_currentSessionId != null && !pending.Exists(p => p.id == _currentSessionId))
             EndSession();
+    }
+
+    private void StartSessionLoops(string sessionId, string mode)
+    {
+        _sessionCts?.Cancel();
+        _sessionCts = CancellationTokenSource.CreateLinkedTokenSource(_outerCt);
+        var t = _sessionCts.Token;
+        try { InputRelay.SessionBanner = _indicator; } catch { }
+        _ = ScreenCapture.RunAsync(_api, sessionId, t);
+        _ = InputRelay.RunAsync(_api, sessionId, t);
+        _ = CursorPump.RunAsync(_api, sessionId, t);
+        Log.Info($"session {sessionId} loops started ({mode})");
+    }
+
+    private void JoinActiveSession(string sessionId, string mode)
+    {
+        _currentSessionId = sessionId;
+        _ui.Invoke(() =>
+        {
+            _indicator = new SessionIndicator("Helpdesk", onEnd: EndSession);
+            _indicator.Show();
+            if (mode == "control") _indicator?.SetControlGranted(true);
+        });
+        StartSessionLoops(sessionId, mode);
+        try
+        {
+            _rtc = new WebRtcSession(_api, sessionId);
+            _ = _rtc.StartAsync();
+        }
+        catch (Exception ex) { Log.Warn($"webrtc start: {ex.Message}"); }
     }
 
     // ---- Consent handshake --------------------------------------------
