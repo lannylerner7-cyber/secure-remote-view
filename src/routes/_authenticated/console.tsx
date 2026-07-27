@@ -1197,11 +1197,12 @@ function StatCard({ label, value, tone }: { label: string; value: number; tone: 
   );
 }
 
-function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected, onConnect, canConnect }: {
+function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected, onConnect, canConnect, canDelete, onDelete }: {
   devices: Device[]; presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
   selected: Set<string>; toggleSelect: (id: string) => void;
   onBulkEnd: () => void; onBulkRestart: () => void; onClearSelected: () => void;
   onConnect: (d: Device) => void; canConnect: boolean;
+  canDelete: boolean; onDelete: (d: Device) => void;
 }) {
   return (
     <div>
