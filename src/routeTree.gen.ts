@@ -13,6 +13,7 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as RefundRouteImport } from './routes/refund'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OrderRouteImport } from './routes/order'
+import { Route as LicenseRouteImport } from './routes/license'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AdminRouteImport } from './routes/admin'
@@ -55,6 +56,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const OrderRoute = OrderRouteImport.update({
   id: '/order',
   path: '/order',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LicenseRoute = LicenseRouteImport.update({
+  id: '/license',
+  path: '/license',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HealthRoute = HealthRouteImport.update({
@@ -184,6 +190,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
+  '/license': typeof LicenseRoute
   '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
@@ -212,6 +219,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
+  '/license': typeof LicenseRoute
   '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
@@ -242,6 +250,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
+  '/license': typeof LicenseRoute
   '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
@@ -272,6 +281,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/contact'
     | '/health'
+    | '/license'
     | '/order'
     | '/privacy'
     | '/refund'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/contact'
     | '/health'
+    | '/license'
     | '/order'
     | '/privacy'
     | '/refund'
@@ -329,6 +340,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/contact'
     | '/health'
+    | '/license'
     | '/order'
     | '/privacy'
     | '/refund'
@@ -359,6 +371,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   ContactRoute: typeof ContactRoute
   HealthRoute: typeof HealthRoute
+  LicenseRoute: typeof LicenseRoute
   OrderRoute: typeof OrderRouteWithChildren
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
@@ -409,6 +422,13 @@ declare module '@tanstack/react-router' {
       path: '/order'
       fullPath: '/order'
       preLoaderRoute: typeof OrderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/license': {
+      id: '/license'
+      path: '/license'
+      fullPath: '/license'
+      preLoaderRoute: typeof LicenseRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/health': {
@@ -602,6 +622,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   ContactRoute: ContactRoute,
   HealthRoute: HealthRoute,
+  LicenseRoute: LicenseRoute,
   OrderRoute: OrderRouteWithChildren,
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
