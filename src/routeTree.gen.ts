@@ -13,12 +13,14 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as RefundRouteImport } from './routes/refund'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OrderRouteImport } from './routes/order'
+import { Route as HealthRouteImport } from './routes/health'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrderIdRouteImport } from './routes/order.$id'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
+import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
 import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
 import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
@@ -55,6 +57,11 @@ const OrderRoute = OrderRouteImport.update({
   path: '/order',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ContactRoute = ContactRouteImport.update({
   id: '/contact',
   path: '/contact',
@@ -83,6 +90,11 @@ const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   id: '/console',
   path: '/console',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
+  id: '/api/public/health',
+  path: '/api/public/health',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicWebhooksCdpRoute = ApiPublicWebhooksCdpRouteImport.update({
   id: '/api/public/webhooks/cdp',
@@ -171,12 +183,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
+  '/health': typeof HealthRoute
   '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/order/$id': typeof OrderIdRoute
+  '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -197,12 +211,14 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
+  '/health': typeof HealthRoute
   '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/order/$id': typeof OrderIdRoute
+  '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -225,12 +241,14 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
+  '/health': typeof HealthRoute
   '/order': typeof OrderRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/order/$id': typeof OrderIdRoute
+  '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -253,12 +271,14 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/contact'
+    | '/health'
     | '/order'
     | '/privacy'
     | '/refund'
     | '/terms'
     | '/console'
     | '/order/$id'
+    | '/api/public/health'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -279,12 +299,14 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/contact'
+    | '/health'
     | '/order'
     | '/privacy'
     | '/refund'
     | '/terms'
     | '/console'
     | '/order/$id'
+    | '/api/public/health'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -306,12 +328,14 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/admin'
     | '/contact'
+    | '/health'
     | '/order'
     | '/privacy'
     | '/refund'
     | '/terms'
     | '/_authenticated/console'
     | '/order/$id'
+    | '/api/public/health'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -334,10 +358,12 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AdminRoute: typeof AdminRoute
   ContactRoute: typeof ContactRoute
+  HealthRoute: typeof HealthRoute
   OrderRoute: typeof OrderRouteWithChildren
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
   TermsRoute: typeof TermsRoute
+  ApiPublicHealthRoute: typeof ApiPublicHealthRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
@@ -385,6 +411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrderRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/contact': {
       id: '/contact'
       path: '/contact'
@@ -426,6 +459,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/console'
       preLoaderRoute: typeof AuthenticatedConsoleRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/health': {
+      id: '/api/public/health'
+      path: '/api/public/health'
+      fullPath: '/api/public/health'
+      preLoaderRoute: typeof ApiPublicHealthRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/webhooks/cdp': {
       id: '/api/public/webhooks/cdp'
@@ -561,10 +601,12 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AdminRoute: AdminRoute,
   ContactRoute: ContactRoute,
+  HealthRoute: HealthRoute,
   OrderRoute: OrderRouteWithChildren,
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
   TermsRoute: TermsRoute,
+  ApiPublicHealthRoute: ApiPublicHealthRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
@@ -590,13 +632,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
