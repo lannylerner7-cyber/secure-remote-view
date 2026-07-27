@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>ConnectLive.Admin</RootNamespace>
+    <AssemblyName>ConnectLiveAdmin</AssemblyName>
+    <ApplicationIcon Condition="Exists('..\..\agent\assets\icon.ico')">..\..\agent\assets\icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <Version>1.0.0</Version>
+    <Company>ConnectLive</Company>
+    <Product>ConnectLive Admin</Product>
+    <AssemblyTitle>ConnectLive Admin</AssemblyTitle>
+    <FileDescription>ConnectLive native admin console</FileDescription>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <PackageReference Include="SIPSorcery" Version="6.2.4" />
+    <PackageReference Include="SIPSorceryMedia.Encoders" Version="8.0.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="admin.config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

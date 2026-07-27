@@ -1,0 +1,41 @@
+<Window x:Class="ConnectLive.Admin.Views.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:ConnectLive.Admin.ViewModels"
+        Title="ConnectLive Admin — Sign in"
+        Height="440" Width="380"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgPrimary}"
+        ResizeMode="NoResize">
+    <Window.DataContext>
+        <vm:LoginViewModel />
+    </Window.DataContext>
+    <Grid Margin="32">
+        <StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <Ellipse Width="10" Height="10" Fill="{StaticResource Accent}" VerticalAlignment="Center" />
+                <TextBlock Text="ConnectLive Admin" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                           Margin="8,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Text="Technician sign in" Foreground="White" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="Three failed attempts trigger a 1-hour lockout."
+                       Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,4,0,20" TextWrapping="Wrap" />
+
+            <TextBlock Text="Technician ID" Foreground="{StaticResource TextMuted}" FontSize="11" />
+            <TextBox Text="{Binding Identifier, UpdateSourceTrigger=PropertyChanged}"
+                     Margin="0,4,0,12" />
+
+            <TextBlock Text="Password" Foreground="{StaticResource TextMuted}" FontSize="11" />
+            <PasswordBox x:Name="PwdBox" Margin="0,4,0,16"
+                         PasswordChanged="PwdBox_PasswordChanged" />
+
+            <TextBlock Text="{Binding Error}" Foreground="#F87171" FontSize="11"
+                       Visibility="{Binding Error, Converter={x:Static vm:NullToVisibility.Instance}}"
+                       TextWrapping="Wrap" Margin="0,0,0,12" />
+
+            <Button Content="Sign in" Command="{Binding SignInCommand}"
+                    IsEnabled="{Binding Busy, Converter={x:Static vm:InvertBool.Instance}}"
+                    Height="36" FontWeight="SemiBold" />
+        </StackPanel>
+    </Grid>
+</Window>
