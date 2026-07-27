@@ -1,58 +1,45 @@
+## Root cause
 
-# Smooth Live View — Agent & Admin Performance Upgrade
+The Allow/Deny consent dialog works and the server correctly flips the session to `active`, but the admin panel stays blank because the agent never starts the three HTTPS loops that push data:
 
-## Problem
+- `ScreenCapture.RunAsync` → `/api/public/agent/session/:id/frame`
+- `InputRelay.RunAsync` → `/api/public/agent/session/:id/inputs`
+- `CursorPump.RunAsync` → `/api/public/agent/session/:id/cursor`
 
-`ScreenCapture.cs` runs at ~7 FPS (140ms delay + GDI copy + JPEG encode). Fast-moving content (CSS animations, video) looks choppy in the admin panel.
+In `agent/src/App.xaml.cs`, those three loops are only launched on the cold-boot "restored session" path (lines 80–82). The normal live path — heartbeat delivers an invite → `Agent.HandleInvite` prompts consent → user clicks Allow — only starts `WebRtcSession` (agent/src/Agent.cs:175). No frame/input/cursor upload ever happens, so `session_frames` stays empty and the admin live view shows nothing. WebRTC alone can't cover it either: without a TURN server, ICE typically never reaches `connected` on the first try, and the HTTPS fallback that was supposed to carry the stream is exactly what's missing.
+
+Route audit (all correct on the server side, no changes needed):
+- `enroll`, `hello`, `heartbeat`, `reconnect`, `consent`, `frame`, `inputs`, `cursor`, `signal` all present under `src/routes/api/public/agent/` and each calls `verifyDevice`. `heartbeat` returns pending sessions in states `invited|consented|active|paused` so restored `active` sessions still surface. `consent` transitions `invited → active` and stamps `consent_at`. `pair` is intentionally 410 Gone.
 
 ## Changes
 
-### 1. Agent — `ScreenCapture.cs`: Triple the frame rate
+### 1. `agent/src/Agent.cs` — launch the three loops on Allow
 
-- **Drop `Task.Delay` from 140ms → 33ms** (target ~30 FPS).
-- **Lower default resolution from 1280 → 960px** long edge — cuts pixel count ~44%, proportionally faster GDI copy + JPEG encode.
-- **Drop JPEG quality from 55 → 40** during motion (hash changed), bump back to 55 on idle keyframes. Visually imperceptible on video; saves ~30% bandwidth per frame.
-- **Adaptive idle backoff**: if 3+ consecutive unchanged frames, increase delay to 100ms to save CPU when the screen is static. Reset to 33ms on any change.
+- Add a per-session `CancellationTokenSource _sessionCts` linked to the outer token.
+- In `HandleInvite`, after `SubmitConsentAsync(..., true)` succeeds and the indicator is shown, start the same three loops that `App.xaml.cs` uses on the restored-session path:
+  ```csharp
+  _sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+  InputRelay.SessionBanner = _indicator;
+  _ = ScreenCapture.RunAsync(_api, sessionId, _sessionCts.Token);
+  _ = InputRelay.RunAsync(_api, sessionId, _sessionCts.Token);
+  _ = CursorPump.RunAsync(_api, sessionId, _sessionCts.Token);
+  ```
+  Keep the existing `WebRtcSession` start immediately after — HTTPS carries the stream, WebRTC upgrades when ICE completes.
+- In `EndSession`, cancel and null out `_sessionCts` so the loops stop cleanly when the session ends server-side or the user hits End in the banner.
+- In `DispatchPendingSessions`, treat sessions returned in state `active` that this agent has never accepted (edge case: cold-boot with an already-active session that wasn't restored via `/reconnect`) the same as a fresh accept — join and start the loops, skipping the consent dialog since consent is already recorded.
 
-### 2. Agent — `ScreenCapture.cs`: Eliminate redundant Bitmap allocation
+### 2. `agent/src/App.xaml.cs` — remove the duplicate loop start
 
-Currently allocates `raw` (full-res) + `scaled` every frame. Reuse a pair of pre-allocated bitmaps across the loop (only reallocate if screen bounds change). Cuts GC pressure ~50%.
+The cold-boot restored-session path (lines 74–82) now duplicates what `Agent.HandleInvite` does. Simplify by always going through `Agent`: on a restored session, pre-seed `_acceptedSessions` and `_currentSessionId` inside `Agent`, then let the first heartbeat's `active` entry trigger the normal join path. This gives one code path for "session is running" so future fixes only touch one place.
 
-### 3. Agent — `WebRtcSession.cs`: Match higher cadence
+Concretely: replace the `if (string.IsNullOrEmpty(sessionId))` split with a single `agent.RunAsync(...)`, passing the restored `sessionId` (if any) into a new `Agent` ctor arg or a `SeedRestoredSession(sessionId)` call before `RunAsync`.
 
-`PushFrame` duration hint is hardcoded to `33` (30 FPS RTP timestamp). This already matches the new target — no change needed, but verify the VP8 encoder doesn't throttle.
+### 3. No admin-panel or server-route changes
 
-### 4. Admin panel — `console.tsx` live view
+`session_frames`, `session_cursors`, and `session_inputs` realtime subscriptions in `src/routes/_authenticated/console.tsx` are already wired correctly — they simply had nothing to display. Verified by re-reading the frame route and heartbeat route.
 
-- **Add an FPS counter overlay** (small badge, top-right of the video frame) so you can see actual throughput.
-- **Add a "Quality" toggle** (Normal / Performance) that sends a preference flag to the session. Agent reads it on next heartbeat and switches between 960px/q40 (Performance) and 1280px/q55 (Normal).
+## Verification
 
-### 5. Agent — New `DxgiCapture.cs` (Phase 2 stub)
-
-Create a DXGI Desktop Duplication wrapper behind a feature flag (`--use-dxgi`). When enabled, replaces GDI `CopyFromScreen` with `IDXGIOutputDuplication.AcquireNextFrame`. This is the path to 60 FPS with < 1ms capture latency. The stub will:
-- P/Invoke `CreateDXGIFactory1`, enumerate outputs, acquire the duplication interface.
-- Fall back to GDI if DXGI init fails (RDP sessions, older GPUs, Session 0).
-- Log capture timing so you can compare GDI vs DXGI on your hardware.
-
-Full DXGI + hardware H.264 encoding is a follow-up milestone.
-
-### 6. Repackage agent ZIP
-
-Output updated `ConnectLiveAgent.zip` with all changes.
-
-## Files touched
-
-| File | Action |
-|------|--------|
-| `agent/src/ScreenCapture.cs` | Rewrite loop timing, resolution, quality, bitmap reuse |
-| `agent/src/DxgiCapture.cs` | New — DXGI stub with GDI fallback |
-| `agent/src/WebRtcSession.cs` | Verify VP8 duration hint (likely no change) |
-| `src/routes/_authenticated/console.tsx` | FPS counter + quality toggle in live view |
-
-## What this does NOT change
-
-- Cursor pump (already 30 Hz, working well)
-- WebRTC signaling flow
-- HTTPS frame upload endpoint
-- Input relay / trackpad / OSK
-- Any database schema
+- Build the agent locally (`dotnet build agent/src`) and confirm no new warnings.
+- Manual smoke: enroll a test device, click "Take control" in `/console`, then Allow on the agent. Within ~1s the live view should show frames; the FPS badge should read ~30; the SVG cursor overlay should track movement; typing in the input tunnel should land on the remote.
+- Repackage `ConnectLiveAgent.zip` after the fix is verified.
