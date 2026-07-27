@@ -1201,7 +1201,7 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-white/40">No sessions yet.</td></tr>}
+          {sessions.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-white/40">No sessions yet.</td></tr>}
           {sessions.map((s) => {
             const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
             const presence = dev ? presenceOf(dev) : null;
@@ -1211,7 +1211,6 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
                   <div>{dev?.display_name ?? <span className="text-white/40">waiting…</span>}</div>
                   {presence && presence !== "online" && <div className="text-[10px] uppercase tracking-wider text-amber-300">{presence}</div>}
                 </td>
-                <td className="px-4 py-2 font-mono text-white/70">{s.pairing_code ?? "—"}</td>
                 <td className="px-4 py-2 text-white/70">{s.mode}</td>
                 <td className="px-4 py-2">
                   <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
