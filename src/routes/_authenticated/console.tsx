@@ -335,7 +335,7 @@ function AdminPage() {
     });
     if (error) { alert(`Queue failed: ${error.message}`); return; }
     const via = relayId ? ` (via ${devices.find((p) => p.id === relayId)?.display_name})` : "";
-    void notify({ data: { kind: "power", text: `⚡ ${labels[kind]} queued for <b>${d.display_name}</b>${via}` } });
+    void notify({ data: { kind: "control_taken", text: `⚡ ${labels[kind]} queued for <b>${d.display_name}</b>${via}` } });
   }
 
 
