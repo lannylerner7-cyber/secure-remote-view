@@ -20,8 +20,11 @@ export const Route = createFileRoute("/_authenticated/console")({
   head: () => ({ meta: [{ title: "Admin — ConnectLive" }] }),
 });
 
-const STALE_MS = 45_000;
-const OFFLINE_MS = 180_000;
+// Agent heartbeat cadence = 15s; backend flags reconnect after a 60s gap.
+// Give one missed beat of grace before "reconnecting", and match the backend
+// threshold for hard "offline".
+const STALE_MS = 30_000;
+const OFFLINE_MS = 75_000;
 
 type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team" | "payments";
 
