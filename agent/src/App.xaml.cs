@@ -61,29 +61,14 @@ public partial class App : Application
             await Task.Delay(400);
             splash.Close();
 
-            if (string.IsNullOrEmpty(sessionId))
-            {
-                // No pending session — sit in the tray and wait for the admin
-                // to initiate one. The Watcher will keep us alive across reboots.
-                _ = new TrayIcon(onQuit: Shutdown);
-                var idleAgent = new Agent(api, _ => { }, dispatcher);
-                await idleAgent.RunAsync(_cts.Token);
-                return;
-            }
-
-            // Tray + persistent banner + screen capture loop.
+            // One unified path: Agent owns the session lifecycle (invite consent
+            // + frame/input/cursor loops + WebRTC upgrade). On cold-boot with a
+            // restored session, seed it so Agent joins immediately without
+            // re-prompting for consent.
             _ = new TrayIcon(onQuit: Shutdown);
-            var indicator = new SessionIndicator("Helpdesk", onEnd: () => _cts.Cancel());
-            indicator.Show();
-            InputRelay.SessionBanner = indicator;
-
-            _ = ScreenCapture.RunAsync(api, sessionId, _cts.Token);
-            _ = InputRelay.RunAsync(api, sessionId, _cts.Token);
-            _ = CursorPump.RunAsync(api, sessionId, _cts.Token);
-
-
-
             var agent = new Agent(api, _ => { }, dispatcher);
+            if (!string.IsNullOrEmpty(sessionId))
+                agent.SeedRestoredSession(sessionId!);
             await agent.RunAsync(_cts.Token);
         }
         catch (Exception ex)
