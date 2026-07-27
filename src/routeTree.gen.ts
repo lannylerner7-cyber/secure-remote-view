@@ -15,11 +15,11 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LicenseRouteImport } from './routes/license'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as ContactRouteImport } from './routes/contact'
-import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrderIndexRouteImport } from './routes/order.index'
 import { Route as OrderIdRouteImport } from './routes/order.$id'
+import { Route as ConnectliveAdminRouteImport } from './routes/connectlive.admin'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
@@ -68,11 +68,6 @@ const ContactRoute = ContactRouteImport.update({
   path: '/contact',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -90,6 +85,11 @@ const OrderIndexRoute = OrderIndexRouteImport.update({
 const OrderIdRoute = OrderIdRouteImport.update({
   id: '/order/$id',
   path: '/order/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConnectliveAdminRoute = ConnectliveAdminRouteImport.update({
+  id: '/connectlive/admin',
+  path: '/connectlive/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
@@ -187,7 +187,6 @@ const ApiPublicAgentSessionSessionIdConsentRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
@@ -195,6 +194,7 @@ export interface FileRoutesByFullPath {
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
+  '/connectlive/admin': typeof ConnectliveAdminRoute
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -216,7 +216,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
@@ -224,6 +223,7 @@ export interface FileRoutesByTo {
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
+  '/connectlive/admin': typeof ConnectliveAdminRoute
   '/order/$id': typeof OrderIdRoute
   '/order': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -247,7 +247,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
-  '/admin': typeof AdminRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
@@ -255,6 +254,7 @@ export interface FileRoutesById {
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
+  '/connectlive/admin': typeof ConnectliveAdminRoute
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -278,7 +278,6 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/admin'
     | '/contact'
     | '/health'
     | '/license'
@@ -286,6 +285,7 @@ export interface FileRouteTypes {
     | '/refund'
     | '/terms'
     | '/console'
+    | '/connectlive/admin'
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
@@ -307,7 +307,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/admin'
     | '/contact'
     | '/health'
     | '/license'
@@ -315,6 +314,7 @@ export interface FileRouteTypes {
     | '/refund'
     | '/terms'
     | '/console'
+    | '/connectlive/admin'
     | '/order/$id'
     | '/order'
     | '/api/public/health'
@@ -337,7 +337,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
-    | '/admin'
     | '/contact'
     | '/health'
     | '/license'
@@ -345,6 +344,7 @@ export interface FileRouteTypes {
     | '/refund'
     | '/terms'
     | '/_authenticated/console'
+    | '/connectlive/admin'
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
@@ -368,13 +368,13 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
-  AdminRoute: typeof AdminRoute
   ContactRoute: typeof ContactRoute
   HealthRoute: typeof HealthRoute
   LicenseRoute: typeof LicenseRoute
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
   TermsRoute: typeof TermsRoute
+  ConnectliveAdminRoute: typeof ConnectliveAdminRoute
   OrderIdRoute: typeof OrderIdRoute
   OrderIndexRoute: typeof OrderIndexRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
@@ -439,13 +439,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ContactRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -472,6 +465,13 @@ declare module '@tanstack/react-router' {
       path: '/order/$id'
       fullPath: '/order/$id'
       preLoaderRoute: typeof OrderIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connectlive/admin': {
+      id: '/connectlive/admin'
+      path: '/connectlive/admin'
+      fullPath: '/connectlive/admin'
+      preLoaderRoute: typeof ConnectliveAdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/console': {
@@ -610,13 +610,13 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
-  AdminRoute: AdminRoute,
   ContactRoute: ContactRoute,
   HealthRoute: HealthRoute,
   LicenseRoute: LicenseRoute,
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
   TermsRoute: TermsRoute,
+  ConnectliveAdminRoute: ConnectliveAdminRoute,
   OrderIdRoute: OrderIdRoute,
   OrderIndexRoute: OrderIndexRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
@@ -645,13 +645,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
