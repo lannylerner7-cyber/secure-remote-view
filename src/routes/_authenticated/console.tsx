@@ -418,7 +418,7 @@ function AdminPage() {
   const reconnecting = devices.filter((d) => presenceOf(d) === "reconnecting");
   const onlineCount = devices.filter((d) => presenceOf(d) === "online").length;
   const activeSessions = sessions.filter((s) => s.state === "active" || s.state === "paused");
-  const pendingSessions = sessions.filter((s) => s.state === "invited" && s.pairing_code);
+  const pendingSessions = sessions.filter((s) => s.state === "invited");
 
   const NavBtn = ({ id, label, badge }: { id: Nav; label: string; badge?: number }) => (
     <button
