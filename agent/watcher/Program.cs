@@ -1,7 +1,12 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -10,20 +15,22 @@ using Microsoft.Extensions.Hosting.WindowsServices;
 namespace ConnectLive.Watcher;
 
 // -----------------------------------------------------------------------------
-// ConnectLive Watcher
+// ConnectLive Watcher — Double-Vouch control plane
 // -----------------------------------------------------------------------------
-// Runs as LocalSystem via `sc create ConnectLiveWatcher`. Session 0 isolation
-// prevents this process from capturing the screen or injecting input directly
-// — so its only jobs are:
+// Runs as LocalSystem via `sc create ConnectLiveWatcher`. Two responsibilities:
 //
-//   1. Survive reboots (auto-start service).
-//   2. Detect the active interactive user session (WTSGetActiveConsoleSessionId).
-//   3. Spawn ConnectLiveAgent.exe INTO that session, inheriting the user token
-//      (CreateProcessAsUser). The Worker owns the actual capture/input relay.
-//   4. Restart the Worker with capped backoff if it exits.
+//   1. Persistent Heartbeat (control plane): every 5s (exponential back-off on
+//      failure, capped at 60s) POST /api/public/agent/heartbeat so the backend
+//      knows this machine is alive across reboots and boot-time network delay.
+//      The loop never exits on error — that's what solves "no IP yet" at boot.
 //
-// If nobody is logged in (lock screen / boot-to-login), sessionId == 0xFFFFFFFF
-// and we idle — no worker spawn until a real user desktop exists.
+//   2. Session Supervision: if the heartbeat response says is_session_active,
+//      make sure ConnectLiveAgent.exe is running in the active interactive
+//      user session. Session 0 isolation forces us to spawn via
+//      CreateProcessAsUser; the agent owns capture/input relay from there.
+//
+// If nobody is logged in (WTSGetActiveConsoleSessionId == 0xFFFFFFFF), we
+// idle without spawning until a real user desktop exists.
 // -----------------------------------------------------------------------------
 public static class Program
 {
@@ -38,61 +45,142 @@ public static class Program
 
 internal sealed class WatcherService : BackgroundService
 {
+    // Must match ApiClient.DefaultApiBaseUrl in the agent.
+    private const string ApiBaseUrl = "https://secure-remote-view.lovable.app";
+
+    private static readonly string ConfigDir =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
+    private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
+
+    private readonly HttpClient _http = new() { BaseAddress = new Uri(ApiBaseUrl), Timeout = TimeSpan.FromSeconds(15) };
+
     private Process? _worker;
     private uint _lastSessionId = 0xFFFFFFFF;
+
+    // Heartbeat back-off (seconds): 5 → 10 → 20 → 40 → 60 cap. Resets to 5s on success.
+    private static readonly int[] BackoffSeconds = { 5, 10, 20, 40, 60 };
+    private int _backoffStep = 0;
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         var workerPath = Path.Combine(AppContext.BaseDirectory, "ConnectLiveAgent.exe");
-        int backoffMs = 1000;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 uint sid = WinApi.WTSGetActiveConsoleSessionId();
-                if (sid == 0xFFFFFFFF)
-                {
-                    // No interactive user (locked / boot). Idle without spawning.
-                    KillWorker();
-                    await Task.Delay(2000, ct);
-                    continue;
-                }
+                bool hasUser = sid != 0xFFFFFFFF;
 
-                // User switched (fast-user-switch): restart worker in the new session.
-                if (sid != _lastSessionId)
+                if (!hasUser)
                 {
+                    // No interactive desktop yet. Still heartbeat so the backend
+                    // records this machine as online across lock-screen boots.
+                    KillWorker();
+                }
+                else if (sid != _lastSessionId)
+                {
+                    // Fast user switch: restart the worker in the new session.
                     KillWorker();
                     _lastSessionId = sid;
                 }
 
-                if (_worker is null || _worker.HasExited)
+                // ---- Persistent heartbeat --------------------------------
+                bool isSessionActive = false;
+                bool heartbeatOk = false;
+                try
                 {
-                    if (File.Exists(workerPath) && WinApi.LaunchInSession(sid, workerPath, out var proc))
+                    var (id, token) = ReadDeviceCreds();
+                    if (id != null && token != null)
                     {
-                        _worker = proc;
-                        backoffMs = 1000;                       // reset on success
+                        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat");
+                        req.Headers.Add("X-Device-Id", id);
+                        req.Headers.Add("X-Device-Token", token);
+                        using var resp = await _http.SendAsync(req, ct);
+                        if (resp.IsSuccessStatusCode)
+                        {
+                            heartbeatOk = true;
+                            var body = await resp.Content.ReadAsStringAsync(ct);
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(body);
+                                if (doc.RootElement.TryGetProperty("is_session_active", out var flag))
+                                    isSessionActive = flag.ValueKind == JsonValueKind.True;
+                            }
+                            catch { /* tolerate response drift */ }
+                        }
                     }
-                    else
+                    // If no creds yet, the agent hasn't enrolled — that's fine.
+                    // We'll try again next tick; the agent's first run writes device.dat.
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    // Network not up yet after reboot, or transient outage. Loop on.
+                    EventLog.WriteEntry(
+                        "Application",
+                        $"[ConnectLiveWatcher] heartbeat failed: {ex.Message}",
+                        EventLogEntryType.Warning);
+                }
+
+                // ---- Session supervision ---------------------------------
+                if (hasUser)
+                {
+                    bool agentRunning = _worker is { HasExited: false };
+                    if (!agentRunning) _worker = null;
+
+                    // Spawn if the flag says a session is active, or on cold start
+                    // when no worker is present (preserves the always-spawn-on-login
+                    // UX so the tray icon appears right after boot).
+                    if (_worker is null && File.Exists(workerPath) && (isSessionActive || true))
                     {
-                        await Task.Delay(backoffMs, ct);
-                        backoffMs = Math.Min(30_000, backoffMs * 2);
-                        continue;
+                        if (WinApi.LaunchInSession(sid, workerPath, out var proc))
+                        {
+                            _worker = proc;
+                        }
                     }
                 }
 
-                await Task.Delay(2000, ct);
+                // ---- Cadence: 5s on success, exponential back-off on failure --
+                int delaySec = heartbeatOk ? BackoffSeconds[0] : BackoffSeconds[_backoffStep];
+                if (heartbeatOk) _backoffStep = 0;
+                else if (_backoffStep < BackoffSeconds.Length - 1) _backoffStep++;
+                await Task.Delay(TimeSpan.FromSeconds(delaySec), ct);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                EventLog.WriteEntry("ConnectLiveWatcher", ex.ToString(), EventLogEntryType.Warning);
-                await Task.Delay(backoffMs, ct);
-                backoffMs = Math.Min(30_000, backoffMs * 2);
+                try
+                {
+                    EventLog.WriteEntry(
+                        "Application",
+                        $"[ConnectLiveWatcher] loop error: {ex}",
+                        EventLogEntryType.Warning);
+                }
+                catch { }
+                try { await Task.Delay(TimeSpan.FromSeconds(5), ct); } catch { break; }
             }
         }
 
         KillWorker();
+    }
+
+    private (string? id, string? token) ReadDeviceCreds()
+    {
+        try
+        {
+            if (!File.Exists(DevicePath)) return (null, null);
+            var enc = File.ReadAllBytes(DevicePath);
+            // Agent writes with DataProtectionScope.LocalMachine so SYSTEM can decrypt too.
+            var dec = ProtectedData.Unprotect(enc, null, DataProtectionScope.LocalMachine);
+            var json = Encoding.UTF8.GetString(dec);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            string? id = root.TryGetProperty("DeviceId", out var i) ? i.GetString() : null;
+            string? tok = root.TryGetProperty("DeviceToken", out var t) ? t.GetString() : null;
+            return (id, tok);
+        }
+        catch { return (null, null); }
     }
 
     private void KillWorker()

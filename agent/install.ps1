@@ -39,6 +39,29 @@ function Do-Install {
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
   New-Item -ItemType Directory -Force -Path $DataDir    | Out-Null
 
+  # Lock down %ProgramData%\ConnectLive so only SYSTEM + Admins can write the
+  # shared device token; interactive users need read-only for consent.flag.
+  try {
+    $acl = Get-Acl $DataDir
+    $acl.SetAccessRuleProtection($true, $false)   # disable inheritance, drop inherited ACEs
+    $acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
+    $rules = @(
+      New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "NT AUTHORITY\SYSTEM", "FullControl",
+        "ContainerInherit,ObjectInherit", "None", "Allow"),
+      New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "BUILTIN\Administrators", "FullControl",
+        "ContainerInherit,ObjectInherit", "None", "Allow"),
+      New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "NT AUTHORITY\INTERACTIVE", "ReadAndExecute",
+        "ContainerInherit,ObjectInherit", "None", "Allow")
+    )
+    foreach ($r in $rules) { $acl.AddAccessRule($r) }
+    Set-Acl -Path $DataDir -AclObject $acl
+  } catch {
+    Write-Warning "Could not tighten ACL on $DataDir : $($_.Exception.Message)"
+  }
+
   Copy-Item $watcher (Join-Path $InstallDir "ConnectLiveWatcher.exe") -Force
   Copy-Item $worker  (Join-Path $InstallDir "ConnectLiveAgent.exe")   -Force
 
