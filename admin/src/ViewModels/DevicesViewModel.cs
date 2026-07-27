@@ -44,15 +44,30 @@ public partial class DevicesViewModel : ObservableObject
         _pollCts = null;
     }
 
+    // Exponential back-off (seconds) on consecutive Refresh() failures.
+    // Mirrors the watcher's cadence so a flaky link doesn't hammer the gateway.
+    private static readonly int[] BackoffSeconds = { 5, 10, 20, 30 };
+
     private async Task PollLoop(CancellationToken ct)
     {
+        int step = 0;
         while (!ct.IsCancellationRequested)
         {
+            bool ok = true;
             try { await Refresh(); }
-            catch (Exception ex) { Application.Current?.Dispatcher.Invoke(() => Error = ex.Message); }
-            try { await Task.Delay(5000, ct); } catch { }
+            catch (Exception ex)
+            {
+                ok = false;
+                Application.Current?.Dispatcher.Invoke(() => Error = ex.Message);
+            }
+
+            if (ok) step = 0;
+            else if (step < BackoffSeconds.Length - 1) step++;
+
+            try { await Task.Delay(TimeSpan.FromSeconds(BackoffSeconds[step]), ct); } catch { }
         }
     }
+
 
     [RelayCommand]
     public async Task Refresh()
