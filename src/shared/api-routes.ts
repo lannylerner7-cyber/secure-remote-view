@@ -11,7 +11,7 @@ export const API_ROUTES = {
   agentEnroll: "/api/public/agent/enroll",
   agentHello: "/api/public/agent/hello",
   agentHeartbeat: "/api/public/agent/heartbeat",
-  agentSessionPoll: (sessionId: string) => `/api/public/agent/session/${sessionId}`,
+  
   agentReconnect: (sessionId: string) => `/api/public/agent/session/${sessionId}/reconnect`,
   agentConsent: (sessionId: string) => `/api/public/agent/session/${sessionId}/consent`,
   agentFrame: (sessionId: string) => `/api/public/agent/session/${sessionId}/frame`,

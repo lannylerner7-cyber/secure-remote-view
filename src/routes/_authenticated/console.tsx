@@ -28,9 +28,6 @@ const OFFLINE_MS = 75_000;
 
 type Nav = "dashboard" | "devices" | "sessions" | "audit" | "settings" | "team" | "payments";
 
-function generatePairingCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
 
 function keyToVirtualKey(e: React.KeyboardEvent<HTMLElement>): number | null {
   const named: Record<string, number> = {
@@ -107,7 +104,6 @@ function AdminPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [nav, setNav] = useState<Nav>("dashboard");
-  const [codeModal, setCodeModal] = useState<null | { code: string; sessionId: string }>(null);
   const [sharedNote, setSharedNote] = useState<string>("");
   const [tg, setTg] = useState({ telegram_bot_token: "", telegram_chat_id: "", notify_on_session_start: true, notify_on_control_taken: true, notify_on_device_offline: true });
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(null);
@@ -234,23 +230,30 @@ function AdminPage() {
     return "offline";
   };
 
-  // Generate a 6-digit code and open a pending session that any agent can join.
-  async function generateCode() {
+  // Open a session on a specific enrolled device. The agent picks it up
+  // via /heartbeat within ~5s (no PIN, no user prompt) and prompts the
+  // local user for consent per the standing-consent model.
+  async function connectDevice(d: Device) {
     const { data: u } = await supabase.auth.getUser();
-    const code = generatePairingCode();
+    const { data: existing } = await supabase
+      .from("sessions")
+      .select("id")
+      .eq("device_id", d.id)
+      .in("state", ["invited", "consented", "active", "paused"])
+      .maybeSingle();
+    if (existing) { setLiveId(existing.id); return; }
     const { data, error } = await supabase
       .from("sessions")
       .insert({
         technician_id: u.user?.id,
         mode: "view",
         state: "invited",
-        pairing_code: code,
-        device_id: null,
+        device_id: d.id,
       })
       .select()
       .single();
     if (error) return alert(error.message);
-    if (data) setCodeModal({ code, sessionId: data.id });
+    if (data) setLiveId(data.id);
   }
 
   async function endSession(s: Session) {
@@ -290,10 +293,7 @@ function AdminPage() {
   }
 
   async function requestReconnect(s: Session) {
-    if (!s.device_id) {
-      if (s.pairing_code) setCodeModal({ code: s.pairing_code, sessionId: s.id });
-      return;
-    }
+    if (!s.device_id) return;
     await sendInput(s.id, "curtain_off", {});
     const { error } = await supabase
       .from("sessions")
@@ -418,7 +418,7 @@ function AdminPage() {
   const reconnecting = devices.filter((d) => presenceOf(d) === "reconnecting");
   const onlineCount = devices.filter((d) => presenceOf(d) === "online").length;
   const activeSessions = sessions.filter((s) => s.state === "active" || s.state === "paused");
-  const pendingSessions = sessions.filter((s) => s.state === "invited" && s.pairing_code);
+  const pendingSessions = sessions.filter((s) => s.state === "invited");
 
   const NavBtn = ({ id, label, badge }: { id: Nav; label: string; badge?: number }) => (
     <button
@@ -466,12 +466,9 @@ function AdminPage() {
             <div className="flex items-center gap-3">
               <NotificationBell userId={userId} />
               {role !== "viewer" && (
-                <button
-                  onClick={generateCode}
-                  className="rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-medium hover:opacity-90"
-                >
-                  + Generate meeting code
-                </button>
+                <span className="text-xs text-white/50">
+                  Devices auto-enroll via Deployment Key — click <b>Connect</b> on any online device.
+                </span>
               )}
             </div>
           </header>
@@ -489,25 +486,25 @@ function AdminPage() {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                   <StatCard label="Online devices" value={onlineCount} tone="blue" />
                   <StatCard label="Active sessions" value={activeSessions.length} tone="green" />
-                  <StatCard label="Pending codes" value={pendingSessions.length} tone="amber" />
+                  <StatCard label="Waiting for consent" value={pendingSessions.length} tone="amber" />
                   <StatCard label="Total devices" value={devices.length} tone="slate" />
                 </div>
 
                 {pendingSessions.length > 0 && (
                   <section>
-                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Waiting for agent</h2>
+                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Waiting for consent</h2>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                      {pendingSessions.map((s) => (
-                        <div key={s.id} className="rounded-lg border border-white/10 bg-[#1F2A44] p-4">
-                          <div className="text-xs text-white/50">Meeting code</div>
-                          <div className="my-1 font-mono text-2xl tracking-widest">{s.pairing_code}</div>
-                          <div className="mb-2 text-xs text-white/40">Created {new Date(s.created_at).toLocaleTimeString()}</div>
-                          <div className="flex gap-2">
-                            <button onClick={() => setCodeModal({ code: s.pairing_code!, sessionId: s.id })} className="rounded bg-white/10 px-2 py-1 text-xs">Show</button>
+                      {pendingSessions.map((s) => {
+                        const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
+                        return (
+                          <div key={s.id} className="rounded-lg border border-white/10 bg-[#1F2A44] p-4">
+                            <div className="text-xs text-white/50">Device</div>
+                            <div className="my-1 truncate text-base font-medium">{dev?.display_name ?? "unknown"}</div>
+                            <div className="mb-2 text-xs text-white/40">Invited {new Date(s.created_at).toLocaleTimeString()}</div>
                             <button onClick={() => deleteSession(s)} className="rounded bg-red-500/70 px-2 py-1 text-xs">Cancel</button>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                 )}
@@ -535,6 +532,8 @@ function AdminPage() {
                 onBulkEnd={bulkEndSessions}
                 onBulkRestart={bulkRestartAgent}
                 onClearSelected={() => setSelected(new Set())}
+                onConnect={connectDevice}
+                canConnect={role !== "viewer"}
               />
             )}
 
@@ -547,7 +546,6 @@ function AdminPage() {
                 onReconnect={requestReconnect}
                 onEnd={endSession}
                 onDelete={deleteSession}
-                onShowCode={(s) => s.pairing_code && setCodeModal({ code: s.pairing_code, sessionId: s.id })}
                 presenceOf={presenceOf}
               />
             )}
@@ -587,22 +585,6 @@ function AdminPage() {
         </div>
       </div>
 
-      {/* Pairing code modal */}
-      {codeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setCodeModal(null)}>
-          <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#0F172A] p-6 text-center" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 text-xs uppercase tracking-widest text-white/50">Meeting code</div>
-            <div className="my-4 font-mono text-5xl tracking-[0.4em] text-[#B9CCFF]">{codeModal.code}</div>
-            <p className="mb-5 text-sm text-white/60">
-              On the target PC, open ConnectLive Agent and enter this code on the Join screen. Code stays valid until the session ends.
-            </p>
-            <div className="flex justify-center gap-2">
-              <button onClick={() => navigator.clipboard.writeText(codeModal.code)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5">Copy</button>
-              <button onClick={() => setCodeModal(null)} className="rounded bg-[#4F7CFF] px-4 py-1.5 text-xs font-medium">Done</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Live view modal */}
       {liveId && (() => {
@@ -634,9 +616,8 @@ function AdminPage() {
               </div>
               <div className="relative aspect-video bg-black">
                 {!s.device_id ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
-                    <div className="font-mono text-4xl tracking-[0.4em] text-[#B9CCFF]">{s.pairing_code}</div>
-                    <div className="text-sm text-white/60">Waiting for agent to join with this code…</div>
+                  <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
+                    Session has no device attached.
                   </div>
                 ) : liveFrame?.frame ? (
                   <div
@@ -1146,10 +1127,11 @@ function StatCard({ label, value, tone }: { label: string; value: number; tone: 
   );
 }
 
-function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected }: {
+function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected, onConnect, canConnect }: {
   devices: Device[]; presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
   selected: Set<string>; toggleSelect: (id: string) => void;
   onBulkEnd: () => void; onBulkRestart: () => void; onClearSelected: () => void;
+  onConnect: (d: Device) => void; canConnect: boolean;
 }) {
   return (
     <div>
@@ -1170,10 +1152,11 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
               <th className="px-4 py-2">Host</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Last seen</th>
+              <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {devices.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-white/40">No devices enrolled yet.</td></tr>}
+            {devices.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-white/40">No devices enrolled yet.</td></tr>}
             {devices.map((d) => {
               const p = presenceOf(d);
               return (
@@ -1190,6 +1173,17 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
                     </span>
                   </td>
                   <td className="px-4 py-2 text-white/60">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "—"}</td>
+                  <td className="px-4 py-2 text-right">
+                    {canConnect && (
+                      <button
+                        onClick={() => onConnect(d)}
+                        disabled={p === "offline"}
+                        className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -1200,14 +1194,14 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
   );
 }
 
-function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect, onEnd, onDelete, onShowCode, presenceOf }: {
+
+function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect, onEnd, onDelete, presenceOf }: {
   sessions: Session[]; devices: Device[];
   onLive: (s: Session) => void;
   onToggleControl: (s: Session) => void;
   onReconnect: (s: Session) => void;
   onEnd: (s: Session) => void;
   onDelete: (s: Session) => void;
-  onShowCode: (s: Session) => void;
   presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
 }) {
   return (
@@ -1216,7 +1210,6 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
         <thead className="bg-white/5 text-left text-xs uppercase text-white/50">
           <tr>
             <th className="px-4 py-2">Device</th>
-            <th className="px-4 py-2">Code</th>
             <th className="px-4 py-2">Mode</th>
             <th className="px-4 py-2">State</th>
             <th className="px-4 py-2">Started</th>
@@ -1224,7 +1217,7 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-white/40">No sessions yet.</td></tr>}
+          {sessions.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-white/40">No sessions yet.</td></tr>}
           {sessions.map((s) => {
             const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
             const presence = dev ? presenceOf(dev) : null;
@@ -1234,7 +1227,6 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
                   <div>{dev?.display_name ?? <span className="text-white/40">waiting…</span>}</div>
                   {presence && presence !== "online" && <div className="text-[10px] uppercase tracking-wider text-amber-300">{presence}</div>}
                 </td>
-                <td className="px-4 py-2 font-mono text-white/70">{s.pairing_code ?? "—"}</td>
                 <td className="px-4 py-2 text-white/70">{s.mode}</td>
                 <td className="px-4 py-2">
                   <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
@@ -1249,8 +1241,8 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
                 </td>
                 <td className="px-4 py-2 text-white/60">{new Date(s.created_at).toLocaleTimeString()}</td>
                 <td className="px-4 py-2 text-right space-x-1">
-                  {s.state === "invited" && s.pairing_code && (
-                    <button onClick={() => onShowCode(s)} className="rounded bg-white/10 px-2 py-1 text-xs">Show code</button>
+                  {s.state === "invited" && (
+                    <span className="text-xs text-white/40">awaiting consent…</span>
                   )}
                   {(s.state === "active" || s.state === "paused") && (
                     <>

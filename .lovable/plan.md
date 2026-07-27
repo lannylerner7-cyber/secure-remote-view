@@ -1,63 +1,45 @@
-# Auto-Enrollment ("Double Vouch" Phase 2)
+## Route audit: agent ↔ watcher ↔ backend
 
-Replace the manual 6-digit pairing code with a silent Deployment-Key handshake so the Watcher enrolls itself on first boot and every subsequent connection is admin-initiated only. Keeps the Curtain Mode / Live Session banners intact.
+Cross-checked every URL the agent, watcher, `src/shared/api-routes.ts` registry, and admin panel touch against the actual handler files under `src/routes/api/public/`. Four mismatches would cause silent runtime failures — the rest matches.
 
-## Flow
+### Findings
 
-```text
-First boot (no device.dat)
-  Watcher ──POST /api/public/agent/enroll──▶ Backend
-           X-Deployment-Key: <secret>
-           body: { hostname, os, mac, displayName }
-                                      │
-                    verify key, insert devices row
-                                      │
-           ◀── { deviceId, deviceToken } ──
-  Watcher DPAPI-encrypts to %ProgramData%\ConnectLive\device.dat
+| # | Caller | Route | Backend handler | Status |
+|---|---|---|---|---|
+| 1 | `agent/src/ApiClient.cs:122` (`PairAsync`) | `POST /api/public/agent/pair` | Returns **410 Gone** after auto-enroll rewrite | ❌ dead call still shipped |
+| 2 | `agent/src/ApiClient.cs:274` (`ConnectRealtimeAsync`) | `WS /api/ws?deviceId&token` | **No route file exists** | ❌ WS connect will 404 |
+| 3 | `src/shared/api-routes.ts:14` (`agentSessionPoll`) | `GET /api/public/agent/session/:id` | **No handler** (only `.consent`, `.frame`, etc. leaves exist) | ❌ registry entry lies |
+| 4 | `src/routes/_authenticated/console.tsx` (10+ sites) | Generates/shows `pairing_code`, "Show code" modal, pending-invite banner | Pairing is deprecated | ❌ leftover UI from old flow |
+| ✅ | `enroll`, `hello`, `heartbeat`, `session/:id/consent`, `/reconnect`, `/frame`, `/cursor`, `/inputs`, `/signal` | — | Handler files present | OK |
+| ✅ | Watcher `/heartbeat` + `/enroll` (Program.cs:104,220) | — | Match | OK |
+| ✅ | `X-Device-Id` + `X-Device-Token` headers on every authed call, `X-Deployment-Key` only on `/enroll` | — | Match `agent-auth.server.ts` + `enroll.ts` | OK |
 
-Every boot after
-  Watcher ──POST /heartbeat with X-Device-Id + X-Device-Token──▶ Backend
-  Admin clicks "Connect" in panel → session row created → Watcher spawns Agent
-  (no user prompt, no PIN)
-```
+### Fixes
 
-## Backend changes
+1. **Remove dead pair path from the agent.**
+   - Delete `PairAsync` + `PairResult`/`PairOk`/`PairErr` records in `agent/src/ApiClient.cs`.
+   - Drop the `/api/public/agent/pair` line from the header doc-block.
+   - `JoinWindow.cs` is already unused after the auto-enroll cutover — remove its `<Compile>` if referenced or leave dormant (it's not wired from `App.xaml.cs` anymore).
 
-1. **New secret `AGENT_DEPLOYMENT_KEY`** (generated via `generate_secret`, 64 chars). Server-only.
-2. **`src/routes/api/public/agent/enroll.ts`** — gate on `X-Deployment-Key` header, timing-safe compare against `process.env.AGENT_DEPLOYMENT_KEY`. Reject with 401 if missing/mismatch. Keep the existing device row + token generation, add `mac` + `enrolled_via: "deployment_key"` into `metadata`. Rate-limit per IP (reuse `login_attempts` table pattern) to blunt key-guessing.
-3. **Deprecate `/api/public/agent/pair`** — mark handler to return 410 Gone. Remove `pairing_code` UI paths from admin. (Keep the DB column; harmless.)
-4. **Audit log** — `device.auto_enrolled` event with hostname + truncated IP.
+2. **Decide the realtime transport.** The agent's main loop uses HTTP long-poll (`PollSignalsAsync`, `PollInputsAsync`) — the WebSocket path is optional. Two options, need your call:
+   - **A. Drop it** — remove `ConnectRealtimeAsync` from `ApiClient.cs` and the `using var ws = ...` block in `Agent.cs:92`. Simpler, one less surface. Recommended since polling already works end-to-end.
+   - **B. Implement it** — add `src/routes/api/ws.ts` server route that validates `deviceId`+`token` against `agent-auth.server.ts` and bridges to a Supabase Realtime channel. Bigger change; only worth it if you want push-based signaling.
 
-## Watcher changes (`agent/watcher/Program.cs`)
+3. **Reconcile `agentSessionPoll` in `src/shared/api-routes.ts`.** Either remove the entry (agent never calls it) or add a thin `GET /api/public/agent/session/:id` handler returning `{state, mode}` for future use. Remove is safer.
 
-1. On tick, if `device.dat` is missing AND `AGENT_DEPLOYMENT_KEY` is embedded, call `/enroll` with hostname/os/mac before heartbeating. Persist result via DPAPI `LocalMachine` scope (matches current reader).
-2. Deployment key ships **embedded at compile time** via a `DeploymentKey.cs` generated from an env var during `dotnet publish` (documented in `INSTALL.md`; never checked into git). Fallback: read from `%ProgramData%\ConnectLive\deployment.key` if present, so ops can rotate without rebuilding.
-3. Keep the 5s→60s back-off. Enrollment failures follow the same curve.
+4. **Strip pairing UI from `src/routes/_authenticated/console.tsx`.**
+   - Delete the "Show code" buttons, the pending-invite banner (line ~421+), the code-modal state, and the `pairing_code` column in the sessions table.
+   - When a session is created for an auto-enrolled device, skip the code generation branch entirely — session goes straight to `invited` and the watcher picks it up on the next heartbeat.
+   - Keep the `pairing_code` DB column (harmless, per the earlier plan).
 
-## Agent changes (`agent/src/`)
+5. **Sanity script.** Add a small `scripts/verify-routes.ts` that greps `API_ROUTES` values + `agent/src/**/*.cs` route literals against `src/routes/api/public/**` handler files and fails CI on any mismatch. Prevents this class of drift returning.
 
-1. **Remove `JoinWindow` PIN prompt path** on startup — Agent now assumes the Watcher has already enrolled the device. If `device.dat` is somehow missing when the Agent launches, show a single "This device is not enrolled. Contact your administrator." dialog and exit; do not offer a code field.
-2. Curtain Mode overlay + Live Session banner stay exactly as-is (compliance requirement).
+### Deliverables
 
-## Admin panel changes
+- Patched `agent/src/ApiClient.cs`, `agent/src/Agent.cs` (WS block removed if 2A), `src/shared/api-routes.ts`, `src/routes/_authenticated/console.tsx`.
+- New `scripts/verify-routes.ts` + a one-line npm script.
+- Rebuilt `ConnectLiveAgent.zip` and refreshed `agent/INSTALL.md` mentioning the removed pair/WS paths.
 
-1. **`src/routes/_authenticated/console.tsx`** — remove any "Enter pairing code" affordance from device provisioning UI; devices now appear automatically the moment they heartbeat. Add a small "Auto-enrolled" badge on rows where `metadata.enrolled_via = 'deployment_key'`.
-2. **Deployment Key management page** (super-admin `197200` only) at `/admin/deployment-key`:
-   - Shows the current key's last-4 + created_at
-   - "Rotate key" button → calls a protected server fn that regenerates `AGENT_DEPLOYMENT_KEY` and invalidates old value. Existing enrolled devices keep working (they use `device_token`, not the deployment key).
-   - Copy-to-clipboard for the plaintext value (shown once, right after rotation).
-3. No change to the Connect / Live-view flow — admin still clicks Connect, backend still creates the session row, Watcher still spawns the Agent via `LaunchInSession`.
+### One decision needed
 
-## Security guardrails (per your note)
-
-- No process-hiding, no Task Manager cloaking, no anti-uninstall hooks. Standard Windows Service semantics only.
-- Deployment key is treated like a bearer secret: HTTPS only, never logged, timing-safe compare, rotatable.
-- Per-IP enroll rate limit (5 attempts / hour) + audit trail.
-- Device tokens remain per-device and revocable from the admin panel (existing "Delete device" flow already invalidates them).
-
-## Deliverables
-
-- Migration: add `enrolled_via` convention (no schema change — stored in existing `metadata` jsonb) + `login_attempts`-style rate-limit reuse.
-- Code: enroll route rewrite, deprecated pair route, Watcher enroll path, Agent PIN removal, deployment-key admin page, key rotation server fn.
-- `AGENT_DEPLOYMENT_KEY` generated via `generate_secret`.
-- Rebuilt `ConnectLiveAgent.zip` with embedded/loadable deployment key wiring and updated `INSTALL.md`.
+For step 2, do you want to **drop the WebSocket path (recommended)** or **implement the missing `/api/ws` route**?
