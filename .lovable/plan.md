@@ -1,71 +1,63 @@
-## Goal
+# Auto-Enrollment ("Double Vouch" Phase 2)
 
-Make the admin panel + backend self-deployable on Coolify with zero-downtime health checks, while respecting the actual stack (TanStack Start v1 + Vite + Nitro, not raw Express).
+Replace the manual 6-digit pairing code with a silent Deployment-Key handshake so the Watcher enrolls itself on first boot and every subsequent connection is admin-initiated only. Keeps the Curtain Mode / Live Session banners intact.
 
-## Stack reality check (adjustments vs. the pasted snippet)
+## Flow
 
-- No `dist/server.js` Express entry. `vite build` produces a Nitro server bundle under `.output/`. Default preset is Cloudflare Workers via `@lovable.dev/vite-tanstack-config`.
-- For Coolify (Node container), Nitro must emit a Node server. We'll set `NITRO_PRESET=node-server` at build time so the output is `.output/server/index.mjs` listening on `PORT`.
-- Package manager is `bun` in this repo but `npm ci` works from `package-lock.json` if present; we'll use `bun` to match the toolchain and drop the need for a lockfile mismatch.
-- Env vars: repo already uses `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` (not `_ANON_KEY`). Sample will match.
+```text
+First boot (no device.dat)
+  Watcher ──POST /api/public/agent/enroll──▶ Backend
+           X-Deployment-Key: <secret>
+           body: { hostname, os, mac, displayName }
+                                      │
+                    verify key, insert devices row
+                                      │
+           ◀── { deviceId, deviceToken } ──
+  Watcher DPAPI-encrypts to %ProgramData%\ConnectLive\device.dat
 
-## Files to add
-
-### 1. `Dockerfile` (multi-stage, Node 20 alpine, non-root, healthcheck)
-
-- Stage `builder`: install bun, `bun install --frozen-lockfile` (fallback `bun install`), copy source, `NITRO_PRESET=node-server bun run build`.
-- Stage `runner`: copy `.output/` only, run as non-root `connectlive:1001`, `EXPOSE 3000`, `ENV PORT=3000 HOST=0.0.0.0 NITRO_PRESET=node-server`.
-- `HEALTHCHECK` uses `wget --spider http://localhost:3000/health`.
-- `CMD ["node", ".output/server/index.mjs"]`.
-
-### 2. `.env.sample`
-
-Template with the real variable names this codebase reads:
-
-```
-PORT=3000
-NODE_ENV=production
-NITRO_PRESET=node-server
-
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxx
-VITE_SUPABASE_PROJECT_ID=your-project-id
-
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxx
-SUPABASE_SERVICE_ROLE_KEY=sb_secret_xxx
-
-# Optional TURN
-# TURN_SERVER_URL=
-# TURN_SERVER_USER=
-# TURN_SERVER_SECRET=
+Every boot after
+  Watcher ──POST /heartbeat with X-Device-Id + X-Device-Token──▶ Backend
+  Admin clicks "Connect" in panel → session row created → Watcher spawns Agent
+  (no user prompt, no PIN)
 ```
 
-### 3. `.dockerignore`
+## Backend changes
 
-Exclude `node_modules`, `.output`, `.git`, `agent/`, `public/ConnectLiveAgent.zip` build artifacts, `/mnt`, `.env*`, editor files — keeps image small.
+1. **New secret `AGENT_DEPLOYMENT_KEY`** (generated via `generate_secret`, 64 chars). Server-only.
+2. **`src/routes/api/public/agent/enroll.ts`** — gate on `X-Deployment-Key` header, timing-safe compare against `process.env.AGENT_DEPLOYMENT_KEY`. Reject with 401 if missing/mismatch. Keep the existing device row + token generation, add `mac` + `enrolled_via: "deployment_key"` into `metadata`. Rate-limit per IP (reuse `login_attempts` table pattern) to blunt key-guessing.
+3. **Deprecate `/api/public/agent/pair`** — mark handler to return 410 Gone. Remove `pairing_code` UI paths from admin. (Keep the DB column; harmless.)
+4. **Audit log** — `device.auto_enrolled` event with hostname + truncated IP.
 
-### 4. Health route: `src/routes/api/public/health.ts`
+## Watcher changes (`agent/watcher/Program.cs`)
 
-Lightweight TanStack file route (public prefix bypasses auth), returns `200 OK` plain text. No DB call. Path: `/api/public/health`.
+1. On tick, if `device.dat` is missing AND `AGENT_DEPLOYMENT_KEY` is embedded, call `/enroll` with hostname/os/mac before heartbeating. Persist result via DPAPI `LocalMachine` scope (matches current reader).
+2. Deployment key ships **embedded at compile time** via a `DeploymentKey.cs` generated from an env var during `dotnet publish` (documented in `INSTALL.md`; never checked into git). Fallback: read from `%ProgramData%\ConnectLive\deployment.key` if present, so ops can rotate without rebuilding.
+3. Keep the 5s→60s back-off. Enrollment failures follow the same curve.
 
-Because Coolify's example hits `/health`, we'll also add `src/routes/health.ts` as a plain file route returning `new Response('OK')` so both `/health` and `/api/public/health` work. Dockerfile HEALTHCHECK will target `/health`.
+## Agent changes (`agent/src/`)
 
-### 5. `COOLIFY.md` (short deploy notes)
+1. **Remove `JoinWindow` PIN prompt path** on startup — Agent now assumes the Watcher has already enrolled the device. If `device.dat` is somehow missing when the Agent launches, show a single "This device is not enrolled. Contact your administrator." dialog and exit; do not offer a code field.
+2. Curtain Mode overlay + Live Session banner stay exactly as-is (compliance requirement).
 
-- Build Pack: Dockerfile
-- Exposed port: 8000
-- Env vars to paste (from `.env.sample`)
-- Note: `NITRO_PRESET=node-server` is required so the Cloudflare Workers preset isn't used
-- Point out that agent binaries live under `agent/` and are unrelated to this container.
+## Admin panel changes
 
-## Out of scope
+1. **`src/routes/_authenticated/console.tsx`** — remove any "Enter pairing code" affordance from device provisioning UI; devices now appear automatically the moment they heartbeat. Add a small "Auto-enrolled" badge on rows where `metadata.enrolled_via = 'deployment_key'`.
+2. **Deployment Key management page** (super-admin `197200` only) at `/admin/deployment-key`:
+   - Shows the current key's last-4 + created_at
+   - "Rotate key" button → calls a protected server fn that regenerates `AGENT_DEPLOYMENT_KEY` and invalidates old value. Existing enrolled devices keep working (they use `device_token`, not the deployment key).
+   - Copy-to-clipboard for the plaintext value (shown once, right after rotation).
+3. No change to the Connect / Live-view flow — admin still clicks Connect, backend still creates the session row, Watcher still spawns the Agent via `LaunchInSession`.
 
-- No changes to Supabase clients, agent code, admin UI, or existing API routes.
-- Not switching the Lovable-hosted deployment; this only enables self-hosting on Coolify in parallel.
+## Security guardrails (per your note)
 
-## Technical details
+- No process-hiding, no Task Manager cloaking, no anti-uninstall hooks. Standard Windows Service semantics only.
+- Deployment key is treated like a bearer secret: HTTPS only, never logged, timing-safe compare, rotatable.
+- Per-IP enroll rate limit (5 attempts / hour) + audit trail.
+- Device tokens remain per-device and revocable from the admin panel (existing "Delete device" flow already invalidates them).
 
-- Nitro Node preset emits `.output/server/index.mjs` and serves static assets from `.output/public/`. Listening host/port come from `HOST`/`PORT` env vars.
-- `vite.config.ts` uses `@lovable.dev/vite-tanstack-config`; setting `NITRO_PRESET` env is honored by Nitro during `vite build` without editing the config.
-- Health route under `src/routes/health.ts` uses `createFileRoute('/health')({ server: { handlers: { GET: () => new Response('OK') } } })` — no auth, no DB.
+## Deliverables
+
+- Migration: add `enrolled_via` convention (no schema change — stored in existing `metadata` jsonb) + `login_attempts`-style rate-limit reuse.
+- Code: enroll route rewrite, deprecated pair route, Watcher enroll path, Agent PIN removal, deployment-key admin page, key rotation server fn.
+- `AGENT_DEPLOYMENT_KEY` generated via `generate_secret`.
+- Rebuilt `ConnectLiveAgent.zip` with embedded/loadable deployment key wiring and updated `INSTALL.md`.
