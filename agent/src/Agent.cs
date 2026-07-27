@@ -93,6 +93,7 @@ public sealed class Agent
                 deadManTripped = false;
 
                 await DispatchPendingSessions(body, ct);
+                await DispatchPowerCommands(body, ct);
 
                 try { await Task.Delay(baseDelay, ct); } catch { }
             }
