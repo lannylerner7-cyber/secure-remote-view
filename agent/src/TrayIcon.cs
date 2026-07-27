@@ -27,7 +27,7 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("About…", null, (_, _) =>
             MessageBox.Show(
-                "ConnectLive Agent\nTransparent, consent-based remote support.\n\nYou will always be prompted before your screen is shared.",
+                "ConnectLive Agent\nTransparent remote support for managed devices.\n\nA live banner stays visible for every support session, and Curtain Mode can be released automatically if the connection drops.",
                 "ConnectLive", MessageBoxButtons.OK, MessageBoxIcon.Information));
         menu.Items.Add("Quit", null, (_, _) => { _icon.Visible = false; onQuit(0); });
         _icon.ContextMenuStrip = menu;
