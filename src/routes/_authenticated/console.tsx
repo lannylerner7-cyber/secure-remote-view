@@ -557,6 +557,14 @@ function AdminPage() {
                 onClearSelected={() => setSelected(new Set())}
                 onConnect={connectDevice}
                 canConnect={role !== "viewer"}
+                canDelete={role === "super_admin" || role === "admin"}
+                onDelete={async (d) => {
+                  if (!confirm(`Remove ${d.display_name} from the device list? The agent will need to re-enroll to reconnect.`)) return;
+                  const { error } = await supabase.from("devices").delete().eq("id", d.id);
+                  if (error) { alert(`Delete failed: ${error.message}`); return; }
+                  setDevices((prev) => prev.filter((x) => x.id !== d.id));
+                  setSelected((prev) => { const n = new Set(prev); n.delete(d.id); return n; });
+                }}
               />
             )}
 
@@ -1189,11 +1197,12 @@ function StatCard({ label, value, tone }: { label: string; value: number; tone: 
   );
 }
 
-function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected, onConnect, canConnect }: {
+function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected, onConnect, canConnect, canDelete, onDelete }: {
   devices: Device[]; presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
   selected: Set<string>; toggleSelect: (id: string) => void;
   onBulkEnd: () => void; onBulkRestart: () => void; onClearSelected: () => void;
   onConnect: (d: Device) => void; canConnect: boolean;
+  canDelete: boolean; onDelete: (d: Device) => void;
 }) {
   return (
     <div>
@@ -1236,15 +1245,26 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
                   </td>
                   <td className="px-4 py-2 text-white/60">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "—"}</td>
                   <td className="px-4 py-2 text-right">
-                    {canConnect && (
-                      <button
-                        onClick={() => onConnect(d)}
-                        disabled={p === "offline"}
-                        className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Connect
-                      </button>
-                    )}
+                    <div className="inline-flex items-center gap-2">
+                      {canConnect && (
+                        <button
+                          onClick={() => onConnect(d)}
+                          disabled={p === "offline"}
+                          className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Connect
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => onDelete(d)}
+                          className="rounded border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:bg-red-500/20"
+                          title="Remove device"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
