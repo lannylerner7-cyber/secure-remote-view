@@ -707,6 +707,7 @@ function AdminPage() {
                     );
                   })()}
                   <span>session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}</span>
+                  <span>· {fpsCounterRef.current.fps} fps</span>
                   {liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
                 </div>
 
