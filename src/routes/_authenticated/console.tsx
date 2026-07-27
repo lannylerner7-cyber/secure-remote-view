@@ -1125,10 +1125,11 @@ function StatCard({ label, value, tone }: { label: string; value: number; tone: 
   );
 }
 
-function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected }: {
+function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, onBulkRestart, onClearSelected, onConnect, canConnect }: {
   devices: Device[]; presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
   selected: Set<string>; toggleSelect: (id: string) => void;
   onBulkEnd: () => void; onBulkRestart: () => void; onClearSelected: () => void;
+  onConnect: (d: Device) => void; canConnect: boolean;
 }) {
   return (
     <div>
@@ -1149,10 +1150,11 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
               <th className="px-4 py-2">Host</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Last seen</th>
+              <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {devices.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-white/40">No devices enrolled yet.</td></tr>}
+            {devices.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-white/40">No devices enrolled yet.</td></tr>}
             {devices.map((d) => {
               const p = presenceOf(d);
               return (
@@ -1169,6 +1171,17 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
                     </span>
                   </td>
                   <td className="px-4 py-2 text-white/60">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "—"}</td>
+                  <td className="px-4 py-2 text-right">
+                    {canConnect && (
+                      <button
+                        onClick={() => onConnect(d)}
+                        disabled={p === "offline"}
+                        className="rounded bg-[#4F7CFF] px-3 py-1 text-xs font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -1178,6 +1191,7 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
     </div>
   );
 }
+
 
 function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect, onEnd, onDelete, presenceOf }: {
   sessions: Session[]; devices: Device[];
