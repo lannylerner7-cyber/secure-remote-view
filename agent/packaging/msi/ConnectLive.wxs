@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ConnectLive Agent + Watcher — per-machine WiX v4 installer.
+
+  Silent install:
+    msiexec /i ConnectLiveAgent.msi /qn DEPLOYMENT_KEY=xxxxx
+
+  The DEPLOYMENT_KEY property is written to
+  %ProgramData%\ConnectLive\deployment.key by a deferred, non-impersonated
+  CustomAction so it runs as LocalSystem regardless of who triggered the
+  install (Intune / GPO / manual). Rotating the key later never requires a
+  new MSI — ops drops a new value into that file (or into HKLM policy).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Package Name="ConnectLive Agent"
+           Manufacturer="ConnectLive"
+           Version="1.0.0.0"
+           UpgradeCode="7f2e6b9c-9a35-4a1b-8f2d-91b0a8f8c7d1"
+           Scope="perMachine"
+           InstallerVersion="500">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ConnectLive Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Public property so DEPLOYMENT_KEY=... survives the elevated deferred CA. -->
+    <Property Id="DEPLOYMENT_KEY" Secure="yes" />
+
+    <Feature Id="Main" Title="ConnectLive Agent" Level="1">
+      <ComponentGroupRef Id="ConnectLiveComponents" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="ConnectLive" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="PROGRAMDATA_CONNECTLIVE" Name="ConnectLive" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="ConnectLiveComponents" Directory="INSTALLDIR">
+      <!-- Agent (user-session tray + capture) -->
+      <Component Id="AgentExe" Guid="c7e4d1a2-8b3f-4c9e-9d0b-1a2b3c4d5e6f">
+        <File Id="AgentExeFile"
+              Source="..\..\src\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveAgent.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Watcher service (LocalSystem, DelayedAutostart) -->
+      <Component Id="WatcherExe" Guid="d8f5e2b3-9c4a-4d0f-ae1c-2b3c4d5e6f70">
+        <File Id="WatcherExeFile"
+              Source="..\..\watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe"
+              KeyPath="yes" />
+
+        <ServiceInstall Id="WatcherService"
+                        Name="ConnectLiveWatcher"
+                        DisplayName="ConnectLive Watcher"
+                        Description="Supervises the ConnectLive Agent session, restores after reboots, and enforces heartbeat."
+                        Type="ownProcess"
+                        Start="auto"
+                        Account="LocalSystem"
+                        ErrorControl="normal"
+                        Vital="yes">
+          <ServiceConfig DelayedAutoStart="yes" OnInstall="yes" OnReinstall="yes" />
+        </ServiceInstall>
+        <ServiceControl Id="WatcherServiceControl"
+                        Name="ConnectLiveWatcher"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+
+        <!-- Outbound-only firewall rule; no inbound listener is opened. -->
+        <fw:FirewallException Id="WatcherOutbound"
+                              Name="ConnectLive Watcher (Outbound)"
+                              Scope="any"
+                              Protocol="tcp"
+                              Port="443"
+                              Outbound="yes"
+                              IgnoreFailure="yes" />
+      </Component>
+
+      <!-- Placeholder key file so uninstall cleans up %ProgramData%\ConnectLive. -->
+      <Component Id="ProgramDataFolder" Guid="e9a6f3c4-ad5b-4e1a-bf2d-3c4d5e6f7081" Directory="PROGRAMDATA_CONNECTLIVE">
+        <CreateFolder>
+          <util:PermissionEx User="SYSTEM" GenericAll="yes" />
+          <util:PermissionEx User="Administrators" GenericAll="yes" />
+        </CreateFolder>
+        <RegistryValue Root="HKLM" Key="Software\ConnectLive" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+        <RemoveFolder Id="RemoveProgramDataFolder" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      Deferred, non-impersonated CustomAction — writes the deployment key as
+      LocalSystem. Impersonate="no" is load-bearing: Intune/GPO silent installs
+      would otherwise land the file under a per-user temp profile.
+    -->
+    <SetProperty Id="WriteDeploymentKey"
+                 Value="&quot;[System64Folder]cmd.exe&quot; /c &gt;&quot;[PROGRAMDATA_CONNECTLIVE]deployment.key&quot; echo [DEPLOYMENT_KEY]"
+                 Before="WriteDeploymentKey"
+                 Sequence="execute" />
+
+    <CustomAction Id="WriteDeploymentKey"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="WriteDeploymentKey" After="InstallFiles" Condition="DEPLOYMENT_KEY AND NOT Installed" />
+    </InstallExecuteSequence>
+
+  </Package>
+</Wix>
