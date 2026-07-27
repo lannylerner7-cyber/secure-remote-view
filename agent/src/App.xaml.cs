@@ -26,41 +26,49 @@ public partial class App : Application
         try
         {
             splash.SetStatus("Registering with ConnectLive…");
-            await api.EnrollIfNeededAsync(_cts.Token);
-            string? sessionId = null;
+            try
+            {
+                await api.EnrollIfNeededAsync(_cts.Token);
+            }
+            catch (Exception enrollEx)
+            {
+                splash.Close();
+                MessageBox.Show(
+                    "This device is not enrolled with ConnectLive.\n\n" +
+                    "Contact your administrator to install the ConnectLive package with a valid deployment key.\n\n" +
+                    enrollEx.Message,
+                    "ConnectLive Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown();
+                return;
+            }
 
+            // Auto-enrolled devices don't need a user-typed PIN. The admin
+            // opens a session from the dashboard; the agent restores the
+            // most recent binding on cold boot and otherwise idles.
+            string? sessionId = null;
             var saved = api.LoadSessionBinding();
             if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
             {
                 splash.SetStatus("Restoring previous session…");
                 var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
                 if (restored.Ok && !string.IsNullOrEmpty(restored.SessionId))
-                {
                     sessionId = restored.SessionId;
-                }
                 else
-                {
                     ApiClient.ClearSessionBinding();
-                }
             }
+
+            splash.SetStatus(sessionId is null ? "Standing by" : "Session restored");
+            await Task.Delay(400);
+            splash.Close();
 
             if (string.IsNullOrEmpty(sessionId))
             {
-                splash.SetStatus("Ready");
-                await Task.Delay(400);
-                splash.Close();
-
-                // Join window collects the reusable 6-digit code from the dashboard.
-                var join = new JoinWindow(api);
-                var ok = join.ShowDialog();
-                if (ok != true || string.IsNullOrEmpty(join.JoinedSessionId)) { Shutdown(); return; }
-                sessionId = join.JoinedSessionId!;
-            }
-            else
-            {
-                splash.SetStatus("Session restored");
-                await Task.Delay(400);
-                splash.Close();
+                // No pending session — sit in the tray and wait for the admin
+                // to initiate one. The Watcher will keep us alive across reboots.
+                _ = new TrayIcon(onQuit: Shutdown);
+                var idleAgent = new Agent(api, _ => { }, dispatcher);
+                await idleAgent.RunAsync(_cts.Token);
+                return;
             }
 
             // Tray + persistent banner + screen capture loop.
