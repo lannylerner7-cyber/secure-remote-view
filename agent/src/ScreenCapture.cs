@@ -53,6 +53,7 @@ public static class ScreenCapture
 
         ulong lastHash = 0;
         int idleCount = 0;
+        int uploadFails = 0;
 
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
@@ -148,7 +149,18 @@ public static class ScreenCapture
                     var encP = wasIdle ? idleParams : motionParams;
                     using var ms = new MemoryStream();
                     scaledBmp.Save(ms, jpegEnc, encP);
-                    await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
+                    bool posted = await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
+                    if (posted)
+                    {
+                        if (uploadFails > 0) Log.Info($"frame upload recovered after {uploadFails} failure(s)");
+                        uploadFails = 0;
+                    }
+                    else
+                    {
+                        uploadFails++;
+                        if (uploadFails == 1 || uploadFails % 10 == 0)
+                            Log.Warn($"frame upload failed ({uploadFails}) for session {sessionId}");
+                    }
                 }
             }
             catch (Exception ex)
