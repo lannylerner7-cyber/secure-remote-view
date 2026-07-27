@@ -1320,7 +1320,7 @@ function DevicesTable({ devices, presenceOf, selected, toggleSelect, onBulkEnd, 
                       )}
                       {canPower && p === "online" && (
                         <PowerMenu onSelect={(k) => onPower(d, k)} canShutdown={canShutdown} />
-                      )}
+                      {canDelete && (
                         <button
                           onClick={() => onDelete(d)}
                           className="rounded border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:bg-red-500/20"
