@@ -435,7 +435,7 @@ function AdminPage() {
 
   async function signOut() {
     await supabase.auth.signOut();
-    navigate({ to: "/admin" });
+    navigate({ to: "/connectlive/admin" });
   }
 
   const reconnecting = devices.filter((d) => presenceOf(d) === "reconnecting");
