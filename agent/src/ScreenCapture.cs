@@ -9,86 +9,145 @@ using System.Threading.Tasks;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Desktop capture loop. Runs at ~7fps (140ms) and cheaply skips upload
-/// when the screen hasn't visibly changed (fast strided FNV-1a hash on the
-/// scaled RGB buffer). Downsamples to max 1280px long edge, JPEG q55.
+/// Desktop capture loop. Adaptive cadence: targets ~30 FPS (33ms) during
+/// motion, backs off to ~10 FPS (100ms) when the screen is static.
+/// Downsamples to max 960px long edge, JPEG q40 during motion / q55 idle.
+/// Reuses bitmap allocations across frames to minimise GC pressure.
 /// </summary>
 public static class ScreenCapture
 {
+    // Tunables — Performance mode (default) vs Normal mode.
+    private static int _maxEdge = 960;
+    private static long _motionQuality = 40L;
+    private static long _idleQuality = 55L;
+
+    /// <summary>Switch between Normal (1280/q55) and Performance (960/q40) modes.</summary>
+    public static void SetQualityMode(bool performance)
+    {
+        if (performance)
+        {
+            _maxEdge = 960;
+            _motionQuality = 40L;
+            _idleQuality = 55L;
+        }
+        else
+        {
+            _maxEdge = 1280;
+            _motionQuality = 55L;
+            _idleQuality = 55L;
+        }
+    }
+
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
-        var encoders = ImageCodecInfo.GetImageEncoders();
+        var codecs = ImageCodecInfo.GetImageEncoders();
         ImageCodecInfo? jpegEnc = null;
-        foreach (var e in encoders) if (e.MimeType == "image/jpeg") { jpegEnc = e; break; }
+        foreach (var e in codecs) if (e.MimeType == "image/jpeg") { jpegEnc = e; break; }
         if (jpegEnc == null) return;
 
-        var encParams = new EncoderParameters(1);
-        encParams.Param[0] = new EncoderParameter(Encoder.Quality, 55L);
+        var motionParams = new EncoderParameters(1);
+        motionParams.Param[0] = new EncoderParameter(Encoder.Quality, _motionQuality);
+
+        var idleParams = new EncoderParameters(1);
+        idleParams.Param[0] = new EncoderParameter(Encoder.Quality, _idleQuality);
 
         ulong lastHash = 0;
         int idleCount = 0;
 
+        // Reusable bitmaps — only reallocated when screen bounds change.
+        Bitmap? rawBmp = null;
+        Bitmap? scaledBmp = null;
+        int prevBoundsW = 0, prevBoundsH = 0;
+        int prevScaledW = 0, prevScaledH = 0;
+
         while (!ct.IsCancellationRequested)
         {
+            int delayMs = 33; // ~30 FPS target during motion
             try
             {
                 var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds
                              ?? new Rectangle(0, 0, 1920, 1080);
-                using var raw = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
-                using (var g = Graphics.FromImage(raw))
+
+                // Reallocate raw bitmap only when screen size changes.
+                if (rawBmp == null || bounds.Width != prevBoundsW || bounds.Height != prevBoundsH)
                 {
-                    // NOTE: cursor is intentionally NOT burned into the frame.
-                    // CursorPump streams x/y + kind at ~30Hz on a side channel
-                    // and the admin renders an SVG overlay — decouples pointer
-                    // smoothness from JPEG frame cadence (Phase 1 upgrade).
+                    rawBmp?.Dispose();
+                    rawBmp = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
+                    prevBoundsW = bounds.Width;
+                    prevBoundsH = bounds.Height;
+                }
+
+                using (var g = Graphics.FromImage(rawBmp))
+                {
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                 }
 
-                int maxEdge = 1280;
-                double scale = Math.Min(1.0, (double)maxEdge / Math.Max(raw.Width, raw.Height));
-                int w = Math.Max(1, (int)(raw.Width * scale));
-                int h = Math.Max(1, (int)(raw.Height * scale));
+                int maxEdge = _maxEdge;
+                double scale = Math.Min(1.0, (double)maxEdge / Math.Max(rawBmp.Width, rawBmp.Height));
+                int w = Math.Max(1, (int)(rawBmp.Width * scale));
+                int h = Math.Max(1, (int)(rawBmp.Height * scale));
 
-                using var scaled = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-                using (var g = Graphics.FromImage(scaled))
+                // Reallocate scaled bitmap only when target size changes.
+                if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
+                {
+                    scaledBmp?.Dispose();
+                    scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+                    prevScaledW = w;
+                    prevScaledH = h;
+                }
+
+                using (var g = Graphics.FromImage(scaledBmp))
                 {
                     g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
-                    g.DrawImage(raw, 0, 0, w, h);
+                    g.DrawImage(rawBmp, 0, 0, w, h);
                 }
 
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
-                // Cursor motion no longer forces a frame — CursorPump handles it.
-                ulong hash = HashBitmap(scaled);
+                ulong hash = HashBitmap(scaledBmp);
                 bool unchanged = hash == lastHash;
-                // Force a keyframe every ~2s even when idle, so a fresh admin
+
+                // Adaptive idle backoff: after 3+ unchanged frames, slow to 100ms.
+                // Force a keyframe every ~2s even when idle so a fresh admin
                 // subscriber still sees the current screen.
-                if (unchanged && idleCount < 12) { idleCount++; }
+                if (unchanged && idleCount < 20)
+                {
+                    idleCount++;
+                    delayMs = idleCount >= 3 ? 100 : 33;
+                }
                 else
                 {
+                    bool wasIdle = idleCount >= 3;
                     idleCount = 0;
                     lastHash = hash;
-                    // Tee the frame into the WebRTC track when a peer is connected;
-                    // silently no-ops otherwise (HTTPS stream keeps flowing).
+                    delayMs = 33; // back to full speed
+
+                    // Update quality params if the mode changed at runtime.
+                    motionParams.Param[0] = new EncoderParameter(Encoder.Quality, _motionQuality);
+                    idleParams.Param[0] = new EncoderParameter(Encoder.Quality, _idleQuality);
+
+                    // Tee the frame into the WebRTC track when a peer is connected.
                     try
                     {
                         var live = WebRtcSession.Current;
                         if (live != null)
                         {
-                            var rect = new Rectangle(0, 0, scaled.Width, scaled.Height);
-                            var data = scaled.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                            var rect = new Rectangle(0, 0, scaledBmp.Width, scaledBmp.Height);
+                            var data = scaledBmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
                             try
                             {
                                 var buf = new byte[data.Stride * data.Height];
                                 Marshal.Copy(data.Scan0, buf, 0, buf.Length);
                                 live.PushFrame(buf, data.Width, data.Height, data.Stride);
                             }
-                            finally { scaled.UnlockBits(data); }
+                            finally { scaledBmp.UnlockBits(data); }
                         }
                     }
                     catch (Exception ex) { Log.Warn($"webrtc tee: {ex.Message}"); }
 
+                    // Use higher quality for idle keyframes, lower for motion frames.
+                    var encP = wasIdle ? idleParams : motionParams;
                     using var ms = new MemoryStream();
-                    scaled.Save(ms, jpegEnc, encParams);
+                    scaledBmp.Save(ms, jpegEnc, encP);
                     await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
                 }
             }
@@ -97,8 +156,12 @@ public static class ScreenCapture
                 Log.Warn($"capture: {ex.Message}");
             }
 
-            try { await Task.Delay(140, ct); } catch { }
+            try { await Task.Delay(delayMs, ct); } catch { }
         }
+
+        // Cleanup reusable bitmaps.
+        rawBmp?.Dispose();
+        scaledBmp?.Dispose();
     }
 
     private static ulong HashBitmap(Bitmap bmp)
@@ -125,10 +188,4 @@ public static class ScreenCapture
         }
         finally { bmp.UnlockBits(data); }
     }
-
-    // NOTE: cursor rendering intentionally removed. Cursor position and kind
-    // are now streamed separately by CursorPump; the admin overlays an SVG
-    // pointer on top of the frame for jitter-free motion. See Phase-1 notes
-    // in INSTALL.md.
 }
-
