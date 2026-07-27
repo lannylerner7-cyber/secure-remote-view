@@ -135,16 +135,17 @@ internal sealed class WatcherService : BackgroundService
                     bool agentRunning = _worker is { HasExited: false };
                     if (!agentRunning) _worker = null;
 
-                    // Spawn if the flag says a session is active, or on cold start
-                    // when no worker is present (preserves the always-spawn-on-login
-                    // UX so the tray icon appears right after boot).
-                    if (_worker is null && File.Exists(workerPath) && (isSessionActive || true))
+                    // Always keep a worker alive in the interactive session so the
+                    // tray icon is up the moment the user logs in — the worker itself
+                    // decides whether to idle or stream based on heartbeat state.
+                    if (_worker is null && File.Exists(workerPath))
                     {
                         if (WinApi.LaunchInSession(sid, workerPath, out var proc))
                         {
                             _worker = proc;
                         }
                     }
+
                 }
 
                 // ---- Cadence: 5s on success, exponential back-off on failure --
