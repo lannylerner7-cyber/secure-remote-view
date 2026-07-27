@@ -64,16 +64,17 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
 
           await supabaseAdmin
             .from("payment_events")
-            .insert({
-              order_id: o.id,
-              source: "poller",
-              event_type: nextStatus,
-              tx_hash: match.txHash,
-              confirmations: match.confirmations,
-              raw: { amount_coin: match.amountCoin },
-            })
-            .select()
-            .maybeSingle();
+            .upsert(
+              {
+                order_id: o.id,
+                source: "poller",
+                event_type: nextStatus,
+                tx_hash: match.txHash,
+                confirmations: match.confirmations,
+                raw: { amount_coin: match.amountCoin },
+              },
+              { onConflict: "order_id,tx_hash,event_type", ignoreDuplicates: true },
+            );
 
           processed += 1;
         }

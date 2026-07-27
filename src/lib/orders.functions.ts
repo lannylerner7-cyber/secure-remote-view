@@ -217,3 +217,137 @@ export const getActivePlansPublic = createServerFn({ method: "GET" }).handler(as
   if (error) throw new Error(error.message);
   return data ?? [];
 });
+
+const COIN_CHAIN: Record<string, string> = {
+  BTC: "bitcoin",
+  USDT_ERC20: "ethereum",
+  USDC_ERC20: "ethereum",
+};
+
+async function assertSuperAdmin(
+  supabase: {
+    from: (t: string) => {
+      select: (c: string) => {
+        eq: (a: string, b: string) => {
+          eq: (a: string, b: string) => { maybeSingle: () => Promise<{ data: unknown }> };
+        };
+      };
+    };
+  },
+  userId: string,
+) {
+  const { data } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("role", "super_admin")
+    .maybeSingle();
+  if (!data) throw new Error("Forbidden");
+}
+
+/** Super-admin: list configured payout wallets. */
+export const listWalletsAdmin = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertSuperAdmin(context.supabase as never, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("admin_wallets")
+      .select("id, coin, chain, cdp_wallet_id, addresses_issued, updated_at")
+      .order("coin");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+/** Super-admin: create or replace the payout address for a coin. */
+export const upsertWalletAdmin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((raw: { coin: Coin; address: string }) =>
+    z
+      .object({
+        coin: z.enum(COINS),
+        address: z.string().trim().min(20).max(120),
+      })
+      .parse(raw),
+  )
+  .handler(async ({ data, context }) => {
+    await assertSuperAdmin(context.supabase as never, context.userId);
+    const chain = COIN_CHAIN[data.coin] ?? "bitcoin";
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: existing } = await supabaseAdmin
+      .from("admin_wallets")
+      .select("id")
+      .eq("coin", data.coin)
+      .eq("chain", chain)
+      .maybeSingle();
+    if (existing) {
+      const { error } = await supabaseAdmin
+        .from("admin_wallets")
+        .update({ cdp_wallet_id: data.address, updated_at: new Date().toISOString() })
+        .eq("id", existing.id);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabaseAdmin
+        .from("admin_wallets")
+        .insert({ coin: data.coin, chain, cdp_wallet_id: data.address });
+      if (error) throw new Error(error.message);
+    }
+    await supabaseAdmin.from("audit_logs").insert({
+      actor: context.userId,
+      event: "wallet.upserted",
+      detail: { coin: data.coin, chain },
+    });
+    return { ok: true };
+  });
+
+/** Admin: payments-panel health status (wallets/webhook/cron). */
+export const getPaymentsHealth = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: wallets } = await supabaseAdmin
+      .from("admin_wallets")
+      .select("coin")
+      .not("cdp_wallet_id", "is", null);
+    const configured = new Set((wallets ?? []).map((w) => w.coin));
+    return {
+      wallets: {
+        BTC: configured.has("BTC"),
+        USDT_ERC20: configured.has("USDT_ERC20"),
+        USDC_ERC20: configured.has("USDC_ERC20"),
+      },
+      webhook_secret_set: !!process.env.CDP_WEBHOOK_SECRET,
+    };
+  });
+
+/**
+ * Public: buyer license lookup by email. Returns the most recent PAID order
+ * for the email, with access link. Rate-limited to 5 lookups per email per hour.
+ */
+export const lookupLicenseByEmail = createServerFn({ method: "POST" })
+  .inputValidator((raw: { email: string }) =>
+    z.object({ email: z.string().email().max(200) }).parse(raw),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const email = data.email.trim().toLowerCase();
+
+    const { count } = await supabaseAdmin
+      .from("license_lookups")
+      .select("*", { count: "exact", head: true })
+      .eq("email", email)
+      .gte("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString());
+    if ((count ?? 0) >= 5) {
+      throw new Error("Too many lookups — try again in an hour.");
+    }
+    await supabaseAdmin.from("license_lookups").insert({ email });
+
+    const { data: rows } = await supabaseAdmin
+      .from("orders")
+      .select("id, plan_code, amount_usd, access_link, created_at, status")
+      .eq("email", email)
+      .eq("status", "paid")
+      .order("created_at", { ascending: false })
+      .limit(5);
+    return rows ?? [];
+  });

@@ -189,6 +189,12 @@ function Home() {
             >
               See plans
             </a>
+            <Link
+              to="/license"
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-3 text-[13px] font-medium text-white/60 transition hover:text-white"
+            >
+              Have a license? Look it up →
+            </Link>
           </div>
 
           {/* Order tracker */}
