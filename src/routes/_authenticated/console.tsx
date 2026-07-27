@@ -119,7 +119,12 @@ function AdminPage() {
     supabase.auth.getUser().then(({ data }) => { setUserEmail(data.user?.email ?? ""); setUserId(data.user?.id ?? null); });
     void refresh();
     void loadTg();
-    fetchRole().then((r) => setRole(r.role)).catch(() => setRole(null));
+    fetchRole().then((r) => {
+      setRole(r.role);
+      if (nav === "payments" && r.role !== "admin" && r.role !== "super_admin") {
+        setNav("dashboard");
+      }
+    }).catch(() => setRole(null));
     const ch = supabase
       .channel("admin-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, refresh)
