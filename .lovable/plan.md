@@ -1,79 +1,80 @@
 
-## Route audit — what I verified
+## Two things in this plan
 
-**Buyer funnel (public)**
-- `/order` → `src/routes/order.tsx` ✓ loads plans via `getActivePlansPublic`, submits via `createOrderPublic`, navigates to `/order/$id`.
-- `/order/$id` → `src/routes/order.$id.tsx` ✓ polls `getOrderPublic` every 10s, renders address, QR, confirmations, access-link CTA.
-- Homepage `src/routes/index.tsx` links to `/order` in 4 spots ✓ and fetches `/api/public/stats/orders` for the paid-orders ticker.
+1. Replace the separate "Payments admin" login route with a button on the existing `/admin` page (safer — no duplicate auth surface).
+2. Wire the uploaded Coinbase CDP API key into the backend as **secrets**, and validate its shape before anything else in the app touches it.
 
-**Server functions** (`src/lib/orders.functions.ts`)
-- `createOrderPublic`, `getOrderPublic`, `getActivePlansPublic` — anon-callable ✓
-- `listOrdersAdmin`, `getOrderTotals`, `setOrderAccessLink`, `markOrderPaid` — behind `requireSupabaseAuth` ✓; `markOrderPaid` also re-checks `super_admin`.
+---
 
-**HTTP routes** (`src/routes/api/public/...`)
-- `webhooks/cdp` ✓ HMAC-verified with timing-safe compare, resolves by `order_id` or `receive_address`.
-- `cron/reconcile-orders` ✓ gated on Supabase publishable key header.
-- `stats/orders` ✓ 30s-cached paid count.
+## Security note about the key you pasted
 
-**Payment-admin UI** (`src/components/PaymentsPanel.tsx`, mounted in `_authenticated/console.tsx`)
-- Nav item "Payments" gated to `admin` + `super_admin` ✓, `Mark paid` gated to `super_admin` only ✓.
-- Totals, filter, access-link editor, manual mark-paid — all wired to the server fns ✓.
+The key `d6913747-…-b0085` and its `privateKey` value were pasted in plain chat. **Treat that key as compromised** and rotate it in the Coinbase CDP dashboard once we're done wiring the new one. I'll store whatever value you keep as a proper server secret so it never lands in the codebase or client bundle.
 
-**Data / infra check (live DB)**
-- `plans` table: Starter $49, Team $199, Business $799 — all active ✓.
-- `admin_wallets` table: **empty** — no receive addresses configured.
-- `pg_cron`: `cron.job` not present — reconcile poller **never runs**.
-- Secrets: `CDP_WEBHOOK_SECRET` **missing** — webhook returns 503 for every hit.
+---
 
-## Gaps that block real payments
+## Part 1 — "Payment admin" button on `/admin`
 
-1. **No wallet configured** → every new order gets `receive_address = null`; the invoice page shows "address being provisioned" forever. There is no admin UI to set the payout address.
-2. **No poller schedule** → detection depends on the CDP webhook alone. If the webhook secret isn't set, no order ever moves past `pending`.
-3. **Idempotency drift on `payment_events`** → each poller tick inserts a new event row for the same tx. Should upsert on `(order_id, tx_hash, event_type)`.
-4. **No license lookup for buyers** → if a buyer loses the invoice URL, they can't recover it (order ID is the only key).
-5. **`src/shared/api-routes.ts`** doesn't list the order/webhook/cron/stats routes — same drift risk we fixed for agent routes.
+No new route, no second login page.
 
-## Fixes (small, surgical, no feature removal)
+- **Edit `src/routes/admin.tsx`**:
+  - Add a `mode` state (`"technician" | "payments"`). Default `"technician"`.
+  - Above the form, two segmented buttons: **Technician** and **Payment admin**. Purely a UI toggle — same fields, same `/api/public/auth/login` call, same lockout logic. No new endpoints.
+  - On successful login, if `mode === "payments"` → `navigate({ to: "/console", search: { tab: "payments" } })`. Otherwise → `/console` as today.
+  - Payment-admin mode shows a subtitle: "Sign in with a super-admin technician ID (e.g. `197200`). Non-admins will be routed to the dashboard."
+- **Edit `src/routes/_authenticated/console.tsx`**:
+  - Declare `validateSearch` to accept `{ tab?: Nav }`.
+  - Seed `useState<Nav>` from the search param, but only when the resolved `role` allows that tab (matches existing sidebar gates on line 452). Non-admin requesting `payments` silently falls back to `dashboard`.
+- **No changes** to `_authenticated/route.tsx`, `PaymentsPanel.tsx`, RLS, or the auth endpoint.
 
-### 1. Wallet-management panel (super-admin only)
-- Add a "Wallets" tab inside `PaymentsPanel.tsx` visible only when `isSuperAdmin`.
-- New server fns in `src/lib/orders.functions.ts`: `listWalletsAdmin`, `upsertWalletAdmin({ coin, chain, address })`. Both require `requireSupabaseAuth` + inline `super_admin` check.
-- One row per coin (BTC / USDT_ERC20 / USDC_ERC20). Saving upserts into `admin_wallets` with `cdp_wallet_id = address` (matches the v1 shim contract).
+Result: `/admin` handles both flows; no extra route, no extra attack surface.
 
-### 2. Migration: pg_cron + payment_events idempotency
-- New migration:
-  - `SELECT cron.schedule('reconcile-orders', '*/1 * * * *', $$ SELECT net.http_post( url := '<STABLE_URL>/api/public/cron/reconcile-orders', headers := jsonb_build_object('apikey', current_setting('app.settings.anon_key', true), 'Content-Type', 'application/json'), body := '{}'::jsonb) $$)` — with fallback if `net.http_post` isn't enabled, we document a manual External-Cron path in `COOLIFY.md`.
-  - Add `CREATE UNIQUE INDEX IF NOT EXISTS payment_events_dedupe ON public.payment_events(order_id, COALESCE(tx_hash, ''), event_type);` then switch cron+webhook inserts to `.upsert(..., { onConflict: 'order_id,tx_hash,event_type', ignoreDuplicates: true })`.
+---
 
-### 3. Prompt operator to set `CDP_WEBHOOK_SECRET`
-- Detect at runtime in `PaymentsPanel` via a tiny `getPaymentsHealth` server fn that returns `{ wallets_configured, webhook_secret_set, cron_running_estimate }`. Show an amber banner listing whatever is missing so the operator sees the gap.
+## Part 2 — Attach & validate the CDP API config
 
-### 4. `/license` lookup page (buyer self-service)
-- New route `src/routes/license.tsx` — email-only lookup form.
-- New server fn `lookupLicenseByEmail({ email })` that returns the most recent `paid` order for that email (id, plan, access_link). Rate-limited by inserting into a small `license_lookups` table (email + ts) and rejecting > 5/hour per email.
-- Homepage adds a subtle "Have a license? Look it up" link next to the "Order a license" CTA.
+### Storage (secrets — never in code)
+Store the uploaded credentials as two backend secrets:
+- `CDP_API_KEY_NAME` — the full `organizations/…/apiKeys/…` string.
+- `CDP_API_KEY_PRIVATE_KEY` — the base64 `privateKey` value.
 
-### 5. Registry hygiene
-- Extend `src/shared/api-routes.ts` with a `PAYMENT_ROUTES` block: `webhookCdp`, `cronReconcileOrders`, `statsOrders`. No runtime behavior change — just single-source-of-truth.
+I'll use `set_secret` for both since you've already supplied the values. If you plan to rotate first (recommended), I can switch to `add_secret` and you paste the new values into the secure form instead — tell me which.
 
-### 6. Verify script
-- Add `scripts/verify-payment-routes.ts` (Node, run manually): hits `/api/public/stats/orders`, posts an unsigned request to `/api/public/webhooks/cdp` (expects 401), posts to `/api/public/cron/reconcile-orders` without apikey (expects 401), and calls the two public server fns via TanStack `_serverFn` URL to prove they're mounted. Prints a PASS/FAIL table.
+### Validation (before injection anywhere)
+- **New file `src/lib/cdp-config.server.ts`** (server-only, `.server.ts` so it's blocked from client bundles):
+  - `getCdpConfig()` → reads both env vars.
+  - `validateCdpConfig()` → returns `{ ok: true } | { ok: false, reason }`. Checks:
+    - Both env vars present and non-empty.
+    - `CDP_API_KEY_NAME` matches `/^organizations\/[0-9a-f-]{36}\/apiKeys\/[0-9a-f-]{36}$/`.
+    - `CDP_API_KEY_PRIVATE_KEY` is valid base64 that decodes to exactly 64 bytes (CDP Ed25519 key length).
+  - No parsing or SDK calls yet — purely shape validation, so it can't leak the key or make outbound requests.
+- **Edit `src/lib/cdp.server.ts`**:
+  - `issueReceiveAddress()` gets a preflight `validateCdpConfig()` call. If invalid, log a server-side warning (no key material) and fall through to the existing `admin_wallets.cdp_wallet_id` shim — nothing breaks, and the app still runs.
+  - This is the only place that reads the config right now, so validation happens once at the injection point.
+- **Edit `src/lib/orders.functions.ts`** — extend the existing `getPaymentsHealth` server fn (super-admin only) to include `cdp_configured: boolean` and `cdp_reason: string | null` from `validateCdpConfig()`. Never returns the key material itself.
+- **Edit `src/components/PaymentsPanel.tsx`** — the existing health banner adds a new line: "CDP API key: configured ✓ / not configured — <reason>". No new tab, no new UI page.
 
-## Technical notes
+### What this does NOT do (kept for a future turn)
+- No `@coinbase/cdp-sdk` install, no per-order address derivation. The existing `admin_wallets` shim keeps issuing addresses so nothing regresses. Wiring the SDK is a separate, riskier change (Cloudflare Worker compat, private-key handling, deriv paths) and I'd rather do it as its own plan once this validation is green.
 
-- `getOrderPublic` intentionally uses `supabaseAdmin` because the invoice must render for the unauthenticated buyer; the UUID acts as an unguessable bearer. Left as-is.
-- `access_link_sent_at` column already exists (used by `setOrderAccessLink`); no schema change needed for the access-link editor.
-- The wallet panel writes the plain address into `cdp_wallet_id` — matches the current `issueReceiveAddress` v1 shim so no code churn in `cdp.server.ts`.
-- No plan tier, price, RLS policy, or route path is removed. Every change is additive.
+---
 
 ## Files touched
 
-- `src/lib/orders.functions.ts` — add `listWalletsAdmin`, `upsertWalletAdmin`, `getPaymentsHealth`, `lookupLicenseByEmail`.
-- `src/components/PaymentsPanel.tsx` — add "Wallets" sub-tab + health banner.
-- `src/routes/license.tsx` — new buyer lookup page.
-- `src/routes/index.tsx` — add "Look up license" link near the order CTA.
-- `src/shared/api-routes.ts` — export `PAYMENT_ROUTES`.
-- `src/routes/api/public/webhooks/cdp.ts` and `cron/reconcile-orders.ts` — switch `payment_events` insert to upsert.
-- New migration for `payment_events_dedupe` unique index (and optional `cron.schedule` if `pg_net` is available).
-- `scripts/verify-payment-routes.ts` — smoke check.
-- `COOLIFY.md` — note about `CDP_WEBHOOK_SECRET` and external cron fallback.
+- **Edit** `src/routes/admin.tsx` — technician/payments toggle
+- **Edit** `src/routes/_authenticated/console.tsx` — accept `?tab=` search param, role-gate
+- **New** `src/lib/cdp-config.server.ts` — read + validate CDP secrets
+- **Edit** `src/lib/cdp.server.ts` — preflight validate before use
+- **Edit** `src/lib/orders.functions.ts` — extend `getPaymentsHealth`
+- **Edit** `src/components/PaymentsPanel.tsx` — show CDP status in health banner
+- **Secrets** (via `set_secret`) — `CDP_API_KEY_NAME`, `CDP_API_KEY_PRIVATE_KEY`
+
+## Verification after build
+
+- `/admin` shows two mode buttons; signing in under "Payment admin" as `197200` lands on `/console?tab=payments` with the Payments panel open.
+- Signing in under "Technician" still lands on the dashboard tab.
+- Payments Health banner shows "CDP API key: configured ✓" once secrets are set; toggling either secret off shows the exact validation reason.
+- `issueReceiveAddress` continues to return the `admin_wallets` address (no behavior regression).
+
+## One question before I implement
+
+Do you want me to store the pasted values as-is with `set_secret`, or rotate the key in Coinbase first and then use `add_secret` so you paste the new values into a secure form? Default, if you don't reply, is `add_secret` — safer because the pasted key is now in chat history.
