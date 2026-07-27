@@ -11,7 +11,7 @@ type Plan = {
   amount_usd: number;
 };
 
-export const Route = createFileRoute("/order")({
+export const Route = createFileRoute("/order/")({
   component: OrderPage,
   head: () => ({
     meta: [
