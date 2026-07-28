@@ -29,6 +29,8 @@ public sealed class FrameFallbackPump
     private async Task Loop(CancellationToken ct)
     {
         int consecutiveFailures = 0;
+        int consecutiveEmpty = 0;
+        bool sawFrame = false;
         while (!ct.IsCancellationRequested)
         {
             try
@@ -37,16 +39,27 @@ public sealed class FrameFallbackPump
                 if (bytes != null && bytes.Length > 0)
                 {
                     var bmp = Decode(bytes);
-                    if (bmp != null) _onFrame(bmp);
+                    if (bmp != null)
+                    {
+                        _onFrame(bmp);
+                        if (!sawFrame) { sawFrame = true; _onError?.Invoke(""); }
+                        consecutiveEmpty = 0;
+                    }
+                }
+                else
+                {
+                    // Empty result — the session row exists but the agent
+                    // hasn't uploaded a frame yet. Surface after ~3s so the
+                    // black screen isn't silent.
+                    consecutiveEmpty++;
+                    if (!sawFrame && consecutiveEmpty == 15)
+                        _onError?.Invoke("Waiting for agent to attach to this session…");
                 }
                 consecutiveFailures = 0;
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
-                // Surface after 3 consecutive failures so a single blip
-                // doesn't spam the banner but a real 401/RLS/network outage
-                // stops looking like the UI froze.
                 consecutiveFailures++;
                 if (consecutiveFailures == 3) _onError?.Invoke("Frame stream: " + ex.Message);
             }
