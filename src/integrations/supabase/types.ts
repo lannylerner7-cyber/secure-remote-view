@@ -593,6 +593,7 @@ export type Database = {
       }
       session_signals: {
         Row: {
+          admin_client_id: string | null
           created_at: string
           from_side: string
           id: number
@@ -601,6 +602,7 @@ export type Database = {
           session_id: string
         }
         Insert: {
+          admin_client_id?: string | null
           created_at?: string
           from_side: string
           id?: number
@@ -609,6 +611,7 @@ export type Database = {
           session_id: string
         }
         Update: {
+          admin_client_id?: string | null
           created_at?: string
           from_side?: string
           id?: number
@@ -628,6 +631,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          admin_client_id: string | null
           consent_at: string | null
           created_at: string
           device_id: string | null
@@ -640,6 +644,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          admin_client_id?: string | null
           consent_at?: string | null
           created_at?: string
           device_id?: string | null
@@ -652,6 +657,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          admin_client_id?: string | null
           consent_at?: string | null
           created_at?: string
           device_id?: string | null

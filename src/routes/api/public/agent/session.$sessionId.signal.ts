@@ -2,18 +2,23 @@ import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
 
 /**
- * WebRTC signaling channel — SDP offer/answer + ICE candidates.
+ * WebRTC signaling channel — SDP offer/answer + ICE candidates + "terminated"
+ * take-over handshake.
  *
  *   POST /api/public/agent/session/:id/signal
- *     body: { kind: "offer"|"answer"|"ice"|"bye", payload: any }
- *     Agent posts its side. `from_side` is inferred from device auth (always "agent").
+ *     body: { kind: "offer"|"answer"|"ice"|"bye"|"terminated",
+ *             payload: any,
+ *             admin_client_id?: string }
+ *     Agent posts its side. `from_side` is inferred from device auth (always
+ *     "agent"). `admin_client_id`, when present, tags the row so the admin
+ *     poller only picks up rows meant for its physical machine — critical
+ *     when a technician is signed in on two boxes simultaneously.
  *
  *   GET  /api/public/agent/session/:id/signal?since=<id>
- *     Response: { max, items: [{ id, from_side: "admin", kind, payload }] }
- *     Agent polls admin-originated signals (agent-originated rows are filtered out).
- *
- * Admin uses Supabase Realtime on `session_signals` directly — it doesn't hit
- * this endpoint. Ownership is enforced against the session's device_id.
+ *     Response: { max, items: [{ id, from_side: "admin", kind, payload,
+ *                                admin_client_id }] }
+ *     The agent needs `admin_client_id` on every admin-originated row so it
+ *     can recognise a new admin machine and run the take-over sequence.
  */
 export const Route = createFileRoute("/api/public/agent/session/$sessionId/signal")({
   server: {
@@ -25,9 +30,10 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         const body = (await request.json().catch(() => ({}))) as {
           kind?: string;
           payload?: unknown;
+          admin_client_id?: string | null;
         };
         const kind = body.kind ?? "";
-        if (!["offer", "answer", "ice", "bye"].includes(kind)) {
+        if (!["offer", "answer", "ice", "bye", "terminated"].includes(kind)) {
           return new Response(JSON.stringify({ error: "invalid_kind" }), { status: 400 });
         }
         if (body.payload === undefined || body.payload === null) {
@@ -46,12 +52,18 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           return new Response(JSON.stringify({ error: "not_active" }), { status: 409 });
         }
 
+        const adminClientId =
+          typeof body.admin_client_id === "string" && body.admin_client_id.length
+            ? body.admin_client_id
+            : null;
+
         const { error } = await ctx.admin.from("session_signals").insert({
           session_id: session.id,
           from_side: "agent",
           kind,
           payload: body.payload as never,
-        });
+          admin_client_id: adminClientId,
+        } as never);
         if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
         return new Response(JSON.stringify({ ok: true }), {
           headers: { "content-type": "application/json" },
@@ -76,7 +88,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
 
         const { data, error } = await ctx.admin
           .from("session_signals")
-          .select("id, from_side, kind, payload")
+          .select("id, from_side, kind, payload, admin_client_id")
           .eq("session_id", session.id)
           .eq("from_side", "admin")
           .gt("id", since)
@@ -93,3 +105,4 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
     },
   },
 });
+
