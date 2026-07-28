@@ -54,12 +54,24 @@ public static class ScreenCapture
         ulong lastHash = 0;
         int idleCount = 0;
         int uploadFails = 0;
+        int framesSinceKeyframe = 0;
 
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
         Bitmap? scaledBmp = null;
         int prevBoundsW = 0, prevBoundsH = 0;
         int prevScaledW = 0, prevScaledH = 0;
+
+        // Try DXGI Desktop Duplication once — falls back to GDI transparently
+        // on RDP, Session 0, or any COM failure. Enterprise pipeline: ~sub-ms
+        // GPU acquire vs 15-30ms CPU BitBlt.
+        DxgiCapture? dxgi = new DxgiCapture();
+        if (!dxgi.TryInitialize())
+        {
+            dxgi.Dispose();
+            dxgi = null;
+            Log.Info("capture: DXGI unavailable, using GDI fallback");
+        }
 
         while (!ct.IsCancellationRequested)
         {
@@ -78,10 +90,38 @@ public static class ScreenCapture
                     prevBoundsH = bounds.Height;
                 }
 
-                using (var g = Graphics.FromImage(rawBmp))
+                // DXGI path: acquire from GPU. When it returns null AND the
+                // last frame reported no change, skip the whole encode cycle.
+                bool haveFreshRaw = false;
+                if (dxgi != null && dxgi.IsInitialized)
                 {
-                    g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+                    // Force a full refresh every ~60 frames (~2s at 30fps) so
+                    // fresh admin subscribers see the current desktop.
+                    bool forceRefresh = framesSinceKeyframe >= 60;
+                    using var dxFrame = dxgi.TryCapture(15, forceRefresh);
+                    if (dxFrame != null)
+                    {
+                        using var g = Graphics.FromImage(rawBmp);
+                        g.DrawImageUnscaled(dxFrame, 0, 0);
+                        haveFreshRaw = true;
+                        framesSinceKeyframe = forceRefresh ? 0 : framesSinceKeyframe + 1;
+                    }
+                    else if (!dxgi.LastFrameHadContentChange)
+                    {
+                        // Nothing changed on screen — hold last frame, back off.
+                        framesSinceKeyframe++;
+                        try { await Task.Delay(100, ct); } catch { }
+                        continue;
+                    }
                 }
+
+                if (!haveFreshRaw)
+                {
+                    using var g = Graphics.FromImage(rawBmp);
+                    g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+                    framesSinceKeyframe++;
+                }
+
 
                 int maxEdge = _maxEdge;
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(rawBmp.Width, rawBmp.Height));
