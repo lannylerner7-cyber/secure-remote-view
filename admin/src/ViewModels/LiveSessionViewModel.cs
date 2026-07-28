@@ -19,6 +19,11 @@ public partial class LiveSessionViewModel : ObservableObject
     [ObservableProperty] private string transport = "connecting";
     [ObservableProperty] private BitmapSource? currentFrame;
 
+    // When set, the live view was superseded by another admin machine
+    // taking over the same session — the window binds this to a red banner.
+    [ObservableProperty] private bool takenOver;
+    [ObservableProperty] private string? takenOverMessage;
+
     private CancellationTokenSource? _cts;
     private FrameFallbackPump? _framePump;
     private WebRtcClient? _rtc;
@@ -40,10 +45,23 @@ public partial class LiveSessionViewModel : ObservableObject
         Transport = "http-poll";
 
         _rtc = new WebRtcClient(SessionId);
-        _ = _rtc.StartAsync(_cts.Token, () =>
-        {
-            Application.Current?.Dispatcher.Invoke(() => Transport = "webrtc");
-        });
+        _ = _rtc.StartAsync(_cts.Token,
+            onConnected: () =>
+            {
+                Application.Current?.Dispatcher.Invoke(() => Transport = "webrtc");
+            },
+            onTerminated: () =>
+            {
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    TakenOver = true;
+                    TakenOverMessage = "This session was taken over by another admin console.";
+                    Transport = "ended";
+                });
+                // Stop polling and background loops; the window can stay open
+                // to display the banner until the technician closes it.
+                try { _cts?.Cancel(); } catch { }
+            });
     }
 
     public void Stop()

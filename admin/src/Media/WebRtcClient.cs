@@ -22,11 +22,18 @@ public sealed class WebRtcClient
     private RTCPeerConnection? _pc;
     private long _sinceSignalId;
     private CancellationTokenSource? _cts;
+    private Action? _onTerminated;
 
     public WebRtcClient(string sessionId) => _sessionId = sessionId;
 
-    public async Task StartAsync(CancellationToken outerCt, Action onConnected)
+    /// <param name="onTerminated">
+    /// Fired when the agent reports our peer was superseded by another admin
+    /// machine (someone else took over the same live session). The ViewModel
+    /// closes the window and shows a banner.
+    /// </param>
+    public async Task StartAsync(CancellationToken outerCt, Action onConnected, Action? onTerminated = null)
     {
+        _onTerminated = onTerminated;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var ct = _cts.Token;
 
@@ -39,20 +46,12 @@ public sealed class WebRtcClient
         };
         _pc = new RTCPeerConnection(cfg);
 
-        // Codec pinning guardrail: the agent encodes VP8 today (software VideoEncoderEndPoint,
-        // single-file-safe). Both sides MUST advertise exactly one identical video format so
-        // SIPSorcery cannot renegotiate to a codec the peer can't decode → black screen.
-        //
-        // If/when the agent moves to H.264 (Media Foundation / OpenH264), swap the format below
-        // to: new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "H264", 90000,
-        //   "profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1")
-        // (Constrained Baseline 3.1) AND change the agent's WebRtcSession.cs to match, byte-for-byte.
+        // Codec pinning guardrail — see agent WebRtcSession for the matching side.
         _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video,
             false, new System.Collections.Generic.List<SDPAudioVideoMediaFormat>
             {
                 new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000),
             }, MediaStreamStatusEnum.RecvOnly));
-
 
         _pc.onicecandidate += async (c) =>
         {
@@ -122,6 +121,15 @@ public sealed class WebRtcClient
                             _pc.addIceCandidate(init);
                         }
                     }
+                    else if (s.Kind == "terminated")
+                    {
+                        // Another admin machine took over this session. Close
+                        // silently and let the ViewModel show the banner.
+                        try { _pc.close(); } catch { }
+                        _pc = null;
+                        try { _onTerminated?.Invoke(); } catch { }
+                        return;
+                    }
                     else if (s.Kind == "bye")
                     {
                         try { _pc.close(); } catch { }
@@ -130,8 +138,6 @@ public sealed class WebRtcClient
                 }
             }
             catch { ok = false; }
-            // 500 ms hot-poll while healthy; 2 s cool-down after a transient error
-            // so a flapping gateway can't spin this loop.
             try { await Task.Delay(ok ? 500 : 2000, ct); } catch { }
         }
     }

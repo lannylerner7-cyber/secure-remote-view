@@ -36,6 +36,14 @@
                    MouseRightButtonDown="Frame_MouseRightDown"
                    MouseRightButtonUp="Frame_MouseRightUp"
                    MouseWheel="Frame_MouseWheel" />
+            <!-- Take-over banner: red overlay when another admin console
+                 supersedes this session (WebRtcClient "terminated" signal). -->
+            <Border Background="#DC2626" Padding="16,10"
+                    VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                    Visibility="{Binding TakenOver, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding TakenOverMessage}" Foreground="White"
+                           FontWeight="SemiBold" TextAlignment="Center" />
+            </Border>
         </Grid>
     </DockPanel>
 </Window>
