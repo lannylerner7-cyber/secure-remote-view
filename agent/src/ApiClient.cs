@@ -163,9 +163,8 @@ public sealed class ApiClient
 
     public async Task HelloAsync(CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/hello");
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAuthedAsync(
+            () => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/hello"), ct);
         resp.EnsureSuccessStatusCode();
     }
 
@@ -174,12 +173,10 @@ public sealed class ApiClient
         // Best-effort LAN fingerprint so admins can pick a peer for WoL.
         var (subnet, mac, ipv4) = PowerRelay.LocalLanFingerprint();
         var payload = new { lan = new { subnet_v4 = subnet, mac, ipv4 } };
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
+        using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {
             Content = JsonContent.Create(payload),
-        };
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct);
+        }, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);
     }
@@ -188,12 +185,15 @@ public sealed class ApiClient
 
     public async Task AckPowerCommandAsync(string cmdId, string state, string? error, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/power/{cmdId}/ack")
+        try
         {
-            Content = JsonContent.Create(new { state, error }),
-        };
-        AddAuth(req);
-        try { using var resp = await _http.SendAsync(req, ct); } catch { /* best-effort */ }
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/power/{cmdId}/ack")
+                {
+                    Content = JsonContent.Create(new { state, error }),
+                }, ct);
+        }
+        catch { /* best-effort */ }
     }
 
     public async Task SubmitConsentAsync(string sessionId, bool accepted, CancellationToken ct)
