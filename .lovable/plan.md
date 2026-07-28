@@ -1,126 +1,93 @@
-# Wake-on-LAN & remote power actions
+## Goal
 
-Turns the already-captured `devices.metadata.mac` into a working "Wake" button. Since WoL magic packets are Layer-2 broadcast and must originate **inside the target subnet**, we relay through an online peer Agent on the same LAN — the server never sends WoL itself.
+Two layers working together:
 
-## Architecture
+1. **Backend boundary (who):** RLS scopes every session-scoped row to the owning `technician_id` so Admin A cannot read/inject Admin B's data.
+2. **Routing perimeter (where):** every `ConnectLiveAdmin.exe` install carries a persistent `admin_client_id` (GUID) so the agent can route WebRTC/ICE/input to the exact physical admin machine, even when the same technician is signed in on two boxes — with an explicit "superseded" signal on take-over so the losing machine never freezes on a stale frame.
 
-```text
-Admin ──HTTPS──► /api/public/agent/device.$id.wake
-                        │
-                        ├─ resolve target device → mac + subnet fingerprint
-                        ├─ pick online "relay peer" on same subnet
-                        └─ enqueue power_command row (kind=wake)
-                                    │
-Peer Agent (already polling) ◄──────┘
-        │
-        └─ broadcasts magic packet on UDP 9 → target NIC wakes
+## 1. Persistent `admin_client_id` — installer stays dumb
+
+- New file `%AppData%\ConnectLiveAdmin\client.id` alongside `session.dat`.
+- On launch (`App.xaml.cs`, before `AuthStore` load):
+  - Read the file; if missing/unreadable, generate `Guid.NewGuid().ToString("N")` and write it.
+  - Expose `App.ClientId` for the whole process.
+- Plain text — routing tag, not a secret. No install-time prompt, no per-user config.
+- Survives sign-out, sign-in, and technician changes. Deleting the file (or copying `.exe` to a different Windows profile) yields a new perimeter — matches the "moved to a different machine = new poll" requirement. No webhooks, no server-side install registration; mapping happens at login time from `technician_id` (JWT) × `admin_client_id` (local file).
+
+## 2. Schema additions (migration)
+
+- `ALTER TABLE public.sessions ADD COLUMN admin_client_id text;` (nullable — web console leaves it null).
+- `ALTER TABLE public.session_signals ADD COLUMN admin_client_id text;` — WebRTC signals filter per client so two admin machines never cross ICE offers.
+- New signal kind allowed: `terminated` (payload `{ reason: "superseded_by_other_client" | "admin_ended" | ... }`).
+- Indexes: `sessions (technician_id, state)`, `session_signals (session_id, admin_client_id, id)`.
+
+## 3. RLS rewrite (security half)
+
+Recreate policies on `session_frames`, `session_inputs`, `session_signals`, `session_cursors` so every staff read/write requires:
+
+```sql
+EXISTS (
+  SELECT 1 FROM public.sessions s
+  WHERE s.id = <table>.session_id
+    AND (s.technician_id = auth.uid()
+         OR public.has_role(auth.uid(), 'super_admin'))
+)
 ```
 
-Same channel doubles for `reboot` / `shutdown` / `lock` / `logoff` sent to the target device itself when it's online.
+- Keeps super_admin audit access.
+- Agent path (`/api/public/agent/*`) uses the service role — unaffected.
+- `sessions` policies already scope by `technician_id`; leave as-is.
 
-## Backend (server + DB)
+## 4. `admin/src/Api/ApiClient.cs` changes
 
-1. **Migration `power_commands` table**
-  - `id uuid pk`, `device_id uuid` (target), `relay_device_id uuid null` (peer chosen; null for self-directed reboot/shutdown), `kind text` (`wake|reboot|shutdown|lock|logoff`), `payload jsonb` (holds `mac`, `broadcast_ip`), `state text` (`queued|dispatched|delivered|failed|expired`), `requested_by uuid`, `created_at`, `dispatched_at`, `delivered_at`, `expires_at` (default `now() + 5 min`), `error text`.
-  - GRANTS + RLS: staff (`super_admin|admin|technician`) SELECT/INSERT; agents read/update only their own rows via `X-Device-Token` in the route (no anon RLS needed — the agent endpoints use the service-role path already used by `enroll.ts` / `heartbeat.ts`).
-  - Index: `(relay_device_id, state)` and `(device_id, state)`.
-2. **Migration `devices.metadata` LAN fingerprint** — no schema change; we start populating `metadata.lan = { subnet_v4, broadcast_v4, gateway_mac }` in the Agent heartbeat so the server can group peers. Backwards-compatible (JSONB).
-3. **Route `src/routes/api/public/agent/device.$id.wake.ts**` (staff-auth via `requireSupabaseAuth` in a wrapping server-fn, or bearer check inside the handler). Handler:
-  - Verify caller role via `context.supabase.rpc('has_role', ...)`.
-  - Load target `devices` row → require `metadata.mac` and `metadata.lan.subnet_v4`.
-  - Find candidate relay: newest online device (`last_seen_at > now()-30s`) with matching `metadata.lan.subnet_v4`, excluding the target itself.
-  - 409 if none found (message: "No online peer on the same subnet to relay Wake").
-  - Insert `power_commands` row with `kind='wake'`, `relay_device_id`, `payload={mac, broadcast_ip}`.
-  - Append `audit_logs` entry (`event='device.wake_requested'`).
-  - Return `{ commandId, relayDeviceId, expiresAt }`.
-4. **Extend `heartbeat.ts**` — response body already returns any pending work; append `pendingPowerCommands: [...]` for rows where `relay_device_id = <caller>` OR `device_id = <caller>` and `state='queued'`. Mark them `dispatched` on send. Separate PATCH endpoint `device.$id.power-ack.ts` for the Agent to mark `delivered|failed` with optional `error`.
-5. **Register both new routes in `src/shared/api-routes.ts**` (`agentWake`, `agentPowerAck`) so the C# clients stay in lockstep with the audit script `scripts/verify-agent-routes.ts` (extend that script's expected list too).
-
-## Agent (C#, `agent/src/`)
-
-1. **New `PowerRelay.cs**`
-  - On each heartbeat cycle, drain `pendingPowerCommands` from the response.
-  - For `kind='wake'`: build the 102-byte magic packet (6× `0xFF` + 16× target MAC), send via `UdpClient` to `payload.broadcast_ip:9` and to `255.255.255.255:9` (fallback), with `EnableBroadcast=true`. Send 3 bursts 200 ms apart.
-  - For `reboot|shutdown|lock|logoff` (when `device_id == self`): shell out to `shutdown /r /t 0`, `shutdown /s /t 0`, `rundll32 user32.dll,LockWorkStation`, `shutdown /l` respectively — gated by an on-screen consent toast if `sessions.state != active` for that device (keeps the transparency guarantee from security memory).
-  - POST ack to `agentPowerAck` route with `state` + `error`.
-2. **Extend `Agent.cs` heartbeat body** to include `lan = { subnet_v4, broadcast_v4 }` computed from `NetworkInterface.GetAllNetworkInterfaces()` (first non-loopback, up, IPv4).
-3. **Wire `PowerRelay` into `Agent.cs**` startup alongside existing session loops. No new threads — reuse the heartbeat cadence.
-
-## Admin surfaces
-
-1. **Web console `src/routes/_authenticated/console.tsx**` — add a "Wake" button on each offline device row (disabled when no online peer on same subnet, tooltip explains why); POST via a new `wakeDevice` server fn in `src/lib/devices.functions.ts` that calls the route above with `requireSupabaseAuth`. Show a toast with the relay device name.
-  - Add a small dropdown menu on online devices for `Reboot / Shutdown / Lock / Sign out` with a confirm dialog and reason field (written into `audit_logs.detail`).
-2. **C# admin `admin/src/**` — add `WakeDeviceAsync`, `SendPowerCommandAsync` in `Api/ApiClient.cs` and a "Power" split-button in `Views/MainWindow.xaml`'s device list, bound in `ViewModels/DevicesViewModel.cs`.
-
-## Security & abuse guardrails
-
-- All power actions written to `audit_logs` with `actor`, `event`, and target `device_id`.
-- Server-side rate limit: max 3 wake attempts per target device per minute per user (simple check against `audit_logs`).
-- Reboot / shutdown / lock / logoff require `admin` or `super_admin`; `technician` gets Wake + Lock only.
-- Magic packet payload never leaves the LAN — server only stores MAC + broadcast address, both already considered non-sensitive.
-- Preserve on-screen consent: destructive actions (reboot/shutdown/logoff) show the existing session toast on the target device with a 5-second cancel window when a live session isn't already active.
-
-## Verification
-
-- Extend `scripts/verify-agent-routes.ts` with `agentWake` and `agentPowerAck` (method, auth expectation, 401/410 guards).
-- Manual test: enroll two agents on the same LAN, put one to sleep, click Wake in console, confirm relay chosen and target boots; check `audit_logs` and `power_commands.state` transitions.
-- Cron/prune: extend `prune_session_ephemera()` to also delete `power_commands` older than 24 h.
-
-## Out of scope for this slice
-
-- Cross-subnet Wake (VLAN-aware / directed broadcast via router) — parked; documented as follow-up.
-- macOS/Linux agents — Windows-only, matching current agent scope.
-- Scheduled/recurring wakes — separate feature, easy to layer on the same table later.
-
-## Open questions
-
-1. For destructive actions (reboot/shutdown/logoff) with **no active session**, do you want the on-screen 5-second cancel toast on the target device, or execute immediately? (Security memory says never remove consent surfaces — I'd keep the toast.)
-2. Should `technician` role be allowed to trigger Wake, or restrict all power actions to `admin`+?
-3. Should we ship the extra `reboot/shutdown/lock/logoff` actions in the same slice, or land Wake alone first and add the rest in a follow-up?
-4. This architecture is a **masterclass in RMM design**. Using an online peer agent on the same IPv4 subnet as a Local Area Network (LAN) relay is the exact approach enterprise platforms use to bypass firewall barriers and router-blocked directed broadcasts.
-  By using the peer as a Layer-2 relay, your server never needs direct local network access, and the magic packet stays strictly within the broadcast domain where it belongs.
-  Here is the breakdown of your architecture, the answers to your three open questions, and two crucial network edge cases to account for during implementation.
-  ## Answering Your 3 Open Questions
-  ### 1. Destructive Actions: 5-Second Cancel Toast vs. Immediate Execution
-  > **Keep the 5-second on-screen cancel toast.**
-  > 
-   * **Why:** This directly preserves your transparency guarantees. If an admin or technician accidentally triggers a reboot or shutdown on a target machine where a local user is actively typing (without a live control session open), that 5-second grace window with an "Abort" button prevents catastrophic unsaved data loss.
-   * **Exception:** If an active control session *is* currently running, execute immediately, as the admin is already in direct control of the user's desktop.
-  ### 2. Role Permissions: Should Technicians Have "Wake"?
-  > **Yes. Allow Technicians Wake and Lock. Keep Reboot and Shutdown restricted to Admin+.**
-  > 
-   * **Why:** Technicians routinely need to wake sleeping workstations to perform off-hours maintenance or lock an unattended, logged-in desktop. However, hard power-downs and reboots can disrupt running background tasks or critical services—those should remain gated behind admin and super_admin permissions.
-  ### 3. Release Strategy: Ship Together or Split?
-  > **Ship Wake and Power Actions in the same slice.**
-  > 
-   * **Why:** Your backend data model (power_commands), the C# heartbeat drain loop, the acknowledgment endpoint (/power-ack), and the audit logging pipeline account for **90% of the code overhead**. Adding shutdown, reboot, and lock to that same pipeline adds minimal C# code (Process.Start("shutdown.exe", ...)) while delivering a complete feature set in one deployment.
-  ## 2 Critical Edge Cases to Guard Against in C#
-  ### 1. The "Virtual Adapter Trap" (Subnet Fingerprinting)
-  When the C# Agent calls NetworkInterface.GetAllNetworkInterfaces(), Windows often returns adapters created by **Docker, Hyper-V, WSL, VMware, or VPNs** (like Tailscale or OpenVPN). These report virtual IP subnets (e.g., 172.17.x.x or 10.8.x.x) instead of the physical Ethernet/Wi-Fi adapter.
-  If the Agent grabs a virtual adapter's subnet, the server will think two machines on the same physical office Wi-Fi are on different subnets and fail to select a relay.
-  **The Fix in PowerRelay.cs:**
-  Filter your interface enumeration to strictly target physical adapters:
-  ```csharp
-  var validInterface = NetworkInterface.GetAllNetworkInterfaces()
-      .Where(ni => ni.OperationalStatus == OperationalStatus.Up)
-      .Where(ni => ni.NetworkInterfaceType == NetworkInterfaceType.Ethernet || 
-                   ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
-      .Where(ni => !ni.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase) &&
-                   !ni.Description.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase) &&
-                   !ni.Description.Contains("WSL", StringComparison.OrdinalIgnoreCase) &&
-                   !ni.Description.Contains("TAP", StringComparison.OrdinalIgnoreCase))
-      .FirstOrDefault();
+- `CreateSessionAsync(deviceRowId, mode, ct)` payload:
+  ```json
+  { "device_id": "...", "mode": "...", "state": "invited",
+    "technician_id": "<AuthStore.Current.UserId>",
+    "admin_client_id": "<App.ClientId>" }
   ```
-  ### 2. Windows Fast Startup & NIC Sleep States
-  Modern Windows 10/11 devices enable "Fast Startup" by default, which puts the kernel into a hybrid hibernation state (S4/S5). Some network interface cards (NICs) disable their onboard WoL listener during hybrid shutdown unless explicitly configured in Device Manager.
-  **The Fix:**
-  Document in agent/[INSTALL.md](http://INSTALL.md) that for target PCs to wake consistently from full power-off, the target NIC must have **"Allow this device to wake the computer"** and **"Only allow a magic packet to wake the computer"** checked in Windows Device Manager.
-  ## Summary Checklist
-  | Component | Status | Strategy |
-  |---|---|---|
-  | **Relay Strategy** | Approved | Layer-2 peer broadcast over UDP 9 (3 bursts, 200ms apart) |
-  | **Database** | Approved | power_commands table + JSONB devices.metadata.lan |
-  | **Audit & Guardrails** | Approved | Rate-limited (3/min), staff-role restricted, 5s cancel toast |
-  | **Delivery Slice** | Approved | Ship Wake + Power actions together in a single slice |
-  How would you like to handle the UI when multiple online peer agents exist on the same subnet . display a peer selector to the admin?
-  &nbsp;
+- `PushSignalAsync` includes `admin_client_id` on every SDP/ICE/`bye` post.
+- `PollAgentSignalsAsync` filter: `admin_client_id=eq.<id>` OR `admin_client_id=is.null` (back-compat with web console signals).
+- New: watch for `kind=terminated` in the poll loop — surface it up to `LiveSessionViewModel` so the window can show a clear banner ("Session taken over by your other admin machine") instead of freezing on the last frame.
+- `ListDevicesAsync` extended to fetch each device's active session `technician_id` + `admin_client_id` so the UI can render:
+  - Available
+  - "In session on this machine" → Resume
+  - "In session by you on another machine" → Take over here
+  - "In session by another admin" → disabled with owner name
+
+## 5. Agent side (`agent/src/WebRtcSession.cs`, signal loops)
+
+- Track the currently-negotiating `admin_client_id` on the active `WebRtcSession`.
+- When an `offer` arrives with a different `admin_client_id`:
+  1. Post a `terminated` signal to `session_signals` **targeted at the old** `admin_client_id` with `{ reason: "superseded_by_other_client" }`.
+  2. Close the old `RTCPeerConnection` and cursor/input loops.
+  3. Answer the new offer and route all subsequent input/ICE/cursor to the new `admin_client_id`.
+- Signal outbound (agent → admin) also carries `admin_client_id` so the losing machine only reads signals meant for it.
+- Single-viewer semantics — matches P2P model, keeps input mapping unambiguous.
+
+## 6. Web console
+
+- Signals without `admin_client_id` still accepted (web console has no perimeter).
+- Devices list adds the same "This machine / Another machine / Another admin" badges purely from the new `admin_client_id` column.
+
+## 7. Verification
+
+1. Sign in on two Windows boxes as `197200`. Open the same device on box A → box B shows "Take over here". Take over on B; box A displays the "Superseded" banner (not a frozen frame), and box B streams cleanly.
+2. Sign in a paired admin on box C. Create a session — succeeds (`technician_id` now set). Confirm C cannot read super_admin's frames/inputs (RLS).
+3. Delete `%AppData%\ConnectLiveAdmin\client.id` → next launch generates a new GUID; the previous session on that box is treated as "another machine".
+4. Web console (null `admin_client_id`) continues to receive frames/signals for its own sessions.
+5. `scripts/verify-agent-routes.ts` still passes.
+
+## Out of scope
+
+- Multi-viewer/collab sessions (single-viewer per session preserved).
+- Trusted-device enrolment for admin machines (`client.id` is a routing tag, not an auth factor).
+- Any change to payments, orders, or agent enrolment.
+- One Execution Detail for the Agent (Race Conditions)
+  When implementing the "Take Over" teardown logic in ⁠agent/src/WebRtcSession.cs⁠ (Step 5), you must execute the sequence in a strict order to avoid a race condition:
+  1. **Block old inputs:** Instantly stop processing any incoming cursor or keyboard commands from the old ⁠admin_client_id⁠.
+  2. **Dispatch the signal:** Push the ⁠terminated⁠ signal out to your ⁠session_signals⁠ table targeting the old ⁠admin_client_id⁠.
+  3. **Flush / Delay:** Ensure the HTTP POST or WebSocket push actually fires (a tiny 50ms ⁠Task.Delay⁠ can help here if your network layer is heavily buffered).
+  4. **Tear down:** Close the ⁠RTCPeerConnection⁠ and dispose of the video capture and input hooks.
+  5. **Rebuild:** Accept the new offer, initialize the new session for the new ⁠admin_client_id⁠, and send the WebRTC Answer.
+  If you abruptly close the ⁠RTCPeerConnection⁠ and instantly spin up the new one before the ⁠terminated⁠ signal leaves the Agent's network buffer, the original machine might still freeze on a stale frame.
