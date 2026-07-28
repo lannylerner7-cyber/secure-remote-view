@@ -118,11 +118,12 @@ public sealed class DxgiCapture : IDisposable
     /// == 0) and <paramref name="forceRefresh"/> is false — callers can then
     /// keep displaying the last frame with zero encoder cost.
     /// </summary>
-    public Bitmap? TryCapture(int timeoutMs, bool forceRefresh)
+    public unsafe Bitmap? TryCapture(int timeoutMs, bool forceRefresh)
     {
         if (!_initialized || _duplication is null || _device is null ||
             _context is null || _staging is null)
             return null;
+
 
         IDXGIResource? desktopResource = null;
         ID3D11Texture2D? desktopTexture = null;
@@ -208,9 +209,5 @@ public sealed class DxgiCapture : IDisposable
         _initialized = false;
     }
 
-    // Enable Buffer.MemoryCopy on IntPtr via unsafe context in a scoped file.
-    private static unsafe class Native
-    {
-        // no-op; ensures the file has unsafe context via using pattern below.
-    }
 }
+
