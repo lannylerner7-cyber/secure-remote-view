@@ -9,9 +9,17 @@ namespace ConnectLive.Admin.Media;
 /// <summary>
 /// Minimal SIPSorcery-based WebRTC client. Creates an offer, POSTs it via the
 /// signaling table (from_side="admin"), then polls for the agent's answer and
-/// ICE candidates. Full H.264 → D3DImage rendering is scaffolded but not
-/// finished in v1: when a video track arrives, we surface it via <c>OnConnected</c>
-/// so the ViewModel can drop the JPEG fallback and mark transport as "webrtc".
+/// ICE candidates.
+///
+/// Persistence layer (matches the web console):
+///   - Every outbound signal rides <c>PushSignalReliableAsync</c>, which
+///     serialises per-session and stamps an <c>attempt_id</c> for idempotent
+///     retries with bounded exponential backoff.
+///   - A 15s heartbeat calls the <c>bind_admin</c> RPC to refresh this
+///     admin's ownership of the session. If the RPC reports "superseded"
+///     (another admin console took over), we fire onTerminated and close.
+///     If the admin crashes, the server-side prune releases the binding
+///     after 90s so a fresh console can take over cleanly.
 ///
 /// If ICE fails or times out (12s), we exit quietly and let the HTTP frame
 /// fallback carry the session.
@@ -43,6 +51,19 @@ public sealed class WebRtcClient
         _cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var ct = _cts.Token;
 
+        // Claim / refresh the binding before signaling starts.
+        try
+        {
+            var initial = await App.Api.BindAdminAsync(_sessionId, ct);
+            if (!initial.bound)
+            {
+                if (initial.reason == "superseded") { _onTerminated?.Invoke(); return; }
+                _onError?.Invoke("Bind session: " + initial.reason);
+                return;
+            }
+        }
+        catch (Exception ex) { _onError?.Invoke("Bind session: " + ex.Message); return; }
+
         var cfg = new RTCConfiguration
         {
             iceServers = new System.Collections.Generic.List<RTCIceServer>
@@ -61,16 +82,17 @@ public sealed class WebRtcClient
 
         _pc.onicecandidate += async (c) =>
         {
+            if (c == null) return;
             try
             {
-                await App.Api.PushSignalAsync(_sessionId, "ice", new
+                await App.Api.PushSignalReliableAsync(_sessionId, "ice", new
                 {
                     candidate = c.candidate,
                     sdpMid = c.sdpMid,
                     sdpMLineIndex = c.sdpMLineIndex,
                 }, ct);
             }
-            catch { }
+            catch (Exception ex) { _onError?.Invoke("ICE post: " + ex.Message); }
         };
 
         _pc.onconnectionstatechange += (state) =>
@@ -80,9 +102,15 @@ public sealed class WebRtcClient
 
         var offer = _pc.createOffer();
         await _pc.setLocalDescription(offer);
-        await App.Api.PushSignalAsync(_sessionId, "offer", new { sdp = offer.sdp, type = offer.type.ToString() }, ct);
+        try
+        {
+            await App.Api.PushSignalReliableAsync(_sessionId, "offer",
+                new { sdp = offer.sdp, type = offer.type.ToString() }, ct);
+        }
+        catch (Exception ex) { _onError?.Invoke("Offer post: " + ex.Message); return; }
 
         _ = Task.Run(() => PollAgentSignals(ct), CancellationToken.None);
+        _ = Task.Run(() => HeartbeatLoop(ct), CancellationToken.None);
 
         // 12s watchdog — if not connected, we bow out and JPEG fallback stays.
         _ = Task.Run(async () =>
@@ -93,6 +121,27 @@ public sealed class WebRtcClient
                 try { _pc.close(); } catch { }
             }
         }, CancellationToken.None);
+    }
+
+    private async Task HeartbeatLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(15_000, ct); } catch { return; }
+            if (ct.IsCancellationRequested) return;
+            try
+            {
+                var r = await App.Api.BindAdminAsync(_sessionId, ct);
+                if (!r.bound && r.reason == "superseded")
+                {
+                    try { _pc?.close(); } catch { }
+                    _pc = null;
+                    try { _onTerminated?.Invoke(); } catch { }
+                    return;
+                }
+            }
+            catch (Exception ex) { _onError?.Invoke("Heartbeat: " + ex.Message); }
+        }
     }
 
     private async Task PollAgentSignals(CancellationToken ct)
@@ -129,8 +178,6 @@ public sealed class WebRtcClient
                     }
                     else if (s.Kind == "terminated")
                     {
-                        // Another admin machine took over this session. Close
-                        // silently and let the ViewModel show the banner.
                         try { _pc.close(); } catch { }
                         _pc = null;
                         try { _onTerminated?.Invoke(); } catch { }

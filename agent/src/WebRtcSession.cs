@@ -118,7 +118,7 @@ public sealed class WebRtcSession : IDisposable
                     sdpMid = c.sdpMid,
                     sdpMLineIndex = c.sdpMLineIndex,
                 };
-                await _api.PostSignalAsync(_sessionId, "ice", payload, _cts.Token, _currentAdminClientId);
+                await _api.PostSignalReliableAsync(_sessionId, "ice", payload, _cts.Token, _currentAdminClientId);
             }
             catch (Exception ex) { Log.Warn($"webrtc ice post: {ex.Message}"); }
         };
@@ -208,7 +208,7 @@ public sealed class WebRtcSession : IDisposable
                         Log.Info($"webrtc takeover: {_currentAdminClientId} -> {incomingAdminId}");
                         try
                         {
-                            await _api.PostSignalAsync(
+                            await _api.PostSignalReliableAsync(
                                 _sessionId, "terminated",
                                 new { reason = "superseded_by_other_client" },
                                 _cts.Token,
@@ -233,7 +233,7 @@ public sealed class WebRtcSession : IDisposable
                     if (setResult != SetDescriptionResultEnum.OK) { Log.Warn($"setRemote offer: {setResult}"); return; }
                     var answer = _pc.createAnswer(null);
                     await _pc.setLocalDescription(answer);
-                    await _api.PostSignalAsync(_sessionId, "answer",
+                    await _api.PostSignalReliableAsync(_sessionId, "answer",
                         new { type = "answer", sdp = answer.sdp }, _cts.Token, _currentAdminClientId);
                 }
                 finally { _handoffLock.Release(); }

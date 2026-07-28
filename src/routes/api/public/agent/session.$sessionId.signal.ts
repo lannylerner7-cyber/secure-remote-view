@@ -35,6 +35,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           kind?: string;
           payload?: unknown;
           admin_client_id?: string | null;
+          attempt_id?: string | null;
         };
         const kind = body.kind ?? "";
         if (!(SIGNAL_KINDS as readonly string[]).includes(kind)) {
@@ -43,8 +44,6 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         if (body.payload === undefined || body.payload === null) {
           return errJson("missing_payload", 400);
         }
-        // Cheap byte cap to keep an errant agent from filling Postgres with
-        // multi-MB signaling payloads. WebRTC SDP + ICE fits comfortably.
         let serializedPayload: string;
         try {
           serializedPayload = JSON.stringify(body.payload);
@@ -63,6 +62,14 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           adminClientId = body.admin_client_id;
         }
 
+        let attemptId: string | null = null;
+        if (body.attempt_id !== undefined && body.attempt_id !== null) {
+          if (typeof body.attempt_id !== "string" || body.attempt_id.length < 4 || body.attempt_id.length > 80) {
+            return errJson("invalid_attempt_id", 400);
+          }
+          attemptId = body.attempt_id;
+        }
+
         const { data: session } = await ctx.admin
           .from("sessions")
           .select("id, device_id, state, admin_client_id")
@@ -74,11 +81,6 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         if (session.state !== "active") {
           return errJson("not_active", 409);
         }
-
-        // Enforce that the agent only stamps IDs the session is actually bound to.
-        // A binding of NULL means "no admin has claimed this yet" — accept any
-        // shape-valid id (this is what the very first offer's answer looks
-        // like). Otherwise the stamped id must equal the bound peer's id.
         if (
           adminClientId &&
           session.admin_client_id &&
@@ -93,8 +95,16 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           kind,
           payload: body.payload as never,
           admin_client_id: adminClientId,
+          attempt_id: attemptId,
         } as never);
-        if (error) return errJson("insert_failed", 500);
+        if (error) {
+          // Idempotent retry — the agent's queue will re-post the same
+          // attempt_id on transient failures; a duplicate is success.
+          if ((error as { code?: string }).code === "23505") {
+            return new Response(JSON.stringify({ ok: true, deduped: true }), { headers: JSON_HEADERS });
+          }
+          return errJson("insert_failed", 500);
+        }
         return new Response(JSON.stringify({ ok: true }), { headers: JSON_HEADERS });
       },
 

@@ -597,6 +597,7 @@ export type Database = {
       session_signals: {
         Row: {
           admin_client_id: string | null
+          attempt_id: string | null
           created_at: string
           from_side: string
           id: number
@@ -606,6 +607,7 @@ export type Database = {
         }
         Insert: {
           admin_client_id?: string | null
+          attempt_id?: string | null
           created_at?: string
           from_side: string
           id?: number
@@ -615,6 +617,7 @@ export type Database = {
         }
         Update: {
           admin_client_id?: string | null
+          attempt_id?: string | null
           created_at?: string
           from_side?: string
           id?: number
@@ -634,6 +637,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          admin_bound_at: string | null
           admin_client_id: string | null
           consent_at: string | null
           created_at: string
@@ -647,6 +651,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          admin_bound_at?: string | null
           admin_client_id?: string | null
           consent_at?: string | null
           created_at?: string
@@ -660,6 +665,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          admin_bound_at?: string | null
           admin_client_id?: string | null
           consent_at?: string | null
           created_at?: string
@@ -708,6 +714,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      bind_admin: {
+        Args: { _client_id: string; _session_id: string }
+        Returns: {
+          admin_client_id: string
+          bound: boolean
+          reason: string
+        }[]
+      }
       get_paid_order_count: { Args: never; Returns: number }
       has_role: {
         Args: {
