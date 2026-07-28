@@ -44,6 +44,22 @@ public sealed class ApiClient
     public string? DeviceId { get; private set; }
     public string? DeviceToken { get; private set; }
 
+    // Single-flight re-enroll guard. On a burst of concurrent 401s (heartbeat,
+    // frame, cursor, input, signal loops all firing at once), only one thread
+    // wipes device.dat and calls the enroll endpoint; the others park on this
+    // semaphore, notice the token generation moved, and retry with the fresh
+    // credential instead of enrolling a second time.
+    private static readonly SemaphoreSlim _enrollLock = new(1, 1);
+    private long _tokenGeneration;
+    // If a re-enroll itself 401s (deployment key revoked), stop hammering the
+    // gateway. Set to now + 60s; SendAuthedAsync short-circuits until it passes.
+    private DateTime _revokedUntilUtc = DateTime.MinValue;
+
+    /// <summary>Fired once when the deployment key appears to be revoked.
+    /// Wired to a tray balloon from App.xaml.cs so the technician sees a
+    /// single "reinstall required" toast instead of an exception dialog.</summary>
+    public event Action<string>? OnEnrollmentRevoked;
+
     public ApiClient(string? overrideBaseUrl = null)
     {
         Directory.CreateDirectory(ConfigDir);
@@ -89,6 +105,60 @@ public sealed class ApiClient
         DeviceId = body.DeviceId;
         DeviceToken = body.DeviceToken;
         SaveDeviceCreds(body);
+        Interlocked.Increment(ref _tokenGeneration);
+    }
+
+    // Runs a request, and on a single 401 wipes local creds + re-enrolls (once,
+    // guarded by _enrollLock so parallel loops don't stampede), then retries.
+    // A second 401 marks the deployment key as revoked and backs off 60s.
+    // Callers must not dispose the returned response before consuming it.
+    private async Task<HttpResponseMessage> SendAuthedAsync(Func<HttpRequestMessage> build, CancellationToken ct)
+    {
+        if (DateTime.UtcNow < _revokedUntilUtc)
+            throw new HttpRequestException("Enrollment revoked; waiting for cooldown");
+
+        var beforeGen = Interlocked.Read(ref _tokenGeneration);
+        var req = build();
+        AddAuth(req);
+        var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode != System.Net.HttpStatusCode.Unauthorized) return resp;
+        resp.Dispose();
+        req.Dispose();
+
+        // Single-flight re-enroll.
+        await _enrollLock.WaitAsync(ct);
+        try
+        {
+            if (Interlocked.Read(ref _tokenGeneration) == beforeGen)
+            {
+                // Nobody else re-enrolled yet — we do it.
+                try
+                {
+                    if (File.Exists(DevicePath)) File.Delete(DevicePath);
+                }
+                catch { /* best-effort */ }
+                DeviceId = null;
+                DeviceToken = null;
+                try { await EnrollIfNeededAsync(ct); }
+                catch (HttpRequestException) { throw; }
+                catch (Exception ex) { throw new HttpRequestException("Re-enrollment failed: " + ex.Message); }
+            }
+        }
+        finally { _enrollLock.Release(); }
+
+        // Retry once with the fresh token.
+        var req2 = build();
+        AddAuth(req2);
+        var resp2 = await _http.SendAsync(req2, ct);
+        req2.Dispose();
+        if (resp2.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            resp2.Dispose();
+            _revokedUntilUtc = DateTime.UtcNow.AddSeconds(60);
+            try { OnEnrollmentRevoked?.Invoke("Enrollment revoked — reinstall required."); } catch { }
+            throw new HttpRequestException("Enrollment revoked after retry");
+        }
+        return resp2;
     }
 
     public async Task HelloAsync(CancellationToken ct)
