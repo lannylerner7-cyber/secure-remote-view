@@ -248,24 +248,85 @@ public sealed class ApiClient
     // Send a WebRTC signal (SDP or ICE) that the agent will poll.
     // admin_client_id is stamped so the agent can tell which physical admin
     // box owns the current negotiation and can supersede stale ones.
-    public async Task PushSignalAsync(string sessionId, string kind, object payload, CancellationToken ct)
+    // attempt_id makes the write idempotent against the ux_session_signals_attempt
+    // unique index so the reliable-retry wrapper below never double-inserts.
+    public async Task<int> PushSignalAsync(string sessionId, string kind, object payload, CancellationToken ct, string? attemptId = null)
     {
-        // Never emit an admin signal without a stable client id — the DB
-        // policy would reject it and the poll loop would deadlock. Surface
-        // early so the caller shows a real error instead of a silent 401 loop.
         if (string.IsNullOrEmpty(App.ClientId))
             throw new InvalidOperationException("Admin ClientId is not initialised; cannot push signal.");
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/session_signals");
-        req.Content = JsonContent.Create(new
+        var body = new System.Collections.Generic.Dictionary<string, object?>
         {
-            session_id = sessionId,
-            from_side = "admin",
-            kind,
-            payload,
-            admin_client_id = App.ClientId,
-        });
+            ["session_id"] = sessionId,
+            ["from_side"] = "admin",
+            ["kind"] = kind,
+            ["payload"] = payload,
+            ["admin_client_id"] = App.ClientId,
+        };
+        if (attemptId != null) body["attempt_id"] = attemptId;
+        req.Content = JsonContent.Create(body);
         using var res = await SendSupabaseAsync(req, ct);
+        // 23505 (unique_violation on attempt_id) surfaces as PostgREST 409 —
+        // treat as success so callers can safely retry the same attempt_id.
+        if ((int)res.StatusCode == 409) return 200;
         await EnsureOkAsync(res, "push signal", ct);
+        return (int)res.StatusCode;
+    }
+
+    // Reliable variant: FIFO per session with bounded exponential backoff.
+    // Guarantees that an ICE candidate cannot overtake the answer it depends
+    // on if the network hiccups mid-negotiation.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _signalGates = new();
+
+    public async Task PushSignalReliableAsync(string sessionId, string kind, object payload, CancellationToken ct)
+    {
+        var attempt = "adm-" + Guid.NewGuid().ToString("N").Substring(0, 12);
+        var gate = _signalGates.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                try
+                {
+                    await PushSignalAsync(sessionId, kind, payload, ct, attempt);
+                    return;
+                }
+                catch (SupabaseCallException ex) when (ex.StatusCode == 400 || ex.StatusCode == 401 || ex.StatusCode == 403 || ex.StatusCode == 404 || ex.StatusCode == 413)
+                {
+                    // Hard errors — do not retry.
+                    throw;
+                }
+                catch
+                {
+                    var backoff = Math.Min(4000, 250 * (int)Math.Pow(2, i));
+                    try { await Task.Delay(backoff, ct); } catch { return; }
+                }
+            }
+        }
+        finally { gate.Release(); }
+    }
+
+    // Heartbeat / take-over via bind_admin RPC.
+    // Returns (bound, reason) — reason == "superseded" means another admin
+    // console owns this session and the UI should close the live window.
+    public async Task<(bool bound, string reason, string? adminClientId)> BindAdminAsync(string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(App.ClientId))
+            throw new InvalidOperationException("Admin ClientId is not initialised.");
+        using var req = NewSupabase(HttpMethod.Post, "/rest/v1/rpc/bind_admin");
+        req.Content = JsonContent.Create(new { _session_id = sessionId, _client_id = App.ClientId });
+        using var res = await SendSupabaseAsync(req, ct);
+        if (!res.IsSuccessStatusCode) return (false, "rpc_error", null);
+        var stream = await res.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var row = doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0
+            ? doc.RootElement[0]
+            : doc.RootElement;
+        var bound = row.TryGetProperty("bound", out var b) && b.ValueKind == JsonValueKind.True;
+        var reason = row.TryGetProperty("reason", out var r) ? (r.GetString() ?? "") : "";
+        var acid = row.TryGetProperty("admin_client_id", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+        return (bound, reason, acid);
     }
 
     // Poll agent-originated signals. We only pick up rows that either
