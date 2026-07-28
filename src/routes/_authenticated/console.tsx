@@ -258,12 +258,18 @@ function AdminPage() {
   // local user for consent per the standing-consent model.
   async function connectDevice(d: Device) {
     const { data: u } = await supabase.auth.getUser();
-    const { data: existing } = await supabase
+    // Reuse the newest live session for this device instead of stacking a
+    // fresh invite each click. Stacked invites are the black-screen bug:
+    // the agent's session loop settles on the OLDEST id and pushes frames
+    // to a session no one is polling.
+    const { data: existingRows } = await supabase
       .from("sessions")
-      .select("id")
+      .select("id, created_at")
       .eq("device_id", d.id)
       .in("state", ["invited", "consented", "active", "paused"])
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const existing = existingRows?.[0];
     if (existing) { setLiveId(existing.id); return; }
     const { data, error } = await supabase
       .from("sessions")
