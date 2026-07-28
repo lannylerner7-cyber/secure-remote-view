@@ -1,56 +1,44 @@
-## Fix admin "column is_session_active does not exist" error
+## Fix admin "column session_frames.jpeg_base64 does not exist"
 
-The C# admin console queries `devices?select=...,is_session_active`, but that column was never added to `public.devices`. Result: every device list refresh 400s and the UI shows the red banner.
+### What's actually going on
 
-### Fix (single migration)
+The proposed master SQL script would mostly no-op against the current DB, and the one part that isn't a no-op would make things worse:
 
-Add the column and keep it accurate automatically via a trigger on `sessions`, so nothing in code needs to maintain it:
+- `session_frames.jpeg_base64` — **does not exist, and shouldn't be added.** The agent already uploads base64 JPEGs into an existing column named `frame` (see `src/routes/api/public/agent/session/$sessionId/frame.ts`, which upserts `{ session_id, frame, width, height }`). The web console reads `frame` too. The 400 is the C# `FrameFallbackPump` querying the wrong column name.
+- `sessions.admin_client_id` — already exists.
+- `session_signals.admin_client_id` — already exists.
+- `power_commands` table + indexes — already exist (created in the Wake-on-LAN turn).
 
-```sql
-ALTER TABLE public.devices
-  ADD COLUMN IF NOT EXISTS is_session_active boolean NOT NULL DEFAULT false;
+Adding `jpeg_base64` on top of `frame` would leave two columns for the same data: the agent keeps writing `frame`, the admin keeps reading an always-NULL `jpeg_base64`, and the fallback silently shows a black screen instead of a 400 — worse than the current banner.
 
--- Backfill from current sessions
-UPDATE public.devices d
-   SET is_session_active = EXISTS (
-     SELECT 1 FROM public.sessions s
-      WHERE s.device_id = d.id
-        AND s.state IN ('invited','active')
-   );
+### Fix (admin C# only, no migration)
 
--- Trigger: recompute the flag whenever a session row changes
-CREATE OR REPLACE FUNCTION public.sync_device_session_active()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE target uuid;
-BEGIN
-  target := COALESCE(NEW.device_id, OLD.device_id);
-  IF target IS NULL THEN RETURN COALESCE(NEW, OLD); END IF;
-  UPDATE public.devices
-     SET is_session_active = EXISTS (
-       SELECT 1 FROM public.sessions
-        WHERE device_id = target
-          AND state IN ('invited','active')
-     )
-   WHERE id = target;
-  RETURN COALESCE(NEW, OLD);
-END;
-$$;
+Point `ApiClient.GetLatestFrameAsync` at the real column.
 
-DROP TRIGGER IF EXISTS trg_sessions_sync_device_active ON public.sessions;
-CREATE TRIGGER trg_sessions_sync_device_active
-AFTER INSERT OR UPDATE OF state, device_id OR DELETE ON public.sessions
-FOR EACH ROW EXECUTE FUNCTION public.sync_device_session_active();
-```
+**`admin/src/Api/ApiClient.cs`** — in `GetLatestFrameAsync`:
 
-No code changes needed — admin console and web console will both start seeing the flag immediately.
+- Change the query from
+  `session_frames?select=jpeg_base64,captured_at&...&order=captured_at.desc&limit=1`
+  to
+  `session_frames?select=frame,updated_at&...&order=updated_at.desc&limit=1`
+  (the table's ordering column is `updated_at`, not `captured_at`).
+- Read `frame` (not `jpeg_base64`) from the JSON response; keep the existing base64 → byte[] decode.
 
-### Agent 401 / deployment key
+That's the entire code change. No schema migration, no new column, no new indexes.
 
-This is environment config, not a bug. On the test machine, do one of:
+### Why not just run the user's script anyway
 
-- Drop the key at `C:\ProgramData\ConnectLive\deployment.key`, or
-- `set AGENT_DEPLOYMENT_KEY=<key>` before launching `ConnectLiveAgent.exe`
+`ADD COLUMN IF NOT EXISTS` is safe in the "won't error" sense, but it isn't free:
 
-The agent's self-heal path (delete `device.dat` → re-enroll) then succeeds. Resolution order is already: HKLM policy → ProgramData file → env var → embedded constant (see `agent/src/DeploymentKey.cs`).
+- `session_frames.jpeg_base64` would ship a permanent dead column that masks the real bug.
+- The three "already exists" statements are pure noise in the migration history.
+- The indexes on `power_commands` / `sessions` / `session_signals` are already in the schema from earlier turns; re-adding them would be a no-op and clutter.
 
-No repack of the zips is required for this turn — only the DB migration.
+If a later audit shows any of those indexes are genuinely missing, we can add just those in a targeted migration — not bundle them behind a wrong column fix.
+
+### Verification after the change
+
+1. Rebuild `ConnectLiveAdmin`.
+2. Sign in as `197200`, connect to a live device.
+3. Orange banner "column session_frames.jpeg_base64 does not exist" is gone.
+4. While transport shows `http-poll`, the live view renders the agent's JPEG frames; it flips to `webrtc` once negotiation completes.
