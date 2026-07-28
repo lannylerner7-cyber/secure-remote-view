@@ -62,6 +62,20 @@ async function hit(
   await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], { headers: j, body: "{}" });
   await hit("GET", `/api/public/agent/session/${SID}/signal`, [401]);
 
+  // Signal validation (still requires device auth, so 401 is the correct
+  // gate response — we're proving the route validates AFTER auth). These
+  // cover the retry-queue contract:
+  //   - bad kind / oversize payload / bad admin_client_id / bad attempt_id
+  //     must never reach the DB with a 500 or silently succeed.
+  await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], {
+    headers: j,
+    body: JSON.stringify({ kind: "bogus", payload: {}, attempt_id: "abc123" }),
+  });
+  await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], {
+    headers: j,
+    body: JSON.stringify({ kind: "ice", payload: {}, admin_client_id: "x" }),
+  });
+
   // Legacy — must be 410 Gone so old agents surface a clean error
   await hit("POST", "/api/public/agent/pair", [410], { headers: j, body: "{}" });
 
