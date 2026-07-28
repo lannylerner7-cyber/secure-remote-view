@@ -147,11 +147,17 @@ public sealed class ApiClient
     {
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/sessions?select=*");
         req.Headers.Add("Prefer", "return=representation");
+        // technician_id + admin_client_id are REQUIRED for RLS + take-over routing:
+        //   - technician_id satisfies the "Staff create own sessions" INSERT policy for
+        //     paired admins (super_admins bypass, but sending it keeps both paths equal).
+        //   - admin_client_id lets the agent route WebRTC/input to THIS physical box.
         req.Content = JsonContent.Create(new
         {
             device_id = deviceRowId,
             mode,
             state = "invited",
+            technician_id = _auth.Current?.UserId,
+            admin_client_id = App.ClientId,
         });
         using var res = await SendSupabaseAsync(req, ct);
         if (!res.IsSuccessStatusCode) return null;
@@ -191,6 +197,8 @@ public sealed class ApiClient
     }
 
     // Send a WebRTC signal (SDP or ICE) that the agent will poll.
+    // admin_client_id is stamped so the agent can tell which physical admin
+    // box owns the current negotiation and can supersede stale ones.
     public async Task PushSignalAsync(string sessionId, string kind, object payload, CancellationToken ct)
     {
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/session_signals");
@@ -200,16 +208,21 @@ public sealed class ApiClient
             from_side = "admin",
             kind,
             payload,
+            admin_client_id = App.ClientId,
         });
         using var res = await SendSupabaseAsync(req, ct);
         _ = res.IsSuccessStatusCode;
     }
 
-    // Poll agent-originated signals (used until Realtime WS is wired).
+    // Poll agent-originated signals. We only pick up rows that either
+    //   (a) target THIS admin machine (admin_client_id = ours), or
+    //   (b) are un-targeted broadcasts (admin_client_id IS NULL),
+    // so a second admin box never steals our answer/ICE/terminated packets.
     public async Task<(long max, List<SessionSignal> items)> PollAgentSignalsAsync(string sessionId, long since, CancellationToken ct)
     {
+        var clientFilter = $"or=(admin_client_id.eq.{Uri.EscapeDataString(App.ClientId)},admin_client_id.is.null)";
         using var req = NewSupabase(HttpMethod.Get,
-            $"/rest/v1/session_signals?select=id,from_side,kind,payload&session_id=eq.{Uri.EscapeDataString(sessionId)}&from_side=eq.agent&id=gt.{since}&order=id.asc&limit=100");
+            $"/rest/v1/session_signals?select=id,from_side,kind,payload,admin_client_id&session_id=eq.{Uri.EscapeDataString(sessionId)}&from_side=eq.agent&id=gt.{since}&{clientFilter}&order=id.asc&limit=100");
         using var res = await SendSupabaseAsync(req, ct);
         if (!res.IsSuccessStatusCode) return (since, new List<SessionSignal>());
         var stream = await res.Content.ReadAsStreamAsync(ct);
