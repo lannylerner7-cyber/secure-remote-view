@@ -13,6 +13,13 @@ public partial class App : Application
     public static ApiClient Api { get; private set; } = null!;
     public static AuthStore Auth { get; private set; } = null!;
 
+    /// <summary>
+    /// Stable per-install routing tag for this physical admin box. Present
+    /// on every session/signal write so the agent can tell two admin
+    /// machines apart when the same technician is signed in on both.
+    /// </summary>
+    public static string ClientId { get; private set; } = "";
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
