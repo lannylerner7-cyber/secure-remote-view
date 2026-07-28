@@ -38,6 +38,7 @@ public partial class App : Application
         {
             Config = AppConfig.Load();
             Auth = new AuthStore();
+            ClientId = ClientIdStore.LoadOrCreate();
             Api = new ApiClient(Config, Auth);
         }
         catch (Exception ex)
