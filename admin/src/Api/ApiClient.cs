@@ -113,6 +113,18 @@ public sealed class ApiClient
         return res;
     }
 
+    // Throwing variant — non-2xx surfaces as SupabaseCallException with the
+    // response body attached so ViewModels can show the actual PostgREST error
+    // (RLS denial, constraint violation, expired token) instead of the UI
+    // silently freezing on a background loop failure.
+    private async Task EnsureOkAsync(HttpResponseMessage res, string context, CancellationToken ct)
+    {
+        if (res.IsSuccessStatusCode) return;
+        string body = "";
+        try { body = await res.Content.ReadAsStringAsync(ct); } catch { }
+        throw new SupabaseCallException(context, (int)res.StatusCode, body);
+    }
+
     private static async Task<HttpRequestMessage> CloneAsync(HttpRequestMessage req)
     {
         var clone = new HttpRequestMessage(req.Method, req.RequestUri);
