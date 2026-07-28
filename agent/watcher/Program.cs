@@ -56,6 +56,19 @@ internal sealed class WatcherService : BackgroundService
 
     private Process? _worker;
     private uint _lastSessionId = 0xFFFFFFFF;
+    private string? _lastLaunchedSessionId;
+
+    // Preferred install location — locked-down Program Files, immune to
+    // "user moved the exe to Desktop" tampering. Falls back to the folder
+    // the Watcher itself was published into (useful during dev).
+    private static readonly string InstalledAgentPath =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "ConnectLive", "ConnectLiveAgent.exe");
+
+    // Boss → Worker graceful exit signal. Written when we want the agent to
+    // shut down (session ended, no binding remaining). The agent's
+    // StopFlagWatcher polls it and calls Application.Shutdown().
+    private static readonly string StopFlagPath = Path.Combine(ConfigDir, "stop.flag");
 
     // Heartbeat back-off (seconds): 5 → 10 → 20 → 40 → 60 cap. Resets to 5s on success.
     private static readonly int[] BackoffSeconds = { 5, 10, 20, 40, 60 };
@@ -63,8 +76,6 @@ internal sealed class WatcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        var workerPath = Path.Combine(AppContext.BaseDirectory, "ConnectLiveAgent.exe");
-
         while (!ct.IsCancellationRequested)
         {
             try
@@ -80,14 +91,16 @@ internal sealed class WatcherService : BackgroundService
                 }
                 else if (sid != _lastSessionId)
                 {
-                    // Fast user switch: restart the worker in the new session.
+                    // Fast user switch: drop the old worker cleanly.
                     KillWorker();
                     _lastSessionId = sid;
+                    _lastLaunchedSessionId = null;
                 }
 
                 // ---- Persistent heartbeat --------------------------------
                 bool isSessionActive = false;
                 bool heartbeatOk = false;
+                string? activeSessionId = null;
                 try
                 {
                     var (id, token) = ReadDeviceCreds();
@@ -114,6 +127,14 @@ internal sealed class WatcherService : BackgroundService
                                 using var doc = JsonDocument.Parse(body);
                                 if (doc.RootElement.TryGetProperty("is_session_active", out var flag))
                                     isSessionActive = flag.ValueKind == JsonValueKind.True;
+                                if (doc.RootElement.TryGetProperty("sessions", out var arr) &&
+                                    arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
+                                {
+                                    var first = arr[0];
+                                    if (first.TryGetProperty("id", out var sidProp) &&
+                                        sidProp.ValueKind == JsonValueKind.String)
+                                        activeSessionId = sidProp.GetString();
+                                }
                             }
                             catch { /* tolerate response drift */ }
                         }
@@ -122,30 +143,74 @@ internal sealed class WatcherService : BackgroundService
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
-                    // Network not up yet after reboot, or transient outage. Loop on.
                     EventLog.WriteEntry(
                         "Application",
                         $"[ConnectLiveWatcher] heartbeat failed: {ex.Message}",
                         EventLogEntryType.Warning);
                 }
 
-                // ---- Session supervision ---------------------------------
+                // ---- Boss / Worker supervision --------------------------
+                // Demand-launch: only spawn the Agent when a session is
+                // actually active. When it ends, drop stop.flag so the Agent
+                // exits itself; hard-kill after a short grace if it doesn't.
                 if (hasUser)
                 {
                     bool agentRunning = _worker is { HasExited: false };
                     if (!agentRunning) _worker = null;
 
-                    // Always keep a worker alive in the interactive session so the
-                    // tray icon is up the moment the user logs in — the worker itself
-                    // decides whether to idle or stream based on heartbeat state.
-                    if (_worker is null && File.Exists(workerPath))
+                    if (isSessionActive)
                     {
-                        if (WinApi.LaunchInSession(sid, workerPath, out var proc))
+                        // Session is live — make sure the Agent is up and
+                        // pointed at the right session id.
+                        ClearStopFlag();
+
+                        bool needsRelaunch = _worker is null ||
+                            (activeSessionId != null && !string.Equals(activeSessionId, _lastLaunchedSessionId, StringComparison.Ordinal));
+
+                        if (needsRelaunch)
                         {
-                            _worker = proc;
+                            // If we already have an Agent running for a different
+                            // session, give it a moment to hand off cleanly.
+                            if (_worker is not null && activeSessionId != null)
+                            {
+                                WriteStopFlag();
+                                try { await Task.Delay(1500, ct); } catch { }
+                                KillWorker();
+                                ClearStopFlag();
+                            }
+
+                            var exePath = ResolveAgentPath();
+                            if (exePath != null && File.Exists(exePath))
+                            {
+                                var args = activeSessionId != null
+                                    ? $"/WAKE /SESSION=\"{activeSessionId}\""
+                                    : "/WAKE";
+                                if (WinApi.LaunchInSession(sid, exePath, args, out var proc))
+                                {
+                                    _worker = proc;
+                                    _lastLaunchedSessionId = activeSessionId;
+                                }
+                            }
+                            else
+                            {
+                                EventLog.WriteEntry("Application",
+                                    "[ConnectLiveWatcher] ConnectLiveAgent.exe missing at " +
+                                    (exePath ?? "<unresolved>") + " — install may be corrupted.",
+                                    EventLogEntryType.Warning);
+                            }
                         }
                     }
-
+                    else if (_worker is not null)
+                    {
+                        // No active session — ask the Agent to exit so it stops
+                        // eating CPU. Hard-kill after 3 s if it ignores us.
+                        WriteStopFlag();
+                        try { await Task.Delay(3000, ct); } catch { }
+                        if (_worker is { HasExited: false }) KillWorker();
+                        _worker = null;
+                        _lastLaunchedSessionId = null;
+                        ClearStopFlag();
+                    }
                 }
 
                 // ---- Cadence: 5s on success, exponential back-off on failure --
@@ -169,8 +234,39 @@ internal sealed class WatcherService : BackgroundService
             }
         }
 
+        WriteStopFlag();
         KillWorker();
+        ClearStopFlag();
     }
+
+    /// <summary>
+    /// Enterprise-hardened: prefer Program Files install path; fall back to
+    /// the Watcher's own directory (dev / side-by-side). Never search user
+    /// directories — a moved binary must be re-installed by the MDM package.
+    /// </summary>
+    private static string? ResolveAgentPath()
+    {
+        if (File.Exists(InstalledAgentPath)) return InstalledAgentPath;
+        var beside = Path.Combine(AppContext.BaseDirectory, "ConnectLiveAgent.exe");
+        if (File.Exists(beside)) return beside;
+        return null;
+    }
+
+    private static void WriteStopFlag()
+    {
+        try
+        {
+            Directory.CreateDirectory(ConfigDir);
+            File.WriteAllText(StopFlagPath, DateTime.UtcNow.ToString("O"));
+        }
+        catch { }
+    }
+
+    private static void ClearStopFlag()
+    {
+        try { if (File.Exists(StopFlagPath)) File.Delete(StopFlagPath); } catch { }
+    }
+
 
     private (string? id, string? token) ReadDeviceCreds()
     {
@@ -312,10 +408,10 @@ internal static class WinApi
 
     /// <summary>
     /// Launch <paramref name="exePath"/> inside the interactive user session
-    /// identified by <paramref name="sessionId"/>. Returns a Process handle
-    /// we can watch for exit.
+    /// identified by <paramref name="sessionId"/>, passing <paramref name="arguments"/>
+    /// on the command line. Returns a Process handle we can watch for exit.
     /// </summary>
-    public static bool LaunchInSession(uint sessionId, string exePath, out Process? process)
+    public static bool LaunchInSession(uint sessionId, string exePath, string arguments, out Process? process)
     {
         process = null;
         IntPtr userToken = IntPtr.Zero, dupToken = IntPtr.Zero, envBlock = IntPtr.Zero;
@@ -328,7 +424,10 @@ internal static class WinApi
 
             var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), lpDesktop = @"winsta0\default" };
             uint flags = CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE;
-            if (!CreateProcessAsUser(dupToken, exePath, $"\"{exePath}\"", IntPtr.Zero, IntPtr.Zero,
+            var cmdLine = string.IsNullOrEmpty(arguments)
+                ? $"\"{exePath}\""
+                : $"\"{exePath}\" {arguments}";
+            if (!CreateProcessAsUser(dupToken, exePath, cmdLine, IntPtr.Zero, IntPtr.Zero,
                     false, flags, envBlock, Path.GetDirectoryName(exePath), ref si, out var pi))
                 return false;
 
@@ -344,4 +443,5 @@ internal static class WinApi
             if (userToken != IntPtr.Zero) CloseHandle(userToken);
         }
     }
+
 }

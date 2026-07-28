@@ -14,8 +14,34 @@ public partial class App : Application
         base.OnStartup(e);
 
         string? apiUrl = null;
-        for (int i = 0; i < e.Args.Length - 1; i++)
-            if (e.Args[i] == "--api-url") { apiUrl = e.Args[i + 1]; ApiClient.SaveConfig(new ApiClient.AgentConfig(apiUrl)); }
+        string? wakeSessionId = null;
+        bool wake = false;
+        for (int i = 0; i < e.Args.Length; i++)
+        {
+            var a = e.Args[i];
+            if (a == "--api-url" && i + 1 < e.Args.Length)
+            {
+                apiUrl = e.Args[i + 1];
+                ApiClient.SaveConfig(new ApiClient.AgentConfig(apiUrl));
+            }
+            else if (string.Equals(a, "/WAKE", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(a, "--wake",  StringComparison.OrdinalIgnoreCase))
+            {
+                wake = true;
+            }
+            else if (a.StartsWith("/SESSION=", StringComparison.OrdinalIgnoreCase))
+            {
+                wakeSessionId = a.Substring("/SESSION=".Length).Trim('"');
+            }
+            else if (string.Equals(a, "--session", StringComparison.OrdinalIgnoreCase) && i + 1 < e.Args.Length)
+            {
+                wakeSessionId = e.Args[i + 1];
+            }
+        }
+
+        // Watcher-triggered stop signal: if the Boss drops stop.flag, exit cleanly.
+        StopFlagWatcher.Start(_cts.Token);
+
 
         var splash = new SplashWindow();
         splash.Show();
@@ -42,19 +68,27 @@ public partial class App : Application
                 return;
             }
 
-            // Auto-enrolled devices don't need a user-typed PIN. The admin
-            // opens a session from the dashboard; the agent restores the
-            // most recent binding on cold boot and otherwise idles.
+            // Boss (Watcher) → Worker (Agent) handoff: if /WAKE was passed
+            // with a /SESSION=<id>, treat that id as authoritative and skip
+            // the disk-restore lookup.
             string? sessionId = null;
-            var saved = api.LoadSessionBinding();
-            if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
+            if (wake && !string.IsNullOrWhiteSpace(wakeSessionId))
             {
-                splash.SetStatus("Restoring previous session…");
-                var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
-                if (restored.Ok && !string.IsNullOrEmpty(restored.SessionId))
-                    sessionId = restored.SessionId;
-                else
-                    ApiClient.ClearSessionBinding();
+                sessionId = wakeSessionId;
+                splash.SetStatus("Attaching to session…");
+            }
+            else
+            {
+                var saved = api.LoadSessionBinding();
+                if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
+                {
+                    splash.SetStatus("Restoring previous session…");
+                    var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
+                    if (restored.Ok && !string.IsNullOrEmpty(restored.SessionId))
+                        sessionId = restored.SessionId;
+                    else
+                        ApiClient.ClearSessionBinding();
+                }
             }
 
             splash.SetStatus(sessionId is null ? "Standing by" : "Session restored");
