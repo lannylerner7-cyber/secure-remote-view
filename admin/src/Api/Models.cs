@@ -44,4 +44,5 @@ public sealed class SessionSignal
     [JsonPropertyName("from_side")] public string FromSide { get; set; } = "";
     [JsonPropertyName("kind")] public string Kind { get; set; } = "";
     [JsonPropertyName("payload")] public object? Payload { get; set; }
+    [JsonPropertyName("admin_client_id")] public string? AdminClientId { get; set; }
 }
