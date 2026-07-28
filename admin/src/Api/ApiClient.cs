@@ -362,6 +362,49 @@ public sealed class ApiClient
         try { return Convert.FromBase64String(b64); } catch { return null; }
     }
 
+    // Poll latest cursor telemetry so the native admin can render a ghost
+    // pointer over the D3D surface — same source the web console uses.
+    public sealed record CursorSample(int X, int Y, int? FrameW, int? FrameH, string Kind, bool Visible);
+
+    public async Task<CursorSample?> PollSessionCursorAsync(string sessionId, CancellationToken ct)
+    {
+        using var req = NewSupabase(HttpMethod.Get,
+            $"/rest/v1/session_cursors?select=x,y,frame_w,frame_h,kind,visible&session_id=eq.{Uri.EscapeDataString(sessionId)}&limit=1");
+        using var res = await SendSupabaseAsync(req, ct);
+        await EnsureOkAsync(res, "poll cursor", ct);
+        var stream = await res.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (doc.RootElement.GetArrayLength() == 0) return null;
+        var row = doc.RootElement[0];
+        return new CursorSample(
+            row.GetProperty("x").GetInt32(),
+            row.GetProperty("y").GetInt32(),
+            row.TryGetProperty("frame_w", out var fw) && fw.ValueKind == JsonValueKind.Number ? fw.GetInt32() : null,
+            row.TryGetProperty("frame_h", out var fh) && fh.ValueKind == JsonValueKind.Number ? fh.GetInt32() : null,
+            row.TryGetProperty("kind", out var k) ? (k.GetString() ?? "arrow") : "arrow",
+            row.TryGetProperty("visible", out var v) && v.ValueKind == JsonValueKind.True);
+    }
+
+    // Queue a power-management command (shutdown / restart / lock / logoff /
+    // wake) for the agent's PowerRelay to pick up. RLS restricts inserts to
+    // authenticated staff with the admin/super_admin role.
+    public async Task EnqueuePowerCommandAsync(string deviceRowId, string kind, object? payload, CancellationToken ct)
+    {
+        using var req = NewSupabase(HttpMethod.Post, "/rest/v1/power_commands");
+        req.Headers.Add("Prefer", "return=minimal");
+        req.Content = JsonContent.Create(new
+        {
+            device_id = deviceRowId,
+            kind,
+            payload = payload ?? new { },
+            state = "queued",
+            expires_at = DateTime.UtcNow.AddMinutes(5),
+            requested_by = _auth.Current?.UserId,
+        });
+        using var res = await SendSupabaseAsync(req, ct);
+        await EnsureOkAsync(res, "enqueue power command", ct);
+    }
+
     // ---------- JWT helpers ----------
 
     private static long DecodeJwtExpiry(string jwt)

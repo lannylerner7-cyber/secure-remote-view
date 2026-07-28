@@ -85,6 +85,28 @@ async function hit(
     body: JSON.stringify({ identifier: "nobody", password: "x" }),
   });
 
+  // Native-admin PostgREST parity: proves the tables the C# admin queries
+  // are reachable at these exact paths and gated behind auth (401 without
+  // apikey/Bearer). Guards against silent 404/500 if a table gets renamed
+  // out from under the admin client.
+  const supabaseUrl = process.env.SUPABASE_URL ?? "https://usjygjxpzunpzngmmrqy.supabase.co";
+  async function pg(method: string, path: string, expected: number[], body?: string) {
+    const url = `${supabaseUrl}${path}`;
+    try {
+      const r = await fetch(url, { method, body, headers: body ? j : undefined });
+      const text = (await r.text()).slice(0, 100).replace(/\s+/g, " ");
+      add(`${method} ${path}`, expected.includes(r.status),
+        `HTTP ${r.status} (want ${expected.join("|")}) · ${text}`);
+    } catch (e) {
+      add(`${method} ${path}`, false, e instanceof Error ? e.message : String(e));
+    }
+  }
+  await pg("GET", `/rest/v1/session_cursors?session_id=eq.${SID}&select=x,y&limit=1`, [401]);
+  await pg("POST", "/rest/v1/power_commands", [401],
+    JSON.stringify({ device_id: SID, kind: "lock" }));
+  await pg("POST", "/rest/v1/rpc/bind_admin", [401],
+    JSON.stringify({ _session_id: SID, _client_id: "x".repeat(16) }));
+
   const pad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
   for (const r of results) {
     console.log(`${r.ok ? "✅" : "❌"} ${pad(r.name, 60)} ${r.detail}`);

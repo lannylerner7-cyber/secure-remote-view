@@ -203,6 +203,16 @@ public sealed class WebRtcClient
 
     public void Close()
     {
+        // Best-effort "bye" so the agent tears down its peer immediately
+        // instead of waiting on its own 12s watchdog. Uses a fresh short
+        // timeout token — we do NOT gate it on _cts because Close() is
+        // about to cancel it.
+        try
+        {
+            using var byeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            _ = App.Api.PushSignalReliableAsync(_sessionId, "bye", new { }, byeCts.Token);
+        }
+        catch { }
         try { _cts?.Cancel(); } catch { }
         try { _pc?.close(); } catch { }
         _pc = null;

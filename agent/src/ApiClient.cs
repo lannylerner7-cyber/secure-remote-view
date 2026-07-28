@@ -213,13 +213,15 @@ public sealed class ApiClient
     // The old /api/public/agent/pair endpoint returns 410 Gone; auto-enroll
     // + admin-initiated session creation replaces it end-to-end.
 
-    public sealed record PairResult(bool Ok, string? SessionId, string? Error);
-    private sealed record PairOk(bool ok, string sessionId, string mode, string state);
-    private sealed record PairErr(string error);
+    // Result type mirrors the /reconnect endpoint (the retired /pair route
+    // returns 410 Gone). Naming stays literal so error paths read cleanly.
+    public sealed record ReconnectResult(bool Ok, string? SessionId, string? Error);
+    private sealed record ReconnectOk(bool ok, string sessionId, string mode, string state);
+    private sealed record ReconnectErr(string error);
 
     // ---- Reusable reconnect --------------------------------------------
 
-    public async Task<PairResult> ReconnectSessionAsync(string sessionId, string? code, CancellationToken ct)
+    public async Task<ReconnectResult> ReconnectSessionAsync(string sessionId, string? code, CancellationToken ct)
     {
         try
         {
@@ -233,18 +235,18 @@ public sealed class ApiClient
             {
                 try
                 {
-                    var err = JsonSerializer.Deserialize<PairErr>(body);
-                    return new PairResult(false, null, err?.error ?? resp.StatusCode.ToString());
+                    var err = JsonSerializer.Deserialize<ReconnectErr>(body);
+                    return new ReconnectResult(false, null, err?.error ?? resp.StatusCode.ToString());
                 }
-                catch { return new PairResult(false, null, resp.StatusCode.ToString()); }
+                catch { return new ReconnectResult(false, null, resp.StatusCode.ToString()); }
             }
-            var ok = JsonSerializer.Deserialize<PairOk>(body);
+            var ok = JsonSerializer.Deserialize<ReconnectOk>(body);
             if (!string.IsNullOrEmpty(ok?.sessionId)) SaveSessionBinding(new SessionBinding(ok.sessionId, code, DateTimeOffset.UtcNow));
-            return new PairResult(true, ok?.sessionId, null);
+            return new ReconnectResult(true, ok?.sessionId, null);
         }
         catch (Exception ex)
         {
-            return new PairResult(false, null, ex.Message);
+            return new ReconnectResult(false, null, ex.Message);
         }
     }
 
