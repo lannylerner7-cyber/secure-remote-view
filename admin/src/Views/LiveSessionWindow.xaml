@@ -39,8 +39,17 @@
             <!-- Take-over banner: red overlay when another admin console
                  supersedes this session (WebRtcClient "terminated" signal). -->
             <Border Background="#DC2626" Padding="16,10"
-                    VerticalAlignment="Top" HorizontalAlignment="Stretch"
-                    Visibility="{Binding TakenOver, Converter={StaticResource BoolToVis}}">
+                    VerticalAlignment="Top" HorizontalAlignment="Stretch">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding TakenOver}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <TextBlock Text="{Binding TakenOverMessage}" Foreground="White"
                            FontWeight="SemiBold" TextAlignment="Center" />
             </Border>
