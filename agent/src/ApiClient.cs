@@ -244,11 +244,18 @@ public sealed class ApiClient
 
     // ---- WebRTC signaling ---------------------------------------------
 
-    public async Task<bool> PostSignalAsync(string sessionId, string kind, object payload, CancellationToken ct)
+    public async Task<bool> PostSignalAsync(string sessionId, string kind, object payload, CancellationToken ct, string? adminClientId = null)
     {
+        // admin_client_id targets a specific admin machine — required so that
+        // (a) the answering admin's poller picks up our answer/ICE, and
+        // (b) a "terminated" packet meant for a superseded admin only closes
+        //     that admin's WebRTC client, not the new one that just took over.
+        object body = adminClientId is null
+            ? new { kind, payload }
+            : new { kind, payload, admin_client_id = adminClientId };
         using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/signal")
         {
-            Content = JsonContent.Create(new { kind, payload }),
+            Content = JsonContent.Create(body),
         };
         AddAuth(req);
         try { using var resp = await _http.SendAsync(req, ct); return resp.IsSuccessStatusCode; }
