@@ -32,7 +32,13 @@ public partial class LiveSessionViewModel : ObservableObject
 
     private CancellationTokenSource? _cts;
     private FrameFallbackPump? _framePump;
+    private CursorPollPump? _cursorPump;
     private WebRtcClient? _rtc;
+
+    // Latest cursor sample (normalised 0..1) bound by LiveSessionWindow.
+    [ObservableProperty] private double cursorNormX;
+    [ObservableProperty] private double cursorNormY;
+    [ObservableProperty] private bool cursorVisible;
 
     public LiveSessionViewModel(string sessionId, DeviceItem device)
     {
@@ -46,14 +52,43 @@ public partial class LiveSessionViewModel : ObservableObject
         Application.Current?.Dispatcher.InvokeAsync(() => StatusMessage = msg);
     }
 
+    private void HandleTakenOver()
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            TakenOver = true;
+            TakenOverMessage = "This session was taken over by another admin console.";
+            Transport = "ended";
+        });
+        try { _cts?.Cancel(); } catch { }
+    }
+
     public void Start()
     {
         _cts = new CancellationTokenSource();
         _framePump = new FrameFallbackPump(SessionId,
             bmp => Application.Current?.Dispatcher.Invoke(() => CurrentFrame = bmp),
-            onError: SurfaceError);
+            onError: SurfaceError,
+            onSuperseded: HandleTakenOver);
         _framePump.Start(_cts.Token);
         Transport = "http-poll";
+
+        _cursorPump = new CursorPollPump(SessionId, sample =>
+        {
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                if (sample == null || !sample.Visible ||
+                    sample.FrameW is null or 0 || sample.FrameH is null or 0)
+                {
+                    CursorVisible = false;
+                    return;
+                }
+                CursorNormX = Math.Clamp((double)sample.X / sample.FrameW.Value, 0, 1);
+                CursorNormY = Math.Clamp((double)sample.Y / sample.FrameH.Value, 0, 1);
+                CursorVisible = true;
+            });
+        }, onError: SurfaceError);
+        _cursorPump.Start(_cts.Token);
 
         _rtc = new WebRtcClient(SessionId);
         _ = _rtc.StartAsync(_cts.Token,
@@ -65,18 +100,7 @@ public partial class LiveSessionViewModel : ObservableObject
                     StatusMessage = null;
                 });
             },
-            onTerminated: () =>
-            {
-                Application.Current?.Dispatcher.Invoke(() =>
-                {
-                    TakenOver = true;
-                    TakenOverMessage = "This session was taken over by another admin console.";
-                    Transport = "ended";
-                });
-                // Stop polling and background loops; the window can stay open
-                // to display the banner until the technician closes it.
-                try { _cts?.Cancel(); } catch { }
-            },
+            onTerminated: HandleTakenOver,
             onError: SurfaceError);
     }
 
@@ -86,7 +110,23 @@ public partial class LiveSessionViewModel : ObservableObject
         try { _rtc?.Close(); } catch { }
         _rtc = null;
         _framePump = null;
+        _cursorPump = null;
         _ = App.Api.EndSessionAsync(SessionId, CancellationToken.None);
+    }
+
+    // Queue a power command for the agent's PowerRelay
+    // (kind ∈ shutdown | restart | lock | logoff | wake).
+    [RelayCommand]
+    private async Task PowerCommand(string kind)
+    {
+        if (string.IsNullOrEmpty(kind)) return;
+        try
+        {
+            await App.Api.EnqueuePowerCommandAsync(Device.Id, kind, null, CancellationToken.None);
+            StatusMessage = $"Power command '{kind}' queued.";
+        }
+        catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
+        catch (Exception ex) { SurfaceError(ex.Message); }
     }
 
     [RelayCommand]

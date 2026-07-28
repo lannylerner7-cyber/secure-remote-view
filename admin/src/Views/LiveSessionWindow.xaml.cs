@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using ConnectLive.Admin.Input;
 using ConnectLive.Admin.ViewModels;
@@ -28,6 +30,30 @@ public partial class LiveSessionWindow : Window
         KeyDown += OnKeyDown;
         KeyUp += OnKeyUp;
         TextInput += OnTextInput;
+
+        FrameImage.SizeChanged += (_, _) => UpdateCursorGhost();
+        _vm.PropertyChanged += Vm_PropertyChanged;
+    }
+
+    private void Vm_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(LiveSessionViewModel.CursorNormX) ||
+            e.PropertyName == nameof(LiveSessionViewModel.CursorNormY) ||
+            e.PropertyName == nameof(LiveSessionViewModel.CursorVisible))
+        {
+            UpdateCursorGhost();
+        }
+    }
+
+    private void UpdateCursorGhost()
+    {
+        if (!_vm.CursorVisible) { CursorGhost.Visibility = Visibility.Collapsed; return; }
+        double w = FrameImage.ActualWidth;
+        double h = FrameImage.ActualHeight;
+        if (w <= 0 || h <= 0) { CursorGhost.Visibility = Visibility.Collapsed; return; }
+        Canvas.SetLeft(CursorGhost, _vm.CursorNormX * w - 1);
+        Canvas.SetTop(CursorGhost, _vm.CursorNormY * h - 1);
+        CursorGhost.Visibility = Visibility.Visible;
     }
 
     private (double x, double y) ToAbs(MouseEventArgs e)

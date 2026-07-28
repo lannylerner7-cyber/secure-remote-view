@@ -16,15 +16,47 @@ public sealed class FrameFallbackPump
     private readonly string _sessionId;
     private readonly Action<BitmapSource> _onFrame;
     private readonly Action<string>? _onError;
+    private readonly Action? _onSuperseded;
 
-    public FrameFallbackPump(string sessionId, Action<BitmapSource> onFrame, Action<string>? onError = null)
+    public FrameFallbackPump(string sessionId, Action<BitmapSource> onFrame,
+        Action<string>? onError = null, Action? onSuperseded = null)
     {
         _sessionId = sessionId;
         _onFrame = onFrame;
         _onError = onError;
+        _onSuperseded = onSuperseded;
     }
 
-    public void Start(CancellationToken ct) => _ = Task.Run(() => Loop(ct), CancellationToken.None);
+    public void Start(CancellationToken ct)
+    {
+        _ = Task.Run(() => Loop(ct), CancellationToken.None);
+        _ = Task.Run(() => HeartbeatLoop(ct), CancellationToken.None);
+    }
+
+    // Idempotent 15s bind_admin heartbeat so the session binding stays
+    // claimed even if WebRTC never negotiates. Safe to run alongside the
+    // WebRtcClient heartbeat when both paths are alive.
+    private async Task HeartbeatLoop(CancellationToken ct)
+    {
+        try
+        {
+            var initial = await App.Api.BindAdminAsync(_sessionId, ct);
+            if (!initial.bound && initial.reason == "superseded") { _onSuperseded?.Invoke(); return; }
+        }
+        catch (Exception ex) { _onError?.Invoke("Bind session: " + ex.Message); }
+
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(15_000, ct); } catch { return; }
+            if (ct.IsCancellationRequested) return;
+            try
+            {
+                var r = await App.Api.BindAdminAsync(_sessionId, ct);
+                if (!r.bound && r.reason == "superseded") { _onSuperseded?.Invoke(); return; }
+            }
+            catch (Exception ex) { _onError?.Invoke("Heartbeat: " + ex.Message); }
+        }
+    }
 
     private async Task Loop(CancellationToken ct)
     {
