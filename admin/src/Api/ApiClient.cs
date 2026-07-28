@@ -250,6 +250,11 @@ public sealed class ApiClient
     // box owns the current negotiation and can supersede stale ones.
     public async Task PushSignalAsync(string sessionId, string kind, object payload, CancellationToken ct)
     {
+        // Never emit an admin signal without a stable client id — the DB
+        // policy would reject it and the poll loop would deadlock. Surface
+        // early so the caller shows a real error instead of a silent 401 loop.
+        if (string.IsNullOrEmpty(App.ClientId))
+            throw new InvalidOperationException("Admin ClientId is not initialised; cannot push signal.");
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/session_signals");
         req.Content = JsonContent.Create(new
         {
