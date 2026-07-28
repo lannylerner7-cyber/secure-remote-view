@@ -59,10 +59,10 @@
                     VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="0,64,0,0">
                 <Border.Style>
                     <Style TargetType="Border">
-                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Setter Property="Visibility" Value="Visible" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}" Value="Visible">
-                                <Setter Property="Visibility" Value="Visible" />
+                            <DataTrigger Binding="{Binding StatusMessage}" Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
