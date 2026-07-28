@@ -44,6 +44,22 @@ public sealed class ApiClient
     public string? DeviceId { get; private set; }
     public string? DeviceToken { get; private set; }
 
+    // Single-flight re-enroll guard. On a burst of concurrent 401s (heartbeat,
+    // frame, cursor, input, signal loops all firing at once), only one thread
+    // wipes device.dat and calls the enroll endpoint; the others park on this
+    // semaphore, notice the token generation moved, and retry with the fresh
+    // credential instead of enrolling a second time.
+    private static readonly SemaphoreSlim _enrollLock = new(1, 1);
+    private long _tokenGeneration;
+    // If a re-enroll itself 401s (deployment key revoked), stop hammering the
+    // gateway. Set to now + 60s; SendAuthedAsync short-circuits until it passes.
+    private DateTime _revokedUntilUtc = DateTime.MinValue;
+
+    /// <summary>Fired once when the deployment key appears to be revoked.
+    /// Wired to a tray balloon from App.xaml.cs so the technician sees a
+    /// single "reinstall required" toast instead of an exception dialog.</summary>
+    public event Action<string>? OnEnrollmentRevoked;
+
     public ApiClient(string? overrideBaseUrl = null)
     {
         Directory.CreateDirectory(ConfigDir);
@@ -89,13 +105,66 @@ public sealed class ApiClient
         DeviceId = body.DeviceId;
         DeviceToken = body.DeviceToken;
         SaveDeviceCreds(body);
+        Interlocked.Increment(ref _tokenGeneration);
+    }
+
+    // Runs a request, and on a single 401 wipes local creds + re-enrolls (once,
+    // guarded by _enrollLock so parallel loops don't stampede), then retries.
+    // A second 401 marks the deployment key as revoked and backs off 60s.
+    // Callers must not dispose the returned response before consuming it.
+    private async Task<HttpResponseMessage> SendAuthedAsync(Func<HttpRequestMessage> build, CancellationToken ct)
+    {
+        if (DateTime.UtcNow < _revokedUntilUtc)
+            throw new HttpRequestException("Enrollment revoked; waiting for cooldown");
+
+        var beforeGen = Interlocked.Read(ref _tokenGeneration);
+        var req = build();
+        AddAuth(req);
+        var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode != System.Net.HttpStatusCode.Unauthorized) return resp;
+        resp.Dispose();
+        req.Dispose();
+
+        // Single-flight re-enroll.
+        await _enrollLock.WaitAsync(ct);
+        try
+        {
+            if (Interlocked.Read(ref _tokenGeneration) == beforeGen)
+            {
+                // Nobody else re-enrolled yet — we do it.
+                try
+                {
+                    if (File.Exists(DevicePath)) File.Delete(DevicePath);
+                }
+                catch { /* best-effort */ }
+                DeviceId = null;
+                DeviceToken = null;
+                try { await EnrollIfNeededAsync(ct); }
+                catch (HttpRequestException) { throw; }
+                catch (Exception ex) { throw new HttpRequestException("Re-enrollment failed: " + ex.Message); }
+            }
+        }
+        finally { _enrollLock.Release(); }
+
+        // Retry once with the fresh token.
+        var req2 = build();
+        AddAuth(req2);
+        var resp2 = await _http.SendAsync(req2, ct);
+        req2.Dispose();
+        if (resp2.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            resp2.Dispose();
+            _revokedUntilUtc = DateTime.UtcNow.AddSeconds(60);
+            try { OnEnrollmentRevoked?.Invoke("Enrollment revoked — reinstall required."); } catch { }
+            throw new HttpRequestException("Enrollment revoked after retry");
+        }
+        return resp2;
     }
 
     public async Task HelloAsync(CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/hello");
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAuthedAsync(
+            () => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/hello"), ct);
         resp.EnsureSuccessStatusCode();
     }
 
@@ -104,12 +173,10 @@ public sealed class ApiClient
         // Best-effort LAN fingerprint so admins can pick a peer for WoL.
         var (subnet, mac, ipv4) = PowerRelay.LocalLanFingerprint();
         var payload = new { lan = new { subnet_v4 = subnet, mac, ipv4 } };
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
+        using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {
             Content = JsonContent.Create(payload),
-        };
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct);
+        }, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);
     }
@@ -118,12 +185,15 @@ public sealed class ApiClient
 
     public async Task AckPowerCommandAsync(string cmdId, string state, string? error, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/power/{cmdId}/ack")
+        try
         {
-            Content = JsonContent.Create(new { state, error }),
-        };
-        AddAuth(req);
-        try { using var resp = await _http.SendAsync(req, ct); } catch { /* best-effort */ }
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/power/{cmdId}/ack")
+                {
+                    Content = JsonContent.Create(new { state, error }),
+                }, ct);
+        }
+        catch { /* best-effort */ }
     }
 
     public async Task SubmitConsentAsync(string sessionId, bool accepted, CancellationToken ct)
@@ -131,12 +201,11 @@ public sealed class ApiClient
         // Server expects { decision: "accept" | "decline" } — see
         // src/routes/api/public/agent/session.$sessionId.consent.ts.
         var decision = accepted ? "accept" : "decline";
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/consent")
-        {
-            Content = JsonContent.Create(new { decision })
-        };
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAuthedAsync(
+            () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/consent")
+            {
+                Content = JsonContent.Create(new { decision })
+            }, ct);
         resp.EnsureSuccessStatusCode();
     }
 
@@ -152,14 +221,13 @@ public sealed class ApiClient
 
     public async Task<PairResult> ReconnectSessionAsync(string sessionId, string? code, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/reconnect")
-        {
-            Content = JsonContent.Create(new { code })
-        };
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/reconnect")
+                {
+                    Content = JsonContent.Create(new { code })
+                }, ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
             if (!resp.IsSuccessStatusCode)
             {
@@ -190,14 +258,13 @@ public sealed class ApiClient
             width,
             height,
         };
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/frame")
-        {
-            Content = JsonContent.Create(payload),
-        };
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/frame")
+                {
+                    Content = JsonContent.Create(payload),
+                }, ct);
             return resp.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -208,14 +275,13 @@ public sealed class ApiClient
     public async Task<bool> PostCursorAsync(string sessionId, int x, int y, int w, int h, string kind, bool visible, CancellationToken ct)
     {
         var payload = new { x, y, w, h, kind, visible };
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/cursor")
-        {
-            Content = JsonContent.Create(payload),
-        };
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/cursor")
+                {
+                    Content = JsonContent.Create(payload),
+                }, ct);
             return resp.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -225,11 +291,10 @@ public sealed class ApiClient
 
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollInputsAsync(string sessionId, long since, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/inputs?since={since}");
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/inputs?since={since}"), ct);
             if (!resp.IsSuccessStatusCode) return (since, null);
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
@@ -253,22 +318,24 @@ public sealed class ApiClient
         object body = adminClientId is null
             ? new { kind, payload }
             : new { kind, payload, admin_client_id = adminClientId };
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/signal")
+        try
         {
-            Content = JsonContent.Create(body),
-        };
-        AddAuth(req);
-        try { using var resp = await _http.SendAsync(req, ct); return resp.IsSuccessStatusCode; }
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/signal")
+                {
+                    Content = JsonContent.Create(body),
+                }, ct);
+            return resp.IsSuccessStatusCode;
+        }
         catch { return false; }
     }
 
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollSignalsAsync(string sessionId, long since, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/signal?since={since}");
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/signal?since={since}"), ct);
             if (!resp.IsSuccessStatusCode) return (since, null);
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);

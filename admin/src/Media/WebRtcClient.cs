@@ -23,6 +23,7 @@ public sealed class WebRtcClient
     private long _sinceSignalId;
     private CancellationTokenSource? _cts;
     private Action? _onTerminated;
+    private Action<string>? _onError;
 
     public WebRtcClient(string sessionId) => _sessionId = sessionId;
 
@@ -31,9 +32,14 @@ public sealed class WebRtcClient
     /// machine (someone else took over the same live session). The ViewModel
     /// closes the window and shows a banner.
     /// </param>
-    public async Task StartAsync(CancellationToken outerCt, Action onConnected, Action? onTerminated = null)
+    /// <param name="onError">
+    /// Fired on repeated signal-poll failures (typically 401/RLS) so the
+    /// ViewModel can raise a banner instead of the loop dying silently.
+    /// </param>
+    public async Task StartAsync(CancellationToken outerCt, Action onConnected, Action? onTerminated = null, Action<string>? onError = null)
     {
         _onTerminated = onTerminated;
+        _onError = onError;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var ct = _cts.Token;
 
@@ -137,7 +143,12 @@ public sealed class WebRtcClient
                     }
                 }
             }
-            catch { ok = false; }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex)
+            {
+                ok = false;
+                try { _onError?.Invoke("Signal poll: " + ex.Message); } catch { }
+            }
             try { await Task.Delay(ok ? 500 : 2000, ct); } catch { }
         }
     }
