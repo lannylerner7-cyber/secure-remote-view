@@ -211,10 +211,12 @@ public static class ScreenCapture
             try { await Task.Delay(delayMs, ct); } catch { }
         }
 
-        // Cleanup reusable bitmaps.
+        // Cleanup reusable bitmaps + DXGI resources.
         rawBmp?.Dispose();
         scaledBmp?.Dispose();
+        dxgi?.Dispose();
     }
+
 
     private static ulong HashBitmap(Bitmap bmp)
     {
