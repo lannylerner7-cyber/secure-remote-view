@@ -252,7 +252,7 @@ public sealed class ApiClient
         using var req = NewSupabase(HttpMethod.Get,
             $"/rest/v1/session_frames?select=jpeg_base64,captured_at&session_id=eq.{Uri.EscapeDataString(sessionId)}&order=captured_at.desc&limit=1");
         using var res = await SendSupabaseAsync(req, ct);
-        if (!res.IsSuccessStatusCode) return null;
+        await EnsureOkAsync(res, "poll frames", ct);
         var stream = await res.Content.ReadAsStreamAsync(ct);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
         if (doc.RootElement.GetArrayLength() == 0) return null;
