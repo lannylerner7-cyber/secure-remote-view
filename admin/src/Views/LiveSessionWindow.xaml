@@ -53,6 +53,22 @@
                 <TextBlock Text="{Binding TakenOverMessage}" Foreground="White"
                            FontWeight="SemiBold" TextAlignment="Center" />
             </Border>
+
+            <!-- Non-fatal background error banner (frame poll / signal poll / RLS 401). -->
+            <Border Background="#F59E0B" Padding="12,6"
+                    VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="0,64,0,0">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}" Value="Visible">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="Black" FontWeight="SemiBold" TextAlignment="Center" />
+            </Border>
         </Grid>
     </DockPanel>
 </Window>
