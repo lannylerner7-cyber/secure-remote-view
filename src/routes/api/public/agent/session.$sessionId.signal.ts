@@ -5,27 +5,31 @@ import { verifyDevice } from "@/lib/agent-auth.server";
  * WebRTC signaling channel — SDP offer/answer + ICE candidates + "terminated"
  * take-over handshake.
  *
- *   POST /api/public/agent/session/:id/signal
- *     body: { kind: "offer"|"answer"|"ice"|"bye"|"terminated",
- *             payload: any,
- *             admin_client_id?: string }
- *     Agent posts its side. `from_side` is inferred from device auth (always
- *     "agent"). `admin_client_id`, when present, tags the row so the admin
- *     poller only picks up rows meant for its physical machine — critical
- *     when a technician is signed in on two boxes simultaneously.
- *
- *   GET  /api/public/agent/session/:id/signal?since=<id>
- *     Response: { max, items: [{ id, from_side: "admin", kind, payload,
- *                                admin_client_id }] }
- *     The agent needs `admin_client_id` on every admin-originated row so it
- *     can recognise a new admin machine and run the take-over sequence.
+ * Peer-admin isolation is enforced on both sides:
+ *   - INSERT policy on session_signals forbids admin rows with a NULL or
+ *     mismatched admin_client_id (see 20260728 migration).
+ *   - This route:
+ *       * validates `kind`, `admin_client_id` shape, and payload byte size,
+ *       * for agent POSTs, refuses to stamp an admin_client_id that doesn't
+ *         match the session's current binding (agent must only reply to the
+ *         admin that owns the peer),
+ *       * for agent GETs, filters returned rows to (a) the session's bound
+ *         admin_client_id and (b) untargeted broadcasts (NULL) so the agent
+ *         doesn't see signals meant for a superseded admin box.
  */
+const SIGNAL_KINDS = ["offer", "answer", "ice", "bye", "terminated"] as const;
+const CLIENT_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
+const MAX_PAYLOAD_BYTES = 32_000;
+const JSON_HEADERS = { "content-type": "application/json" };
+const errJson = (code: string, status: number, extra: Record<string, unknown> = {}) =>
+  new Response(JSON.stringify({ error: code, ...extra }), { status, headers: JSON_HEADERS });
+
 export const Route = createFileRoute("/api/public/agent/session/$sessionId/signal")({
   server: {
     handlers: {
       POST: async ({ request, params }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (!ctx) return errJson("unauthorized", 401);
 
         const body = (await request.json().catch(() => ({}))) as {
           kind?: string;
@@ -33,29 +37,55 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           admin_client_id?: string | null;
         };
         const kind = body.kind ?? "";
-        if (!["offer", "answer", "ice", "bye", "terminated"].includes(kind)) {
-          return new Response(JSON.stringify({ error: "invalid_kind" }), { status: 400 });
+        if (!(SIGNAL_KINDS as readonly string[]).includes(kind)) {
+          return errJson("invalid_kind", 400);
         }
         if (body.payload === undefined || body.payload === null) {
-          return new Response(JSON.stringify({ error: "missing_payload" }), { status: 400 });
+          return errJson("missing_payload", 400);
+        }
+        // Cheap byte cap to keep an errant agent from filling Postgres with
+        // multi-MB signaling payloads. WebRTC SDP + ICE fits comfortably.
+        let serializedPayload: string;
+        try {
+          serializedPayload = JSON.stringify(body.payload);
+        } catch {
+          return errJson("invalid_payload", 400);
+        }
+        if (serializedPayload.length > MAX_PAYLOAD_BYTES) {
+          return errJson("payload_too_large", 413);
+        }
+
+        let adminClientId: string | null = null;
+        if (body.admin_client_id !== undefined && body.admin_client_id !== null) {
+          if (typeof body.admin_client_id !== "string" || !CLIENT_ID_RE.test(body.admin_client_id)) {
+            return errJson("invalid_admin_client_id", 400);
+          }
+          adminClientId = body.admin_client_id;
         }
 
         const { data: session } = await ctx.admin
           .from("sessions")
-          .select("id, device_id, state")
+          .select("id, device_id, state, admin_client_id")
           .eq("id", params.sessionId)
           .maybeSingle();
         if (!session || session.device_id !== ctx.device.id) {
-          return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+          return errJson("not_found", 404);
         }
         if (session.state !== "active") {
-          return new Response(JSON.stringify({ error: "not_active" }), { status: 409 });
+          return errJson("not_active", 409);
         }
 
-        const adminClientId =
-          typeof body.admin_client_id === "string" && body.admin_client_id.length
-            ? body.admin_client_id
-            : null;
+        // Enforce that the agent only stamps IDs the session is actually bound to.
+        // A binding of NULL means "no admin has claimed this yet" — accept any
+        // shape-valid id (this is what the very first offer's answer looks
+        // like). Otherwise the stamped id must equal the bound peer's id.
+        if (
+          adminClientId &&
+          session.admin_client_id &&
+          adminClientId !== session.admin_client_id
+        ) {
+          return errJson("admin_client_id_mismatch", 409);
+        }
 
         const { error } = await ctx.admin.from("session_signals").insert({
           session_id: session.id,
@@ -64,29 +94,27 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           payload: body.payload as never,
           admin_client_id: adminClientId,
         } as never);
-        if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: { "content-type": "application/json" },
-        });
+        if (error) return errJson("insert_failed", 500);
+        return new Response(JSON.stringify({ ok: true }), { headers: JSON_HEADERS });
       },
 
       GET: async ({ request, params }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (!ctx) return errJson("unauthorized", 401);
 
         const url = new URL(request.url);
         const since = Number(url.searchParams.get("since") ?? "0") || 0;
 
         const { data: session } = await ctx.admin
           .from("sessions")
-          .select("id, device_id, state")
+          .select("id, device_id, state, admin_client_id")
           .eq("id", params.sessionId)
           .maybeSingle();
         if (!session || session.device_id !== ctx.device.id) {
-          return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+          return errJson("not_found", 404);
         }
 
-        const { data, error } = await ctx.admin
+        let q = ctx.admin
           .from("session_signals")
           .select("id, from_side, kind, payload, admin_client_id")
           .eq("session_id", session.id)
@@ -94,15 +122,23 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           .gt("id", since)
           .order("id", { ascending: true })
           .limit(100);
-        if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+
+        // If the session is bound to an admin peer, hide rows meant for a
+        // different peer. Untargeted (NULL) broadcasts always pass so the
+        // agent can still receive terminate/bye during handoff races.
+        if (session.admin_client_id) {
+          q = q.or(
+            `admin_client_id.eq.${session.admin_client_id},admin_client_id.is.null`,
+          );
+        }
+
+        const { data, error } = await q;
+        if (error) return errJson("query_failed", 500);
 
         const items = data ?? [];
         const max = items.length ? Number(items[items.length - 1].id) : since;
-        return new Response(JSON.stringify({ max, items }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(JSON.stringify({ max, items }), { headers: JSON_HEADERS });
       },
     },
   },
 });
-
