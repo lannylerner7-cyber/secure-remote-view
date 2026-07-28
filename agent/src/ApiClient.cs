@@ -309,25 +309,50 @@ public sealed class ApiClient
 
     // ---- WebRTC signaling ---------------------------------------------
 
-    public async Task<bool> PostSignalAsync(string sessionId, string kind, object payload, CancellationToken ct, string? adminClientId = null)
+    public async Task<bool> PostSignalAsync(string sessionId, string kind, object payload, CancellationToken ct, string? adminClientId = null, string? attemptId = null)
     {
-        // admin_client_id targets a specific admin machine — required so that
-        // (a) the answering admin's poller picks up our answer/ICE, and
-        // (b) a "terminated" packet meant for a superseded admin only closes
-        //     that admin's WebRTC client, not the new one that just took over.
-        object body = adminClientId is null
-            ? new { kind, payload }
-            : new { kind, payload, admin_client_id = adminClientId };
+        // admin_client_id + attempt_id: the former targets a specific admin
+        // machine (routing + take-over), the latter makes retries idempotent
+        // against the unique index ux_session_signals_attempt.
+        var dict = new System.Collections.Generic.Dictionary<string, object?>
+        {
+            ["kind"] = kind,
+            ["payload"] = payload,
+        };
+        if (adminClientId != null) dict["admin_client_id"] = adminClientId;
+        if (attemptId != null) dict["attempt_id"] = attemptId;
         try
         {
             using var resp = await SendAuthedAsync(
                 () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/signal")
                 {
-                    Content = JsonContent.Create(body),
+                    Content = JsonContent.Create(dict),
                 }, ct);
             return resp.IsSuccessStatusCode;
         }
         catch { return false; }
+    }
+
+    // Retry queue wrapper — same-order FIFO, bounded exponential backoff.
+    // ICE candidates dropped or re-ordered ahead of their answer would poison
+    // negotiation, so we serialise per session via a lock keyed on session id.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _signalLocks = new();
+
+    public async Task PostSignalReliableAsync(string sessionId, string kind, object payload, CancellationToken ct, string? adminClientId = null)
+    {
+        var attempt = "agent-" + Guid.NewGuid().ToString("N").Substring(0, 12);
+        var gate = _signalLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                if (await PostSignalAsync(sessionId, kind, payload, ct, adminClientId, attempt)) return;
+                var backoff = Math.Min(4000, 250 * (int)Math.Pow(2, i));
+                try { await Task.Delay(backoff, ct); } catch { return; }
+            }
+        }
+        finally { gate.Release(); }
     }
 
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollSignalsAsync(string sessionId, long since, CancellationToken ct)
