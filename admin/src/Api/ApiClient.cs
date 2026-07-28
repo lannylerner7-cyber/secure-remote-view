@@ -157,6 +157,41 @@ public sealed class ApiClient
 
     public async Task<SessionRow> CreateSessionAsync(string deviceRowId, string mode, CancellationToken ct)
     {
+        // Reuse the newest live session for this device if one already exists
+        // (any state in invited/consented/active/paused). Inserting a fresh
+        // row every click made the agent's session-loop iterator settle on
+        // the OLDEST session id and push frames to a session no admin was
+        // polling — the black-screen bug. We take over the existing row by
+        // stamping our admin_client_id + technician_id on it instead.
+        using (var lookup = NewSupabase(HttpMethod.Get,
+            $"/rest/v1/sessions?select=*&device_id=eq.{Uri.EscapeDataString(deviceRowId)}" +
+            $"&state=in.(invited,consented,active,paused)&order=created_at.desc&limit=1"))
+        {
+            using var lookupRes = await SendSupabaseAsync(lookup, ct);
+            await EnsureOkAsync(lookupRes, "find live session", ct);
+            var lookupStream = await lookupRes.Content.ReadAsStreamAsync(ct);
+            var existing = await JsonSerializer.DeserializeAsync<List<SessionRow>>(lookupStream, cancellationToken: ct);
+            if (existing != null && existing.Count > 0)
+            {
+                var current = existing[0];
+                using var patch = NewSupabase(new HttpMethod("PATCH"),
+                    $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(current.Id)}&select=*");
+                patch.Headers.Add("Prefer", "return=representation");
+                patch.Content = JsonContent.Create(new
+                {
+                    mode,
+                    admin_client_id = App.ClientId,
+                    technician_id = _auth.Current?.UserId,
+                });
+                using var patchRes = await SendSupabaseAsync(patch, ct);
+                await EnsureOkAsync(patchRes, "reuse session", ct);
+                var patchStream = await patchRes.Content.ReadAsStreamAsync(ct);
+                var patched = await JsonSerializer.DeserializeAsync<List<SessionRow>>(patchStream, cancellationToken: ct);
+                if (patched != null && patched.Count > 0) return patched[0];
+                return current;
+            }
+        }
+
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/sessions?select=*");
         req.Headers.Add("Prefer", "return=representation");
         // technician_id + admin_client_id are REQUIRED for RLS + take-over routing:

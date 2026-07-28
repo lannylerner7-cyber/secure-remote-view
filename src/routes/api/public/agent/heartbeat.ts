@@ -53,14 +53,28 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           })
           .eq("id", ctx.device.id);
 
-        const { data: pending } = await ctx.admin
+        // Only surface the newest live session for this device. If admins
+        // stack multiple invites (double-click, take-over across clients),
+        // returning them all makes the agent's session loop iterator settle
+        // on the OLDEST id — frames then flow to a session no admin is
+        // watching and every live view goes black. Auto-end the stragglers.
+        const { data: pendingAll } = await ctx.admin
           .from("sessions")
-          .select("id, mode, state")
+          .select("id, mode, state, created_at")
           .eq("device_id", ctx.device.id)
           .in("state", ["invited", "consented", "active", "paused"])
           .order("created_at", { ascending: false });
 
-        const isSessionActive = (pending ?? []).length > 0;
+        const pending = (pendingAll ?? []).slice(0, 1);
+        const staleIds = (pendingAll ?? []).slice(1).map((r) => r.id);
+        if (staleIds.length > 0) {
+          await ctx.admin
+            .from("sessions")
+            .update({ state: "ended", ended_at: nowIso })
+            .in("id", staleIds);
+        }
+
+        const isSessionActive = pending.length > 0;
 
         // Fetch queued power commands where this device is either
         //   (a) the target of a local action (device_id), OR
