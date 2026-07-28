@@ -15,17 +15,20 @@ public sealed class FrameFallbackPump
 {
     private readonly string _sessionId;
     private readonly Action<BitmapSource> _onFrame;
+    private readonly Action<string>? _onError;
 
-    public FrameFallbackPump(string sessionId, Action<BitmapSource> onFrame)
+    public FrameFallbackPump(string sessionId, Action<BitmapSource> onFrame, Action<string>? onError = null)
     {
         _sessionId = sessionId;
         _onFrame = onFrame;
+        _onError = onError;
     }
 
     public void Start(CancellationToken ct) => _ = Task.Run(() => Loop(ct), CancellationToken.None);
 
     private async Task Loop(CancellationToken ct)
     {
+        int consecutiveFailures = 0;
         while (!ct.IsCancellationRequested)
         {
             try
@@ -36,9 +39,18 @@ public sealed class FrameFallbackPump
                     var bmp = Decode(bytes);
                     if (bmp != null) _onFrame(bmp);
                 }
+                consecutiveFailures = 0;
             }
-            catch { /* transient */ }
-            try { await Task.Delay(200, ct); } catch { }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex)
+            {
+                // Surface after 3 consecutive failures so a single blip
+                // doesn't spam the banner but a real 401/RLS/network outage
+                // stops looking like the UI froze.
+                consecutiveFailures++;
+                if (consecutiveFailures == 3) _onError?.Invoke("Frame stream: " + ex.Message);
+            }
+            try { await Task.Delay(consecutiveFailures > 0 ? 2000 : 200, ct); } catch { }
         }
     }
 
