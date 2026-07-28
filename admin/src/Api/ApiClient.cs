@@ -142,20 +142,20 @@ public sealed class ApiClient
         using var req = NewSupabase(HttpMethod.Get,
             "/rest/v1/devices?select=id,device_id,display_name,hostname,os,last_seen_at,status,is_session_active&order=last_seen_at.desc");
         using var res = await SendSupabaseAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureOkAsync(res, "list devices", ct);
         var stream = await res.Content.ReadAsStreamAsync(ct);
         return await JsonSerializer.DeserializeAsync<List<DeviceRow>>(stream, cancellationToken: ct)
                ?? new List<DeviceRow>();
     }
 
-    public async Task<bool> DeleteDeviceAsync(string deviceRowId, CancellationToken ct)
+    public async Task DeleteDeviceAsync(string deviceRowId, CancellationToken ct)
     {
         using var req = NewSupabase(HttpMethod.Delete, $"/rest/v1/devices?id=eq.{Uri.EscapeDataString(deviceRowId)}");
         using var res = await SendSupabaseAsync(req, ct);
-        return res.IsSuccessStatusCode;
+        await EnsureOkAsync(res, "delete device", ct);
     }
 
-    public async Task<SessionRow?> CreateSessionAsync(string deviceRowId, string mode, CancellationToken ct)
+    public async Task<SessionRow> CreateSessionAsync(string deviceRowId, string mode, CancellationToken ct)
     {
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/sessions?select=*");
         req.Headers.Add("Prefer", "return=representation");
@@ -172,10 +172,12 @@ public sealed class ApiClient
             admin_client_id = App.ClientId,
         });
         using var res = await SendSupabaseAsync(req, ct);
-        if (!res.IsSuccessStatusCode) return null;
+        await EnsureOkAsync(res, "create session", ct);
         var stream = await res.Content.ReadAsStreamAsync(ct);
         var list = await JsonSerializer.DeserializeAsync<List<SessionRow>>(stream, cancellationToken: ct);
-        return list is { Count: > 0 } ? list[0] : null;
+        if (list == null || list.Count == 0)
+            throw new SupabaseCallException("create session", 200, "empty response");
+        return list[0];
     }
 
     public async Task EndSessionAsync(string sessionId, CancellationToken ct)
@@ -183,7 +185,7 @@ public sealed class ApiClient
         using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
         req.Content = JsonContent.Create(new { state = "ended", ended_at = DateTime.UtcNow });
         using var res = await SendSupabaseAsync(req, ct);
-        _ = res.IsSuccessStatusCode; // best-effort
+        _ = res.IsSuccessStatusCode; // best-effort on teardown
     }
 
     public async Task SetSessionModeAsync(string sessionId, string mode, CancellationToken ct)
@@ -191,7 +193,7 @@ public sealed class ApiClient
         using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
         req.Content = JsonContent.Create(new { mode });
         using var res = await SendSupabaseAsync(req, ct);
-        _ = res.IsSuccessStatusCode;
+        await EnsureOkAsync(res, "set session mode", ct);
     }
 
     // Push an input event (mouse/keyboard/text/curtain) that the agent will pick up.
@@ -205,7 +207,7 @@ public sealed class ApiClient
             payload,
         });
         using var res = await SendSupabaseAsync(req, ct);
-        _ = res.IsSuccessStatusCode;
+        await EnsureOkAsync(res, "push input", ct);
     }
 
     // Send a WebRTC signal (SDP or ICE) that the agent will poll.
@@ -223,7 +225,7 @@ public sealed class ApiClient
             admin_client_id = App.ClientId,
         });
         using var res = await SendSupabaseAsync(req, ct);
-        _ = res.IsSuccessStatusCode;
+        await EnsureOkAsync(res, "push signal", ct);
     }
 
     // Poll agent-originated signals. We only pick up rows that either
@@ -236,7 +238,7 @@ public sealed class ApiClient
         using var req = NewSupabase(HttpMethod.Get,
             $"/rest/v1/session_signals?select=id,from_side,kind,payload,admin_client_id&session_id=eq.{Uri.EscapeDataString(sessionId)}&from_side=eq.agent&id=gt.{since}&{clientFilter}&order=id.asc&limit=100");
         using var res = await SendSupabaseAsync(req, ct);
-        if (!res.IsSuccessStatusCode) return (since, new List<SessionSignal>());
+        await EnsureOkAsync(res, "poll signals", ct);
         var stream = await res.Content.ReadAsStreamAsync(ct);
         var list = await JsonSerializer.DeserializeAsync<List<SessionSignal>>(stream, cancellationToken: ct)
                    ?? new List<SessionSignal>();
