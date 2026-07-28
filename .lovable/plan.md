@@ -1,44 +1,36 @@
-## Fix admin "column session_frames.jpeg_base64 does not exist"
 
-### What's actually going on
+## Diagnosis: the source is already correct — the running .exe is stale
 
-The proposed master SQL script would mostly no-op against the current DB, and the one part that isn't a no-op would make things worse:
+I audited every `session_frames` reference in the codebase against the actual DB schema. The string `jpeg_base64` does not exist anywhere in the repo — not in `admin/`, not in `agent/`, not in `src/`. The only frame-column references are:
 
-- `session_frames.jpeg_base64` — **does not exist, and shouldn't be added.** The agent already uploads base64 JPEGs into an existing column named `frame` (see `src/routes/api/public/agent/session/$sessionId/frame.ts`, which upserts `{ session_id, frame, width, height }`). The web console reads `frame` too. The 400 is the C# `FrameFallbackPump` querying the wrong column name.
-- `sessions.admin_client_id` — already exists.
-- `session_signals.admin_client_id` — already exists.
-- `power_commands` table + indexes — already exist (created in the Wake-on-LAN turn).
+| File | Columns read/written |
+| --- | --- |
+| `admin/src/Api/ApiClient.cs:253` (GetLatestFrameAsync) | `frame, updated_at` ✅ |
+| `admin/src/Media/FrameFallbackPump.cs` | consumes bytes from above ✅ |
+| `src/routes/_authenticated/console.tsx:145` | `frame, width, height, updated_at` ✅ |
+| `src/routes/api/public/agent/session.$sessionId.frame.ts:41` | upserts `session_id, frame, width, height, updated_at` ✅ |
 
-Adding `jpeg_base64` on top of `frame` would leave two columns for the same data: the agent keeps writing `frame`, the admin keeps reading an always-NULL `jpeg_base64`, and the fallback silently shows a black screen instead of a 400 — worse than the current banner.
+DB schema for `session_frames`: `session_id, frame, width, height, updated_at` — matches all code. No column is missing.
 
-### Fix (admin C# only, no migration)
+The orange banner text `column session_frames.jpeg_base64 does not exist` is coming from an **old `ConnectLiveAdmin.exe`** built before last turn's fix landed. The current source in `admin/src/Api/ApiClient.cs` already queries `select=frame,updated_at` — the compiled binary on disk still has the pre-fix query.
 
-Point `ApiClient.GetLatestFrameAsync` at the real column.
+## Full column audit (code ↔ DB) — no gaps
 
-**`admin/src/Api/ApiClient.cs`** — in `GetLatestFrameAsync`:
+I cross-checked every `.from("...")` call site in both `admin/` (REST paths) and `src/` (Supabase client) against the schema in `<supabase-tables>`. Every column referenced exists:
 
-- Change the query from
-  `session_frames?select=jpeg_base64,captured_at&...&order=captured_at.desc&limit=1`
-  to
-  `session_frames?select=frame,updated_at&...&order=updated_at.desc&limit=1`
-  (the table's ordering column is `updated_at`, not `captured_at`).
-- Read `frame` (not `jpeg_base64`) from the JSON response; keep the existing base64 → byte[] decode.
+- `devices`: id, device_id, display_name, hostname, os, last_seen_at, status, is_session_active, metadata, standing_consent — all present.
+- `sessions`: id, device_id, technician_id, mode, state, pairing_code, admin_client_id, ended_at, created_at — all present.
+- `session_signals`: id, session_id, from_side, kind, payload, admin_client_id — all present.
+- `session_frames`: session_id, frame, width, height, updated_at — all present.
+- `session_cursors`, `session_inputs`, `power_commands`, `orders`, `plans`, `admin_wallets`, `admin_settings`, `notifications`, `audit_logs`, `user_roles`, `profiles`, `license_lookups`, `payment_events` — every referenced column exists.
 
-That's the entire code change. No schema migration, no new column, no new indexes.
+No migration is required. Adding a `jpeg_base64` column would be actively harmful: the agent writes `frame`, so `jpeg_base64` would always be NULL and the fallback would silently show black instead of failing loudly.
 
-### Why not just run the user's script anyway
+## Plan
 
-`ADD COLUMN IF NOT EXISTS` is safe in the "won't error" sense, but it isn't free:
+1. Don't change source — it's already correct.
+2. Rebuild the admin bundle from the current tree and repackage `ConnectLive-AdminConsole.zip`, so the shipped `.exe` contains the `frame,updated_at` query.
+3. Repackage `ConnectLive-RemoteAgent.zip` alongside it for parity (no code change; keeps the two zips version-matched).
+4. Deliver both zips. After replacing the old `ConnectLiveAdmin.exe`, the orange banner disappears; fallback frames render while `http-poll` is active, then transport flips to `webrtc` once negotiation completes.
 
-- `session_frames.jpeg_base64` would ship a permanent dead column that masks the real bug.
-- The three "already exists" statements are pure noise in the migration history.
-- The indexes on `power_commands` / `sessions` / `session_signals` are already in the schema from earlier turns; re-adding them would be a no-op and clutter.
-
-If a later audit shows any of those indexes are genuinely missing, we can add just those in a targeted migration — not bundle them behind a wrong column fix.
-
-### Verification after the change
-
-1. Rebuild `ConnectLiveAdmin`.
-2. Sign in as `197200`, connect to a live device.
-3. Orange banner "column session_frames.jpeg_base64 does not exist" is gone.
-4. While transport shows `http-poll`, the live view renders the agent's JPEG frames; it flips to `webrtc` once negotiation completes.
+If you'd rather not re-download, the equivalent local fix is: `dotnet publish admin/src/ConnectLiveAdmin.csproj -c Release -r win-x64 --self-contained` and replace the old binary with the new one from `bin/Release/net8.0-windows/win-x64/publish/`.
