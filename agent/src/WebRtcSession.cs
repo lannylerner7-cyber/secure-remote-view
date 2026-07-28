@@ -118,7 +118,7 @@ public sealed class WebRtcSession : IDisposable
                     sdpMid = c.sdpMid,
                     sdpMLineIndex = c.sdpMLineIndex,
                 };
-                await _api.PostSignalAsync(_sessionId, "ice", payload, _cts.Token, _currentAdminClientId);
+                await _api.PostSignalReliableAsync(_sessionId, "ice", payload, _cts.Token, _currentAdminClientId);
             }
             catch (Exception ex) { Log.Warn($"webrtc ice post: {ex.Message}"); }
         };
