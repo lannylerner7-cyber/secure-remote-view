@@ -138,6 +138,7 @@ export type Database = {
           enrolled_at: string
           hostname: string | null
           id: string
+          is_session_active: boolean
           last_seen_at: string | null
           metadata: Json
           os: string | null
@@ -150,6 +151,7 @@ export type Database = {
           enrolled_at?: string
           hostname?: string | null
           id?: string
+          is_session_active?: boolean
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
@@ -162,6 +164,7 @@ export type Database = {
           enrolled_at?: string
           hostname?: string | null
           id?: string
+          is_session_active?: boolean
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
