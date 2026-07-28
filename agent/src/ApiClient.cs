@@ -201,12 +201,11 @@ public sealed class ApiClient
         // Server expects { decision: "accept" | "decline" } — see
         // src/routes/api/public/agent/session.$sessionId.consent.ts.
         var decision = accepted ? "accept" : "decline";
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/consent")
-        {
-            Content = JsonContent.Create(new { decision })
-        };
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAuthedAsync(
+            () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/consent")
+            {
+                Content = JsonContent.Create(new { decision })
+            }, ct);
         resp.EnsureSuccessStatusCode();
     }
 
@@ -222,14 +221,13 @@ public sealed class ApiClient
 
     public async Task<PairResult> ReconnectSessionAsync(string sessionId, string? code, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/reconnect")
-        {
-            Content = JsonContent.Create(new { code })
-        };
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/reconnect")
+                {
+                    Content = JsonContent.Create(new { code })
+                }, ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
             if (!resp.IsSuccessStatusCode)
             {
@@ -260,14 +258,13 @@ public sealed class ApiClient
             width,
             height,
         };
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/frame")
-        {
-            Content = JsonContent.Create(payload),
-        };
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/frame")
+                {
+                    Content = JsonContent.Create(payload),
+                }, ct);
             return resp.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -278,14 +275,13 @@ public sealed class ApiClient
     public async Task<bool> PostCursorAsync(string sessionId, int x, int y, int w, int h, string kind, bool visible, CancellationToken ct)
     {
         var payload = new { x, y, w, h, kind, visible };
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/cursor")
-        {
-            Content = JsonContent.Create(payload),
-        };
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/cursor")
+                {
+                    Content = JsonContent.Create(payload),
+                }, ct);
             return resp.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -295,11 +291,10 @@ public sealed class ApiClient
 
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollInputsAsync(string sessionId, long since, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/inputs?since={since}");
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/inputs?since={since}"), ct);
             if (!resp.IsSuccessStatusCode) return (since, null);
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
@@ -323,22 +318,24 @@ public sealed class ApiClient
         object body = adminClientId is null
             ? new { kind, payload }
             : new { kind, payload, admin_client_id = adminClientId };
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/signal")
+        try
         {
-            Content = JsonContent.Create(body),
-        };
-        AddAuth(req);
-        try { using var resp = await _http.SendAsync(req, ct); return resp.IsSuccessStatusCode; }
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/signal")
+                {
+                    Content = JsonContent.Create(body),
+                }, ct);
+            return resp.IsSuccessStatusCode;
+        }
         catch { return false; }
     }
 
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollSignalsAsync(string sessionId, long since, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/signal?since={since}");
-        AddAuth(req);
         try
         {
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/signal?since={since}"), ct);
             if (!resp.IsSuccessStatusCode) return (since, null);
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
