@@ -117,14 +117,22 @@ public partial class DevicesViewModel : ObservableObject
     public async Task Connect(DeviceItem? item)
     {
         if (item == null) return;
-        var session = await App.Api.CreateSessionAsync(item.RowId, "view", CancellationToken.None);
-        if (session == null)
+        try
         {
-            MessageBox.Show("Failed to start session.", "ConnectLive Admin");
-            return;
+            var session = await App.Api.CreateSessionAsync(item.RowId, "view", CancellationToken.None);
+            var win = new LiveSessionWindow(session.Id, item);
+            win.Show();
         }
-        var win = new LiveSessionWindow(session.Id, item);
-        win.Show();
+        catch (SupabaseCallException ex)
+        {
+            MessageBox.Show(ex.Message, "ConnectLive Admin — session failed",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "ConnectLive Admin — session failed",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     [RelayCommand]
@@ -134,7 +142,15 @@ public partial class DevicesViewModel : ObservableObject
         if (MessageBox.Show($"Delete device \"{item.DisplayName}\"? This cannot be undone.",
             "Delete device", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
             return;
-        if (await App.Api.DeleteDeviceAsync(item.RowId, CancellationToken.None))
+        try
+        {
+            await App.Api.DeleteDeviceAsync(item.RowId, CancellationToken.None);
             Devices.Remove(item);
+        }
+        catch (SupabaseCallException ex)
+        {
+            MessageBox.Show(ex.Message, "ConnectLive Admin — delete failed",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 }

@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ConnectLive.Admin.Api;
 using ConnectLive.Admin.Media;
 
 namespace ConnectLive.Admin.ViewModels;
@@ -24,6 +25,11 @@ public partial class LiveSessionViewModel : ObservableObject
     [ObservableProperty] private bool takenOver;
     [ObservableProperty] private string? takenOverMessage;
 
+    // Non-fatal background-loop errors (frame poll, signal poll, input push).
+    // The window binds this to a yellow status strip so the technician sees
+    // an RLS denial or 401 instead of the UI silently freezing.
+    [ObservableProperty] private string? statusMessage;
+
     private CancellationTokenSource? _cts;
     private FrameFallbackPump? _framePump;
     private WebRtcClient? _rtc;
@@ -34,13 +40,18 @@ public partial class LiveSessionViewModel : ObservableObject
         Device = device;
     }
 
+    // Marshals any background-thread error onto the UI thread.
+    private void SurfaceError(string msg)
+    {
+        Application.Current?.Dispatcher.InvokeAsync(() => StatusMessage = msg);
+    }
+
     public void Start()
     {
         _cts = new CancellationTokenSource();
-        _framePump = new FrameFallbackPump(SessionId, bmp =>
-        {
-            Application.Current?.Dispatcher.Invoke(() => CurrentFrame = bmp);
-        });
+        _framePump = new FrameFallbackPump(SessionId,
+            bmp => Application.Current?.Dispatcher.Invoke(() => CurrentFrame = bmp),
+            onError: SurfaceError);
         _framePump.Start(_cts.Token);
         Transport = "http-poll";
 
@@ -48,7 +59,11 @@ public partial class LiveSessionViewModel : ObservableObject
         _ = _rtc.StartAsync(_cts.Token,
             onConnected: () =>
             {
-                Application.Current?.Dispatcher.Invoke(() => Transport = "webrtc");
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    Transport = "webrtc";
+                    StatusMessage = null;
+                });
             },
             onTerminated: () =>
             {
@@ -61,7 +76,8 @@ public partial class LiveSessionViewModel : ObservableObject
                 // Stop polling and background loops; the window can stay open
                 // to display the banner until the technician closes it.
                 try { _cts?.Cancel(); } catch { }
-            });
+            },
+            onError: SurfaceError);
     }
 
     public void Stop()
@@ -77,19 +93,30 @@ public partial class LiveSessionViewModel : ObservableObject
     private async Task TogglePause()
     {
         var newMode = Mode == "control" ? "view" : "control";
-        Mode = newMode;
-        await App.Api.SetSessionModeAsync(SessionId, newMode, CancellationToken.None);
-        if (newMode == "view")
+        try
         {
-            await App.Api.PushInputAsync(SessionId, "release_inputs", new { }, CancellationToken.None);
+            await App.Api.SetSessionModeAsync(SessionId, newMode, CancellationToken.None);
+            Mode = newMode;
+            if (newMode == "view")
+                await App.Api.PushInputAsync(SessionId, "release_inputs", new { }, CancellationToken.None);
+            StatusMessage = null;
         }
+        catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
+        catch (Exception ex) { SurfaceError(ex.Message); }
     }
 
     [RelayCommand]
     private async Task ToggleCurtain()
     {
-        CurtainOn = !CurtainOn;
-        await App.Api.PushInputAsync(SessionId, CurtainOn ? "curtain_on" : "curtain_off",
-            new { }, CancellationToken.None);
+        var next = !CurtainOn;
+        try
+        {
+            await App.Api.PushInputAsync(SessionId, next ? "curtain_on" : "curtain_off",
+                new { }, CancellationToken.None);
+            CurtainOn = next;
+            StatusMessage = null;
+        }
+        catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
+        catch (Exception ex) { SurfaceError(ex.Message); }
     }
 }

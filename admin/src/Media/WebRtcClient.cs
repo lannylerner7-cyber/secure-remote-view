@@ -143,7 +143,12 @@ public sealed class WebRtcClient
                     }
                 }
             }
-            catch { ok = false; }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex)
+            {
+                ok = false;
+                try { _onError?.Invoke("Signal poll: " + ex.Message); } catch { }
+            }
             try { await Task.Delay(ok ? 500 : 2000, ct); } catch { }
         }
     }
