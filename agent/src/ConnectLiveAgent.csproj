@@ -7,6 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>ConnectLive.Agent</RootNamespace>
     <AssemblyName>ConnectLiveAgent</AssemblyName>
     <ApplicationIcon Condition="Exists('..\assets\icon.ico')">..\assets\icon.ico</ApplicationIcon>
@@ -15,7 +16,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Company>ConnectLive</Company>
     <Product>ConnectLive Agent</Product>
     <AssemblyTitle>ConnectLive Agent</AssemblyTitle>
@@ -30,6 +31,9 @@
     <!-- WebRTC (pure-managed; single-file publish safe). -->
     <PackageReference Include="SIPSorcery" Version="6.2.4" />
     <PackageReference Include="SIPSorceryMedia.Encoders" Version="8.0.7" />
+    <!-- DXGI Desktop Duplication + D3D11 (pure-managed, single-file safe). -->
+    <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
   </ItemGroup>
 
   <ItemGroup>

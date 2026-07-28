@@ -408,10 +408,10 @@ internal static class WinApi
 
     /// <summary>
     /// Launch <paramref name="exePath"/> inside the interactive user session
-    /// identified by <paramref name="sessionId"/>. Returns a Process handle
-    /// we can watch for exit.
+    /// identified by <paramref name="sessionId"/>, passing <paramref name="arguments"/>
+    /// on the command line. Returns a Process handle we can watch for exit.
     /// </summary>
-    public static bool LaunchInSession(uint sessionId, string exePath, out Process? process)
+    public static bool LaunchInSession(uint sessionId, string exePath, string arguments, out Process? process)
     {
         process = null;
         IntPtr userToken = IntPtr.Zero, dupToken = IntPtr.Zero, envBlock = IntPtr.Zero;
@@ -424,7 +424,10 @@ internal static class WinApi
 
             var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), lpDesktop = @"winsta0\default" };
             uint flags = CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE;
-            if (!CreateProcessAsUser(dupToken, exePath, $"\"{exePath}\"", IntPtr.Zero, IntPtr.Zero,
+            var cmdLine = string.IsNullOrEmpty(arguments)
+                ? $"\"{exePath}\""
+                : $"\"{exePath}\" {arguments}";
+            if (!CreateProcessAsUser(dupToken, exePath, cmdLine, IntPtr.Zero, IntPtr.Zero,
                     false, flags, envBlock, Path.GetDirectoryName(exePath), ref si, out var pi))
                 return false;
 
@@ -440,4 +443,5 @@ internal static class WinApi
             if (userToken != IntPtr.Zero) CloseHandle(userToken);
         }
     }
+
 }
