@@ -1,5 +1,5 @@
 # ConnectLive Agent — build script (Windows, .NET 8 SDK required)
-# Produces dist/ConnectLiveAgent.exe, dist/ConnectLiveWatcher.exe + dist/ConnectLiveAgent.zip
+# Produces dist/ConnectLive.exe, dist/ConnectLiveWatcher.exe + dist/ConnectLiveAgent.zip
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -28,7 +28,7 @@ dotnet publish watcher/ConnectLiveWatcher.csproj `
     -o publish/watcher
 
 New-Item -ItemType Directory -Force -Path dist | Out-Null
-Copy-Item publish/agent/ConnectLiveAgent.exe dist/ -Force
+Copy-Item publish/agent/ConnectLive.exe dist/ -Force
 Copy-Item publish/watcher/ConnectLiveWatcher.exe dist/ -Force
 Copy-Item assets/* dist/ -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item install.ps1 dist/ -Force
@@ -36,12 +36,12 @@ Copy-Item run-elevated.ps1 dist/ -Force
 Copy-Item INSTALL.md dist/README-INSTALL.txt -Force
 
 if (Test-Path dist/ConnectLiveAgent.zip) { Remove-Item dist/ConnectLiveAgent.zip }
-Compress-Archive -Path dist/ConnectLiveAgent.exe, dist/ConnectLiveWatcher.exe, dist/install.ps1, dist/run-elevated.ps1, dist/README-INSTALL.txt -DestinationPath dist/ConnectLiveAgent.zip -Force
+Compress-Archive -Path dist/ConnectLive.exe, dist/ConnectLiveWatcher.exe, dist/install.ps1, dist/run-elevated.ps1, dist/README-INSTALL.txt -DestinationPath dist/ConnectLiveAgent.zip -Force
 
 Write-Host ""
-Write-Host "Built: dist/ConnectLiveAgent.exe"
+Write-Host "Built: dist/ConnectLive.exe"
 Write-Host "Built: dist/ConnectLiveWatcher.exe"
 Write-Host "Zip  : dist/ConnectLiveAgent.zip"
 Write-Host ""
 Write-Host "Next: sign with your code-signing cert, e.g."
-Write-Host '  signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLiveAgent.exe'
+Write-Host '  signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLive.exe'

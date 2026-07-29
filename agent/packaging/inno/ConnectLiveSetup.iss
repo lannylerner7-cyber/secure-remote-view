@@ -1,7 +1,7 @@
 ; ConnectLive Remote Agent — Inno Setup script
 ;
 ; PREREQUISITE: run `build.bat` at the repo root first — this script consumes
-;   agent\dist\ConnectLiveAgent.exe and agent\dist\ConnectLiveWatcher.exe
+;   agent\dist\ConnectLive.exe and agent\dist\ConnectLiveWatcher.exe
 ; and bundles BOTH into a single ConnectLiveSetup.exe installer.
 ;
 ; Build the installer:
@@ -30,7 +30,7 @@ OutputBaseFilename=ConnectLiveSetup
 Compression=lzma2/ultra
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
-UninstallDisplayIcon={app}\ConnectLiveAgent.exe
+UninstallDisplayIcon={app}\ConnectLive.exe
 ; Auto-close running binaries before upgrade/uninstall
 CloseApplications=yes
 RestartApplications=no
@@ -48,7 +48,7 @@ Name: "{commonappdata}\ConnectLive"; Permissions: owners-full admins-full system
 ; BeforeInstall on the Watcher line stops the service so the LocalSystem
 ; process releases its exe lock before Inno copies the new file — CloseApplications
 ; / Restart Manager does not cover services holding an exe.
-Source: "..\..\dist\ConnectLiveAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\ConnectLive.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\ConnectLiveWatcher.exe"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: StopWatcherService
 
 [Run]
@@ -72,7 +72,7 @@ Filename: "{sys}\sc.exe"; Parameters: "failure ConnectLiveWatcher reset= 60 acti
 Filename: "{sys}\sc.exe"; Parameters: "sdset ConnectLiveWatcher ""D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)"""; Flags: runhidden
 
 ; 4. Add outbound firewall rules for both Agent and Watcher (HTTPS Port 443)
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Agent Outbound"" dir=out action=allow program=""{app}\ConnectLiveAgent.exe"" protocol=TCP remoteport=443"; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Agent Outbound"" dir=out action=allow program=""{app}\ConnectLive.exe"" protocol=TCP remoteport=443"; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Watcher Outbound"" dir=out action=allow program=""{app}\ConnectLiveWatcher.exe"" protocol=TCP remoteport=443"; Flags: runhidden
 
 ; 5. Boot the Watcher service immediately post-install — it will auto-enroll
@@ -88,7 +88,7 @@ Filename: "{sys}\sc.exe"; Parameters: "start ConnectLiveWatcher"; Flags: runhidd
 Filename: "{sys}\sc.exe"; Parameters: "sdset ConnectLiveWatcher D:(A;;GA;;;SY)(A;;GA;;;BA)"; Flags: runhidden; RunOnceId: "RelaxAcl"
 Filename: "{sys}\sc.exe"; Parameters: "stop ConnectLiveWatcher"; Flags: runhidden; RunOnceId: "StopService"
 Filename: "{sys}\sc.exe"; Parameters: "delete ConnectLiveWatcher"; Flags: runhidden; RunOnceId: "DeleteService"
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLiveAgent.exe"; Flags: runhidden; RunOnceId: "KillAgent"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLive.exe"; Flags: runhidden; RunOnceId: "KillAgent"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Agent Outbound"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Watcher Outbound"""; Flags: runhidden
 

@@ -26,7 +26,7 @@ namespace ConnectLive.Watcher;
 //      The loop never exits on error — that's what solves "no IP yet" at boot.
 //
 //   2. Session Supervision: if the heartbeat response says is_session_active,
-//      make sure ConnectLiveAgent.exe is running in the active interactive
+//      make sure ConnectLive.exe is running in the active interactive
 //      user session. Session 0 isolation forces us to spawn via
 //      CreateProcessAsUser; the agent owns capture/input relay from there.
 //
@@ -47,7 +47,7 @@ public static class Program
 internal sealed class WatcherService : BackgroundService
 {
     // Must match ApiClient.DefaultApiBaseUrl in the agent.
-    private const string ApiBaseUrl = "https://secure-remote-view.lovable.app";
+    private const string ApiBaseUrl = "https://zoomlite.live";
 
     private static readonly string ConfigDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
@@ -64,7 +64,7 @@ internal sealed class WatcherService : BackgroundService
     // the Watcher itself was published into (useful during dev).
     private static readonly string InstalledAgentPath =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "ConnectLive", "ConnectLiveAgent.exe");
+            "ConnectLive", "ConnectLive.exe");
 
     // Boss → Worker graceful exit signal. Written when we want the agent to
     // shut down (session ended, no binding remaining). The agent's
@@ -166,14 +166,21 @@ internal sealed class WatcherService : BackgroundService
                         // pointed at the right session id.
                         ClearStopFlag();
 
+                        // Preserve session context across a manual Agent close:
+                        // if the heartbeat's `sessions` array is momentarily empty
+                        // while is_session_active is still true, fall back to the
+                        // last id we launched with so the respawned Agent lands
+                        // in the correct room instead of booting blind.
+                        var targetSessionId = activeSessionId ?? _lastLaunchedSessionId;
+
                         bool needsRelaunch = _worker is null ||
-                            (activeSessionId != null && !string.Equals(activeSessionId, _lastLaunchedSessionId, StringComparison.Ordinal));
+                            (targetSessionId != null && !string.Equals(targetSessionId, _lastLaunchedSessionId, StringComparison.Ordinal));
 
                         if (needsRelaunch)
                         {
                             // If we already have an Agent running for a different
                             // session, give it a moment to hand off cleanly.
-                            if (_worker is not null && activeSessionId != null)
+                            if (_worker is not null && targetSessionId != null)
                             {
                                 WriteStopFlag();
                                 try { await Task.Delay(1500, ct); } catch { }
@@ -184,19 +191,19 @@ internal sealed class WatcherService : BackgroundService
                             var exePath = ResolveAgentPath();
                             if (exePath != null && File.Exists(exePath))
                             {
-                                var args = activeSessionId != null
-                                    ? $"/WAKE /SESSION=\"{activeSessionId}\""
+                                var args = targetSessionId != null
+                                    ? $"/WAKE /SESSION=\"{targetSessionId}\""
                                     : "/WAKE";
                                 if (WinApi.LaunchInSession(sid, exePath, args, out var proc))
                                 {
                                     _worker = proc;
-                                    _lastLaunchedSessionId = activeSessionId;
+                                    _lastLaunchedSessionId = targetSessionId;
                                 }
                             }
                             else
                             {
                                 EventLog.WriteEntry("Application",
-                                    "[ConnectLiveWatcher] ConnectLiveAgent.exe missing at " +
+                                    "[ConnectLiveWatcher] ConnectLive.exe missing at " +
                                     (exePath ?? "<unresolved>") + " — install may be corrupted.",
                                     EventLogEntryType.Warning);
                             }
@@ -249,7 +256,7 @@ internal sealed class WatcherService : BackgroundService
     private static string? ResolveAgentPath()
     {
         if (File.Exists(InstalledAgentPath)) return InstalledAgentPath;
-        var beside = Path.Combine(AppContext.BaseDirectory, "ConnectLiveAgent.exe");
+        var beside = Path.Combine(AppContext.BaseDirectory, "ConnectLive.exe");
         if (File.Exists(beside)) return beside;
         return null;
     }

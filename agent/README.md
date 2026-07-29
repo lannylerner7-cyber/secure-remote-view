@@ -23,14 +23,14 @@ cd agent
 ./build.ps1
 ```
 
-Outputs `dist/ConnectLiveAgent.exe` (single-file, self-contained) and `dist/ConnectLiveAgent.zip`.
+Outputs `dist/ConnectLive.exe` (single-file, self-contained) and `dist/ConnectLiveAgent.zip`.
 
 ## Sign (Authenticode)
 
 Before deploying to endpoints, sign with your code-signing cert. Example:
 
 ```powershell
-signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLiveAgent.exe
+signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLive.exe
 ```
 
 ## Configure API base URL
@@ -39,7 +39,7 @@ Edit `src/ApiClient.cs` — set `ApiBaseUrl` to your ConnectLive gateway before 
 
 ## Deploy (MDM/GPO)
 
-Ship `ConnectLiveAgent.exe` through Intune, SCCM, or GPO. On first run the agent:
+Ship `ConnectLive.exe` through Intune, SCCM, or GPO. On first run the agent:
 
 1. Registers with the gateway (`POST /api/devices/enroll`) — device token stored DPAPI-encrypted at `%ProgramData%\ConnectLive\device.dat`
 2. Runs under the Watcher service for heartbeat + reconnect when installed

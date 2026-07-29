@@ -9,7 +9,7 @@
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>ConnectLive.Agent</RootNamespace>
-    <AssemblyName>ConnectLiveAgent</AssemblyName>
+    <AssemblyName>ConnectLive</AssemblyName>
     <ApplicationIcon Condition="Exists('..\assets\icon.ico')">..\assets\icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PublishSingleFile>true</PublishSingleFile>
