@@ -1,6 +1,9 @@
 ; ConnectLive Remote Agent — Inno Setup script
 ;
-; Build:
+; PREREQUISITE: run `build.bat` at the repo root first — this script consumes
+;   agent\dist\ConnectLiveAgent.exe and agent\dist\ConnectLiveWatcher.exe.
+;
+; Build the installer:
 ;   iscc agent\packaging\inno\ConnectLiveSetup.iss
 ;
 ; Silent install with deployment key:
@@ -8,9 +11,6 @@
 ;
 ; Or drop a plain-text `deployment.key` file next to the installer .exe
 ; and the [Code] block will copy it into %ProgramData%\ConnectLive\.
-;
-; Expects `build.bat` (or `agent\build.ps1`) to have populated
-; agent\dist\ConnectLiveAgent.exe and agent\dist\ConnectLiveWatcher.exe first.
 
 [Setup]
 AppName=ConnectLive Remote Agent
@@ -31,13 +31,18 @@ CloseApplications=yes
 RestartApplications=no
 
 [Dirs]
-; Explicitly create ProgramData directory with elevated permissions
-Name: "{commonappdata}\ConnectLive"; Permissions: owners-full admins-full system-full
+; Explicitly create ProgramData directory. Grants SYSTEM/Admins/Owners full
+; control AND leaves BUILTIN\Users read+execute — the Agent runs as the
+; interactive user and calls DeploymentKey.Resolve() to read deployment.key.
+Name: "{commonappdata}\ConnectLive"; Permissions: owners-full admins-full system-full users-readexec
 
 [Files]
-; Pull single-file binaries from build output (this .iss lives in agent\packaging\inno\)
+; Pull single-file binaries from build output (this .iss lives in agent\packaging\inno\).
+; BeforeInstall stops the service so the LocalSystem process releases its exe lock
+; before Inno copies the new file — CloseApplications=yes / Restart Manager
+; does not cover services holding an exe.
 Source: "..\..\dist\ConnectLiveAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist\ConnectLiveWatcher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\ConnectLiveWatcher.exe"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: StopWatcherService
 
 [Run]
 ; 1. Clean up any existing service instance prior to re-registering (prevents reinstall lockups)
@@ -45,8 +50,10 @@ Filename: "{sys}\sc.exe"; Parameters: "stop ConnectLiveWatcher"; Flags: runhidde
 Filename: "{sys}\sc.exe"; Parameters: "delete ConnectLiveWatcher"; Flags: runhidden; Check: ServiceExists('ConnectLiveWatcher')
 
 ; 2. Register the Watcher as a Windows Service (Delayed AutoStart, LocalSystem)
-Filename: "{sys}\sc.exe"; Parameters: "create ConnectLiveWatcher binPath= ""{app}\ConnectLiveWatcher.exe"" start= delayed-auto obj= LocalSystem"; Flags: runhidden
-Filename: "{sys}\sc.exe"; Parameters: "description ConnectLiveWatcher ""Monitors and maintains the ConnectLive remote agent connection."""; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "create ConnectLiveWatcher binPath= ""{app}\ConnectLiveWatcher.exe"" start= delayed-auto obj= LocalSystem DisplayName= ""ConnectLive Watcher"""; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "description ConnectLiveWatcher ""Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions."""; Flags: runhidden
+; Mirror install.ps1's self-heal policy: restart at 5s / 10s / 30s, reset counter after 60s.
+Filename: "{sys}\sc.exe"; Parameters: "failure ConnectLiveWatcher reset= 60 actions= restart/5000/restart/10000/restart/30000"; Flags: runhidden
 
 ; 3. Add outbound firewall rules for both Agent and Watcher (HTTPS Port 443)
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Agent Outbound"" dir=out action=allow program=""{app}\ConnectLiveAgent.exe"" protocol=TCP remoteport=443"; Flags: runhidden
@@ -56,10 +63,12 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""C
 Filename: "{sys}\sc.exe"; Parameters: "start ConnectLiveWatcher"; Flags: runhidden
 
 [UninstallRun]
-; Stop service, kill running agent process, delete service, and clean firewall rules
+; Order matters: stop → delete → kill orphaned Agent → firewall cleanup.
+; Deleting before killing prevents SCM from auto-restarting the Watcher
+; between our stop and delete calls.
 Filename: "{sys}\sc.exe"; Parameters: "stop ConnectLiveWatcher"; Flags: runhidden; RunOnceId: "StopService"
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLiveAgent.exe"; Flags: runhidden; RunOnceId: "KillAgent"
 Filename: "{sys}\sc.exe"; Parameters: "delete ConnectLiveWatcher"; Flags: runhidden; RunOnceId: "DeleteService"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLiveAgent.exe"; Flags: runhidden; RunOnceId: "KillAgent"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Agent Outbound"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Watcher Outbound"""; Flags: runhidden
 
@@ -71,6 +80,19 @@ var
 begin
   Exec(ExpandConstant('{sys}\sc.exe'), 'query ' + ServiceName, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := (ResultCode = 0);
+end;
+
+// Stop the Watcher service before file copy so the LocalSystem process
+// releases its exe lock. Wired via BeforeInstall on the Watcher source line.
+procedure StopWatcherService;
+var
+  ResultCode: Integer;
+begin
+  if ServiceExists('ConnectLiveWatcher') then begin
+    Exec(ExpandConstant('{sys}\sc.exe'), 'stop ConnectLiveWatcher', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Small settle window for SCM to release the file handle.
+    Sleep(1500);
+  end;
 end;
 
 // Helper function to parse custom command line switches (/DEPLOYMENT_KEY="xxx")

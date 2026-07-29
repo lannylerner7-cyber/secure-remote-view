@@ -39,11 +39,28 @@ Watcher picks up on first boot (see `DeploymentKey.Resolve()`).
 ## What the installer does
 
 - Creates `%ProgramData%\ConnectLive\` with `SYSTEM` + `Administrators` full
-  control.
+  control and `Users` read+execute — the Agent runs as the interactive user
+  and must read `deployment.key`.
 - Copies `ConnectLiveAgent.exe` and `ConnectLiveWatcher.exe` into
   `%ProgramFiles%\ConnectLive\`.
+- On upgrade: `BeforeInstall: StopWatcherService` stops the running Watcher
+  before copy so its exe lock releases (Restart Manager alone doesn't cover
+  `LocalSystem` services).
 - Registers `ConnectLiveWatcher` service (`start= delayed-auto`,
-  `obj= LocalSystem`) and starts it.
+  `obj= LocalSystem`, DisplayName "ConnectLive Watcher") with a self-heal
+  failure policy (`restart/5000/10000/30000`, reset 60s) and starts it.
 - Adds outbound-443 firewall allow rules for both binaries.
-- Uninstall stops the service, kills any running agent, deletes the service,
-  and removes the firewall rules.
+- Uninstall order: stop service → delete service → kill orphan Agent →
+  remove firewall rules. `%ProgramData%\ConnectLive\` is intentionally left
+  behind so device tokens survive a reinstall.
+
+## Watcher exe lookup order (know before you refactor)
+
+`agent/watcher/Program.cs` looks for the Agent binary at
+`%ProgramData%\ConnectLive\ConnectLiveAgent.exe` first and only falls back to
+`AppContext.BaseDirectory` (i.e. `%ProgramFiles%\ConnectLive\`) if that's
+missing. This installer relies on the fallback — it ships the Agent to
+Program Files only. If you ever move the Watcher out of `%ProgramFiles%\ConnectLive\`,
+either update the primary lookup path in `Program.cs` or add a `[Files]`
+entry that also drops `ConnectLiveAgent.exe` into `{commonappdata}\ConnectLive\`.
+
