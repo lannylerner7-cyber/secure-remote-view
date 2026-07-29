@@ -82,6 +82,20 @@ begin
   Result := (ResultCode = 0);
 end;
 
+// Stop the Watcher service before file copy so the LocalSystem process
+// releases its exe lock. Wired via BeforeInstall on the Watcher source line.
+procedure StopWatcherService;
+var
+  ResultCode: Integer;
+begin
+  if ServiceExists('ConnectLiveWatcher') then begin
+    Exec(ExpandConstant('{sys}\sc.exe'), 'stop ConnectLiveWatcher', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Small settle window for SCM to release the file handle.
+    Sleep(1500);
+  end;
+  Result := (ResultCode = 0);
+end;
+
 // Helper function to parse custom command line switches (/DEPLOYMENT_KEY="xxx")
 function GetCommandLineParam(ParamName: String): String;
 var
