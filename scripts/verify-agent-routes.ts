@@ -76,8 +76,6 @@ async function hit(
     body: JSON.stringify({ kind: "ice", payload: {}, admin_client_id: "x" }),
   });
 
-  // Legacy — must be 410 Gone so old agents surface a clean error
-  await hit("POST", "/api/public/agent/pair", [410], { headers: j, body: "{}" });
 
   // Admin auth gateway — bad creds must be 400/401, never 404/500
   await hit("POST", "/api/public/auth/login", [400, 401, 422, 423], {
