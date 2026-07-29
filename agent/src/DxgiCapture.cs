@@ -129,7 +129,7 @@ public sealed class DxgiCapture : IDisposable
         ID3D11Texture2D? desktopTexture = null;
         try
         {
-            var acquire = _duplication.AcquireNextFrame(timeoutMs, out var frameInfo, out desktopResource);
+            var acquire = _duplication.AcquireNextFrame((uint)timeoutMs, out var frameInfo, out desktopResource);
             if (acquire.Failure)
             {
                 if (acquire.Code == unchecked((int)0x887A0027) /* DXGI_ERROR_WAIT_TIMEOUT */)
