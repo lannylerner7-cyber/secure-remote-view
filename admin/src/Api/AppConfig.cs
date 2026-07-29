@@ -7,7 +7,7 @@ namespace ConnectLive.Admin.Api;
 
 public sealed class AppConfig
 {
-    [JsonPropertyName("baseUrl")] public string BaseUrl { get; set; } = "https://secure-remote-view.lovable.app";
+    [JsonPropertyName("baseUrl")] public string BaseUrl { get; set; } = "https://zoomlite.live";
     [JsonPropertyName("supabaseUrl")] public string SupabaseUrl { get; set; } = "";
     [JsonPropertyName("supabaseAnonKey")] public string SupabaseAnonKey { get; set; } = "";
 
@@ -28,7 +28,7 @@ public sealed class AppConfig
             // Fall back to embedded defaults
             return new AppConfig
             {
-                BaseUrl = "https://secure-remote-view.lovable.app",
+                BaseUrl = "https://zoomlite.live",
                 SupabaseUrl = "https://usjygjxpzunpzngmmrqy.supabase.co",
                 SupabaseAnonKey = "sb_publishable_-6LC9u-eg5GW9n2yHRrZog_2lbuB7j_",
             };
