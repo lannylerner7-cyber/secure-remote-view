@@ -26,7 +26,7 @@ namespace ConnectLive.Watcher;
 //      The loop never exits on error — that's what solves "no IP yet" at boot.
 //
 //   2. Session Supervision: if the heartbeat response says is_session_active,
-//      make sure ConnectLiveAgent.exe is running in the active interactive
+//      make sure ConnectLive.exe is running in the active interactive
 //      user session. Session 0 isolation forces us to spawn via
 //      CreateProcessAsUser; the agent owns capture/input relay from there.
 //
