@@ -122,7 +122,7 @@ public partial class LiveSessionViewModel : ObservableObject
         if (string.IsNullOrEmpty(kind)) return;
         try
         {
-            await App.Api.EnqueuePowerCommandAsync(Device.Id, kind, null, CancellationToken.None);
+            await App.Api.EnqueuePowerCommandAsync(Device.RowId, kind, null, CancellationToken.None);
             StatusMessage = $"Power command '{kind}' queued.";
         }
         catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
