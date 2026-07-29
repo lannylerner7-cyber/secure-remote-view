@@ -93,7 +93,6 @@ begin
     // Small settle window for SCM to release the file handle.
     Sleep(1500);
   end;
-  Result := (ResultCode = 0);
 end;
 
 // Helper function to parse custom command line switches (/DEPLOYMENT_KEY="xxx")
