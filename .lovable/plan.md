@@ -1,21 +1,48 @@
-## Fix build errors in Admin and Agent
+## Fix Vortice DXGI build errors in agent
 
-### Admin: `admin/src/ViewModels/LiveSessionViewModel.cs`
-`DeviceItem` exposes `RowId` (the `devices.id` UUID), not `Id`. `EnqueuePowerCommandAsync` takes `deviceRowId`, so:
+Only file touched: `agent/src/DxgiCapture.cs`. Repackage `ConnectLive-RemoteAgent-src.zip` only.
 
-- Line 125: change `Device.Id` → `Device.RowId`.
+### 1. Adapter output enumeration (lines 73–74)
 
-### Agent: `agent/src/DxgiCapture.cs`
-Align with Vortice.DXGI / Vortice.Direct3D11 3.6.2 API surface:
+Vortice's `IDXGIAdapter.EnumOutputs` returns a `Result` struct and hands the output back via an `out` parameter — not a return value — so `using var output = adapter.EnumOutputs(0)` fails to compile.
 
-- Line 73: `adapter.GetOutput(0)` → `adapter.EnumOutputs(0)`.
-- Lines 78–79: `desc.ModeDesc.Width/Height` → `desc.ModeDescription.Width/Height`.
-- Texture2DDescription (lines 84–94): cast dimensions to `uint`:
-  - `Width = (uint)_width`
-  - `Height = (uint)_height`
-  - `MipLevels = 1u`
-  - `ArraySize = 1u`
-- Line 132: `_duplication.AcquireNextFrame(timeoutMs, ...)` → cast timeout to `(uint)timeoutMs`.
-- Update `_width`/`_height` capture (still `int`) — only the DXGI struct assignments get the `uint` cast; internal fields stay `int` so Bitmap/Rectangle usage is unchanged.
+Replace:
+```csharp
+using var output = adapter.EnumOutputs(0);
+using var output1 = output.QueryInterface<IDXGIOutput1>();
+```
+with:
+```csharp
+adapter.EnumOutputs(0, out IDXGIOutput output);
+using (output)
+using (var output1 = output.QueryInterface<IDXGIOutput1>())
+{
+    _duplication = output1.DuplicateOutput(_device);
+    var desc = _duplication.Description;
+    _width  = (int)desc.ModeDescription.Width;
+    _height = (int)desc.ModeDescription.Height;
 
-No other files touched; no logic changes. After edits, both projects compile against the pinned Vortice / SIPSorcery versions already in the csproj files.
+    var stagingDesc = new Texture2DDescription { /* unchanged */ };
+    _staging = _device.CreateTexture2D(stagingDesc);
+
+    _initialized = true;
+    Log.Info($"DXGI: Desktop Duplication initialized {_width}x{_height}");
+    return true;
+}
+```
+(Move the existing `DuplicateOutput` / staging setup / `_initialized = true` / `Log.Info` / `return true` block inside the new `using` scope so `output1` stays alive.)
+
+### 2. `int` cast for `RowPitch` (line 163)
+
+`MappedSubresource.RowPitch` is `uint` in Vortice. Change:
+```csharp
+int srcStride = map.RowPitch;
+```
+to:
+```csharp
+int srcStride = (int)map.RowPitch;
+```
+
+### 3. Repackage
+
+Rebuild the agent source zip only (`ConnectLive-RemoteAgent-src.zip`). Skip the admin zip this turn.
