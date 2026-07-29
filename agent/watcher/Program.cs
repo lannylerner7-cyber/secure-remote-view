@@ -64,7 +64,7 @@ internal sealed class WatcherService : BackgroundService
     // the Watcher itself was published into (useful during dev).
     private static readonly string InstalledAgentPath =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "ConnectLive", "ConnectLiveAgent.exe");
+            "ConnectLive", "ConnectLive.exe");
 
     // Boss → Worker graceful exit signal. Written when we want the agent to
     // shut down (session ended, no binding remaining). The agent's
