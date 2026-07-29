@@ -69,8 +69,6 @@ Filename: "{sys}\sc.exe"; Parameters: "start ConnectLiveWatcher"; Flags: runhidd
 Filename: "{sys}\sc.exe"; Parameters: "stop ConnectLiveWatcher"; Flags: runhidden; RunOnceId: "StopService"
 Filename: "{sys}\sc.exe"; Parameters: "delete ConnectLiveWatcher"; Flags: runhidden; RunOnceId: "DeleteService"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLiveAgent.exe"; Flags: runhidden; RunOnceId: "KillAgent"
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLiveAgent.exe"; Flags: runhidden; RunOnceId: "KillAgent"
-Filename: "{sys}\sc.exe"; Parameters: "delete ConnectLiveWatcher"; Flags: runhidden; RunOnceId: "DeleteService"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Agent Outbound"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Watcher Outbound"""; Flags: runhidden
 
