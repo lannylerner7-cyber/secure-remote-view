@@ -162,7 +162,7 @@ public sealed class DxgiCapture : IDisposable
                 var bmpData = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
                 try
                 {
-                    int srcStride = map.RowPitch;
+                    int srcStride = (int)map.RowPitch;
                     int dstStride = bmpData.Stride;
                     int copyBytes = Math.Min(srcStride, dstStride);
                     for (int y = 0; y < _height; y++)
