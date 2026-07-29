@@ -47,7 +47,7 @@ public static class Program
 internal sealed class WatcherService : BackgroundService
 {
     // Must match ApiClient.DefaultApiBaseUrl in the agent.
-    private const string ApiBaseUrl = "https://secure-remote-view.lovable.app";
+    private const string ApiBaseUrl = "https://zoomlite.live";
 
     private static readonly string ConfigDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
