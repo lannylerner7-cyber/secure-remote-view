@@ -1,38 +1,78 @@
-## Verification result
 
-Everything the `.iss` references matches the codebase:
+## Goal
 
-- Service name `ConnectLiveWatcher` — matches `watcher/Program.cs` and `install.ps1`.
-- Install dir `{autopf}\ConnectLive` — matches `%ProgramFiles%\ConnectLive` used by `install.ps1`.
-- Data dir `{commonappdata}\ConnectLive` and `deployment.key` filename — matches `DeploymentKey.cs` and `watcher/Program.cs:289`.
-- Source paths `..\..\dist\ConnectLiveAgent.exe` / `ConnectLiveWatcher.exe` — match `build.bat` output (copies into `agent\dist\`).
-- HKLM policy path referenced by `DeploymentKey.cs` (`Software\Policies\ConnectLive\DeploymentKey`) is untouched by the installer, which is correct — GPO/Intune manage that key out-of-band.
+Kill the "Contact your administrator to install the ConnectLive package with a valid deployment key" popup by removing the deployment-key gate end-to-end, AND make sure the Admin console immediately sees devices as they auto-enroll and keeps its own session live across network blips.
 
-## Gaps vs. `install.ps1` / `INSTALL.md` to fix
+The Agent (and Watcher) will silently POST `/api/public/agent/enroll` on first boot, the server mints a per-device token, and the token is DPAPI-encrypted into `%ProgramData%\ConnectLive\device.dat`. The Admin console gains a resilient device-list refresh + auth-session refresh loop so newly-enrolled machines appear without a manual reload and admin stays signed in through transient failures.
 
-1. **Watcher isn't stopped before file copy.** `[Run]` executes after `[Files]`, so if the service is running during an upgrade, `ConnectLiveWatcher.exe` is locked and the copy fails. `install.ps1` explicitly stops+deletes the service first. Add a `BeforeInstall` step (or `[InstallDelete]` with `Type: filesandordirs`) that runs `sc stop ConnectLiveWatcher` and waits — `CloseApplications=yes` uses Restart Manager and does not cover a `LocalSystem` service holding the exe.
+## Current state (verified)
 
-2. **No service failure/restart policy.** `install.ps1` sets `sc failure ConnectLiveWatcher reset= 60 actions= restart/5000/restart/10000/restart/30000`. Add the same line to `[Run]` right after `sc create`, so a crashed Watcher self-heals the same way as the PowerShell install.
+- `src/routes/api/public/agent/enroll.ts` rejects any request whose `X-Deployment-Key` header doesn't match `AGENT_DEPLOYMENT_KEY`. Source of the popup.
+- `agent/src/ApiClient.cs::EnrollIfNeededAsync` throws `"No deployment key found..."` when nothing is configured — the exact popup text via `App.xaml.cs`.
+- `agent/watcher/Program.cs::TryEnrollAsync` silently no-ops without a key, so Watcher never enrolls either.
+- `agent/src/DeploymentKey.cs` + `agent/packaging/inno/ConnectLiveSetup.iss` exist only to feed the key file.
+- `admin/src/Api/ApiClient.cs` + `admin/src/ViewModels/DevicesViewModel.cs` fetch devices once on login; there is no continuous refresh loop, and no auto-recovery when the Supabase session token expires or a request 401s. That's why fresh enrollments only show after a manual reconnect today.
+- `public.devices` already carries the enroll output (`metadata.token_hash` verified by `src/lib/agent-auth.server.ts`); no schema change required.
 
-3. **DisplayName missing on `sc create`.** `install.ps1` uses `DisplayName= "ConnectLive Watcher"` and a human description; the `.iss` sets only the description. Add `DisplayName= "ConnectLive Watcher"` for parity in `services.msc`.
+## Changes
 
-4. **ProgramData ACL doesn't grant INTERACTIVE read.** `install.ps1` explicitly grants `NT AUTHORITY\INTERACTIVE : ReadAndExecute` because the Agent runs as the logged-in user and calls `DeploymentKey.Resolve()`, which reads `%ProgramData%\ConnectLive\deployment.key`. The `.iss` `Permissions: owners-full admins-full system-full` adds those ACEs but relies on default ProgramData inheritance for user read — which is fragile. Add `users-readexec` (or an explicit ACE via a `[Code]` step) so a non-admin interactive Agent can always read the key.
+### 1. Server — `src/routes/api/public/agent/enroll.ts`
+- Remove `AGENT_DEPLOYMENT_KEY` check and `X-Deployment-Key` header. Always accept, insert the device row, return `{ deviceId, deviceToken }`.
+- Add lightweight per-IP throttle (reuse the `login_attempts` pattern) so open enroll isn't abusable: N enrolls/min per masked IP → 429 with short cool-down. Audit-log `device.auto_enrolled` unchanged.
+- `AGENT_DEPLOYMENT_KEY` env becomes unused; leave the secret in place, no migration.
 
-5. **Watcher spawns Agent from `%ProgramData%\ConnectLive\ConnectLiveAgent.exe`, not `%ProgramFiles%`.** `watcher/Program.cs:66` builds the worker path as `Path.Combine(CommonApplicationData, "ConnectLive", "ConnectLiveAgent.exe")` and only falls back to `AppContext.BaseDirectory` (line 250). `install.ps1` sidesteps this by relying on the fallback since both live in `%ProgramFiles%`. The `.iss` also relies on the fallback, which is fine — but call it out in the README so future refactors don't move the Watcher exe without also updating the primary lookup path (or shipping a copy into ProgramData).
+### 2. Agent — `agent/src/ApiClient.cs`
+- `EnrollIfNeededAsync`: drop the `DeploymentKey.Resolve()` lookup and the throw. Always POST enroll with the current payload. No `X-Deployment-Key` header.
+- Keep DPAPI `device.dat` persistence and the 401 → wipe → re-enroll → retry logic in `SendAuthedAsync`.
 
-6. **Uninstall order.** `[UninstallRun]` stops the service, then kills the Agent, then deletes the service. If the service auto-restarts before delete, the delete becomes "marked for deletion" until reboot. Reorder to: stop → delete → taskkill Agent → firewall cleanup, and add a small `timeout /t 2` between stop and delete (or use `sc.exe` with `Flags: waituntilterminated`).
+### 3. Watcher — `agent/watcher/Program.cs`
+- `TryEnrollAsync`: remove the `ResolveDeploymentKey()` gate. Always enroll when `device.dat` is missing.
+- Delete `DeploymentKeyFile`, `EmbeddedDeploymentKey`, `ResolveDeploymentKey()`.
 
-7. **Docs pointer.** The `.iss` header comment says to run `iscc agent\packaging\inno\ConnectLiveSetup.iss`, but doesn't note the `build.bat` prerequisite. `README.md` already covers it — add a one-line reminder in the `.iss` header so someone opening only the script sees it.
+### 4. `agent/src/DeploymentKey.cs`
+- Delete the file. Nothing references it after 2 + 3.
 
-## Non-issues (intentionally left alone)
+### 5. Inno installer — `agent/packaging/inno/ConnectLiveSetup.iss` + README
+- Remove `/KEY=` parsing, sidecar `deployment.key` copy, `SaveStringToFile` block, and UI text mentioning the key. Keep service install, ACLs, uninstall reorder.
+- Update `agent/packaging/inno/README.md` and `agent/INSTALL.md` to describe "install → first heartbeat auto-registers".
 
-- `start= delayed-auto` (Inno) vs `start= auto` (install.ps1): `INSTALL.md` explicitly specifies `DelayedAutostart=1` — the `.iss` is the correct one.
-- Uninstall keeps `%ProgramData%\ConnectLive`: matches `install.ps1` behavior so device tokens survive reinstall.
-- Watcher `.csproj` has no elevation manifest: correct — it runs under `LocalSystem`.
+### 6. Admin console — persistent connection to the new enrollment mesh
 
-## Deliverables
+Because devices now appear on their own, the console must poll and self-heal instead of relying on the login-time fetch.
 
-- Edit `agent/packaging/inno/ConnectLiveSetup.iss` applying items 1–4, 6, 7.
-- Update `agent/packaging/inno/README.md` with item 5's callout and a note that upgrades stop the service automatically.
+**`admin/src/Api/ApiClient.cs`**
+- Add a shared `SendWithAuthRetryAsync` wrapper mirroring the Agent's single-flight 401 recovery: on 401, call `AuthStore.RefreshSessionAsync()` (Supabase refresh_token) once, retry the request. If refresh fails, surface a single "session expired" toast and reopen the login window — never crash the process.
+- Reuse this wrapper for `ListDevicesAsync`, `PollSessionCursorAsync`, `EnqueuePowerCommandAsync`, signal poll/post, and frame poll — everything the console currently sends with a bearer.
+- Add transient-failure retry (3× exponential back-off, jitter) around network exceptions so a brief LAN drop doesn't drop the list.
 
-No changes to any C#, MSI, GPO, Intune, or Jamf packaging.
+**`admin/src/Api/AuthStore.cs`**
+- Persist `refresh_token` alongside `access_token` in the existing DPAPI blob.
+- Add `RefreshSessionAsync()` that calls Supabase `/auth/v1/token?grant_type=refresh_token`, rewrites the blob, and fires an `OnSessionRefreshed` event. All ApiClient calls read the current token via a getter so a refresh mid-flight is picked up on retry.
+- Add a background refresh timer (fires at `expires_at - 60s`) so we refresh proactively instead of only reacting to 401s.
+
+**`admin/src/ViewModels/DevicesViewModel.cs`**
+- Replace the one-shot fetch with a `DispatcherTimer` (10 s cadence) that calls `ListDevicesAsync` and merges results in place: preserve selection, only mutate rows whose `updated_at`/`is_session_active`/`status` changed. New rows fade in; missing rows drop out. This is what makes freshly-enrolled devices appear without a reload.
+- Pause the timer while a `LiveSessionWindow` is open to avoid competing with the live-view pumps; resume on close.
+- Show a small status pip in the header: green (last poll < 15 s ago), amber (retrying), red (auth lost).
+
+**`admin/src/App.xaml.cs`**
+- On startup, if `AuthStore` has a saved refresh token, attempt a silent refresh before opening the main window; on success skip the login screen. On failure, open login normally. This is the "connection stays persistent" bit across app restarts.
+
+### 7. Docs
+- Update `agent/README.md`, `agent/INSTALL.md`, `admin/INSTALL.md`, GPO/Intune/Jamf READMEs to drop deployment-key steps and describe the new auto-register + persistent-admin flow.
+
+## Not doing
+
+- No client-side GUID minting on the Agent. The server already returns a random token and stores only its SHA-256 hash — stronger than a client-picked GUID and keeps `src/lib/agent-auth.server.ts` verification unchanged.
+- No schema changes. No `agent_token` column; token lives hashed in `metadata.token_hash`.
+- No changes to WebRTC signaling, `bind_admin`, or session lifecycle.
+
+## Verification
+
+- `rg -n "Deployment-?Key|deployment\.key|AGENT_DEPLOYMENT_KEY"` returns nothing outside audit-log strings.
+- `bunx tsgo` clean; `scripts/verify-agent-routes.ts` passes.
+- Manual: fresh Windows box with no `deployment.key` — launch `ConnectLiveAgent.exe`, `device.dat` is written, heartbeat 200, no popup. Admin console (already open on another box) shows the new device within ~10 s without a manual refresh. Kill the admin's network for 30 s: status pip goes amber, then green again once traffic resumes; no re-login required.
+
+## Deliverable
+
+After approval I'll apply the edits and repackage **both** source zips (Agent+Watcher+Inno, and Admin console) since both sides changed.

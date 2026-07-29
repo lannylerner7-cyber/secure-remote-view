@@ -80,11 +80,9 @@ public sealed class ApiClient
     {
         if (!string.IsNullOrEmpty(DeviceToken)) return;
 
-        var deploymentKey = DeploymentKey.Resolve()
-            ?? throw new InvalidOperationException(
-                "No deployment key found. Drop the key at %ProgramData%\\ConnectLive\\deployment.key " +
-                "or set AGENT_DEPLOYMENT_KEY before running.");
-
+        // Deployment-key-free enrollment: the server mints a random per-device
+        // token and stores only its SHA-256 hash. We just POST identifying
+        // metadata; DPAPI-encrypt the returned token into device.dat.
         var payload = new
         {
             hostname = Environment.MachineName,
@@ -96,7 +94,6 @@ public sealed class ApiClient
         {
             Content = JsonContent.Create(payload),
         };
-        req.Headers.Add("X-Deployment-Key", deploymentKey);
         using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
@@ -107,6 +104,7 @@ public sealed class ApiClient
         SaveDeviceCreds(body);
         Interlocked.Increment(ref _tokenGeneration);
     }
+
 
     // Runs a request, and on a single 401 wipes local creds + re-enrolls (once,
     // guarded by _enrollLock so parallel loops don't stampede), then retries.

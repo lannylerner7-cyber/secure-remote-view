@@ -58,15 +58,18 @@ public partial class App : Application
             }
             catch (Exception enrollEx)
             {
+                // Auto-enroll is retried by the Watcher heartbeat loop on the
+                // next tick, so a transient network hiccup is not fatal — we
+                // just close the splash and let the tray icon indicate state.
                 splash.Close();
                 MessageBox.Show(
-                    "This device is not enrolled with ConnectLive.\n\n" +
-                    "Contact your administrator to install the ConnectLive package with a valid deployment key.\n\n" +
-                    enrollEx.Message,
-                    "ConnectLive Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "ConnectLive Agent couldn't reach the registration service.\n\n" +
+                    "It will retry automatically. Details:\n" + enrollEx.Message,
+                    "ConnectLive Agent", MessageBoxButton.OK, MessageBoxImage.Information);
                 Shutdown();
                 return;
             }
+
 
             // Boss (Watcher) → Worker (Agent) handoff: if /WAKE was passed
             // with a /SESSION=<id>, treat that id as authoritative and skip

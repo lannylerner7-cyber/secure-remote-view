@@ -1,66 +1,49 @@
-# Inno Setup — ConnectLive Remote Agent
+# ConnectLive Remote Agent — Inno Setup installer
 
-Single-file, admin-elevated installer that registers the Watcher as a
-`LocalSystem` Windows service, opens outbound 443 for both binaries, and
-provisions the per-tenant deployment key into `%ProgramData%\ConnectLive\`.
+Produces a single `ConnectLiveSetup.exe` that installs the Agent + Watcher,
+registers the Watcher as a LocalSystem service, and lets the first-boot
+auto-enrollment flow mint the per-device token. **No deployment key is
+required** — the Watcher POSTs `/api/public/agent/enroll` on first tick
+and stores the DPAPI-encrypted token in `%ProgramData%\ConnectLive\device.dat`.
 
-## Build the installer
+## Prerequisites
 
-1. Install [Inno Setup 6](https://jrsoftware.org/isdl.php) (`iscc.exe`).
-2. Build the agent + watcher binaries first — this script consumes them
-   from `agent\dist\`:
-   ```cmd
-   build.bat
-   ```
-3. Compile the installer:
-   ```cmd
-   iscc agent\packaging\inno\ConnectLiveSetup.iss
-   ```
-   Output: `agent\packaging\inno\Output\ConnectLiveSetup.exe`.
+1. Install [Inno Setup 6](https://jrsoftware.org/isdl.php).
+2. Run `build.bat` at the repo root once so
+   `agent\dist\ConnectLiveAgent.exe` and `agent\dist\ConnectLiveWatcher.exe`
+   exist — the installer script pulls those single-file publishes.
 
-Sign the resulting `.exe` with your EV cert before wide rollout.
+## Build
 
-## Silent install with deployment key
-
-Two ways to inject the key at install time — the CLI switch wins:
-
-```cmd
-:: Method 1 — CLI switch
-ConnectLiveSetup.exe /VERYSILENT /DEPLOYMENT_KEY="your-tenant-key"
-
-:: Method 2 — sidecar file next to the installer
-copy deployment.key <folder-with-installer>\
-ConnectLiveSetup.exe /VERYSILENT
+```
+iscc agent\packaging\inno\ConnectLiveSetup.iss
 ```
 
-Either path writes `%ProgramData%\ConnectLive\deployment.key`, which the
-Watcher picks up on first boot (see `DeploymentKey.Resolve()`).
+Output lands in `Output\ConnectLiveSetup.exe` next to the script.
+
+## Silent deployment (RMM / Intune / GPO / Jamf)
+
+```
+ConnectLiveSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+```
+
+That is the entire command line — no key, no tokens, no sidecar files.
 
 ## What the installer does
 
-- Creates `%ProgramData%\ConnectLive\` with `SYSTEM` + `Administrators` full
-  control and `Users` read+execute — the Agent runs as the interactive user
-  and must read `deployment.key`.
-- Copies `ConnectLiveAgent.exe` and `ConnectLiveWatcher.exe` into
-  `%ProgramFiles%\ConnectLive\`.
-- On upgrade: `BeforeInstall: StopWatcherService` stops the running Watcher
-  before copy so its exe lock releases (Restart Manager alone doesn't cover
-  `LocalSystem` services).
-- Registers `ConnectLiveWatcher` service (`start= delayed-auto`,
-  `obj= LocalSystem`, DisplayName "ConnectLive Watcher") with a self-heal
-  failure policy (`restart/5000/10000/30000`, reset 60s) and starts it.
-- Adds outbound-443 firewall allow rules for both binaries.
-- Uninstall order: stop service → delete service → kill orphan Agent →
-  remove firewall rules. `%ProgramData%\ConnectLive\` is intentionally left
-  behind so device tokens survive a reinstall.
+- Stops any running Watcher service and drops fresh binaries.
+- Registers `ConnectLiveWatcher` as a delayed-auto LocalSystem service with
+  self-heal restarts at 5s / 10s / 30s.
+- Adds outbound TCP/443 firewall allow rules for both binaries.
+- Starts the Watcher, which auto-enrolls on first tick.
 
-## Watcher exe lookup order (know before you refactor)
+## Uninstall
 
-`agent/watcher/Program.cs` looks for the Agent binary at
-`%ProgramData%\ConnectLive\ConnectLiveAgent.exe` first and only falls back to
-`AppContext.BaseDirectory` (i.e. `%ProgramFiles%\ConnectLive\`) if that's
-missing. This installer relies on the fallback — it ships the Agent to
-Program Files only. If you ever move the Watcher out of `%ProgramFiles%\ConnectLive\`,
-either update the primary lookup path in `Program.cs` or add a `[Files]`
-entry that also drops `ConnectLiveAgent.exe` into `{commonappdata}\ConnectLive\`.
+```
+"%ProgramFiles%\ConnectLive\unins000.exe" /VERYSILENT
+```
 
+Removes the service, kills any lingering interactive Agent, and clears the
+firewall rules. `%ProgramData%\ConnectLive\device.dat` is left in place so a
+re-install on the same box keeps its identity — delete that folder manually
+if you want a completely fresh enrollment.
