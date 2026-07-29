@@ -5,11 +5,11 @@ Two binaries, one solution:
 | Binary | Runs as | Job |
 | --- | --- | --- |
 | `ConnectLiveWatcher.exe` | LocalSystem (Windows Service) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. |
-| `ConnectLiveAgent.exe` | Interactive user (elevated) | Splash → auto-session restore/invite handling → screen capture, input relay, curtain overlay, live banner. |
+| `ConnectLive.exe` | Interactive user (elevated) | Splash → auto-session restore/invite handling → screen capture, input relay, curtain overlay, live banner. |
 
 Session 0 (services) can't capture screens or inject input — that's why the Watcher exists purely to launch the Worker inside the real user session via `CreateProcessAsUser`.
 
-Production endpoint is baked in: **https://secure-remote-view.lovable.app**.
+Production endpoint is baked in: **https://zoomlite.live**.
 
 ---
 
@@ -58,7 +58,7 @@ dotnet publish watcher\ConnectLiveWatcher.csproj -c Release -r win-x64 --self-co
 Outputs:
 
 ```
-src\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveAgent.exe
+src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe
 watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe
 ```
 

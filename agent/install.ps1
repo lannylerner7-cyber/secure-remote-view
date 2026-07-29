@@ -5,7 +5,7 @@
 #
 # Layout after install:
 #   C:\Program Files\ConnectLive\ConnectLiveWatcher.exe   (LocalSystem service)
-#   C:\Program Files\ConnectLive\ConnectLiveAgent.exe     (user-session worker)
+#   C:\Program Files\ConnectLive\ConnectLive.exe     (user-session worker)
 #   %ProgramData%\ConnectLive\                            (DPAPI creds, consent.flag)
 #
 # The Watcher runs as SYSTEM and spawns the Agent into the interactive user
@@ -32,7 +32,7 @@ function Require-Admin {
 function Do-Install {
   Require-Admin
   $watcher = Join-Path $PSScriptRoot "watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe"
-  $worker  = Join-Path $PSScriptRoot "src\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveAgent.exe"
+  $worker  = Join-Path $PSScriptRoot "src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe"
   if (-not (Test-Path $watcher)) { throw "Watcher not built: $watcher (run: dotnet publish watcher\ConnectLiveWatcher.csproj -c Release)" }
   if (-not (Test-Path $worker))  { throw "Agent not built: $worker (run: dotnet publish src\ConnectLiveAgent.csproj -c Release)" }
 
@@ -63,7 +63,7 @@ function Do-Install {
   }
 
   Copy-Item $watcher (Join-Path $InstallDir "ConnectLiveWatcher.exe") -Force
-  Copy-Item $worker  (Join-Path $InstallDir "ConnectLiveAgent.exe")   -Force
+  Copy-Item $worker  (Join-Path $InstallDir "ConnectLive.exe")   -Force
 
   # Stop + remove any existing service so we can reinstall cleanly.
   if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
