@@ -1,48 +1,59 @@
-# Codebase Cleanup + Missing Usings + Repackage Source Zips
+## Goal
 
-Goal: sweep dead files left over from recent refactors, add two missing `using` directives, then regenerate the Admin and Agent source zips.
+Rewrite `agent/packaging/inno/ConnectLiveSetup.iss` so a single `ConnectLiveSetup.exe`:
+- Lets end users pick the install folder (standard Inno wizard page).
+- Bundles both `ConnectLiveAgent.exe` and `ConnectLiveWatcher.exe` inside one installer.
+- Registers the Watcher as a hardened Windows service that resists accidental deletion from Control Panel / Programs list.
+- Contains no `deployment.key` handling anywhere (matches current keyless auto-enroll architecture).
 
-## 1. Add missing `using` directives
+## Changes to `agent/packaging/inno/ConnectLiveSetup.iss`
 
-- `agent/watcher/Program.cs` — add `using Microsoft.Extensions.DependencyInjection;` at the top (only if not already present). Verify `Microsoft.Extensions.DependencyInjection` PackageReference exists in `agent/watcher/ConnectLiveWatcher.csproj`; add it if missing.
-- `admin/src/Media/D3DImageHost.cs` — add `using System.Threading.Tasks;` at the top (only if not already present).
+1. **[Setup] section**
+   - Bump `AppVersion` to `5.0`.
+   - Keep `DefaultDirName={autopf}\ConnectLive` but REMOVE `DisableDirPage` (never set in current file — confirm it stays absent) so the "Select Destination Location" wizard page shows.
+   - Add `DisableDirPage=no` explicitly for clarity.
+   - Add `AppId={{B4E9A1C2-7F3D-4A6E-9C2B-ConnectLive5000}}` so upgrades track the same install regardless of chosen folder.
+   - Keep `PrivilegesRequired=admin`, `ArchitecturesInstallIn64BitMode=x64`, `CloseApplications=yes`.
 
-## 2. Confirmed dead files to delete
+2. **[Dirs] section**
+   - Keep `{commonappdata}\ConnectLive` with locked-down ACL (SYSTEM/Admins full, Users read-exec) — this is where DPAPI `device.dat` lives; it must not depend on the user-chosen install folder.
 
-Reachable only through code paths that no longer exist after the deployment-key removal + pairing retirement:
+3. **[Files] section**
+   - Ship both binaries from `..\..\dist\` into `{app}` (user-selected folder):
+     - `ConnectLiveAgent.exe`
+     - `ConnectLiveWatcher.exe` (with `BeforeInstall: StopWatcherService`)
+   - Both flagged `ignoreversion`.
 
-- `agent/src/DeploymentKey.cs` — resolver for the removed `/KEY=` flow. Watcher + Agent now auto-enroll via `/api/public/agent/enroll`.
-- `src/routes/api/public/agent/pair.ts` — 410-Gone stub for the retired 6-digit PIN pairing.
-- `src/lib/deployment-key.functions.ts` — old admin panel server fn; delete only if no UI still imports it (verified via `rg` first; if referenced, strip the call site in the same pass).
+4. **[Run] — service registration hardened against accidental deletion**
+   - Stop + delete any existing `ConnectLiveWatcher` service (upgrade path).
+   - `sc create ConnectLiveWatcher binPath= "{app}\ConnectLiveWatcher.exe" start= auto obj= LocalSystem DisplayName= "ConnectLive Watcher"`.
+   - `sc description ...` explaining its role.
+   - `sc failure ConnectLiveWatcher reset= 60 actions= restart/5000/restart/10000/restart/30000` (self-heal).
+   - **NEW — deletion protection:** apply a restrictive SDDL so non-SYSTEM users cannot stop/delete the service from `services.msc` or `sc delete`:
+     `sc sdset ConnectLiveWatcher "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)"` — grants only SYSTEM and Administrators full control; interactive users get read-only. Prevents "mistake deletion in panel".
+   - Firewall rules for both `ConnectLiveAgent.exe` and `ConnectLiveWatcher.exe` (unchanged).
+   - Start `ConnectLiveWatcher` immediately post-install.
 
-## 3. Verify-before-deleting (read-only checks)
+5. **[UninstallRun]**
+   - Before delete, first `sc sdset ConnectLiveWatcher D:(A;;GA;;;SY)(A;;GA;;;BA)` to restore write access so the uninstall can actually remove the service.
+   - Then existing stop / delete / taskkill / firewall cleanup.
 
-Run `rg` in parallel to confirm zero references, delete only if truly unused; otherwise leave and note why:
+6. **[Code] section — cleaned**
+   - Keep `ServiceExists()` helper.
+   - Keep `StopWatcherService()` (called via `BeforeInstall`).
+   - **Remove entirely** the `CurStepChanged` procedure that wrote `deployment.key`, and any references to `DEPLOYMENT_KEY`, `LocalSidecarKey`, or `deployment.key` sidecar file. No more key provisioning path — the Watcher auto-enrolls on first boot via `/api/public/agent/enroll`.
 
-- `rg -n "DeploymentKey|/KEY=|AGENT_DEPLOYMENT_KEY"` — must return zero hits after cleanup.
-- `rg -n "pair"` across `src/routes`, `admin`, `agent` — confirm pairing path is fully gone.
-- `rg -n "from \"@/lib/"` — spot any `src/lib/*` file with zero importers.
-- Check `admin/src/Api/ClientIdStore.cs`, `src/routes/api/public/admin/bootstrap.ts` for live references before touching.
-- `agent/install.ps1`, `agent/run-elevated.ps1` — inspect `agent/README.md` / `INSTALL.md`; keep if still documented, otherwise remove.
+## Also update
 
-## 4. Route + import audit (read-only)
-
-- `rg -n "createFileRoute\(" src/routes` — cross-check against `src/shared/api-routes.ts`, `scripts/verify-agent-routes.ts`, `scripts/verify-payment-routes.ts`.
-- Update verify scripts if a deleted route (e.g. `pair`) was listed.
-- Strip any lingering deployment-key / pairing instructions from `agent/README.md`, `agent/INSTALL.md`, `admin/README.md`, `admin/INSTALL.md`.
-
-## 5. Repackage source zips
-
-With the tree cleaned and usings added:
-
-- `ConnectLive-RemoteAgent-src.zip` ← `agent/` excluding `bin/`, `obj/`, `dist/`.
-- `ConnectLive-AdminConsole-src.zip` ← `admin/` excluding `bin/`, `obj/`, `dist/`.
-
-Emit both as presentation-artifacts, one after the other.
+- `agent/packaging/inno/README.md` — if it still mentions selecting a folder being disabled or references any deployment key, sync wording to "user-selectable install folder, no key required, single installer bundles agent + watcher".
 
 ## Out of scope
 
-- No behavior changes to enrollment, signaling, or WebRTC flows.
-- No schema changes.
-- No renames of files still referenced.
-- Alt-installer folders (`agent/packaging/msi|gpo|jamf|intune`) stay by default — they're config/docs, not rotting code. Say the word if you want them dropped.
+- No changes to agent/watcher C# code, server routes, or admin console.
+- No re-zipping of source bundles this turn (installer is a build-artifact concern; user asked only for the `.iss` rewrite).
+
+## Technical notes
+
+- `AppId` with a fixed GUID is required so users choosing different folders across upgrades still get an in-place upgrade instead of a parallel install.
+- The SDDL string above is the standard Windows service ACL minus the `WD` (Everyone) and `AU` (Authenticated Users) delete/stop rights — this is the same technique EDR products use to prevent tampering. Local Admins can still remove it via the uninstaller (which restores the ACL first).
+- Silent install remains `ConnectLiveSetup.exe /VERYSILENT` and now also `/DIR="C:\Custom\Path"` for enterprises overriding the default folder.
