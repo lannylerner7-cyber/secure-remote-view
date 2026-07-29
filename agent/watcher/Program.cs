@@ -256,7 +256,7 @@ internal sealed class WatcherService : BackgroundService
     private static string? ResolveAgentPath()
     {
         if (File.Exists(InstalledAgentPath)) return InstalledAgentPath;
-        var beside = Path.Combine(AppContext.BaseDirectory, "ConnectLiveAgent.exe");
+        var beside = Path.Combine(AppContext.BaseDirectory, "ConnectLive.exe");
         if (File.Exists(beside)) return beside;
         return null;
     }
