@@ -1,29 +1,21 @@
-## Goal
+## Fix build errors in Admin and Agent
 
-Package the current **source** for the Admin client and the Agent client as two separate zip archives (no compilation, no `.exe`), so you can download the raw C#/.NET project trees and build them on your Windows box.
+### Admin: `admin/src/ViewModels/LiveSessionViewModel.cs`
+`DeviceItem` exposes `RowId` (the `devices.id` UUID), not `Id`. `EnqueuePowerCommandAsync` takes `deviceRowId`, so:
 
-## Deliverables
+- Line 125: change `Device.Id` → `Device.RowId`.
 
-Two zips written to `/mnt/documents/` and linked back in chat:
+### Agent: `agent/src/DxgiCapture.cs`
+Align with Vortice.DXGI / Vortice.Direct3D11 3.6.2 API surface:
 
-1. **ConnectLive-AdminConsole-src.zip** — contents of `admin/`
-   - `src/` (ApiClient.cs, WebRtcClient.cs, FrameFallbackPump.cs, CursorPollPump.cs, LiveSessionWindow.xaml, ViewModels, etc.)
-   - `ConnectLiveAdmin.csproj`, `admin.config.json`, `app.manifest`
-   - `INSTALL.md`, `README.md`, `build.ps1`
+- Line 73: `adapter.GetOutput(0)` → `adapter.EnumOutputs(0)`.
+- Lines 78–79: `desc.ModeDesc.Width/Height` → `desc.ModeDescription.Width/Height`.
+- Texture2DDescription (lines 84–94): cast dimensions to `uint`:
+  - `Width = (uint)_width`
+  - `Height = (uint)_height`
+  - `MipLevels = 1u`
+  - `ArraySize = 1u`
+- Line 132: `_duplication.AcquireNextFrame(timeoutMs, ...)` → cast timeout to `(uint)timeoutMs`.
+- Update `_width`/`_height` capture (still `int`) — only the DXGI struct assignments get the `uint` cast; internal fields stay `int` so Bitmap/Rectangle usage is unchanged.
 
-2. **ConnectLive-RemoteAgent-src.zip** — contents of `agent/`
-   - `src/` (Agent.cs, ApiClient.cs, WebRtcSession.cs, DxgiCapture.cs, CurtainOverlay.cs, InputRelay.cs, StopFlagWatcher.cs, App.xaml.cs, etc.)
-   - `watcher/` (ConnectLiveWatcher.csproj, Program.cs)
-   - `assets/`, `packaging/` (msi, gpo, intune, jamf)
-   - `install.ps1`, `run-elevated.ps1`, `INSTALL.md`, `README.md`, `build.ps1`
-
-Excluded from both: `bin/`, `obj/`, `publish/`, `dist/`, any prior `*.zip`.
-
-## Steps (build mode)
-
-1. `cd` into repo root, create `/mnt/documents/` output dir.
-2. `zip -r /mnt/documents/ConnectLive-AdminConsole-src.zip admin -x 'admin/bin/*' 'admin/obj/*' 'admin/publish/*' 'admin/dist/*' 'admin/**/*.zip'`
-3. `zip -r /mnt/documents/ConnectLive-RemoteAgent-src.zip agent -x 'agent/bin/*' 'agent/obj/*' 'agent/publish/*' 'agent/dist/*' 'agent/**/*.zip'`
-4. `unzip -l` each to confirm the expected files are present, then report both download paths to you, one after the other.
-
-Approve and I'll produce both zips.
+No other files touched; no logic changes. After edits, both projects compile against the pinned Vortice / SIPSorcery versions already in the csproj files.
