@@ -41,8 +41,8 @@ Name: "{commonappdata}\ConnectLive"; Permissions: owners-full admins-full system
 ; BeforeInstall stops the service so the LocalSystem process releases its exe lock
 ; before Inno copies the new file — CloseApplications=yes / Restart Manager
 ; does not cover services holding an exe.
-Source: "..\..\dist\ConnectLiveAgent.exe"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: StopWatcherService
-Source: "..\..\dist\ConnectLiveWatcher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\ConnectLiveAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\ConnectLiveWatcher.exe"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: StopWatcherService
 
 [Run]
 ; 1. Clean up any existing service instance prior to re-registering (prevents reinstall lockups)
