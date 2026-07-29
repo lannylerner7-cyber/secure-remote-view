@@ -70,33 +70,35 @@ public sealed class DxgiCapture : IDisposable
 
             using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
             using var adapter = dxgiDevice.GetAdapter();
-            using var output = adapter.EnumOutputs(0);
-            using var output1 = output.QueryInterface<IDXGIOutput1>();
-
-            _duplication = output1.DuplicateOutput(_device);
-            var desc = _duplication.Description;
-            _width = (int)desc.ModeDescription.Width;
-            _height = (int)desc.ModeDescription.Height;
-
-            // Staging texture matches the duplication surface, CPU-readable.
-            var stagingDesc = new Texture2DDescription
+            adapter.EnumOutputs(0, out IDXGIOutput output);
+            using (output)
+            using (var output1 = output.QueryInterface<IDXGIOutput1>())
             {
-                Width = (uint)_width,
-                Height = (uint)_height,
-                MipLevels = 1u,
-                ArraySize = 1u,
-                Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage = ResourceUsage.Staging,
-                BindFlags = BindFlags.None,
-                CPUAccessFlags = CpuAccessFlags.Read,
-                MiscFlags = ResourceOptionFlags.None,
-            };
-            _staging = _device.CreateTexture2D(stagingDesc);
+                _duplication = output1.DuplicateOutput(_device);
+                var desc = _duplication.Description;
+                _width = (int)desc.ModeDescription.Width;
+                _height = (int)desc.ModeDescription.Height;
 
-            _initialized = true;
-            Log.Info($"DXGI: Desktop Duplication initialized {_width}x{_height}");
-            return true;
+                // Staging texture matches the duplication surface, CPU-readable.
+                var stagingDesc = new Texture2DDescription
+                {
+                    Width = (uint)_width,
+                    Height = (uint)_height,
+                    MipLevels = 1u,
+                    ArraySize = 1u,
+                    Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
+                    SampleDescription = new SampleDescription(1, 0),
+                    Usage = ResourceUsage.Staging,
+                    BindFlags = BindFlags.None,
+                    CPUAccessFlags = CpuAccessFlags.Read,
+                    MiscFlags = ResourceOptionFlags.None,
+                };
+                _staging = _device.CreateTexture2D(stagingDesc);
+
+                _initialized = true;
+                Log.Info($"DXGI: Desktop Duplication initialized {_width}x{_height}");
+                return true;
+            }
         }
         catch (SharpGenException ex)
         {
@@ -160,7 +162,7 @@ public sealed class DxgiCapture : IDisposable
                 var bmpData = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
                 try
                 {
-                    int srcStride = map.RowPitch;
+                    int srcStride = (int)map.RowPitch;
                     int dstStride = bmpData.Stride;
                     int copyBytes = Math.Min(srcStride, dstStride);
                     for (int y = 0; y < _height; y++)
