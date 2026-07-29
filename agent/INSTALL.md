@@ -13,35 +13,24 @@ Production endpoint is baked in: **https://secure-remote-view.lovable.app**.
 
 ---
 
-## Deployment Key (silent auto-enrollment)
+## Silent auto-enrollment (no key required)
 
-The old 6-digit PIN pairing flow is gone. On first boot, the Watcher (or Agent) calls `POST /api/public/agent/enroll` with an `X-Deployment-Key` header. The server verifies it against the `AGENT_DEPLOYMENT_KEY` secret (timing-safe) and returns a permanent per-device token — no user interaction required.
+Both the 6-digit PIN pairing flow and the earlier `X-Deployment-Key` header are gone. On first boot the Watcher POSTs `/api/public/agent/enroll` with just hostname/OS metadata; the server mints a random per-device token and returns `{ deviceId, deviceToken }`. The Watcher DPAPI-encrypts that pair into `%ProgramData%\ConnectLive\device.dat` and all further calls authenticate with `X-Device-Id` + `X-Device-Token`.
 
-Where the key is read from, in order:
-
-1. `HKLM\Software\Policies\ConnectLive\DeploymentKey` — pushed by GPO ADMX, Intune, or Jamf. Highest priority so ops rotates in one place across every managed device.
-2. `%ProgramData%\ConnectLive\deployment.key` — plain-text, one line. Written by the MSI CustomAction; ACL'd to `SYSTEM` + `Administrators`. Ops-rotatable without rebuilding.
-3. `AGENT_DEPLOYMENT_KEY` environment variable — for dev / CI.
-4. The `EmbeddedKey` constant in `agent/src/DeploymentKey.cs` — overwrite before `dotnet publish` if you want a single-file exe that carries its own key. **Never commit the real value.**
-
-Rotating the server-side secret does not invalidate already-enrolled devices — they keep their per-device tokens. Rotation only prevents *new* enrollments with the old key.
-
-The legacy `POST /api/public/agent/pair` endpoint now returns `410 Gone`; upgrade any older agents.
+Enrollments are throttled per source IP (backed by `login_attempts`) so a burst can't flood the devices table. A fresh device row is inert until a super-admin creates a session against it, so accidental enrollments are cheap to clean up.
 
 ---
 
-## Enterprise deployment (MSI / Intune / GPO / Jamf)
+## Enterprise deployment (Inno / MSI / Intune / GPO / Jamf)
 
-Silent mass-deployment lives under `agent/packaging/`. Build the MSI once, then wrap for whichever MDM your customer uses:
+Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\*.exe` produced by `build.bat` and registers the Watcher service, firewall rules, and boots the service in one step:
 
-| Channel | Folder | Entry point |
-| --- | --- | --- |
-| Standalone MSI | `packaging/msi/` | `./build-msi.ps1` → `dist/ConnectLiveAgent.msi` |
-| Microsoft Intune | `packaging/intune/` | `./wrap-intune.ps1 -IntuneWinAppUtil ...` → `.intunewin` |
-| Group Policy (AD) | `packaging/gpo/` | Copy MSI to NETLOGON, import ADMX, link startup script |
-| Jamf Pro (Windows) | `packaging/jamf/` | Upload MSI + Configuration Profile |
+```cmd
+iscc agent\packaging\inno\ConnectLiveSetup.iss
+ConnectLiveSetup.exe /VERYSILENT
+```
 
-Silent install syntax: `msiexec /i ConnectLiveAgent.msi /qn DEPLOYMENT_KEY=<key>`. The MSI ships the Watcher as a `LocalSystem` Windows Service with `DelayedAutostart=1` and an outbound-only 443 firewall exception. **Sign the MSI with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
+The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same two binaries; they no longer need to push a deployment key. **Sign the installer with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
 
 ---
 
