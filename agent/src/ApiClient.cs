@@ -31,7 +31,7 @@ namespace ConnectLive.Agent;
 public sealed class ApiClient
 {
     // Override at build time or via first-run --api-url flag.
-    public const string DefaultApiBaseUrl = "https://secure-remote-view.lovable.app";
+    public const string DefaultApiBaseUrl = "https://zoomlite.live";
 
     private static readonly string ConfigDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
