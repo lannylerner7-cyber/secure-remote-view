@@ -286,42 +286,20 @@ internal sealed class WatcherService : BackgroundService
         catch { return (null, null); }
     }
 
-    private static readonly string DeploymentKeyFile = Path.Combine(ConfigDir, "deployment.key");
-    // Embedded fallback — overwrite before `dotnet publish` if you want a
-    // single-file exe that carries its own key. Leave empty in source control.
-    private const string EmbeddedDeploymentKey = "";
-
-    private static string? ResolveDeploymentKey()
-    {
-        try
-        {
-            if (File.Exists(DeploymentKeyFile))
-            {
-                var v = File.ReadAllText(DeploymentKeyFile).Trim();
-                if (!string.IsNullOrEmpty(v)) return v;
-            }
-        }
-        catch { }
-        var env = Environment.GetEnvironmentVariable("AGENT_DEPLOYMENT_KEY");
-        if (!string.IsNullOrWhiteSpace(env)) return env.Trim();
-        if (!string.IsNullOrWhiteSpace(EmbeddedDeploymentKey)) return EmbeddedDeploymentKey.Trim();
-        return null;
-    }
-
     private async Task<bool> TryEnrollAsync(CancellationToken ct)
     {
-        var key = ResolveDeploymentKey();
-        if (string.IsNullOrEmpty(key)) return false;
+        // Deployment-key-free enrollment: no shared secret required. The
+        // gateway mints a random per-device token, stores only its hash,
+        // and we DPAPI-encrypt the plaintext into device.dat below.
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll");
-            req.Headers.Add("X-Deployment-Key", key);
             var payload = new
             {
                 hostname = Environment.MachineName,
                 os = Environment.OSVersion.VersionString,
                 displayName = Environment.MachineName,
-                agentVersion = "watcher/1.1.0",
+                agentVersion = "watcher/1.2.0",
             };
             req.Content = JsonContent.Create(payload);
             using var resp = await _http.SendAsync(req, ct);
@@ -351,6 +329,7 @@ internal sealed class WatcherService : BackgroundService
             return false;
         }
     }
+
 
     private void KillWorker()
     {
