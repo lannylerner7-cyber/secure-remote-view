@@ -70,21 +70,21 @@ public sealed class DxgiCapture : IDisposable
 
             using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
             using var adapter = dxgiDevice.GetAdapter();
-            using var output = adapter.GetOutput(0);
+            using var output = adapter.EnumOutputs(0);
             using var output1 = output.QueryInterface<IDXGIOutput1>();
 
             _duplication = output1.DuplicateOutput(_device);
             var desc = _duplication.Description;
-            _width = desc.ModeDesc.Width;
-            _height = desc.ModeDesc.Height;
+            _width = (int)desc.ModeDescription.Width;
+            _height = (int)desc.ModeDescription.Height;
 
             // Staging texture matches the duplication surface, CPU-readable.
             var stagingDesc = new Texture2DDescription
             {
-                Width = _width,
-                Height = _height,
-                MipLevels = 1,
-                ArraySize = 1,
+                Width = (uint)_width,
+                Height = (uint)_height,
+                MipLevels = 1u,
+                ArraySize = 1u,
                 Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
                 SampleDescription = new SampleDescription(1, 0),
                 Usage = ResourceUsage.Staging,
