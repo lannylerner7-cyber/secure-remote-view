@@ -6,15 +6,12 @@
 ; Build the installer:
 ;   iscc agent\packaging\inno\ConnectLiveSetup.iss
 ;
-; Silent install with deployment key:
-;   ConnectLiveSetup.exe /VERYSILENT /DEPLOYMENT_KEY="your-key-here"
-;
-; Or drop a plain-text `deployment.key` file next to the installer .exe
-; and the [Code] block will copy it into %ProgramData%\ConnectLive\.
+; Silent install (no deployment key required — first-boot auto-enrollment):
+;   ConnectLiveSetup.exe /VERYSILENT
 
 [Setup]
 AppName=ConnectLive Remote Agent
-AppVersion=1.0
+AppVersion=1.2
 AppPublisher=ConnectLive
 DefaultDirName={autopf}\ConnectLive
 DefaultGroupName=ConnectLive
@@ -31,9 +28,10 @@ CloseApplications=yes
 RestartApplications=no
 
 [Dirs]
-; Explicitly create ProgramData directory. Grants SYSTEM/Admins/Owners full
-; control AND leaves BUILTIN\Users read+execute — the Agent runs as the
-; interactive user and calls DeploymentKey.Resolve() to read deployment.key.
+; ProgramData directory holds the DPAPI-encrypted device.dat that the Watcher
+; writes on first-boot auto-enroll. SYSTEM full control (Watcher runs as
+; LocalSystem); Users read+exec so the interactive Agent can migrate legacy
+; credentials if any exist from earlier installs.
 Name: "{commonappdata}\ConnectLive"; Permissions: owners-full admins-full system-full users-readexec
 
 [Files]
@@ -59,7 +57,9 @@ Filename: "{sys}\sc.exe"; Parameters: "failure ConnectLiveWatcher reset= 60 acti
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Agent Outbound"" dir=out action=allow program=""{app}\ConnectLiveAgent.exe"" protocol=TCP remoteport=443"; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Watcher Outbound"" dir=out action=allow program=""{app}\ConnectLiveWatcher.exe"" protocol=TCP remoteport=443"; Flags: runhidden
 
-; 4. Boot the Watcher service immediately post-install
+; 4. Boot the Watcher service immediately post-install — it will auto-enroll
+;    against /api/public/agent/enroll and DPAPI-encrypt the resulting token
+;    into %ProgramData%\ConnectLive\device.dat. No operator input required.
 Filename: "{sys}\sc.exe"; Parameters: "start ConnectLiveWatcher"; Flags: runhidden
 
 [UninstallRun]
@@ -92,56 +92,5 @@ begin
     Exec(ExpandConstant('{sys}\sc.exe'), 'stop ConnectLiveWatcher', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     // Small settle window for SCM to release the file handle.
     Sleep(1500);
-  end;
-end;
-
-// Helper function to parse custom command line switches (/DEPLOYMENT_KEY="xxx")
-function GetCommandLineParam(ParamName: String): String;
-var
-  CmdLine: String;
-  ParamPos, ParamEnd: Integer;
-begin
-  Result := '';
-  CmdLine := GetCmdTail;
-  ParamPos := Pos(UpperCase(ParamName) + '=', UpperCase(CmdLine));
-  if ParamPos > 0 then begin
-    ParamPos := ParamPos + Length(ParamName) + 1;
-    if Copy(CmdLine, ParamPos, 1) = '"' then begin
-      ParamPos := ParamPos + 1;
-      ParamEnd := PosEx('"', CmdLine, ParamPos);
-    end else begin
-      ParamEnd := PosEx(' ', CmdLine, ParamPos);
-    end;
-    if ParamEnd = 0 then ParamEnd := Length(CmdLine) + 1;
-    Result := Copy(CmdLine, ParamPos, ParamEnd - ParamPos);
-  end;
-end;
-
-// Key provisioning logic executed immediately after file extraction
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  DeploymentKey: String;
-  TargetDir, TargetFilePath, LocalSidecarKey: String;
-begin
-  if CurStep = ssPostInstall then begin
-    TargetDir := ExpandConstant('{commonappdata}\ConnectLive');
-    TargetFilePath := TargetDir + '\deployment.key';
-
-    if not DirExists(TargetDir) then
-      CreateDir(TargetDir);
-
-    // Method 1: Check for CLI switch (/DEPLOYMENT_KEY="xxx")
-    DeploymentKey := GetCommandLineParam('/DEPLOYMENT_KEY');
-
-    if DeploymentKey <> '' then begin
-      SaveStringToFile(TargetFilePath, DeploymentKey, False);
-    end
-    else begin
-      // Method 2: Fallback — Check for a "deployment.key" file placed next to the installer .exe
-      LocalSidecarKey := ExpandConstant('{src}\deployment.key');
-      if FileExists(LocalSidecarKey) then begin
-        FileCopy(LocalSidecarKey, TargetFilePath, False);
-      end;
-    end;
   end;
 end;

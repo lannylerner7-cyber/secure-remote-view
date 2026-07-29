@@ -49,15 +49,29 @@ public partial class App : Application
             return;
         }
 
-        // If saved session is still valid, jump straight to main window.
+        // If saved session is still valid, jump straight to main window. If
+        // it's expired but we still hold a refresh_token, try a silent refresh
+        // before falling back to the login window — this is what keeps the
+        // admin console "always signed in" across reboots and long idles.
         if (Auth.HasValidSession())
         {
             new MainWindow().Show();
+        }
+        else if (Auth.Current != null && !string.IsNullOrEmpty(Auth.Current.RefreshToken))
+        {
+            try
+            {
+                var refreshed = Api.RefreshSessionAsync(CancellationToken.None).GetAwaiter().GetResult();
+                if (refreshed && Auth.HasValidSession()) new MainWindow().Show();
+                else new LoginWindow().Show();
+            }
+            catch { new LoginWindow().Show(); }
         }
         else
         {
             new LoginWindow().Show();
         }
+
     }
 
     protected override void OnExit(ExitEventArgs e)
