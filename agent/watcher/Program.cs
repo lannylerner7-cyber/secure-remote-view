@@ -106,8 +106,9 @@ internal sealed class WatcherService : BackgroundService
                     var (id, token) = ReadDeviceCreds();
                     if (id == null || token == null)
                     {
-                        // First boot: silently enroll with the deployment key.
-                        // If the key isn't installed yet we skip and retry next tick.
+                        // First boot: silently auto-enroll (no deployment key).
+                        // If the network is down we skip and retry next tick.
+
                         var enrolled = await TryEnrollAsync(ct);
                         if (enrolled) (id, token) = ReadDeviceCreds();
                     }
