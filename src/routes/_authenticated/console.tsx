@@ -375,11 +375,31 @@ function AdminPage() {
       .update({ state: "active", mode: "view", updated_at: new Date().toISOString() })
       .eq("id", s.id);
     if (error) return alert(error.message);
+    // Explicit wake: the SYSTEM watcher picks this up on its next heartbeat
+    // and relaunches the agent even if the user closed it manually.
+    await queueWakeAgent(s.device_id, s.id);
     setLiveId(s.id);
     const dev = devices.find((d) => d.id === s.device_id);
-    void notify({ data: { kind: "session_start", text: `🔁 Waiting for <b>${dev?.display_name ?? "device"}</b> to reconnect to the existing session.` } });
+    void notify({ data: { kind: "session_start", text: `🔁 Wake sent — waiting for <b>${dev?.display_name ?? "device"}</b> to reconnect to the existing session.` } });
     void refresh();
   }
+
+  // Queue a `wake_agent` power command so the SYSTEM watcher respawns the
+  // agent in the interactive desktop session. Best-effort: a failure here
+  // never blocks the session flow.
+  async function queueWakeAgent(deviceRowId: string, sessionId?: string) {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return;
+    await supabase.from("power_commands").insert({
+      device_id: deviceRowId,
+      kind: "wake_agent",
+      payload: (sessionId ? { session_id: sessionId } : {}) as never,
+      state: "queued",
+      requested_by: auth.user.id,
+      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+    });
+  }
+
 
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
   // Coordinates are normalized (0..1) relative to the rendered image.
