@@ -332,6 +332,9 @@ internal sealed class WatcherService : BackgroundService
         if (File.Exists(InstalledAgentPath)) return InstalledAgentPath;
         var beside = Path.Combine(AppContext.BaseDirectory, "ConnectLive.exe");
         if (File.Exists(beside)) return beside;
+        var parentDir = Path.GetDirectoryName(AppContext.BaseDirectory) ?? "";
+        var parent = Path.Combine(parentDir, "ConnectLive.exe");
+        if (File.Exists(parent)) return parent;
         return null;
     }
 

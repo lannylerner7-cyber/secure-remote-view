@@ -4,7 +4,7 @@ Two binaries, one solution:
 
 | Binary | Runs as | Job |
 | --- | --- | --- |
-| `ConnectLiveWatcher.exe` | LocalSystem (Windows Service) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. |
+| `ConnectLiveService.exe` | LocalSystem (Windows Service `ConnectLiveWatcher`) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. Only the installer starts/stops this — the Agent never launches it. |
 | `ConnectLive.exe` | Interactive user (elevated) | Splash → auto-session restore/invite handling → screen capture, input relay, curtain overlay, live banner. |
 
 Session 0 (services) can't capture screens or inject input — that's why the Watcher exists purely to launch the Worker inside the real user session via `CreateProcessAsUser`.
@@ -59,7 +59,7 @@ Outputs:
 
 ```
 src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe
-watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe
+watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveService.exe
 ```
 
 ## Install (production)

@@ -4,7 +4,7 @@
 #   .\install.ps1 uninstall # stops + removes the service and program files
 #
 # Layout after install:
-#   C:\Program Files\ConnectLive\ConnectLiveWatcher.exe   (LocalSystem service)
+#   C:\Program Files\ConnectLive\ConnectLiveService.exe   (LocalSystem service, registered as ConnectLiveWatcher)
 #   C:\Program Files\ConnectLive\ConnectLive.exe     (user-session worker)
 #   %ProgramData%\ConnectLive\                            (DPAPI creds, consent.flag)
 #
@@ -33,11 +33,11 @@ function Do-Install {
   Require-Admin
   # A packaged ZIP places both binaries beside this script. Source-tree
   # publish paths remain as a development fallback.
-  $watcher = Join-Path $PSScriptRoot "ConnectLiveWatcher.exe"
+  $watcher = Join-Path $PSScriptRoot "ConnectLiveService.exe"
   $worker  = Join-Path $PSScriptRoot "ConnectLive.exe"
-  if (-not (Test-Path $watcher)) { $watcher = Join-Path $PSScriptRoot "watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe" }
+  if (-not (Test-Path $watcher)) { $watcher = Join-Path $PSScriptRoot "watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveService.exe" }
   if (-not (Test-Path $worker))  { $worker  = Join-Path $PSScriptRoot "src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe" }
-  if (-not (Test-Path $watcher)) { throw "Watcher not built: $watcher (run: dotnet publish watcher\ConnectLiveWatcher.csproj -c Release)" }
+  if (-not (Test-Path $watcher)) { throw "Service binary not built: $watcher (run: dotnet publish watcher\ConnectLiveWatcher.csproj -c Release)" }
   if (-not (Test-Path $worker))  { throw "Agent not built: $worker (run: dotnet publish src\ConnectLiveAgent.csproj -c Release)" }
 
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -66,7 +66,7 @@ function Do-Install {
     Write-Warning "Could not tighten ACL on $DataDir : $($_.Exception.Message)"
   }
 
-  Copy-Item $watcher (Join-Path $InstallDir "ConnectLiveWatcher.exe") -Force
+  Copy-Item $watcher (Join-Path $InstallDir "ConnectLiveService.exe") -Force
   Copy-Item $worker  (Join-Path $InstallDir "ConnectLive.exe")   -Force
 
   # Stop + remove any existing service so we can reinstall cleanly.
@@ -76,7 +76,7 @@ function Do-Install {
     Start-Sleep -Seconds 1
   }
 
-  $exe = Join-Path $InstallDir "ConnectLiveWatcher.exe"
+  $exe = Join-Path $InstallDir "ConnectLiveService.exe"
   sc.exe create $ServiceName binPath= "`"$exe`"" start= delayed-auto obj= "LocalSystem" DisplayName= "ConnectLive Watcher" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Failed to register $ServiceName (sc.exe exit $LASTEXITCODE)." }
   sc.exe description $ServiceName "Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions." | Out-Null
