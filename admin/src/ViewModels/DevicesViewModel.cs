@@ -61,7 +61,7 @@ public partial class DevicesViewModel : ObservableObject
                 // flight — that is NOT a healthy poll, so we must not reset
                 // the back-off (a wedged request used to look like success
                 // while the grid quietly went stale).
-                ok = await Refresh().ConfigureAwait(false);
+                ok = await RefreshOnceAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
