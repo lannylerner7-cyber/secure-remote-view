@@ -400,12 +400,72 @@ internal sealed class WatcherService : BackgroundService
     }
 
 
+    /// <summary>
+    /// Liveness check that survives a failed <c>Process.GetProcessById</c> at
+    /// launch time: the PID is authoritative, the Process handle is a
+    /// convenience. Without this a launch race made the Watcher believe the
+    /// Agent died and respawn it on every tick.
+    /// </summary>
+    private bool IsAgentRunning()
+    {
+        if (_worker is { HasExited: false }) return true;
+        _worker = null;
+
+        if (_workerPid > 0)
+        {
+            try
+            {
+                var p = Process.GetProcessById(_workerPid);
+                if (!p.HasExited) { _worker = p; return true; }
+            }
+            catch { /* pid gone */ }
+            _workerPid = 0;
+        }
+        return false;
+    }
+
+    /// <summary>Report a queued power command as delivered/failed.</summary>
+    private async Task AckPowerCommandAsync(string cmdId, string state, string? error, CancellationToken ct)
+    {
+        try
+        {
+            var (id, token) = ReadDeviceCreds();
+            if (id == null || token == null) return;
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/power/{cmdId}/ack");
+            req.Headers.Add("X-Device-Id", id);
+            req.Headers.Add("X-Device-Token", token);
+            req.Content = JsonContent.Create(new { state, error });
+            using var resp = await _http.SendAsync(req, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { LogWarn($"power ack {cmdId}: {ex.Message}"); }
+    }
+
+    private static void LogInfo(string message) => WriteEvent(message, EventLogEntryType.Information);
+    private static void LogWarn(string message) => WriteEvent(message, EventLogEntryType.Warning);
+
+    private static void WriteEvent(string message, EventLogEntryType type)
+    {
+        try { EventLog.WriteEntry("Application", $"[ConnectLiveWatcher] {message}", type); } catch { }
+    }
+
     private void KillWorker()
     {
         try { if (_worker is { HasExited: false }) _worker.Kill(entireProcessTree: true); } catch { }
+        if (_workerPid > 0)
+        {
+            try
+            {
+                var p = Process.GetProcessById(_workerPid);
+                if (!p.HasExited) p.Kill(entireProcessTree: true);
+            }
+            catch { }
+        }
         _worker = null;
+        _workerPid = 0;
     }
 }
+
 
 // -----------------------------------------------------------------------------
 // Win32 interop — token duplication + CreateProcessAsUser
