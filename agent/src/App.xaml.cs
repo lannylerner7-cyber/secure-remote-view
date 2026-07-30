@@ -153,13 +153,35 @@ public partial class App : Application
         catch (Exception ex)
         {
             var installer = Path.Combine(AppContext.BaseDirectory, "install.ps1");
-            var repair = File.Exists(installer)
-                ? "Run install.ps1 as Administrator to install or repair the Watcher service."
+            var canRepair = File.Exists(installer);
+            var repair = canRepair
+                ? "Select Yes to install or repair the Watcher service now."
                 : "Re-run ConnectLiveSetup.exe as Administrator to install or repair the Watcher service.";
-            MessageBox.Show(
+            var choice = MessageBox.Show(
                 "ConnectLive Watcher is not running. The Agent can open, but it cannot be restarted after it is closed.\n\n" +
                 repair + "\n\nDetails: " + ex.Message,
-                "ConnectLive Watcher needs repair", MessageBoxButton.OK, MessageBoxImage.Warning);
+                "ConnectLive Watcher needs repair",
+                canRepair ? MessageBoxButton.YesNo : MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            if (canRepair && choice == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "powershell.exe",
+                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{installer}\" install",
+                        UseShellExecute = true,
+                        Verb = "runas",
+                    });
+                    Shutdown();
+                }
+                catch (Exception repairEx)
+                {
+                    MessageBox.Show("Watcher repair could not start:\n\n" + repairEx.Message,
+                        "ConnectLive Watcher", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
         }
     }
 }
