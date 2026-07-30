@@ -206,13 +206,47 @@ begin
   end;
 end;
 
+function WaitForServiceDeletion(const Manager: THandle; Attempts: Integer): Boolean;
+var
+  I: Integer;
+  Probe: THandle;
+  ErrorCode: Cardinal;
+begin
+  Result := False;
+  for I := 1 to Attempts do
+  begin
+    Probe := OpenService(Manager, 'ConnectLiveWatcher', SERVICE_QUERY_STATUS);
+    if Probe = 0 then
+    begin
+      ErrorCode := GetLastError();
+      if ErrorCode = ERROR_SERVICE_DOES_NOT_EXIST then
+      begin
+        LogLine('service deletion: registration is gone');
+        Result := True;
+        Exit;
+      end;
+      LogLine('service deletion probe: ' + ErrorText(ErrorCode));
+    end
+    else
+    begin
+      CloseServiceHandle(Probe);
+      LogLine('service deletion: waiting for SCM to release registration');
+    end;
+    Sleep(500);
+  end;
+  ServiceFailureDetail := 'Timed out waiting for the old service registration to be deleted.';
+  LogLine(ServiceFailureDetail);
+end;
+
 function RemoveWatcherService(): Boolean;
 var
   Manager, Service: THandle;
   Status: TServiceStatus;
   ErrorCode: Cardinal;
+  DeleteAccepted: Boolean;
 begin
   Result := False;
+  DeleteAccepted := False;
   Manager := OpenSCManager('', '', SC_MANAGER_CONNECT);
   if Manager = 0 then
   begin
@@ -258,10 +292,12 @@ begin
         Exit;
       end;
       LogLine('DeleteService: accepted by SCM');
-      Result := True;
+      DeleteAccepted := True;
     finally
       CloseServiceHandle(Service);
     end;
+    if DeleteAccepted then
+      Result := WaitForServiceDeletion(Manager, 40);
   finally
     CloseServiceHandle(Manager);
   end;
@@ -346,6 +382,9 @@ begin
         end;
       end;
       LogLine('StartService: accepted by SCM');
+      Status.CurrentState := 0;
+      Status.Win32ExitCode := 0;
+      Status.ServiceSpecificExitCode := 0;
       if not WaitForServiceState(Service, SERVICE_RUNNING, 60, Status) then
       begin
         ServiceFailureDetail := 'Service did not reach RUNNING; final_state=' +
