@@ -24,9 +24,15 @@ public partial class App : Application
                 MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown();
             return;
+        if (!IsWatcherServiceRunning())
+        {
+            MessageBox.Show(
+                "ConnectLive background service is not running.\n\n" +
+                "Please reinstall ConnectLive or contact your administrator.",
+                "ConnectLive Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown();
+            return;
         }
-
-        EnsureWatcherRunning();
 
         string? apiUrl = null;
         string? wakeSessionId = null;
@@ -139,49 +145,23 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    private static void EnsureWatcherRunning()
+    /// <summary>
+    /// Read-only status probe. The Watcher is a LocalSystem Windows Service
+    /// registered by the installer — the Agent must never try to start,
+    /// repair, or spawn it. Doing so would create a child process owned by
+    /// the interactive user, and WTSQueryUserToken inside the Watcher would
+    /// then fail with access-denied on every tick.
+    /// </summary>
+    private static bool IsWatcherServiceRunning()
     {
         try
         {
-            using var service = new ServiceController("ConnectLiveWatcher");
-            if (service.Status == ServiceControllerStatus.Running) return;
-            service.Start();
-            service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
-            if (service.Status == ServiceControllerStatus.Running) return;
-            throw new InvalidOperationException("service did not reach Running state");
+            using var sc = new ServiceController("ConnectLiveWatcher");
+            return sc.Status == ServiceControllerStatus.Running;
         }
-        catch (Exception ex)
+        catch
         {
-            var installer = Path.Combine(AppContext.BaseDirectory, "install.ps1");
-            var canRepair = File.Exists(installer);
-            var repair = canRepair
-                ? "Select Yes to install or repair the Watcher service now."
-                : "Re-run ConnectLiveSetup.exe as Administrator to install or repair the Watcher service.";
-            var choice = MessageBox.Show(
-                "ConnectLive Watcher is not running. The Agent can open, but it cannot be restarted after it is closed.\n\n" +
-                repair + "\n\nDetails: " + ex.Message,
-                "ConnectLive Watcher needs repair",
-                canRepair ? MessageBoxButton.YesNo : MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            if (canRepair && choice == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "powershell.exe",
-                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{installer}\" install",
-                        UseShellExecute = true,
-                        Verb = "runas",
-                    });
-                    Current?.Shutdown();
-                }
-                catch (Exception repairEx)
-                {
-                    MessageBox.Show("Watcher repair could not start:\n\n" + repairEx.Message,
-                        "ConnectLive Watcher", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
+            return false;
         }
     }
 }
