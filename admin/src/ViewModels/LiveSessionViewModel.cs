@@ -46,11 +46,25 @@ public partial class LiveSessionViewModel : ObservableObject
         Device = device;
     }
 
-    // Marshals any background-thread error onto the UI thread.
+    // Marshals any background-thread error onto the UI thread and auto-clears
+    // the banner after 15s so a transient RLS/401 blip never leaves a stale
+    // yellow strip parked above the live view.
+    private int _statusEpoch;
     private void SurfaceError(string msg)
     {
+        var epoch = System.Threading.Interlocked.Increment(ref _statusEpoch);
         Application.Current?.Dispatcher.InvokeAsync(() => StatusMessage = msg);
+        _ = Task.Run(async () =>
+        {
+            try { await Task.Delay(15_000).ConfigureAwait(false); } catch { return; }
+            if (System.Threading.Volatile.Read(ref _statusEpoch) != epoch) return;
+            Application.Current?.Dispatcher.InvokeAsync(() =>
+            {
+                if (StatusMessage == msg) StatusMessage = null;
+            });
+        });
     }
+
 
     private void HandleTakenOver()
     {
