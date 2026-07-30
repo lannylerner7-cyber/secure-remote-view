@@ -520,9 +520,10 @@ internal static class WinApi
     /// identified by <paramref name="sessionId"/>, passing <paramref name="arguments"/>
     /// on the command line. Returns a Process handle we can watch for exit.
     /// </summary>
-    public static bool LaunchInSession(uint sessionId, string exePath, string arguments, out Process? process)
+    public static bool LaunchInSession(uint sessionId, string exePath, string arguments, out Process? process, out int pid)
     {
         process = null;
+        pid = 0;
         IntPtr userToken = IntPtr.Zero, dupToken = IntPtr.Zero, envBlock = IntPtr.Zero;
         try
         {
@@ -540,7 +541,9 @@ internal static class WinApi
                     false, flags, envBlock, Path.GetDirectoryName(exePath), ref si, out var pi))
                 return false;
 
+            pid = pi.dwProcessId;
             try { process = Process.GetProcessById(pi.dwProcessId); } catch { }
+
             CloseHandle(pi.hProcess);
             CloseHandle(pi.hThread);
             return true;
