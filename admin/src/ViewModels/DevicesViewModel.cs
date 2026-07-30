@@ -78,8 +78,12 @@ public partial class DevicesViewModel : ObservableObject
     }
 
 
+    // Command entry point (AsyncRelayCommand needs a plain Task).
     [RelayCommand]
-    public async Task<bool> Refresh()
+    public Task Refresh() => RefreshOnceAsync();
+
+    /// <summary>Returns false when the pass was skipped or nothing ran.</summary>
+    public async Task<bool> RefreshOnceAsync()
     {
         if (Busy) return false;
         SetBusy(true);
