@@ -169,3 +169,42 @@ exe): `SIPSorcery`, `SIPSorceryMedia.Encoders`. Pure managed, no native DLLs.
 **Zero-regression guarantee**: if SIPSorcery fails to initialize on the
 target machine, `WebRtcSession.Start` logs a warning and the HTTPS frame
 stream + input-poll loop keep working exactly as before.
+
+## MSI: "A newer version of ConnectLive Agent is already installed."
+
+This dialog is a Windows Installer upgrade rule, not an Agent or Watcher error.
+It appeared because the MSI shipped a hardcoded `ProductVersion` of `1.0.0.0`
+and `MajorUpgrade` defaulted to rejecting same-version installs, so every
+rebuild refused to install over the previous one.
+
+Fixed in the build pipeline:
+
+- `packaging/msi/ConnectLive.wxs` now sets
+  `MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize"`.
+- `build.ps1` injects a moving 4-field version (`1.0.<yyMMdd>.<HHmm>` by
+  default, or `-Version 1.2.0.0`) via `wix build -d Version=...`.
+
+If a machine is still stuck on an older package:
+
+```powershell
+# find the installed product
+Get-WmiObject Win32_Product | Where-Object { $_.Name -like 'ConnectLive*' } |
+    Select-Object Name, Version, IdentifyingNumber
+
+# remove it, then reinstall
+msiexec /x "{PRODUCT-CODE-FROM-ABOVE}" /qn
+msiexec /i ConnectLiveAgent.msi /qn
+```
+
+Apps & Features → ConnectLive Agent → Uninstall does the same thing.
+
+## Building the installers
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1              # Inno + MSI
+powershell -ExecutionPolicy Bypass -File build.ps1 -SkipMsi     # Inno only
+powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInno    # MSI only
+```
+
+A missing `iscc` or `wix` now fails the build instead of silently skipping a
+target, so a run can no longer end with only half the artifacts.

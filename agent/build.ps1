@@ -1,47 +1,155 @@
-# ConnectLive Agent — build script (Windows, .NET 8 SDK required)
-# Produces dist/ConnectLive.exe, dist/ConnectLiveService.exe + dist/ConnectLiveAgent.zip
-$ErrorActionPreference = "Stop"
+# ConnectLive Agent -- build script (Windows, .NET 8 SDK required)
+# Produces:
+#   dist/ConnectLive.exe           (raw agent binary - input to the installers)
+#   dist/ConnectLiveService.exe    (raw service binary - input to the installers)
+#   dist/ConnectLiveSetup.exe      (Inno Setup installer - interactive IT installs)
+#   dist/ConnectLiveAgent.msi      (MSI - Intune / GPO / silent)
+#   dist/ConnectLiveAgent.zip      (contains the installer(s) + README)
+#
+# Prerequisites (install once):
+#   Inno Setup 6+  https://jrsoftware.org/isinfo.php   (iscc must be on PATH)
+#   WiX v4         dotnet tool install --global wix
+#                  wix extension add -g WixToolset.Util.wixext
+#                  wix extension add -g WixToolset.Firewall.wixext
+#
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File build.ps1
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipMsi     # Inno only
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInno    # MSI only
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.2.0.0
+#
+# A missing toolchain is a HARD FAILURE unless the matching -Skip switch is
+# passed. Silent "Skipping." warnings used to produce half-built runs.
 
+param(
+    [switch]$SkipInno,
+    [switch]$SkipMsi,
+    [string]$Version
+)
+
+$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+
+# -- 0. Version ----------------------------------------------------------------
+# MSI ProductVersion must be 4 numeric fields. A moving version guarantees each
+# build is a genuine major upgrade of the last, never a same-version collision.
+
+if (-not $Version) {
+    $now = Get-Date
+    $Version = "1.0.{0}.{1}" -f $now.ToString("yyMMdd"), $now.ToString("HHmm")
+}
+if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+    throw "-Version must be four numeric fields (e.g. 1.0.260730.1948). Got: $Version"
+}
+Write-Host "==> Build version: $Version"
+
+# -- 1. Restore ----------------------------------------------------------------
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAgent.csproj
 dotnet restore watcher/ConnectLiveWatcher.csproj
 
-Write-Host "==> Publishing (single-file, self-contained, win-x64)..."
+# -- 2. Publish binaries -------------------------------------------------------
+
+Write-Host "==> Publishing Agent (single-file, self-contained, win-x64)..."
 dotnet publish src/ConnectLiveAgent.csproj `
     -c Release `
     -r win-x64 `
     --self-contained true `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
     -o publish/agent
 
-Write-Host "==> Publishing watcher service (single-file, self-contained, win-x64)..."
+Write-Host "==> Publishing Watcher service (single-file, self-contained, win-x64)..."
 dotnet publish watcher/ConnectLiveWatcher.csproj `
     -c Release `
     -r win-x64 `
     --self-contained true `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
     -o publish/watcher
 
+# -- 3. Stage binaries to dist\ ------------------------------------------------
+# Both packaging/inno/ConnectLiveSetup.iss and packaging/msi/ConnectLive.wxs
+# source their payload from dist\.
+
 New-Item -ItemType Directory -Force -Path dist | Out-Null
-Copy-Item publish/agent/ConnectLive.exe dist/ -Force
+Copy-Item publish/agent/ConnectLive.exe          dist/ -Force
 Copy-Item publish/watcher/ConnectLiveService.exe dist/ -Force
-Copy-Item assets/* dist/ -Recurse -Force -ErrorAction SilentlyContinue
-Copy-Item install.ps1 dist/ -Force
-Copy-Item run-elevated.ps1 dist/ -Force
-Copy-Item INSTALL.md dist/README-INSTALL.txt -Force
+Copy-Item assets/*                               dist/ -Recurse -Force -ErrorAction SilentlyContinue
 
+foreach ($required in @("dist/ConnectLive.exe", "dist/ConnectLiveService.exe")) {
+    if (-not (Test-Path $required)) { throw "Publish did not produce $required" }
+}
+Write-Host "  Staged: dist\ConnectLive.exe"
+Write-Host "  Staged: dist\ConnectLiveService.exe"
+
+# -- 4. Build Inno Setup installer ---------------------------------------------
+
+if (-not $SkipInno) {
+    Write-Host "==> Building Inno Setup installer..."
+    if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+        throw "iscc (Inno Setup 6) is not on PATH. Install it, or re-run with -SkipInno."
+    }
+    & iscc packaging/inno/ConnectLiveSetup.iss
+    if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed (exit $LASTEXITCODE)" }
+    Write-Host "  Built: dist\ConnectLiveSetup.exe"
+}
+
+# -- 5. Build MSI (WiX v4) -----------------------------------------------------
+# packaging/msi/ConnectLive.wxs is the single source of truth. This script no
+# longer regenerates it -- that used to silently overwrite the tracked file and
+# let the two copies drift apart.
+
+if (-not $SkipMsi) {
+    Write-Host "==> Building MSI installer (WiX v4)..."
+    if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
+        throw "wix is not on PATH. Run: dotnet tool install --global wix, or re-run with -SkipMsi."
+    }
+    Push-Location packaging/msi
+    try {
+        wix build ConnectLive.wxs `
+            -d Version=$Version `
+            -ext WixToolset.Util.wixext `
+            -ext WixToolset.Firewall.wixext `
+            -arch x64 `
+            -o (Join-Path $root "dist/ConnectLiveAgent.msi")
+        if ($LASTEXITCODE -ne 0) { throw "WiX build failed (exit $LASTEXITCODE)" }
+        Write-Host "  Built: dist\ConnectLiveAgent.msi  (ProductVersion $Version)"
+    } finally { Pop-Location }
+}
+
+# -- 6. Package the installer(s) for distribution ------------------------------
+
+Write-Host "==> Creating distribution ZIP..."
 if (Test-Path dist/ConnectLiveAgent.zip) { Remove-Item dist/ConnectLiveAgent.zip }
-Compress-Archive -Path dist/ConnectLive.exe, dist/ConnectLiveService.exe, dist/install.ps1, dist/run-elevated.ps1, dist/README-INSTALL.txt -DestinationPath dist/ConnectLiveAgent.zip -Force
+if (Test-Path INSTALL.md) { Copy-Item INSTALL.md dist/README-INSTALL.txt -Force }
+
+$zipItems = @()
+if (Test-Path dist/ConnectLiveSetup.exe) { $zipItems += "dist/ConnectLiveSetup.exe" }
+if (Test-Path dist/ConnectLiveAgent.msi) { $zipItems += "dist/ConnectLiveAgent.msi" }
+if (Test-Path dist/README-INSTALL.txt)   { $zipItems += "dist/README-INSTALL.txt" }
+
+if ($zipItems.Count -eq 0) { throw "No installer was built -- nothing to package." }
+Compress-Archive -Path $zipItems -DestinationPath dist/ConnectLiveAgent.zip -Force
+Write-Host "  Zip  : dist\ConnectLiveAgent.zip"
+
+# -- 7. Summary ----------------------------------------------------------------
 
 Write-Host ""
-Write-Host "Built: dist/ConnectLive.exe"
-Write-Host "Built: dist/ConnectLiveService.exe"
-Write-Host "Zip  : dist/ConnectLiveAgent.zip"
+Write-Host "=== Build complete (version $Version) ==="
 Write-Host ""
-Write-Host "Next: sign with your code-signing cert, e.g."
-Write-Host '  signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLive.exe'
+Write-Host "  Raw binaries (input to installer - do NOT ship directly):"
+Write-Host "    dist\ConnectLive.exe"
+Write-Host "    dist\ConnectLiveService.exe"
+Write-Host ""
+Write-Host "  Installers (ship ONE of these to IT staff):"
+if (Test-Path dist/ConnectLiveSetup.exe) { Write-Host "    dist\ConnectLiveSetup.exe   <- interactive install" }
+if (Test-Path dist/ConnectLiveAgent.msi) { Write-Host "    dist\ConnectLiveAgent.msi   <- silent / Intune / GPO" }
+Write-Host ""
+Write-Host "  Sign before wide rollout:"
+Write-Host "    signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a dist\ConnectLiveSetup.exe"
+Write-Host "    signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a dist\ConnectLiveAgent.msi"
