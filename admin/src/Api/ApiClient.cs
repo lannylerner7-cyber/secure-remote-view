@@ -410,6 +410,11 @@ public sealed class ApiClient
     // authenticated staff with the admin/super_admin role.
     public async Task EnqueuePowerCommandAsync(string deviceRowId, string kind, object? payload, CancellationToken ct)
     {
+        // Older UI builds used "restart" while the database and Agent use
+        // "reboot". Normalize at the API boundary so stale callers cannot
+        // trigger power_commands_kind_check again.
+        if (string.Equals(kind, "restart", StringComparison.OrdinalIgnoreCase))
+            kind = "reboot";
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/power_commands");
         req.Headers.Add("Prefer", "return=minimal");
         req.Content = JsonContent.Create(new

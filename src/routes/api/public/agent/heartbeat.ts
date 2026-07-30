@@ -4,7 +4,7 @@ import { verifyDevice } from "@/lib/agent-auth.server";
 /**
  * Called every ~15s by the agent, and every 5-60s by the SYSTEM watcher.
  * Returns pending session invites + is_session_active so the watcher can
- * revive ConnectLiveAgent.exe if it crashed or the user closed it.
+ * revive ConnectLive.exe if it crashed or the user closed it.
  *
  * Reconnect detection uses a timestamp delta: any gap > 60s (or a non-
  * "online" prior status) fires a broadcast "Device reconnected" notification,

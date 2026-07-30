@@ -16,6 +16,7 @@ const add = (name: string, ok: boolean, detail: string) =>
   results.push({ name, ok, detail });
 
 const SID = "00000000-0000-0000-0000-000000000000";
+const POWER_KINDS = ["wake", "wake_agent", "reboot", "shutdown", "lock", "logoff"] as const;
 
 async function hit(
   method: string,
@@ -109,6 +110,9 @@ async function hit(
     JSON.stringify({ device_id: SID, kind: "lock" }));
   await pg("POST", "/rest/v1/rpc/bind_admin", [401],
     JSON.stringify({ _session_id: SID, _client_id: "x".repeat(16) }));
+
+  add("power command vocabulary", POWER_KINDS.includes("wake_agent") && POWER_KINDS.includes("reboot"),
+    POWER_KINDS.join(", "));
 
   const pad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
   for (const r of results) {
