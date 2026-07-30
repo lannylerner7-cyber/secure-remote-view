@@ -1,49 +1,39 @@
-## Static audit result
+## What the screenshot actually shows
 
-The Worker does **not** need administrator privileges. The intended security boundary is already correct:
+This is not a C# error and not an Inno error. It is Windows Installer's own upgrade rule firing:
 
-- `ConnectLiveSetup.exe` is elevated by `PrivilegesRequired=admin`.
-- `ConnectLiveWatcher` must run as `LocalSystem` in Session 0.
-- `ConnectLive.exe` must run as the signed-in user in the interactive desktop session.
-- Giving the interactive Worker admin rights would not fix the installer warning and would weaken the design.
+- `ConnectLive.wxs` hardcodes `Version="1.0.0.0"` with a fixed `UpgradeCode`.
+- `<MajorUpgrade>` defaults to `AllowSameVersionUpgrades="no"`, so installing 1.0.0.0 when 1.0.0.0 is already present is treated as a downgrade/same-version conflict and shows exactly the string in your `DowngradeErrorMessage`: "A newer version of ConnectLive Agent is already installed."
 
-The files are now copied before service registration, so the former `ssInstall` ordering bug is no longer present. The remaining installer path is fragile because it relies on a long `sc.exe create` parameter string, then applies later service operations even if creation failed. Its current logging records only exit codes and does not record the service’s stored image path, state, or Windows startup error. The uploaded Watcher project also contains dependency corrections that are absent from the project copy.
+So every rebuild produces an MSI that refuses to install over the previous one unless it is uninstalled first. The Inno path was skipped separately because `iscc` was not on PATH (the script only warns and continues), which is why the run ended with only an MSI.
 
-## Implementation plan
+A second, quieter problem: `build.ps1` **rewrites** `packaging/msi/ConnectLive.wxs` from an inline here-string on every build. The tracked file in the repo (older schema, `DEPLOYMENT_KEY` custom action, `src\bin\...\publish` sources, no `service\` subfolder) is therefore dead code that silently diverges from what is actually compiled.
 
-1. **Replace fragile service registration with native Windows service APIs in the Inno script**
-   - Create/open the Service Control Manager directly from Pascal code.
-   - Register `ConnectLiveWatcher` with the exact absolute `ConnectLiveService.exe` path, `LocalSystem`, delayed automatic start, and the existing display name.
-   - Eliminate `sc.exe` command-line quoting ambiguity around custom install paths such as `C:\Program Files\ConnectLive\service\ConnectLiveService.exe`.
-   - Stop immediately if service creation fails; do not run description, failure-policy, ACL, or start operations against a nonexistent/stale service.
+## Plan
 
-2. **Make stop/delete/reinstall deterministic**
-   - Open the existing service with the required rights, stop it, wait for `SERVICE_STOPPED`, delete it, and wait until SCM no longer exposes the old registration.
-   - Preserve the current `BeforeInstall` placement so the executable lock is released before file replacement.
-   - Keep the service ACL policy: SYSTEM and Administrators control the service; interactive users can query but cannot stop/delete it.
+1. **Make the MSI reinstallable**
+   - Add `AllowSameVersionUpgrades="yes"` and `Schedule="afterInstallInitialize"` to `<MajorUpgrade>` so a rebuild of the same version cleanly replaces the previous install instead of erroring.
+   - Keep `DowngradeErrorMessage` for genuinely older packages.
 
-3. **Replace the four-second guess with a real service-state wait**
-   - Start the service and poll its state until it reaches `Running`, reports `Stopped`, or reaches a bounded timeout.
-   - Capture `dwWin32ExitCode` and `dwServiceSpecificExitCode` when startup fails.
-   - Treat `StartPending` as progress rather than immediately reporting failure.
+2. **Give the MSI a real, moving version**
+   - Introduce a `-Version` parameter in `build.ps1` (default derived from date/build counter, e.g. `1.0.<yyyyMMdd>.<HHmm>`-style 4-part numeric).
+   - Pass it to WiX with `-d Version=$Version` and change the `.wxs` to `Version="$(Version)"` so consecutive builds are always upgrades, never same-version collisions.
 
-4. **Upgrade installer diagnostics**
-   - Log the selected install directory, verified binary path, service account, configured image path, every SCM operation, state transition, and Win32 error message to `%ProgramData%\ConnectLive\install.log`.
-   - Preserve the visible warning, but include the exact Windows error code/state instead of only the generic message.
-   - Guard log initialization so pre-copy stop/delete operations are recorded too.
+3. **Stop the dual-source `.wxs` drift**
+   - Remove the inline here-string generation from `build.ps1`; build the tracked `packaging/msi/ConnectLive.wxs` directly.
+   - Update the tracked `.wxs` to the current, correct content: `dist\ConnectLive.exe` and `dist\ConnectLiveService.exe` sources, `service\` subfolder for the service binary, `DelayedAutostart` registry value, `AuthenticatedUsers` PermissionEx via GenericRead/GenericWrite/Delete, and drop the obsolete `DEPLOYMENT_KEY` custom action (deployment keys were removed from the enrollment flow).
 
-5. **Synchronize and harden the Watcher project definition**
-   - Apply the uploaded project’s aligned `Microsoft.Extensions.*` versions.
-   - Add the explicit `System.Security.Cryptography.ProtectedData` dependency required by the Watcher’s DPAPI calls.
-   - Keep `OutputType=WinExe`, `AssemblyName=ConnectLiveService`, self-contained `win-x64`, single-file publishing, and Windows Service hosting.
+4. **Make a missing toolchain loud instead of silent**
+   - `iscc` or `wix` missing currently only warns. Change to fail the build unless the matching `-SkipInno` / `-SkipMsi` switch was passed, so you never again get a run that quietly produces just one artifact.
 
-6. **Sanitize installer behavior without changing the architecture**
-   - Check the result of every external/native operation before proceeding.
-   - Keep the Agent read-only service probe; it will not start or repair the Watcher.
-   - Keep both files in the installer, the selected install folder, firewall rules, service name, LocalSystem identity, and Worker launch-through-`CreateProcessAsUser` unchanged.
-   - Avoid granting elevated rights to `ConnectLive.exe`.
+5. **Add an uninstall-first escape hatch**
+   - Document in `agent/INSTALL.md`: if a machine is stuck with a prior install, `msiexec /x {UpgradeCode-derived ProductCode} /qn` or Apps & Features removal, then reinstall. With step 1+2 in place this should stop being necessary.
 
-7. **Deliverable**
-   - Update the project’s `.iss` and Watcher `.csproj` only where required by this diagnosis.
-   - Repackage a fresh `ConnectLive-RemoteAgent-src.zip` containing the corrected source installer and Watcher definition.
-   - No build or Windows execution will be claimed as validation; the enhanced install log will make the first Windows test conclusive.
+6. **Repackage**
+   - Refresh `ConnectLive-RemoteAgent-src.zip` with the corrected `build.ps1`, `.wxs`, and docs.
+
+## Technical notes
+
+- No C# source changes are required for this failure; the Agent and Watcher code is untouched by this plan.
+- `AllowSameVersionUpgrades="yes"` can produce ICE61 warnings at build time; that is expected and harmless for a per-machine agent MSI.
+- The Inno `.iss` path already uses native SCM APIs and stays as the interactive installer; the MSI remains the Intune/GPO artifact.
