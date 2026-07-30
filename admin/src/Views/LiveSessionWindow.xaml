@@ -16,6 +16,9 @@
                     <TextBlock Text="•" Foreground="{StaticResource TextMuted}" Margin="8,0" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding Transport}" Foreground="{StaticResource TextMuted}"
                                VerticalAlignment="Center" FontSize="11" />
+                    <TextBlock Text="•" Foreground="{StaticResource TextMuted}" Margin="8,0" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding LinkState}" Foreground="#22C55E"
+                               VerticalAlignment="Center" FontSize="11" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
                     <Button Content="Take control" Command="{Binding TogglePauseCommand}" Margin="4,0" />
