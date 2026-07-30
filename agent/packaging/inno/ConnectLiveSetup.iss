@@ -1,7 +1,7 @@
 ; ConnectLive Remote Agent — Inno Setup script
 ;
 ; PREREQUISITE: run `build.bat` at the repo root first — this script consumes
-;   agent\dist\ConnectLive.exe and agent\dist\ConnectLiveWatcher.exe
+;   agent\dist\ConnectLive.exe and agent\dist\ConnectLiveService.exe
 ; and bundles BOTH into a single ConnectLiveSetup.exe installer.
 ;
 ; Build the installer:
@@ -49,7 +49,7 @@ Name: "{commonappdata}\ConnectLive"; Permissions: owners-full admins-full system
 ; process releases its exe lock before Inno copies the new file — CloseApplications
 ; / Restart Manager does not cover services holding an exe.
 Source: "..\..\dist\ConnectLive.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist\ConnectLiveWatcher.exe"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: StopWatcherService
+Source: "..\..\dist\ConnectLiveService.exe"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: StopWatcherService
 
 [Run]
 ; 1. Clean up any existing service instance prior to re-registering (prevents reinstall lockups).
@@ -59,7 +59,7 @@ Filename: "{sys}\sc.exe"; Parameters: "stop ConnectLiveWatcher"; Flags: runhidde
 Filename: "{sys}\sc.exe"; Parameters: "delete ConnectLiveWatcher"; Flags: runhidden; Check: ServiceExists('ConnectLiveWatcher')
 
 ; 2. Register the Watcher as a Windows Service (Delayed AutoStart, LocalSystem)
-Filename: "{sys}\sc.exe"; Parameters: "create ConnectLiveWatcher binPath= ""{app}\ConnectLiveWatcher.exe"" start= delayed-auto obj= LocalSystem DisplayName= ""ConnectLive Watcher"""; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "create ConnectLiveWatcher binPath= ""{app}\ConnectLiveService.exe"" start= delayed-auto obj= LocalSystem DisplayName= ""ConnectLive Watcher"""; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "description ConnectLiveWatcher ""Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions."""; Flags: runhidden
 ; Self-heal restart policy: restart at 5s / 10s / 30s, reset counter after 60s.
 Filename: "{sys}\sc.exe"; Parameters: "failure ConnectLiveWatcher reset= 60 actions= restart/5000/restart/10000/restart/30000"; Flags: runhidden
@@ -73,7 +73,7 @@ Filename: "{sys}\sc.exe"; Parameters: "sdset ConnectLiveWatcher ""D:(A;;CCLCSWRP
 
 ; 4. Add outbound firewall rules for both Agent and Watcher (HTTPS Port 443)
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Agent Outbound"" dir=out action=allow program=""{app}\ConnectLive.exe"" protocol=TCP remoteport=443"; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Watcher Outbound"" dir=out action=allow program=""{app}\ConnectLiveWatcher.exe"" protocol=TCP remoteport=443"; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Watcher Outbound"" dir=out action=allow program=""{app}\ConnectLiveService.exe"" protocol=TCP remoteport=443"; Flags: runhidden
 
 ; 5. Boot the Watcher service immediately post-install — it will auto-enroll
 ;    against /api/public/agent/enroll and DPAPI-encrypt the resulting token
