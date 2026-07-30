@@ -144,8 +144,19 @@ public partial class DevicesViewModel : ObservableObject
         try
         {
             var session = await App.Api.CreateSessionAsync(item.RowId, "view", CancellationToken.None);
+            // Explicit wake: covers the case where the user manually closed the
+            // agent tray icon. Watcher heartbeat picks this up and relaunches.
+            try
+            {
+                await App.Api.EnqueuePowerCommandAsync(
+                    item.RowId, "wake_agent",
+                    new { session_id = session.Id },
+                    CancellationToken.None);
+            }
+            catch { /* best-effort; session state flip is the primary signal */ }
             var win = new LiveSessionWindow(session.Id, item);
             win.Show();
+
         }
         catch (SupabaseCallException ex)
         {
