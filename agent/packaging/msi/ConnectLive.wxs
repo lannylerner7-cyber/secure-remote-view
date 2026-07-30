@@ -51,7 +51,7 @@
       <!-- Watcher service (LocalSystem, DelayedAutostart) -->
       <Component Id="WatcherExe" Guid="d8f5e2b3-9c4a-4d0f-ae1c-2b3c4d5e6f70">
         <File Id="WatcherExeFile"
-              Source="..\..\watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe"
+              Source="..\..\watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveService.exe"
               KeyPath="yes" />
 
         <ServiceInstall Id="WatcherService"

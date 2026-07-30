@@ -92,6 +92,10 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLive.exe"; Flags: run
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Agent Outbound"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ConnectLive Watcher Outbound"""; Flags: runhidden
 
+[UninstallDelete]
+; Runtime health file the Watcher writes on every tick; safe to remove.
+Type: files; Name: "{commonappdata}\ConnectLive\watcher-health.json"
+
 [Code]
 // Helper function to verify service presence before sc commands
 function ServiceExists(const ServiceName: string): Boolean;

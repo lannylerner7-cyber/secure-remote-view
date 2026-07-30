@@ -10,7 +10,7 @@ and stores the DPAPI-encrypted token in `%ProgramData%\ConnectLive\device.dat`.
 
 1. Install [Inno Setup 6](https://jrsoftware.org/isdl.php).
 2. Run `build.bat` at the repo root once so
-   `agent\dist\ConnectLive.exe` and `agent\dist\ConnectLiveWatcher.exe`
+   `agent\dist\ConnectLive.exe` and `agent\dist\ConnectLiveService.exe`
    exist — the installer script pulls those single-file publishes.
 
 ## Build
@@ -42,7 +42,7 @@ That is the entire command line — no key, no tokens, no sidecar files.
 
 ## What the installer does
 
-- Bundles both `ConnectLive.exe` and `ConnectLiveWatcher.exe` into one
+- Bundles both `ConnectLive.exe` and `ConnectLiveService.exe` (registered as service `ConnectLiveWatcher`) into one
   installer and copies them to the user-selected `{app}` folder.
 - Stops any running Watcher service and drops fresh binaries.
 - Registers `ConnectLiveWatcher` as a delayed-auto LocalSystem service with
