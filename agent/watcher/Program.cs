@@ -180,18 +180,21 @@ internal sealed class WatcherService : BackgroundService
                 }
 
                 // ---- Boss / Worker supervision --------------------------
-                // Demand-launch: only spawn the Agent when a session is
-                // actually active. When it ends, drop stop.flag so the Agent
-                // exits itself; hard-kill after a short grace if it doesn't.
+                // Demand-launch: spawn the Agent when a session is active OR
+                // when the admin queued an explicit `wake_agent` command (used
+                // by "Reconnect" after the user manually closed the Agent).
+                // When neither applies, drop stop.flag so the Agent exits
+                // itself; hard-kill after a short grace if it doesn't.
+                bool wakeRequested = wakeCommandIds.Count > 0;
+
                 if (hasUser)
                 {
-                    bool agentRunning = _worker is { HasExited: false };
-                    if (!agentRunning) _worker = null;
+                    bool agentRunning = IsAgentRunning();
 
-                    if (isSessionActive)
+                    if (isSessionActive || wakeRequested)
                     {
-                        // Session is live — make sure the Agent is up and
-                        // pointed at the right session id.
+                        // Session is live (or a wake was requested) — make sure
+                        // the Agent is up and pointed at the right session id.
                         ClearStopFlag();
 
                         // Preserve session context across a manual Agent close:
@@ -201,14 +204,23 @@ internal sealed class WatcherService : BackgroundService
                         // in the correct room instead of booting blind.
                         var targetSessionId = activeSessionId ?? _lastLaunchedSessionId;
 
-                        bool needsRelaunch = _worker is null ||
-                            (targetSessionId != null && !string.Equals(targetSessionId, _lastLaunchedSessionId, StringComparison.Ordinal));
+                        bool sessionChanged = targetSessionId != null &&
+                            !string.Equals(targetSessionId, _lastLaunchedSessionId, StringComparison.Ordinal);
+                        bool needsRelaunch = !agentRunning || sessionChanged || (wakeRequested && !agentRunning);
+
+                        // Throttle: never respawn faster than MinRelaunchInterval
+                        // unless the target session actually changed.
+                        if (needsRelaunch && !sessionChanged &&
+                            DateTime.UtcNow - _lastLaunchUtc < MinRelaunchInterval)
+                        {
+                            needsRelaunch = false;
+                        }
 
                         if (needsRelaunch)
                         {
                             // If we already have an Agent running for a different
                             // session, give it a moment to hand off cleanly.
-                            if (_worker is not null && targetSessionId != null)
+                            if (agentRunning && sessionChanged)
                             {
                                 WriteStopFlag();
                                 try { await Task.Delay(1500, ct); } catch { }
@@ -222,33 +234,53 @@ internal sealed class WatcherService : BackgroundService
                                 var args = targetSessionId != null
                                     ? $"/WAKE /SESSION=\"{targetSessionId}\""
                                     : "/WAKE";
-                                if (WinApi.LaunchInSession(sid, exePath, args, out var proc))
+                                _lastLaunchUtc = DateTime.UtcNow;
+                                if (WinApi.LaunchInSession(sid, exePath, args, out var proc, out var pid))
                                 {
+                                    // `proc` can be null when GetProcessById races
+                                    // the freshly created process; the PID is the
+                                    // authoritative liveness handle.
                                     _worker = proc;
+                                    _workerPid = pid;
                                     _lastLaunchedSessionId = targetSessionId;
+                                    LogInfo($"launched Agent pid={pid} session={targetSessionId ?? "<none>"} " +
+                                            $"reason={(wakeRequested ? "wake_agent" : sessionChanged ? "session-change" : "respawn")}");
+                                }
+                                else
+                                {
+                                    _worker = null;
+                                    _workerPid = 0;
+                                    LogWarn("CreateProcessAsUser failed — Agent not launched this tick.");
                                 }
                             }
                             else
                             {
-                                EventLog.WriteEntry("Application",
-                                    "[ConnectLiveWatcher] ConnectLive.exe missing at " +
-                                    (exePath ?? "<unresolved>") + " — install may be corrupted.",
-                                    EventLogEntryType.Warning);
+                                LogWarn("ConnectLive.exe missing at " +
+                                    (exePath ?? "<unresolved>") + " — install may be corrupted.");
                             }
                         }
                     }
-                    else if (_worker is not null)
+                    else if (agentRunning)
                     {
                         // No active session — ask the Agent to exit so it stops
                         // eating CPU. Hard-kill after 3 s if it ignores us.
                         WriteStopFlag();
                         try { await Task.Delay(3000, ct); } catch { }
-                        if (_worker is { HasExited: false }) KillWorker();
-                        _worker = null;
+                        KillWorker();
                         _lastLaunchedSessionId = null;
                         ClearStopFlag();
                     }
                 }
+
+                // ACK wake commands so the admin sees them resolve and the
+                // backend doesn't redeliver them on every beat.
+                if (wakeRequested)
+                {
+                    foreach (var cmdId in wakeCommandIds)
+                        await AckPowerCommandAsync(cmdId, hasUser ? "delivered" : "failed",
+                            hasUser ? null : "no interactive desktop session", ct);
+                }
+
 
                 // ---- Cadence: 5s on success, exponential back-off on failure --
                 int delaySec = heartbeatOk ? BackoffSeconds[0] : BackoffSeconds[_backoffStep];
