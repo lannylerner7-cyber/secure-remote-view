@@ -41,8 +41,8 @@ public sealed class ApiClient
         var url = $"{_config.BaseUrl}/api/public/auth/login";
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Content = JsonContent.Create(new { identifier, password });
-        using var res = await _http.SendAsync(req, ct);
-        var body = await res.Content.ReadAsStringAsync(ct);
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         var parsed = JsonSerializer.Deserialize<LoginResponse>(body) ?? new LoginResponse();
 
         if (res.IsSuccessStatusCode && parsed.Session != null)
@@ -68,9 +68,9 @@ public sealed class ApiClient
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Add("apikey", _config.SupabaseAnonKey);
         req.Content = JsonContent.Create(new { refresh_token = _auth.Current.RefreshToken });
-        using var res = await _http.SendAsync(req, ct);
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) return false;
-        var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(ct), cancellationToken: ct).ConfigureAwait(false);
         var access = doc.RootElement.GetProperty("access_token").GetString() ?? "";
         var refresh = doc.RootElement.GetProperty("refresh_token").GetString() ?? "";
         _auth.Save(new AuthStore.Session
@@ -98,16 +98,16 @@ public sealed class ApiClient
 
     private async Task<HttpResponseMessage> SendSupabaseAsync(HttpRequestMessage req, CancellationToken ct)
     {
-        var res = await _http.SendAsync(req, ct);
+        var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
         if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
             res.Dispose();
             if (await RefreshSessionAsync(ct))
             {
-                var clone = await CloneAsync(req);
+                var clone = await CloneAsync(req).ConfigureAwait(false);
                 if (clone.Headers.Authorization != null && _auth.Current != null)
                     clone.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _auth.Current.AccessToken);
-                return await _http.SendAsync(clone, ct);
+                return await _http.SendAsync(clone, ct).ConfigureAwait(false);
             }
         }
         return res;
@@ -131,7 +131,7 @@ public sealed class ApiClient
         foreach (var h in req.Headers) clone.Headers.TryAddWithoutValidation(h.Key, h.Value);
         if (req.Content != null)
         {
-            var s = await req.Content.ReadAsStringAsync();
+            var s = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
             clone.Content = new StringContent(s, Encoding.UTF8, req.Content.Headers.ContentType?.MediaType ?? "application/json");
         }
         return clone;
@@ -141,9 +141,9 @@ public sealed class ApiClient
     {
         using var req = NewSupabase(HttpMethod.Get,
             "/rest/v1/devices?select=id,device_id,display_name,hostname,os,last_seen_at,status,is_session_active&order=last_seen_at.desc");
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "list devices", ct);
-        var stream = await res.Content.ReadAsStreamAsync(ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "list devices", ct).ConfigureAwait(false);
+        var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         return await JsonSerializer.DeserializeAsync<List<DeviceRow>>(stream, cancellationToken: ct)
                ?? new List<DeviceRow>();
     }
@@ -151,8 +151,8 @@ public sealed class ApiClient
     public async Task DeleteDeviceAsync(string deviceRowId, CancellationToken ct)
     {
         using var req = NewSupabase(HttpMethod.Delete, $"/rest/v1/devices?id=eq.{Uri.EscapeDataString(deviceRowId)}");
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "delete device", ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "delete device", ct).ConfigureAwait(false);
     }
 
     public async Task<SessionRow> CreateSessionAsync(string deviceRowId, string mode, CancellationToken ct)
@@ -167,10 +167,10 @@ public sealed class ApiClient
             $"/rest/v1/sessions?select=*&device_id=eq.{Uri.EscapeDataString(deviceRowId)}" +
             $"&state=in.(invited,consented,active,paused)&order=created_at.desc&limit=1"))
         {
-            using var lookupRes = await SendSupabaseAsync(lookup, ct);
-            await EnsureOkAsync(lookupRes, "find live session", ct);
-            var lookupStream = await lookupRes.Content.ReadAsStreamAsync(ct);
-            var existing = await JsonSerializer.DeserializeAsync<List<SessionRow>>(lookupStream, cancellationToken: ct);
+            using var lookupRes = await SendSupabaseAsync(lookup, ct).ConfigureAwait(false);
+            await EnsureOkAsync(lookupRes, "find live session", ct).ConfigureAwait(false);
+            var lookupStream = await lookupRes.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            var existing = await JsonSerializer.DeserializeAsync<List<SessionRow>>(lookupStream, cancellationToken: ct).ConfigureAwait(false);
             if (existing != null && existing.Count > 0)
             {
                 var current = existing[0];
@@ -183,10 +183,10 @@ public sealed class ApiClient
                     admin_client_id = App.ClientId,
                     technician_id = _auth.Current?.UserId,
                 });
-                using var patchRes = await SendSupabaseAsync(patch, ct);
-                await EnsureOkAsync(patchRes, "reuse session", ct);
-                var patchStream = await patchRes.Content.ReadAsStreamAsync(ct);
-                var patched = await JsonSerializer.DeserializeAsync<List<SessionRow>>(patchStream, cancellationToken: ct);
+                using var patchRes = await SendSupabaseAsync(patch, ct).ConfigureAwait(false);
+                await EnsureOkAsync(patchRes, "reuse session", ct).ConfigureAwait(false);
+                var patchStream = await patchRes.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                var patched = await JsonSerializer.DeserializeAsync<List<SessionRow>>(patchStream, cancellationToken: ct).ConfigureAwait(false);
                 if (patched != null && patched.Count > 0) return patched[0];
                 return current;
             }
@@ -206,10 +206,10 @@ public sealed class ApiClient
             technician_id = _auth.Current?.UserId,
             admin_client_id = App.ClientId,
         });
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "create session", ct);
-        var stream = await res.Content.ReadAsStreamAsync(ct);
-        var list = await JsonSerializer.DeserializeAsync<List<SessionRow>>(stream, cancellationToken: ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "create session", ct).ConfigureAwait(false);
+        var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var list = await JsonSerializer.DeserializeAsync<List<SessionRow>>(stream, cancellationToken: ct).ConfigureAwait(false);
         if (list == null || list.Count == 0)
             throw new SupabaseCallException("create session", 200, "empty response");
         return list[0];
@@ -219,7 +219,7 @@ public sealed class ApiClient
     {
         using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
         req.Content = JsonContent.Create(new { state = "ended", ended_at = DateTime.UtcNow });
-        using var res = await SendSupabaseAsync(req, ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         _ = res.IsSuccessStatusCode; // best-effort on teardown
     }
 
@@ -227,8 +227,8 @@ public sealed class ApiClient
     {
         using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
         req.Content = JsonContent.Create(new { mode });
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "set session mode", ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "set session mode", ct).ConfigureAwait(false);
     }
 
     // Push an input event (mouse/keyboard/text/curtain) that the agent will pick up.
@@ -241,8 +241,8 @@ public sealed class ApiClient
             kind,
             payload,
         });
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "push input", ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "push input", ct).ConfigureAwait(false);
     }
 
     // Send a WebRTC signal (SDP or ICE) that the agent will poll.
@@ -265,11 +265,11 @@ public sealed class ApiClient
         };
         if (attemptId != null) body["attempt_id"] = attemptId;
         req.Content = JsonContent.Create(body);
-        using var res = await SendSupabaseAsync(req, ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         // 23505 (unique_violation on attempt_id) surfaces as PostgREST 409 —
         // treat as success so callers can safely retry the same attempt_id.
         if ((int)res.StatusCode == 409) return 200;
-        await EnsureOkAsync(res, "push signal", ct);
+        await EnsureOkAsync(res, "push signal", ct).ConfigureAwait(false);
         return (int)res.StatusCode;
     }
 
@@ -282,14 +282,14 @@ public sealed class ApiClient
     {
         var attempt = "adm-" + Guid.NewGuid().ToString("N").Substring(0, 12);
         var gate = _signalGates.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             for (int i = 0; i < 6; i++)
             {
                 try
                 {
-                    await PushSignalAsync(sessionId, kind, payload, ct, attempt);
+                    await PushSignalAsync(sessionId, kind, payload, ct, attempt).ConfigureAwait(false);
                     return;
                 }
                 catch (SupabaseCallException ex) when (ex.StatusCode == 400 || ex.StatusCode == 401 || ex.StatusCode == 403 || ex.StatusCode == 404 || ex.StatusCode == 413)
@@ -316,10 +316,10 @@ public sealed class ApiClient
             throw new InvalidOperationException("Admin ClientId is not initialised.");
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/rpc/bind_admin");
         req.Content = JsonContent.Create(new { _session_id = sessionId, _client_id = App.ClientId });
-        using var res = await SendSupabaseAsync(req, ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) return (false, "rpc_error", null);
-        var stream = await res.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         var row = doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0
             ? doc.RootElement[0]
             : doc.RootElement;
@@ -338,9 +338,9 @@ public sealed class ApiClient
         var clientFilter = $"or=(admin_client_id.eq.{Uri.EscapeDataString(App.ClientId)},admin_client_id.is.null)";
         using var req = NewSupabase(HttpMethod.Get,
             $"/rest/v1/session_signals?select=id,from_side,kind,payload,admin_client_id&session_id=eq.{Uri.EscapeDataString(sessionId)}&from_side=eq.agent&id=gt.{since}&{clientFilter}&order=id.asc&limit=100");
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "poll signals", ct);
-        var stream = await res.Content.ReadAsStreamAsync(ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "poll signals", ct).ConfigureAwait(false);
+        var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         var list = await JsonSerializer.DeserializeAsync<List<SessionSignal>>(stream, cancellationToken: ct)
                    ?? new List<SessionSignal>();
         long max = list.Count > 0 ? list[^1].Id : since;
@@ -364,10 +364,10 @@ public sealed class ApiClient
             : $"&updated_at=gt.{Uri.EscapeDataString(since)}";
         using var req = NewSupabase(HttpMethod.Get,
             $"/rest/v1/session_frames?select=frame,updated_at&session_id=eq.{Uri.EscapeDataString(sessionId)}{filter}&order=updated_at.desc&limit=1");
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "poll frames", ct);
-        var stream = await res.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "poll frames", ct).ConfigureAwait(false);
+        var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         if (doc.RootElement.GetArrayLength() == 0) return null;
         var row = doc.RootElement[0];
         var b64 = row.GetProperty("frame").GetString();
@@ -388,10 +388,10 @@ public sealed class ApiClient
             : $"&updated_at=gt.{Uri.EscapeDataString(since)}";
         using var req = NewSupabase(HttpMethod.Get,
             $"/rest/v1/session_cursors?select=x,y,frame_w,frame_h,kind,visible,updated_at&session_id=eq.{Uri.EscapeDataString(sessionId)}{filter}&order=updated_at.desc&limit=1");
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "poll cursor", ct);
-        var stream = await res.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "poll cursor", ct).ConfigureAwait(false);
+        var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         if (doc.RootElement.GetArrayLength() == 0) return null;
         var row = doc.RootElement[0];
         return new CursorSample(
@@ -421,8 +421,8 @@ public sealed class ApiClient
             expires_at = DateTime.UtcNow.AddMinutes(5),
             requested_by = _auth.Current?.UserId,
         });
-        using var res = await SendSupabaseAsync(req, ct);
-        await EnsureOkAsync(res, "enqueue power command", ct);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "enqueue power command", ct).ConfigureAwait(false);
     }
 
     // ---------- JWT helpers ----------
