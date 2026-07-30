@@ -44,11 +44,13 @@ async function hit(
 (async () => {
   console.log(`Verifying agent routes against ${BASE}\n`);
 
-  // Deployment-key gated
-  await hit("POST", "/api/public/agent/enroll", [401, 503], {
+  // Open auto-enrollment (no deployment key since the enrollment overhaul).
+  // 200 = a machine token was minted, 429 = IP rate limit tripped.
+  await hit("POST", "/api/public/agent/enroll", [200, 429, 503], {
     headers: { "content-type": "application/json" },
     body: "{}",
   });
+
 
   // Device-token gated
   const j = { "content-type": "application/json" };
