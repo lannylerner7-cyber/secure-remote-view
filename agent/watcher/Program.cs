@@ -56,8 +56,15 @@ internal sealed class WatcherService : BackgroundService
     private readonly HttpClient _http = new() { BaseAddress = new Uri(ApiBaseUrl), Timeout = TimeSpan.FromSeconds(15) };
 
     private Process? _worker;
+    private int _workerPid;
+    private DateTime _lastLaunchUtc = DateTime.MinValue;
     private uint _lastSessionId = 0xFFFFFFFF;
     private string? _lastLaunchedSessionId;
+
+    // Never respawn faster than this — a launch that dies instantly (missing
+    // dependency, blocked binary) must not turn into a spawn storm.
+    private static readonly TimeSpan MinRelaunchInterval = TimeSpan.FromSeconds(10);
+
 
     // Preferred install location — locked-down Program Files, immune to
     // "user moved the exe to Desktop" tampering. Falls back to the folder
