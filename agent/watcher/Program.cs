@@ -109,6 +109,8 @@ internal sealed class WatcherService : BackgroundService
                 bool isSessionActive = false;
                 bool heartbeatOk = false;
                 string? activeSessionId = null;
+                var wakeCommandIds = new List<string>();
+
                 try
                 {
                     var (id, token) = ReadDeviceCreds();
