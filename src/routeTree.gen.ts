@@ -26,6 +26,7 @@ import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/we
 import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
 import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
 import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
+import { Route as ApiPublicAgentStreamRouteImport } from './routes/api/public/agent/stream'
 import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
 import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
 import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
@@ -123,6 +124,11 @@ const ApiPublicAuthLoginRoute = ApiPublicAuthLoginRouteImport.update({
   path: '/api/public/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAgentStreamRoute = ApiPublicAgentStreamRouteImport.update({
+  id: '/api/public/agent/stream',
+  path: '/api/public/agent/stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicAgentHelloRoute = ApiPublicAgentHelloRouteImport.update({
   id: '/api/public/agent/hello',
   path: '/api/public/agent/hello',
@@ -203,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
+  '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
@@ -232,6 +239,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
+  '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
+  '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
@@ -294,6 +303,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
+    | '/api/public/agent/stream'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
@@ -323,6 +333,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
+    | '/api/public/agent/stream'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
@@ -353,6 +364,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
+    | '/api/public/agent/stream'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
@@ -383,6 +395,7 @@ export interface RootRouteChildren {
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
   ApiPublicAgentHelloRoute: typeof ApiPublicAgentHelloRoute
+  ApiPublicAgentStreamRoute: typeof ApiPublicAgentStreamRoute
   ApiPublicAuthLoginRoute: typeof ApiPublicAuthLoginRoute
   ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
   ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
@@ -517,6 +530,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/stream': {
+      id: '/api/public/agent/stream'
+      path: '/api/public/agent/stream'
+      fullPath: '/api/public/agent/stream'
+      preLoaderRoute: typeof ApiPublicAgentStreamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/agent/hello': {
       id: '/api/public/agent/hello'
       path: '/api/public/agent/hello'
@@ -625,6 +645,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
   ApiPublicAgentHelloRoute: ApiPublicAgentHelloRoute,
+  ApiPublicAgentStreamRoute: ApiPublicAgentStreamRoute,
   ApiPublicAuthLoginRoute: ApiPublicAuthLoginRoute,
   ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
   ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
