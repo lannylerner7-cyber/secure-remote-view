@@ -81,9 +81,62 @@ Type: dirifempty; Name: "{commonappdata}\ConnectLive"
 
 [Code]
 
-// ── Logging ──────────────────────────────────────────────────────────────────
-// Appends a single line to %ProgramData%\ConnectLive\install.log so the
-// compiler debug pane isn't the only source of truth for sc.exe outcomes.
+const
+  SC_MANAGER_CONNECT = $0001;
+  SC_MANAGER_CREATE_SERVICE = $0002;
+  SERVICE_QUERY_STATUS = $0004;
+  SERVICE_START = $0010;
+  SERVICE_STOP = $0020;
+  DELETE_ACCESS = $00010000;
+  SERVICE_WIN32_OWN_PROCESS = $00000010;
+  SERVICE_AUTO_START = $00000002;
+  SERVICE_ERROR_NORMAL = $00000001;
+  SERVICE_CONTROL_STOP = $00000001;
+  SERVICE_STOPPED = $00000001;
+  SERVICE_START_PENDING = $00000002;
+  SERVICE_STOP_PENDING = $00000003;
+  SERVICE_RUNNING = $00000004;
+  ERROR_SERVICE_DOES_NOT_EXIST = 1060;
+  ERROR_SERVICE_ALREADY_RUNNING = 1056;
+
+type
+  TServiceStatus = record
+    ServiceType: Cardinal;
+    CurrentState: Cardinal;
+    ControlsAccepted: Cardinal;
+    Win32ExitCode: Cardinal;
+    ServiceSpecificExitCode: Cardinal;
+    CheckPoint: Cardinal;
+    WaitHint: Cardinal;
+  end;
+
+function OpenSCManager(MachineName, DatabaseName: string; DesiredAccess: Cardinal): THandle;
+  external 'OpenSCManagerW@advapi32.dll stdcall';
+function CreateService(ScManager: THandle; ServiceName, DisplayName: string;
+  DesiredAccess, ServiceType, StartType, ErrorControl: Cardinal;
+  BinaryPath, LoadOrderGroup: string; TagId: Cardinal; Dependencies,
+  ServiceStartName, Password: string): THandle;
+  external 'CreateServiceW@advapi32.dll stdcall';
+function OpenService(ScManager: THandle; ServiceName: string;
+  DesiredAccess: Cardinal): THandle;
+  external 'OpenServiceW@advapi32.dll stdcall';
+function StartService(Service: THandle; NumServiceArgs: Cardinal;
+  ServiceArgVectors: Cardinal): Boolean;
+  external 'StartServiceW@advapi32.dll stdcall';
+function ControlService(Service: THandle; Control: Cardinal;
+  var Status: TServiceStatus): Boolean;
+  external 'ControlService@advapi32.dll stdcall';
+function QueryServiceStatus(Service: THandle; var Status: TServiceStatus): Boolean;
+  external 'QueryServiceStatus@advapi32.dll stdcall';
+function DeleteService(Service: THandle): Boolean;
+  external 'DeleteService@advapi32.dll stdcall';
+function CloseServiceHandle(ScObject: THandle): Boolean;
+  external 'CloseServiceHandle@advapi32.dll stdcall';
+function GetLastError(): Cardinal;
+  external 'GetLastError@kernel32.dll stdcall';
+
+var
+  ServiceFailureDetail: string;
 
 procedure LogLine(const Msg: string);
 var
@@ -91,144 +144,281 @@ var
 begin
   LogPath := ExpandConstant('{commonappdata}\ConnectLive\install.log');
   ForceDirectories(ExtractFileDir(LogPath));
-  SaveStringToFile(LogPath, Msg + #13#10, True);
+  SaveStringToFile(LogPath,
+    GetDateTimeString('yyyy-mm-dd hh:nn:ss.zzz', '-', ':') + ' ' + Msg + #13#10, True);
 end;
 
-// Run sc.exe with the given args, log the exit code, return it.
-function ScExec(const Args, Label: string): Integer;
-var
-  RC: Integer;
+function ErrorText(const ErrorCode: Cardinal): string;
 begin
-  Exec(ExpandConstant('{sys}\sc.exe'), Args, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  LogLine('sc ' + Label + ' exit=' + IntToStr(RC));
-  Result := RC;
+  Result := IntToStr(ErrorCode) + ' (' + SysErrorMessage(ErrorCode) + ')';
 end;
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function ServiceExists(const ServiceName: string): Boolean;
-var
-  RC: Integer;
+function StateText(const State: Cardinal): string;
 begin
-  Exec(ExpandConstant('{sys}\sc.exe'), 'query ' + ServiceName,
-       '', SW_HIDE, ewWaitUntilTerminated, RC);
-  Result := (RC = 0);
-end;
-
-// sc interrogate returns 0 ONLY for a genuinely Running service.
-// sc query returns 0 even for stopped/registered-but-not-running services.
-function IsServiceRunning(const ServiceName: string): Boolean;
-var
-  RC: Integer;
-begin
-  Exec(ExpandConstant('{sys}\sc.exe'), 'interrogate ' + ServiceName,
-       '', SW_HIDE, ewWaitUntilTerminated, RC);
-  Result := (RC = 0);
-end;
-
-// Called by BeforeInstall on ConnectLiveService.exe — stops the service
-// so SCM releases the exe lock before Inno overwrites the file.
-procedure StopWatcherService;
-begin
-  if ServiceExists('ConnectLiveWatcher') then
-  begin
-    LogLine('--- pre-install stop ---');
-    ScExec('sdset ConnectLiveWatcher D:(A;;GA;;;SY)(A;;GA;;;BA)', 'sdset(relax)');
-    ScExec('stop ConnectLiveWatcher', 'stop(preinstall)');
-    Sleep(2000);
+  case State of
+    SERVICE_STOPPED: Result := 'STOPPED';
+    SERVICE_START_PENDING: Result := 'START_PENDING';
+    SERVICE_STOP_PENDING: Result := 'STOP_PENDING';
+    SERVICE_RUNNING: Result := 'RUNNING';
+  else
+    Result := 'STATE_' + IntToStr(State);
   end;
 end;
 
-// ── Service setup (called from CurStepChanged AFTER files are on disk) ───────
-
-procedure SetupWatcherService;
+function ScExecChecked(const Args, LabelText: string): Boolean;
 var
-  BinPath: string;
   RC: Integer;
 begin
-  LogLine('--- SetupWatcherService @ ' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + ' ---');
+  RC := -1;
+  Result := Exec(ExpandConstant('{sys}\sc.exe'), Args, '', SW_HIDE,
+    ewWaitUntilTerminated, RC) and (RC = 0);
+  LogLine(LabelText + ': exit=' + IntToStr(RC));
+end;
 
-  BinPath := ExpandConstant('{app}') + '\service\ConnectLiveService.exe';
-  LogLine('binPath=' + BinPath);
+function WaitForServiceState(const Service: THandle; DesiredState: Cardinal;
+  Attempts: Integer; var Status: TServiceStatus): Boolean;
+var
+  I: Integer;
+  ErrorCode: Cardinal;
+begin
+  Result := False;
+  for I := 1 to Attempts do
+  begin
+    if not QueryServiceStatus(Service, Status) then
+    begin
+      ErrorCode := GetLastError();
+      ServiceFailureDetail := 'QueryServiceStatus failed: ' + ErrorText(ErrorCode);
+      LogLine(ServiceFailureDetail);
+      Exit;
+    end;
+    LogLine('service state=' + StateText(Status.CurrentState) +
+      ' win32_exit=' + IntToStr(Status.Win32ExitCode) +
+      ' service_exit=' + IntToStr(Status.ServiceSpecificExitCode) +
+      ' checkpoint=' + IntToStr(Status.CheckPoint));
+    if Status.CurrentState = DesiredState then
+    begin
+      Result := True;
+      Exit;
+    end;
+    if (DesiredState = SERVICE_RUNNING) and (Status.CurrentState = SERVICE_STOPPED) then
+      Exit;
+    Sleep(500);
+  end;
+end;
+
+function WaitForServiceDeletion(const Manager: THandle; Attempts: Integer): Boolean;
+var
+  I: Integer;
+  Probe: THandle;
+  ErrorCode: Cardinal;
+begin
+  Result := False;
+  for I := 1 to Attempts do
+  begin
+    Probe := OpenService(Manager, 'ConnectLiveWatcher', SERVICE_QUERY_STATUS);
+    if Probe = 0 then
+    begin
+      ErrorCode := GetLastError();
+      if ErrorCode = ERROR_SERVICE_DOES_NOT_EXIST then
+      begin
+        LogLine('service deletion: registration is gone');
+        Result := True;
+        Exit;
+      end;
+      LogLine('service deletion probe: ' + ErrorText(ErrorCode));
+    end
+    else
+    begin
+      CloseServiceHandle(Probe);
+      LogLine('service deletion: waiting for SCM to release registration');
+    end;
+    Sleep(500);
+  end;
+  ServiceFailureDetail := 'Timed out waiting for the old service registration to be deleted.';
+  LogLine(ServiceFailureDetail);
+end;
+
+function RemoveWatcherService(): Boolean;
+var
+  Manager, Service: THandle;
+  Status: TServiceStatus;
+  ErrorCode: Cardinal;
+  DeleteAccepted: Boolean;
+begin
+  Result := False;
+  DeleteAccepted := False;
+  Manager := OpenSCManager('', '', SC_MANAGER_CONNECT);
+  if Manager = 0 then
+  begin
+    ErrorCode := GetLastError();
+    ServiceFailureDetail := 'OpenSCManager(remove) failed: ' + ErrorText(ErrorCode);
+    LogLine(ServiceFailureDetail);
+    Exit;
+  end;
+  try
+    Service := OpenService(Manager, 'ConnectLiveWatcher',
+      SERVICE_QUERY_STATUS or SERVICE_STOP or DELETE_ACCESS);
+    if Service = 0 then
+    begin
+      ErrorCode := GetLastError();
+      if ErrorCode = ERROR_SERVICE_DOES_NOT_EXIST then
+      begin
+        LogLine('existing service: not present');
+        Result := True;
+      end
+      else
+      begin
+        ServiceFailureDetail := 'OpenService(remove) failed: ' + ErrorText(ErrorCode);
+        LogLine(ServiceFailureDetail);
+      end;
+      Exit;
+    end;
+    try
+      if QueryServiceStatus(Service, Status) and (Status.CurrentState <> SERVICE_STOPPED) then
+      begin
+        if not ControlService(Service, SERVICE_CONTROL_STOP, Status) then
+        begin
+          ErrorCode := GetLastError();
+          LogLine('ControlService(STOP) returned ' + ErrorText(ErrorCode));
+        end
+        else
+          WaitForServiceState(Service, SERVICE_STOPPED, 40, Status);
+      end;
+      if not DeleteService(Service) then
+      begin
+        ErrorCode := GetLastError();
+        ServiceFailureDetail := 'DeleteService failed: ' + ErrorText(ErrorCode);
+        LogLine(ServiceFailureDetail);
+        Exit;
+      end;
+      LogLine('DeleteService: accepted by SCM');
+      DeleteAccepted := True;
+    finally
+      CloseServiceHandle(Service);
+    end;
+    if DeleteAccepted then
+      Result := WaitForServiceDeletion(Manager, 40);
+  finally
+    CloseServiceHandle(Manager);
+  end;
+end;
+
+procedure StopWatcherService;
+begin
+  LogLine('--- pre-copy service removal ---');
+  ScExecChecked('sdset ConnectLiveWatcher D:(A;;GA;;;SY)(A;;GA;;;BA)',
+    'relax existing service ACL');
+  if RemoveWatcherService() then
+    Sleep(1000);
+end;
+
+function SetupWatcherService(): Boolean;
+var
+  Manager, Service: THandle;
+  Status: TServiceStatus;
+  BinPath, StoredBinPath: string;
+  ErrorCode: Cardinal;
+begin
+  Result := False;
+  ServiceFailureDetail := '';
+  BinPath := ExpandConstant('{app}\service\ConnectLiveService.exe');
+  StoredBinPath := '"' + BinPath + '"';
+  LogLine('--- service registration ---');
+  LogLine('install directory=' + ExpandConstant('{app}'));
+  LogLine('binary path=' + BinPath);
+  LogLine('stored image path=' + StoredBinPath);
+  LogLine('service account=LocalSystem; start=Automatic (Delayed Start)');
 
   if not FileExists(BinPath) then
   begin
-    LogLine('ERROR: service binary missing at binPath — aborting service setup');
+    ServiceFailureDetail := 'Service binary is missing: ' + BinPath;
+    LogLine(ServiceFailureDetail);
     Exit;
   end;
 
-  // Remove any stale registration from a previous install
-  if ServiceExists('ConnectLiveWatcher') then
+  if not RemoveWatcherService() then Exit;
+  Manager := OpenSCManager('', '', SC_MANAGER_CONNECT or SC_MANAGER_CREATE_SERVICE);
+  if Manager = 0 then
   begin
-    ScExec('stop ConnectLiveWatcher', 'stop(stale)');
-    Sleep(1500);
-    ScExec('delete ConnectLiveWatcher', 'delete(stale)');
-    Sleep(1000);
+    ErrorCode := GetLastError();
+    ServiceFailureDetail := 'OpenSCManager(create) failed: ' + ErrorText(ErrorCode);
+    LogLine(ServiceFailureDetail);
+    Exit;
   end;
+  try
+    Service := CreateService(Manager, 'ConnectLiveWatcher', 'ConnectLive Service',
+      SERVICE_QUERY_STATUS or SERVICE_START or SERVICE_STOP or DELETE_ACCESS,
+      SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
+      StoredBinPath, '', 0, '', 'LocalSystem', '');
+    if Service = 0 then
+    begin
+      ErrorCode := GetLastError();
+      ServiceFailureDetail := 'CreateService failed: ' + ErrorText(ErrorCode);
+      LogLine(ServiceFailureDetail);
+      Exit;
+    end;
+    try
+      LogLine('CreateService: success');
+      if not ScExecChecked('config ConnectLiveWatcher start= delayed-auto',
+        'configure delayed-auto') then Exit;
+      if not ScExecChecked(
+        'description ConnectLiveWatcher "Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions."',
+        'configure description') then Exit;
+      if not ScExecChecked(
+        'failure ConnectLiveWatcher reset= 60 actions= restart/5000/restart/10000/restart/30000',
+        'configure recovery') then Exit;
+      if not ScExecChecked(
+        'sdset ConnectLiveWatcher "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)"',
+        'configure service ACL') then Exit;
 
-  // Register as LocalSystem — mandatory for WTSQueryUserToken / CreateProcessAsUser.
-  // BinPath is built in Pascal so quoting survives paths containing spaces
-  // (e.g. "C:\Program Files\ConnectLive\service\...").
-  ScExec(
-    'create ConnectLiveWatcher binPath= "' + BinPath + '" start= delayed-auto obj= LocalSystem DisplayName= "ConnectLive Service"',
-    'create');
-
-  ScExec(
-    'description ConnectLiveWatcher "Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions."',
-    'description');
-
-  // Self-heal: restart at 5 s / 10 s / 30 s; reset counter after 60 s
-  ScExec(
-    'failure ConnectLiveWatcher reset= 60 actions= restart/5000/restart/10000/restart/30000',
-    'failure');
-
-  // Harden ACL: SYSTEM + Admins full control; IU/SU read/query only
-  ScExec(
-    'sdset ConnectLiveWatcher "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)"',
-    'sdset(harden)');
-
-  // Start — triggers first-boot auto-enrollment with the backend.
-  // Retry once on failure to absorb transient SCM contention.
-  RC := ScExec('start ConnectLiveWatcher', 'start#1');
-  if RC <> 0 then
-  begin
-    Sleep(2000);
-    ScExec('start ConnectLiveWatcher', 'start#2');
+      if not StartService(Service, 0, 0) then
+      begin
+        ErrorCode := GetLastError();
+        if ErrorCode <> ERROR_SERVICE_ALREADY_RUNNING then
+        begin
+          ServiceFailureDetail := 'StartService failed: ' + ErrorText(ErrorCode);
+          LogLine(ServiceFailureDetail);
+          Exit;
+        end;
+      end;
+      LogLine('StartService: accepted by SCM');
+      Status.CurrentState := 0;
+      Status.Win32ExitCode := 0;
+      Status.ServiceSpecificExitCode := 0;
+      if not WaitForServiceState(Service, SERVICE_RUNNING, 60, Status) then
+      begin
+        ServiceFailureDetail := 'Service did not reach RUNNING; final_state=' +
+          StateText(Status.CurrentState) + ' win32_exit=' + IntToStr(Status.Win32ExitCode) +
+          ' service_exit=' + IntToStr(Status.ServiceSpecificExitCode);
+        LogLine(ServiceFailureDetail);
+        Exit;
+      end;
+      Result := True;
+      LogLine('service startup: RUNNING');
+    finally
+      CloseServiceHandle(Service);
+    end;
+  finally
+    CloseServiceHandle(Manager);
   end;
 end;
-
-// ── Main lifecycle hook ───────────────────────────────────────────────────────
-// ssInstall fires BEFORE [Files] copy — registering the service there
-// pointed sc.exe at a binary that didn't exist yet, which is exactly why
-// "ConnectLive Service did not start correctly" fired every install.
-// ssPostInstall fires AFTER file copy, so the binary is on disk and sc.exe
-// can actually launch it.
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    SetupWatcherService;
-
-    // Give the service a moment to fully initialise.
-    Sleep(4000);
-
-    // sc interrogate — only returns 0 for a genuinely Running service.
-    if not IsServiceRunning('ConnectLiveWatcher') then
+    LogLine('=== ConnectLive install ' +
+      GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + ' ===');
+    if not SetupWatcherService() then
     begin
-      LogLine('POST-CHECK: service is NOT running');
+      if ServiceFailureDetail = '' then
+        ServiceFailureDetail := 'Unknown service-control failure; inspect install.log.';
       if not WizardSilent() then
         MsgBox(
           'Warning: ConnectLive Service did not start correctly.' + #13#10 +
-          'The files were installed but the background service is not running.' + #13#10 +
-          'Please run ConnectLiveSetup.exe again, or contact your administrator.' + #13#10 +
-          #13#10 +
-          'For details, see:' + #13#10 +
-          '%ProgramData%\ConnectLive\install.log' + #13#10 +
-          'To verify: open services.msc and look for "ConnectLive Service".',
+          ServiceFailureDetail + #13#10 + #13#10 +
+          'See %ProgramData%\ConnectLive\install.log for details.',
           mbError, MB_OK);
-    end
-    else
-      LogLine('POST-CHECK: service is Running — install OK');
+    end;
   end;
 end;
