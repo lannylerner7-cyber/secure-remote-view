@@ -347,29 +347,47 @@ public sealed class ApiClient
         return (max, list);
     }
 
-    // Poll latest frame bytes for a session as fallback when WebRTC hasn't linked yet.
-    public async Task<byte[]?> GetLatestFrameAsync(string sessionId, CancellationToken ct)
+    // Poll latest frame bytes for a session as fallback when WebRTC hasn't
+    // linked yet.
+    //
+    // `since` is the updated_at stamp of the frame we already hold. Passing it
+    // adds an `updated_at=gt.` filter so PostgREST returns an EMPTY array when
+    // the agent hasn't produced anything new — instead of us re-downloading
+    // the same ~100 KB base64 JPEG five times a second, which was starving the
+    // link and making the stream look laggy/stalled.
+    public sealed record FrameSample(byte[] Bytes, string UpdatedAt);
+
+    public async Task<FrameSample?> GetLatestFrameAsync(string sessionId, string? since, CancellationToken ct)
     {
+        var filter = string.IsNullOrEmpty(since)
+            ? ""
+            : $"&updated_at=gt.{Uri.EscapeDataString(since)}";
         using var req = NewSupabase(HttpMethod.Get,
-            $"/rest/v1/session_frames?select=frame,updated_at&session_id=eq.{Uri.EscapeDataString(sessionId)}&order=updated_at.desc&limit=1");
+            $"/rest/v1/session_frames?select=frame,updated_at&session_id=eq.{Uri.EscapeDataString(sessionId)}{filter}&order=updated_at.desc&limit=1");
         using var res = await SendSupabaseAsync(req, ct);
         await EnsureOkAsync(res, "poll frames", ct);
         var stream = await res.Content.ReadAsStreamAsync(ct);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
         if (doc.RootElement.GetArrayLength() == 0) return null;
-        var b64 = doc.RootElement[0].GetProperty("frame").GetString();
+        var row = doc.RootElement[0];
+        var b64 = row.GetProperty("frame").GetString();
         if (string.IsNullOrEmpty(b64)) return null;
-        try { return Convert.FromBase64String(b64); } catch { return null; }
+        var stamp = row.TryGetProperty("updated_at", out var u) ? (u.GetString() ?? "") : "";
+        try { return new FrameSample(Convert.FromBase64String(b64), stamp); } catch { return null; }
     }
 
     // Poll latest cursor telemetry so the native admin can render a ghost
     // pointer over the D3D surface — same source the web console uses.
-    public sealed record CursorSample(int X, int Y, int? FrameW, int? FrameH, string Kind, bool Visible);
+    // Same `since` short-circuit as frames.
+    public sealed record CursorSample(int X, int Y, int? FrameW, int? FrameH, string Kind, bool Visible, string UpdatedAt);
 
-    public async Task<CursorSample?> PollSessionCursorAsync(string sessionId, CancellationToken ct)
+    public async Task<CursorSample?> PollSessionCursorAsync(string sessionId, string? since, CancellationToken ct)
     {
+        var filter = string.IsNullOrEmpty(since)
+            ? ""
+            : $"&updated_at=gt.{Uri.EscapeDataString(since)}";
         using var req = NewSupabase(HttpMethod.Get,
-            $"/rest/v1/session_cursors?select=x,y,frame_w,frame_h,kind,visible&session_id=eq.{Uri.EscapeDataString(sessionId)}&limit=1");
+            $"/rest/v1/session_cursors?select=x,y,frame_w,frame_h,kind,visible,updated_at&session_id=eq.{Uri.EscapeDataString(sessionId)}{filter}&order=updated_at.desc&limit=1");
         using var res = await SendSupabaseAsync(req, ct);
         await EnsureOkAsync(res, "poll cursor", ct);
         var stream = await res.Content.ReadAsStreamAsync(ct);
@@ -382,8 +400,10 @@ public sealed class ApiClient
             row.TryGetProperty("frame_w", out var fw) && fw.ValueKind == JsonValueKind.Number ? fw.GetInt32() : null,
             row.TryGetProperty("frame_h", out var fh) && fh.ValueKind == JsonValueKind.Number ? fh.GetInt32() : null,
             row.TryGetProperty("kind", out var k) ? (k.GetString() ?? "arrow") : "arrow",
-            row.TryGetProperty("visible", out var v) && v.ValueKind == JsonValueKind.True);
+            row.TryGetProperty("visible", out var v) && v.ValueKind == JsonValueKind.True,
+            row.TryGetProperty("updated_at", out var cu) ? (cu.GetString() ?? "") : "");
     }
+
 
     // Queue a power-management command (shutdown / restart / lock / logoff /
     // wake) for the agent's PowerRelay to pick up. RLS restricts inserts to
