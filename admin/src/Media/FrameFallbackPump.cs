@@ -9,7 +9,13 @@ namespace ConnectLive.Admin.Media;
 /// <summary>
 /// While WebRTC hasn't linked yet (or if it never does), we poll the JPEG
 /// frames the agent uploads to session_frames — same fallback the web
-/// console uses. Runs at ~5 fps.
+/// console uses.
+///
+/// Two things keep this cheap:
+///   * an `updated_at` cursor, so the server returns nothing when the agent
+///     hasn't produced a new frame (no repeat downloads of the same JPEG);
+///   * an adaptive cadence — ~200 ms while frames flow, backing off to 1 s
+///     when the target machine is idle, snapping back on the next change.
 /// </summary>
 public sealed class FrameFallbackPump
 {
@@ -17,14 +23,17 @@ public sealed class FrameFallbackPump
     private readonly Action<BitmapSource> _onFrame;
     private readonly Action<string>? _onError;
     private readonly Action? _onSuperseded;
+    private readonly Action<DateTime>? _onFrameStamp;
 
     public FrameFallbackPump(string sessionId, Action<BitmapSource> onFrame,
-        Action<string>? onError = null, Action? onSuperseded = null)
+        Action<string>? onError = null, Action? onSuperseded = null,
+        Action<DateTime>? onFrameStamp = null)
     {
         _sessionId = sessionId;
         _onFrame = onFrame;
         _onError = onError;
         _onSuperseded = onSuperseded;
+        _onFrameStamp = onFrameStamp;
     }
 
     public void Start(CancellationToken ct)
@@ -40,52 +49,64 @@ public sealed class FrameFallbackPump
     {
         try
         {
-            var initial = await App.Api.BindAdminAsync(_sessionId, ct);
+            var initial = await App.Api.BindAdminAsync(_sessionId, ct).ConfigureAwait(false);
             if (!initial.bound && initial.reason == "superseded") { _onSuperseded?.Invoke(); return; }
         }
+        catch (OperationCanceledException) { return; }
         catch (Exception ex) { _onError?.Invoke("Bind session: " + ex.Message); }
 
         while (!ct.IsCancellationRequested)
         {
-            try { await Task.Delay(15_000, ct); } catch { return; }
+            try { await Task.Delay(15_000, ct).ConfigureAwait(false); } catch { return; }
             if (ct.IsCancellationRequested) return;
             try
             {
-                var r = await App.Api.BindAdminAsync(_sessionId, ct);
+                var r = await App.Api.BindAdminAsync(_sessionId, ct).ConfigureAwait(false);
                 if (!r.bound && r.reason == "superseded") { _onSuperseded?.Invoke(); return; }
             }
+            catch (OperationCanceledException) { return; }
             catch (Exception ex) { _onError?.Invoke("Heartbeat: " + ex.Message); }
         }
     }
+
+    private const int FastDelayMs = 200;   // frames are moving
+    private const int IdleDelayMs = 1000;  // nothing new for a while
+    private const int ErrorDelayMs = 2000; // link is unhappy
 
     private async Task Loop(CancellationToken ct)
     {
         int consecutiveFailures = 0;
         int consecutiveEmpty = 0;
         bool sawFrame = false;
+        string? since = null;
+
         while (!ct.IsCancellationRequested)
         {
+            int delay = FastDelayMs;
             try
             {
-                var bytes = await App.Api.GetLatestFrameAsync(_sessionId, ct);
-                if (bytes != null && bytes.Length > 0)
+                var sample = await App.Api.GetLatestFrameAsync(_sessionId, since, ct).ConfigureAwait(false);
+                if (sample != null && sample.Bytes.Length > 0)
                 {
-                    var bmp = Decode(bytes);
+                    var bmp = Decode(sample.Bytes);
                     if (bmp != null)
                     {
+                        if (!string.IsNullOrEmpty(sample.UpdatedAt)) since = sample.UpdatedAt;
                         _onFrame(bmp);
+                        _onFrameStamp?.Invoke(DateTime.UtcNow);
                         if (!sawFrame) { sawFrame = true; _onError?.Invoke(""); }
                         consecutiveEmpty = 0;
+                        delay = FastDelayMs;
                     }
                 }
                 else
                 {
-                    // Empty result — the session row exists but the agent
-                    // hasn't uploaded a frame yet. Surface after ~3s so the
-                    // black screen isn't silent.
+                    // Nothing newer than what we already show. Either the agent
+                    // hasn't attached yet, or the remote screen is static.
                     consecutiveEmpty++;
                     if (!sawFrame && consecutiveEmpty == 15)
                         _onError?.Invoke("Waiting for agent to attach to this session…");
+                    delay = consecutiveEmpty > 10 ? IdleDelayMs : FastDelayMs;
                 }
                 consecutiveFailures = 0;
             }
@@ -94,8 +115,10 @@ public sealed class FrameFallbackPump
             {
                 consecutiveFailures++;
                 if (consecutiveFailures == 3) _onError?.Invoke("Frame stream: " + ex.Message);
+                delay = ErrorDelayMs;
             }
-            try { await Task.Delay(consecutiveFailures > 0 ? 2000 : 200, ct); } catch { }
+
+            try { await Task.Delay(delay, ct).ConfigureAwait(false); } catch { return; }
         }
     }
 

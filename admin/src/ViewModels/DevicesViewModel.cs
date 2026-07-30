@@ -51,32 +51,45 @@ public partial class DevicesViewModel : ObservableObject
     private async Task PollLoop(CancellationToken ct)
     {
         int step = 0;
+        int consecutiveFailures = 0;
         while (!ct.IsCancellationRequested)
         {
-            bool ok = true;
-            try { await Refresh(); }
+            bool ok = false;
+            try
+            {
+                // Refresh returns false when a previous pass is still in
+                // flight — that is NOT a healthy poll, so we must not reset
+                // the back-off (a wedged request used to look like success
+                // while the grid quietly went stale).
+                ok = await RefreshOnceAsync().ConfigureAwait(false);
+            }
             catch (Exception ex)
             {
-                ok = false;
-                Application.Current?.Dispatcher.Invoke(() => Error = ex.Message);
+                consecutiveFailures++;
+                if (consecutiveFailures >= 2)
+                    Application.Current?.Dispatcher.Invoke(() => Error = ex.Message);
             }
 
-            if (ok) step = 0;
+            if (ok) { step = 0; consecutiveFailures = 0; }
             else if (step < BackoffSeconds.Length - 1) step++;
 
-            try { await Task.Delay(TimeSpan.FromSeconds(BackoffSeconds[step]), ct); } catch { }
+            try { await Task.Delay(TimeSpan.FromSeconds(BackoffSeconds[step]), ct).ConfigureAwait(false); } catch { return; }
         }
     }
 
 
+    // Command entry point (AsyncRelayCommand needs a plain Task).
     [RelayCommand]
-    public async Task Refresh()
+    public Task Refresh() => RefreshOnceAsync();
+
+    /// <summary>Returns false when the pass was skipped or nothing ran.</summary>
+    public async Task<bool> RefreshOnceAsync()
     {
-        if (Busy) return;
-        Busy = true;
+        if (Busy) return false;
+        SetBusy(true);
         try
         {
-            var list = await App.Api.ListDevicesAsync(CancellationToken.None);
+            var list = await App.Api.ListDevicesAsync(CancellationToken.None).ConfigureAwait(false);
             Application.Current?.Dispatcher.Invoke(() =>
             {
                 Devices.Clear();
@@ -100,9 +113,20 @@ public partial class DevicesViewModel : ObservableObject
                 }
                 Error = null;
             });
+            return true;
         }
-        finally { Busy = false; }
+        finally { SetBusy(false); }
     }
+
+    // Busy drives command CanExecute, so it must only ever change on the UI
+    // thread — the poll loop runs on a worker.
+    private void SetBusy(bool value)
+    {
+        var d = Application.Current?.Dispatcher;
+        if (d == null || d.CheckAccess()) Busy = value;
+        else d.Invoke(() => Busy = value);
+    }
+
 
     private static string FormatAge(double sec)
     {

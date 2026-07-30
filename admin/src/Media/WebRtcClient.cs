@@ -54,7 +54,7 @@ public sealed class WebRtcClient
         // Claim / refresh the binding before signaling starts.
         try
         {
-            var initial = await App.Api.BindAdminAsync(_sessionId, ct);
+            var initial = await App.Api.BindAdminAsync(_sessionId, ct).ConfigureAwait(false);
             if (!initial.bound)
             {
                 if (initial.reason == "superseded") { _onTerminated?.Invoke(); return; }
@@ -101,7 +101,7 @@ public sealed class WebRtcClient
         };
 
         var offer = _pc.createOffer();
-        await _pc.setLocalDescription(offer);
+        await _pc.setLocalDescription(offer).ConfigureAwait(false);
         try
         {
             await App.Api.PushSignalReliableAsync(_sessionId, "offer",
@@ -131,7 +131,7 @@ public sealed class WebRtcClient
             if (ct.IsCancellationRequested) return;
             try
             {
-                var r = await App.Api.BindAdminAsync(_sessionId, ct);
+                var r = await App.Api.BindAdminAsync(_sessionId, ct).ConfigureAwait(false);
                 if (!r.bound && r.reason == "superseded")
                 {
                     try { _pc?.close(); } catch { }
@@ -151,7 +151,7 @@ public sealed class WebRtcClient
             bool ok = true;
             try
             {
-                var (max, items) = await App.Api.PollAgentSignalsAsync(_sessionId, _sinceSignalId, ct);
+                var (max, items) = await App.Api.PollAgentSignalsAsync(_sessionId, _sinceSignalId, ct).ConfigureAwait(false);
                 _sinceSignalId = max;
                 foreach (var s in items)
                 {

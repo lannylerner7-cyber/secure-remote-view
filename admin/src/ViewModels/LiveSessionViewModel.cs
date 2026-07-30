@@ -63,13 +63,21 @@ public partial class LiveSessionViewModel : ObservableObject
         try { _cts?.Cancel(); } catch { }
     }
 
+    // Last time a decoded frame arrived (either transport). Drives the
+    // "stalled" indicator so a frozen picture is never mistaken for a static
+    // desktop.
+    private DateTime _lastFrameUtc = DateTime.MinValue;
+
+    [ObservableProperty] private string linkState = "connecting";
+
     public void Start()
     {
         _cts = new CancellationTokenSource();
         _framePump = new FrameFallbackPump(SessionId,
             bmp => Application.Current?.Dispatcher.Invoke(() => CurrentFrame = bmp),
             onError: SurfaceError,
-            onSuperseded: HandleTakenOver);
+            onSuperseded: HandleTakenOver,
+            onFrameStamp: utc => _lastFrameUtc = utc);
         _framePump.Start(_cts.Token);
         Transport = "http-poll";
 
@@ -102,7 +110,31 @@ public partial class LiveSessionViewModel : ObservableObject
             },
             onTerminated: HandleTakenOver,
             onError: SurfaceError);
+
+        StartLinkWatchdog(_cts.Token);
     }
+
+    // 1 Hz UI-thread tick that reports how fresh the picture actually is.
+    private void StartLinkWatchdog(CancellationToken ct)
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
+                var last = _lastFrameUtc;
+                string state;
+                if (last == DateTime.MinValue) state = "waiting for agent…";
+                else
+                {
+                    var age = (DateTime.UtcNow - last).TotalSeconds;
+                    state = age < 2 ? "live" : age < 10 ? $"stalled {(int)age}s" : $"no frames {(int)age}s";
+                }
+                Application.Current?.Dispatcher.InvokeAsync(() => LinkState = state);
+            }
+        }, CancellationToken.None);
+    }
+
 
     public void Stop()
     {
