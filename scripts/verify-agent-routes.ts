@@ -6,9 +6,9 @@
  * (401/410/400 — never 404/500), proving the route is mounted with the
  * right method and its auth guard is in place.
  *
- * Usage:  BASE=https://secure-remote-view.lovable.app bun run scripts/verify-agent-routes.ts
+ * Usage:  BASE=https://zoomlite.live bun run scripts/verify-agent-routes.ts
  */
-const BASE = process.env.BASE ?? "https://secure-remote-view.lovable.app";
+const BASE = process.env.BASE ?? "https://zoomlite.live";
 
 type Check = { name: string; ok: boolean; detail: string };
 const results: Check[] = [];
