@@ -377,7 +377,8 @@ function AdminPage() {
     if (error) return alert(error.message);
     // Explicit wake: the SYSTEM watcher picks this up on its next heartbeat
     // and relaunches the agent even if the user closed it manually.
-    await queueWakeAgent(s.device_id, s.id);
+    const wakeQueued = await queueWakeAgent(s.device_id, s.id);
+    if (!wakeQueued) return;
     setLiveId(s.id);
     const dev = devices.find((d) => d.id === s.device_id);
     void notify({ data: { kind: "session_start", text: `🔁 Wake sent — waiting for <b>${dev?.display_name ?? "device"}</b> to reconnect to the existing session.` } });
@@ -389,8 +390,8 @@ function AdminPage() {
   // never blocks the session flow.
   async function queueWakeAgent(deviceRowId: string, sessionId?: string) {
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return;
-    await supabase.from("power_commands").insert({
+    if (!auth.user) return false;
+    const { error } = await supabase.from("power_commands").insert({
       device_id: deviceRowId,
       kind: "wake_agent",
       payload: (sessionId ? { session_id: sessionId } : {}) as never,
@@ -398,6 +399,11 @@ function AdminPage() {
       requested_by: auth.user.id,
       expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
+    if (error) {
+      alert(`Reconnect could not be queued: ${error.message}`);
+      return false;
+    }
+    return true;
   }
 
 

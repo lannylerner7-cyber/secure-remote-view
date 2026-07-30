@@ -31,8 +31,12 @@ function Require-Admin {
 
 function Do-Install {
   Require-Admin
-  $watcher = Join-Path $PSScriptRoot "watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe"
-  $worker  = Join-Path $PSScriptRoot "src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe"
+  # A packaged ZIP places both binaries beside this script. Source-tree
+  # publish paths remain as a development fallback.
+  $watcher = Join-Path $PSScriptRoot "ConnectLiveWatcher.exe"
+  $worker  = Join-Path $PSScriptRoot "ConnectLive.exe"
+  if (-not (Test-Path $watcher)) { $watcher = Join-Path $PSScriptRoot "watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveWatcher.exe" }
+  if (-not (Test-Path $worker))  { $worker  = Join-Path $PSScriptRoot "src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe" }
   if (-not (Test-Path $watcher)) { throw "Watcher not built: $watcher (run: dotnet publish watcher\ConnectLiveWatcher.csproj -c Release)" }
   if (-not (Test-Path $worker))  { throw "Agent not built: $worker (run: dotnet publish src\ConnectLiveAgent.csproj -c Release)" }
 
@@ -73,10 +77,14 @@ function Do-Install {
   }
 
   $exe = Join-Path $InstallDir "ConnectLiveWatcher.exe"
-  sc.exe create $ServiceName binPath= "`"$exe`"" start= auto obj= "LocalSystem" DisplayName= "ConnectLive Watcher" | Out-Null
+  sc.exe create $ServiceName binPath= "`"$exe`"" start= delayed-auto obj= "LocalSystem" DisplayName= "ConnectLive Watcher" | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Failed to register $ServiceName (sc.exe exit $LASTEXITCODE)." }
   sc.exe description $ServiceName "Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions." | Out-Null
   sc.exe failure     $ServiceName reset= 60 actions= restart/5000/restart/10000/restart/30000 | Out-Null
+  sc.exe sdset $ServiceName "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)" | Out-Null
   Start-Service $ServiceName
+  (Get-Service $ServiceName).WaitForStatus('Running', (New-TimeSpan -Seconds 15))
+  if ((Get-Service $ServiceName).Status -ne 'Running') { throw "$ServiceName did not reach Running state." }
 
   Write-Host "ConnectLive installed. Service '$ServiceName' is running." -ForegroundColor Green
 }
@@ -84,11 +92,12 @@ function Do-Install {
 function Do-Uninstall {
   Require-Admin
   if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
+    sc.exe sdset $ServiceName "D:(A;;GA;;;SY)(A;;GA;;;BA)" | Out-Null
     Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
     sc.exe delete $ServiceName | Out-Null
   }
   # Kill any running worker before removing the folder.
-  Get-Process ConnectLiveAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process ConnectLive -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
   Write-Host "ConnectLive uninstalled. Data at $DataDir left in place (delete manually if desired)." -ForegroundColor Yellow
 }

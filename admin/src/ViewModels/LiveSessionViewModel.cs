@@ -161,7 +161,7 @@ public partial class LiveSessionViewModel : ObservableObject
     }
 
     // Queue a power command for the agent's PowerRelay
-    // (kind ∈ shutdown | restart | lock | logoff | wake).
+    // (kind ∈ shutdown | reboot | lock | logoff | wake).
     [RelayCommand]
     private async Task PowerCommand(string kind)
     {

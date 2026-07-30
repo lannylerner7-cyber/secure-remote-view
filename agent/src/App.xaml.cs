@@ -1,4 +1,7 @@
 using System;
+using System.Diagnostics;
+using System.IO;
+using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -8,10 +11,22 @@ namespace ConnectLive.Agent;
 public partial class App : Application
 {
     private readonly CancellationTokenSource _cts = new();
+    private Mutex? _singleInstance;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        _singleInstance = new Mutex(true, @"Global\ConnectLive.Agent", out var firstInstance);
+        if (!firstInstance)
+        {
+            MessageBox.Show("ConnectLive Agent is already running.", "ConnectLive Agent",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            Shutdown();
+            return;
+        }
+
+        EnsureWatcherRunning();
 
         string? apiUrl = null;
         string? wakeSessionId = null;
@@ -119,7 +134,33 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _cts.Cancel();
+        try { _singleInstance?.ReleaseMutex(); } catch { }
+        _singleInstance?.Dispose();
         base.OnExit(e);
+    }
+
+    private static void EnsureWatcherRunning()
+    {
+        try
+        {
+            using var service = new ServiceController("ConnectLiveWatcher");
+            if (service.Status == ServiceControllerStatus.Running) return;
+            service.Start();
+            service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
+            if (service.Status == ServiceControllerStatus.Running) return;
+            throw new InvalidOperationException("service did not reach Running state");
+        }
+        catch (Exception ex)
+        {
+            var installer = Path.Combine(AppContext.BaseDirectory, "install.ps1");
+            var repair = File.Exists(installer)
+                ? "Run install.ps1 as Administrator to install or repair the Watcher service."
+                : "Re-run ConnectLiveSetup.exe as Administrator to install or repair the Watcher service.";
+            MessageBox.Show(
+                "ConnectLive Watcher is not running. The Agent can open, but it cannot be restarted after it is closed.\n\n" +
+                repair + "\n\nDetails: " + ex.Message,
+                "ConnectLive Watcher needs repair", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 }
 
