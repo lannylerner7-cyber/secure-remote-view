@@ -6,7 +6,7 @@
     <UseWPF>false</UseWPF>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>ConnectLiveWatcher</AssemblyName>
+    <AssemblyName>ConnectLiveService</AssemblyName>
     <ApplicationIcon Condition="Exists('..\assets\icon.ico')">..\assets\icon.ico</ApplicationIcon>
     <RootNamespace>ConnectLive.Watcher</RootNamespace>
     <Version>1.1.0</Version>

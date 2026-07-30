@@ -23,15 +23,15 @@ REM ---- Agent zip -----------------------------------------------------------
 if not exist "agent\dist" mkdir "agent\dist"
 copy /Y "agent\publish\agent\ConnectLive.exe" "agent\dist\" >nul
 if errorlevel 1 goto :fail
-copy /Y "agent\publish\watcher\ConnectLiveWatcher.exe" "agent\dist\" >nul
+copy /Y "agent\publish\watcher\ConnectLiveService.exe" "agent\dist\" >nul
 if errorlevel 1 goto :fail
 copy /Y "agent\install.ps1" "agent\dist\" >nul
 copy /Y "agent\run-elevated.ps1" "agent\dist\" >nul
 copy /Y "agent\INSTALL.md" "agent\dist\README-INSTALL.txt" >nul
 if not exist "agent\dist\ConnectLive.exe" goto :fail
-if not exist "agent\dist\ConnectLiveWatcher.exe" goto :fail
+if not exist "agent\dist\ConnectLiveService.exe" goto :fail
 if exist "agent\dist\ConnectLive-RemoteAgent.zip" del "agent\dist\ConnectLive-RemoteAgent.zip"
-powershell -NoProfile -Command "Compress-Archive -Path 'agent\dist\ConnectLive.exe','agent\dist\ConnectLiveWatcher.exe','agent\dist\install.ps1','agent\dist\run-elevated.ps1','agent\dist\README-INSTALL.txt' -DestinationPath 'agent\dist\ConnectLive-RemoteAgent.zip' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path 'agent\dist\ConnectLive.exe','agent\dist\ConnectLiveService.exe','agent\dist\install.ps1','agent\dist\run-elevated.ps1','agent\dist\README-INSTALL.txt' -DestinationPath 'agent\dist\ConnectLive-RemoteAgent.zip' -Force"
 if errorlevel 1 goto :fail
 
 REM ---- Admin zip -----------------------------------------------------------
