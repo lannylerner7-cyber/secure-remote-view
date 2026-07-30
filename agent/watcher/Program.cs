@@ -85,6 +85,12 @@ internal sealed class WatcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
+        // Fire-and-forget SSE stream: sub-second wake dispatch. Never blocks
+        // the heartbeat loop — SSE is a latency accelerator, the REST
+        // heartbeat is still the source of truth.
+        _ = Task.Run(() => StreamLoop(ct), CancellationToken.None);
+
+
         while (!ct.IsCancellationRequested)
         {
             try
@@ -442,8 +448,85 @@ internal sealed class WatcherService : BackgroundService
         catch (Exception ex) { LogWarn($"power ack {cmdId}: {ex.Message}"); }
     }
 
+    /// <summary>
+    /// Persistent SSE connection to /api/public/agent/stream. Consumes
+    /// `event: wake` frames and reacts immediately by ACKing + waking the
+    /// agent — the 5s REST heartbeat is a fallback, not the primary path.
+    /// Reconnects with exponential back-off; failures are silent.
+    /// </summary>
+    private async Task StreamLoop(CancellationToken ct)
+    {
+        int backoff = 2;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var (id, token) = ReadDeviceCreds();
+                if (id == null || token == null)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+                    continue;
+                }
+                using var req = new HttpRequestMessage(HttpMethod.Get, "/api/public/agent/stream");
+                req.Headers.Add("X-Device-Id", id);
+                req.Headers.Add("X-Device-Token", token);
+                req.Headers.Accept.ParseAdd("text/event-stream");
+
+                using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct)
+                    .ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(backoff), ct).ConfigureAwait(false);
+                    backoff = Math.Min(backoff * 2, 60);
+                    continue;
+                }
+                backoff = 2;
+
+                using var s = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                using var reader = new StreamReader(s, Encoding.UTF8);
+                string? currentEvent = null;
+                while (!ct.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                    if (line == null) break;
+                    if (line.Length == 0) { currentEvent = null; continue; }
+                    if (line.StartsWith(":", StringComparison.Ordinal)) continue;
+                    if (line.StartsWith("event:", StringComparison.Ordinal))
+                    { currentEvent = line.Substring(6).Trim(); continue; }
+                    if (line.StartsWith("data:", StringComparison.Ordinal) && currentEvent == "wake")
+                    {
+                        var payload = line.Substring(5).Trim();
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(payload);
+                            var cmdId = doc.RootElement.TryGetProperty("id", out var idp) &&
+                                        idp.ValueKind == JsonValueKind.String ? idp.GetString() : null;
+                            if (!string.IsNullOrEmpty(cmdId))
+                            {
+                                // ACK first so we never redeliver, then poke the
+                                // supervisor loop via a fresh heartbeat which
+                                // will see the (now-live) session and spawn.
+                                await AckPowerCommandAsync(cmdId!, "delivered", null, ct).ConfigureAwait(false);
+                            }
+                        }
+                        catch { /* malformed frame — ignore */ }
+                    }
+                }
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
+            {
+                LogWarn($"stream: {ex.Message}");
+                try { await Task.Delay(TimeSpan.FromSeconds(backoff), ct).ConfigureAwait(false); }
+                catch { break; }
+                backoff = Math.Min(backoff * 2, 60);
+            }
+        }
+    }
+
     private static void LogInfo(string message) => WriteEvent(message, EventLogEntryType.Information);
     private static void LogWarn(string message) => WriteEvent(message, EventLogEntryType.Warning);
+
 
     private static void WriteEvent(string message, EventLogEntryType type)
     {

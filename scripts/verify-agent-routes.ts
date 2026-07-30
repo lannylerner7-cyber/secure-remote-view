@@ -60,7 +60,10 @@ async function hit(
   await hit("POST", `/api/public/agent/session/${SID}/cursor`, [401], { headers: j, body: "{}" });
   await hit("GET", `/api/public/agent/session/${SID}/inputs`, [401]);
   await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], { headers: j, body: "{}" });
+  await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], { headers: j, body: "{}" });
   await hit("GET", `/api/public/agent/session/${SID}/signal`, [401]);
+  await hit("GET", "/api/public/agent/stream", [401]);
+
 
   // Signal validation (still requires device auth, so 401 is the correct
   // gate response — we're proving the route validates AFTER auth). These
