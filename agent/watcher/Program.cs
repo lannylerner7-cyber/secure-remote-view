@@ -53,6 +53,7 @@ internal sealed class WatcherService : BackgroundService
     private static readonly string ConfigDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
     private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
+    private static readonly string HealthPath = Path.Combine(ConfigDir, "watcher-health.json");
 
     private readonly HttpClient _http = new() { BaseAddress = new Uri(ApiBaseUrl), Timeout = TimeSpan.FromSeconds(15) };
 
@@ -61,6 +62,7 @@ internal sealed class WatcherService : BackgroundService
     private DateTime _lastLaunchUtc = DateTime.MinValue;
     private uint _lastSessionId = 0xFFFFFFFF;
     private string? _lastLaunchedSessionId;
+    private int _streamWakeRequested;
 
     // Never respawn faster than this — a launch that dies instantly (missing
     // dependency, blocked binary) must not turn into a spawn storm.
@@ -193,6 +195,8 @@ internal sealed class WatcherService : BackgroundService
                 // When neither applies, drop stop.flag so the Agent exits
                 // itself; hard-kill after a short grace if it doesn't.
                 bool wakeRequested = wakeCommandIds.Count > 0;
+                if (Interlocked.Exchange(ref _streamWakeRequested, 0) == 1)
+                    wakeRequested = true;
 
                 if (hasUser)
                 {
@@ -287,6 +291,8 @@ internal sealed class WatcherService : BackgroundService
                         await AckPowerCommandAsync(cmdId, hasUser ? "delivered" : "failed",
                             hasUser ? null : "no interactive desktop session", ct);
                 }
+
+                WriteHealth(heartbeatOk, isSessionActive, IsAgentRunning());
 
 
                 // ---- Cadence: 5s on success, exponential back-off on failure --
@@ -428,7 +434,43 @@ internal sealed class WatcherService : BackgroundService
             catch { /* pid gone */ }
             _workerPid = 0;
         }
+
+        // Adopt an already-running installed Agent (for example one the user
+        // opened manually before the service started) instead of launching a
+        // duplicate capture/input process.
+        foreach (var candidate in Process.GetProcessesByName("ConnectLive"))
+        {
+            try
+            {
+                if (candidate.HasExited) { candidate.Dispose(); continue; }
+                var path = candidate.MainModule?.FileName;
+                if (path == null || !string.Equals(path, ResolveAgentPath(), StringComparison.OrdinalIgnoreCase))
+                { candidate.Dispose(); continue; }
+                _worker = candidate;
+                _workerPid = candidate.Id;
+                return true;
+            }
+            catch { candidate.Dispose(); }
+        }
         return false;
+    }
+
+    private static void WriteHealth(bool heartbeatOk, bool sessionActive, bool agentRunning)
+    {
+        try
+        {
+            Directory.CreateDirectory(ConfigDir);
+            var json = JsonSerializer.Serialize(new
+            {
+                updated_at = DateTime.UtcNow,
+                heartbeat_ok = heartbeatOk,
+                session_active = sessionActive,
+                agent_running = agentRunning,
+                service = "ConnectLiveWatcher",
+            });
+            File.WriteAllText(HealthPath, json);
+        }
+        catch { }
     }
 
     /// <summary>Report a queued power command as delivered/failed.</summary>
@@ -503,9 +545,11 @@ internal sealed class WatcherService : BackgroundService
                                         idp.ValueKind == JsonValueKind.String ? idp.GetString() : null;
                             if (!string.IsNullOrEmpty(cmdId))
                             {
-                                // ACK first so we never redeliver, then poke the
-                                // supervisor loop via a fresh heartbeat which
-                                // will see the (now-live) session and spawn.
+                                // Poke the supervisor before ACKing. Without this
+                                // flag the ACK removed the queued row before the
+                                // heartbeat loop could observe it, so an SSE wake
+                                // could paradoxically suppress the relaunch.
+                                Interlocked.Exchange(ref _streamWakeRequested, 1);
                                 await AckPowerCommandAsync(cmdId!, "delivered", null, ct).ConfigureAwait(false);
                             }
                         }
