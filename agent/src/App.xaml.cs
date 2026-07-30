@@ -24,6 +24,8 @@ public partial class App : Application
                 MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown();
             return;
+        }
+
         if (!IsWatcherServiceRunning())
         {
             MessageBox.Show(
