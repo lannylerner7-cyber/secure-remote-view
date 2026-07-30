@@ -1,64 +1,38 @@
-## What's wrong
+## Short answer: mostly true, but the proposed fix is already in the code
 
-I read the admin client source (`App.xaml.cs`, `Api/ApiClient.cs`, `ViewModels/*`, `Media/*`, `Views/*`) end to end. Three separate problems explain the symptoms.
+Points 1 and 2 are correct: the Watcher runs as a LocalSystem service (delayed auto-start), so it survives reboots and is not a "startup app", and switching admin clients changes nothing because the failure is local to the target machine.
 
-### 1. Startup can hang with no window and no error (the "nothing shows" bug)
+Point 3 is not the bug. `agent/watcher/Program.cs` already contains exactly the suggested block — it falls back to `_lastLaunchedSessionId` when the heartbeat's `sessions` array is momentarily empty, and stores the id after a successful launch. Applying that "fix" would be a no-op.
 
-`App.OnStartup` runs on the WPF UI thread and calls:
+## What actually blocks respawn after a manual close
 
-```csharp
-Api.RefreshSessionAsync(CancellationToken.None).GetAwaiter().GetResult();
-```
+Confirmed from the code and database:
 
-`RefreshSessionAsync` awaits HTTP work without `ConfigureAwait(false)`, so its continuations are posted back to the dispatcher — which is blocked by `GetResult()`. Classic sync-over-async deadlock: the process starts, never returns from `OnStartup`, and never shows a window. No exception, no prompt. On a slow/flaky link this is exactly the "start the script, nothing appears" report.
-
-Two aggravators:
-- The single-instance mutex means a previously hung, invisible instance makes every later launch either silently exit or pop "already running".
-- There is no `DispatcherUnhandledException` / `AppDomain.UnhandledException` handler and no startup log, so any other early failure is also invisible.
-
-### 2. Connection lag / stalling
-
-- `FrameFallbackPump` polls `session_frames` every 200 ms and re-downloads the same base64 JPEG even when the agent hasn't produced a new frame — wasted bandwidth that competes with the frames that matter, producing stutter.
-- `CursorPollPump` has the same re-fetch-everything pattern at 5 Hz.
-- Devices `PollLoop`: `Refresh()` returns immediately when `Busy` is true, and the loop counts that as success, so a stuck refresh looks healthy while the grid goes stale; `Busy` is also mutated off the UI thread.
-- Nothing in the pumps uses `ConfigureAwait(false)`, so every callback hop marshals through the dispatcher.
-
-### 3. Route/endpoint audit
-
-Every Supabase/gateway call in the admin client needs re-verification against the live schema and RLS (this is where the earlier `is_session_active` / `jpeg_base64` breakages came from).
+- The Watcher only relaunches the Agent when the heartbeat returns `is_session_active: true`, and heartbeat only counts sessions in `invited/consented/active/paused`. If the session was ended (or the row's state never flips back), the Watcher deliberately writes `stop.flag` and stays idle — no wake path exists at all.
+- The web console's Reconnect button only updates the `sessions` row directly from the browser and waits. There is no explicit "wake the agent" command sent to the device, so recovery depends entirely on that state flip being visible on the next heartbeat.
+- `LaunchInSession` can return `true` while `process` ends up `null` (`Process.GetProcessById` race). The Watcher then treats the Agent as not running and relaunches every tick — a spawn storm with multiple Agents fighting over one session.
+- Manual tray Quit is indistinguishable from a crash; with no wake channel, a user who closes the Agent can leave the machine unreachable until a session state change happens to line up.
 
 ## Plan
 
-**A. Make startup unkillable and observable**
-1. Show a window immediately: `LoginWindow` (or `MainWindow` when a still-valid saved session exists) is created synchronously; the refresh attempt moves to an `async void`/`Task` continuation that swaps to `MainWindow` on success. No blocking calls on the UI thread anywhere in `App.xaml.cs`.
-2. Add `DispatcherUnhandledException`, `AppDomain.CurrentDomain.UnhandledException`, and `TaskScheduler.UnobservedTaskException` handlers that write to `%AppData%\ConnectLiveAdmin\admin.log` and show a message box, so a failure is never silent again.
-3. Append startup breadcrumbs (config loaded, client id, session state, window shown) to the same log.
-4. Harden the single-instance mutex: only treat it as "already running" when the existing instance is actually alive; release correctly on all exit paths.
+1. **Add an explicit wake channel (backend)**
+  - Extend the `power_commands.kind` check constraint with `wake_agent`.
+  - The heartbeat already returns queued/dispatched power commands — the Watcher will consume `wake_agent` directly (no Agent needed to ack it; the Watcher acks via the existing `/api/public/agent/power/{cmdId}/ack` route).
+2. **Watcher (`agent/watcher/Program.cs`)**
+  - Parse `power_commands` from the heartbeat response; on a `wake_agent` command, launch the Agent in the interactive session immediately regardless of `is_session_active`, then ack the command.
+  - Fix the launch bookkeeping: track the returned PID, and if `Process.GetProcessById` fails, keep the PID and re-check with `Process.GetProcessById(pid)` next tick instead of assuming the Agent died. Add a minimum relaunch interval (e.g. 10 s) so a failing launch can never become a spawn storm.
+  - Log every launch/skip decision to the event log with the reason, so this is diagnosable on a real machine.
+3. **Admin surfaces**
+  - Web console `requestReconnect`: keep the session state flip, but also enqueue a `wake_agent` power command for the device, and show "Wake sent — waiting for agent" feedback.
+  - Native admin console (`admin/src/Api/ApiClient.cs` already has `EnqueuePowerCommandAsync`): wire the same `wake_agent` enqueue into the reconnect action so both clients behave identically.
+4. **Agent**
+  - On tray Quit, write nothing that suppresses the Watcher (verify `stop.flag` is not left behind), so a wake command always takes effect.
+5. **Repackage** `ConnectLive-RemoteAgent-src.zip` and `ConnectLive-AdminConsole-src.zip` after the changes.
 
-**B. Kill sync-over-async and marshalling overhead**
-5. Add `.ConfigureAwait(false)` to every await in `Api/ApiClient.cs`, `Media/FrameFallbackPump.cs`, `Media/CursorPollPump.cs`, `Media/WebRtcClient.cs`, `Input/*`.
+### Technical notes
 
-**C. Stabilise the live stream**
-6. `GetLatestFrameAsync` takes a `since` timestamp and filters `updated_at=gt.<last>`; the pump keeps the last `updated_at` and skips decode when nothing changed. Same treatment for `PollSessionCursorAsync`.
-7. Adaptive cadence: fast (~200 ms) while frames are flowing, backing off to 1 s when the agent is idle, immediate return to fast on the next change.
-8. `DevicesViewModel.PollLoop`: treat a skipped refresh as "not ok", move `Busy` onto the dispatcher, and surface consecutive-failure state in the status strip instead of an empty grid.
-9. Show transport/stall state in `LiveSessionWindow` — last frame age and "waiting for agent" — driven by the pump rather than only on error.
+- No change to enrollment or DPAPI storage; Watcher and Agent already share `%ProgramData%\ConnectLive\device.dat` with `LocalMachine` scope, so both authenticate as the same device.
+- The migration is one `ALTER TABLE ... DROP CONSTRAINT / ADD CONSTRAINT` on `power_commands`; no new table, so no new grants or policies are required.
 
-**D. Full route re-verification (no oversight)**
-10. Walk every endpoint the admin client touches and confirm the exact table, columns, filters and RLS path against the live backend:
-    - `POST /api/public/auth/login`, `POST {supabase}/auth/v1/token?grant_type=refresh_token`
-    - `devices` select/delete (column list incl. `is_session_active`)
-    - `sessions` lookup / PATCH reuse / INSERT / end / mode
-    - `session_inputs` insert, `session_signals` insert + agent poll (`admin_client_id` filter, `attempt_id` idempotency)
-    - `rpc/bind_admin`
-    - `session_frames` (`frame`, `updated_at`), `session_cursors`
-    - `device_commands` power enqueue
-    Any mismatch found is fixed in `ApiClient.cs`, and the checks are added to `scripts/verify-agent-routes.ts` so regressions are caught by the verifier rather than at runtime.
-11. Cross-check the web console (`src/routes/_authenticated/console.tsx`) reads the same shapes so native and web stay in parity.
-
-**E. Repackage**
-12. Regenerate `ConnectLive-AdminConsole-src.zip` with the fixes.
-
-## Technical notes
-
-No schema migration is expected unless step 10 turns up a genuinely missing column — if it does, I'll add it with the required GRANT + RLS policy in the same pass. Changes are confined to the `admin/` tree plus the verifier script; the agent bundle is untouched unless the route audit exposes a shared mismatch.
+- Exactly as proposed. A persistent, high-privilege background service polls a command queue. When a "launch UI" or "request support" command drops into the queue, the service uses `CreateProcessAsUser` (or similar) to force the UI into the active desktop session.
+- **Verdict:** Your `wake_agent` addition to the `power_commands` table is the perfect enterprise-grade solution for this.
