@@ -146,8 +146,27 @@ internal sealed class WatcherService : BackgroundService
                                         sidProp.ValueKind == JsonValueKind.String)
                                         activeSessionId = sidProp.GetString();
                                 }
+
+                                // Explicit wake channel: the admin can queue a
+                                // `wake_agent` power command so a manually closed
+                                // Agent is revived even before / without an
+                                // active session showing up on this beat.
+                                if (doc.RootElement.TryGetProperty("power_commands", out var cmds) &&
+                                    cmds.ValueKind == JsonValueKind.Array)
+                                {
+                                    foreach (var c in cmds.EnumerateArray())
+                                    {
+                                        var kind = c.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String
+                                            ? k.GetString() : null;
+                                        var cmdId = c.TryGetProperty("id", out var idp) && idp.ValueKind == JsonValueKind.String
+                                            ? idp.GetString() : null;
+                                        if (kind == "wake_agent" && !string.IsNullOrEmpty(cmdId))
+                                            wakeCommandIds.Add(cmdId!);
+                                    }
+                                }
                             }
                             catch { /* tolerate response drift */ }
+
                         }
                     }
                 }
