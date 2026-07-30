@@ -63,6 +63,7 @@ internal sealed class WatcherService : BackgroundService
     private uint _lastSessionId = 0xFFFFFFFF;
     private string? _lastLaunchedSessionId;
     private int _streamWakeRequested;
+    private readonly SemaphoreSlim _wakePulse = new(0, 1);
 
     // Never respawn faster than this — a launch that dies instantly (missing
     // dependency, blocked binary) must not turn into a spawn storm.
@@ -299,7 +300,7 @@ internal sealed class WatcherService : BackgroundService
                 int delaySec = heartbeatOk ? BackoffSeconds[0] : BackoffSeconds[_backoffStep];
                 if (heartbeatOk) _backoffStep = 0;
                 else if (_backoffStep < BackoffSeconds.Length - 1) _backoffStep++;
-                await Task.Delay(TimeSpan.FromSeconds(delaySec), ct);
+                await _wakePulse.WaitAsync(TimeSpan.FromSeconds(delaySec), ct);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
@@ -545,12 +546,12 @@ internal sealed class WatcherService : BackgroundService
                                         idp.ValueKind == JsonValueKind.String ? idp.GetString() : null;
                             if (!string.IsNullOrEmpty(cmdId))
                             {
-                                // Poke the supervisor before ACKing. Without this
-                                // flag the ACK removed the queued row before the
-                                // heartbeat loop could observe it, so an SSE wake
-                                // could paradoxically suppress the relaunch.
+                                // Wake the supervisor immediately. The heartbeat
+                                // path performs the launch and only then ACKs the
+                                // command; ACKing here used to remove the row
+                                // before the supervisor could consume it.
                                 Interlocked.Exchange(ref _streamWakeRequested, 1);
-                                await AckPowerCommandAsync(cmdId!, "delivered", null, ct).ConfigureAwait(false);
+                                try { _wakePulse.Release(); } catch (SemaphoreFullException) { }
                             }
                         }
                         catch { /* malformed frame — ignore */ }

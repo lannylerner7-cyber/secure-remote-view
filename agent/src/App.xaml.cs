@@ -174,7 +174,7 @@ public partial class App : Application
                         UseShellExecute = true,
                         Verb = "runas",
                     });
-                    Shutdown();
+                    Current?.Shutdown();
                 }
                 catch (Exception repairEx)
                 {
