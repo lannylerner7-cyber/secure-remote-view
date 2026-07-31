@@ -25,6 +25,10 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class PowerRelay
 {
+    /// <summary>Set by Agent: surfaces the session UI on a wake_agent command.</summary>
+    public static Action? OnWakeAgent;
+
+
     public static async Task HandleAsync(ApiClient api, JsonElement command, CancellationToken ct)
     {
         string id = command.TryGetProperty("id", out var idEl) ? (idEl.GetString() ?? "") : "";
