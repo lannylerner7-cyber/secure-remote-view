@@ -264,6 +264,7 @@ public sealed class Agent
     private void JoinActiveSession(string sessionId, string mode)
     {
         _currentSessionId = sessionId;
+        try { _onWake?.Invoke(); } catch { }
         _ui.Invoke(() =>
         {
             _indicator = new SessionIndicator("Helpdesk", onEnd: EndSession);
@@ -290,6 +291,9 @@ public sealed class Agent
 
         _acceptedSessions.Add(sessionId);
         _currentSessionId = sessionId;
+        try { _onWake?.Invoke(); } catch { }
+
+
 
         _ui.Invoke(() =>
         {
