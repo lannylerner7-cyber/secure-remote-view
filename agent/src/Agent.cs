@@ -184,7 +184,9 @@ public sealed class Agent
                 await DispatchPowerCommands(body, ct);
 
                 // Interruptible sleep: a wake nudge (SSE / wake_agent) cuts it short.
-                try { await _wakeSignal.WaitAsync(baseDelay, ct); } catch { }
+                var delay = (Stream?.Healthy == true) ? slowDelay : fastDelay;
+                try { await _wakeSignal.WaitAsync(delay, ct); } catch { }
+
             }
             catch (Exception ex)
             {
