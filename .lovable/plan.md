@@ -1,60 +1,50 @@
-## Phase 1 — Standalone, self-persistent Agent (`agent/src` only)
 
-Verified in the current code before planning:
+## Confirmed already in place (no rework)
+- `PowerRelay.HandleAsync` has a `wake_agent` branch that surfaces UI + acks `delivered`.
+- `StreamListener.cs` exists and is started from `App.xaml.cs` for the process lifetime.
+- `StartupRegistration` writes only the HKCU Run key (`"…\ConnectLive.exe" /background`) — no startup-folder shortcut anywhere in code or installer.
 
-- `agent/src/App.xaml.cs` has `IsWatcherServiceRunning()` and aborts startup with a MessageBox when `ConnectLiveWatcher` isn't running.
-- `agent/src/StopFlagWatcher.cs` currently *deletes* any pre-existing `stop.flag` at boot and only honours flags newer than process start — the opposite of the new "user quit wins" rule.
-- There is no main window today: only `SplashWindow`, `TrayIcon`, and the per-session `SessionIndicator`. So "X minimizes to tray" needs a real status window to exist.
-- The Agent has no SSE consumer; `/api/public/agent/stream` is only consumed by the Watcher. The heartbeat loop in `Agent.cs` does dispatch `power_commands`, but `PowerRelay` has no `wake_agent` branch — it currently acks it as `failed` ("unsupported command").
+## Step 1 — Boot-proof enrollment (fixes network race)
+- `App.xaml.cs`: move `EnrollIfNeededAsync` out of the one-shot try into a background task that retries every 5s indefinitely (warn log only, no dialogs, no exit).
+- Heartbeat + SSE loops start immediately and no-op until `ApiClient.DeviceToken` is set; they engage automatically the moment enrollment succeeds — no restart needed.
+- Splash still runs its 5s progress and hands off to tray regardless of enrollment state; status text reflects "Waiting for network" until the token lands.
 
-### 1. Remove the service blocker
+## Step 2 — Adaptive cadence (Watcher parity)
+- `StreamListener` exposes a `bool Healthy` toggled on connect / disconnect / error.
+- `Agent.HeartbeatLoop`: `baseDelay` = 60s while `Healthy`, snaps to 5s when unhealthy. Existing `_wakeSignal` short-circuit stays, so SSE wakes and `wake_agent` commands still cut the sleep instantly.
 
-`App.xaml.cs`: delete `IsWatcherServiceRunning()`, its call site, the warning MessageBox, and the `System.ServiceProcess` using. Startup proceeds unconditionally; a one-line note goes to the debug log only.
+## Step 3 — Make Reconnect / Restart stream / Restart agent actually work
 
-### 2. Launch flags `/background` and `/minimized`
+### 3a. Migration — widen `power_commands_kind_check`
+```sql
+ALTER TABLE public.power_commands DROP CONSTRAINT power_commands_kind_check;
+ALTER TABLE public.power_commands ADD CONSTRAINT power_commands_kind_check
+  CHECK (kind = ANY (ARRAY['wake','wake_agent','reboot','shutdown','lock','logoff','restart_stream','restart_agent']));
+```
 
-Parse alongside the existing `--api-url` / `/WAKE` / `/SESSION=` args. In background mode: no splash, no main window, tray icon only, heartbeat + SSE start immediately after enrollment. Normal launch keeps today's splash-then-tray behavior and additionally opens the new status window.
+### 3b. Agent — `PowerRelay.HandleAsync` new branches
+- `restart_stream` → `Agent.RestartStreamAsync()`: tear down `WebRtcSession` + cancel screen/input/cursor loops for the current session, then call `EnsureSessionLoops` + rebuild `WebRtcSession`. Process stays up. Ack `delivered`.
+- `restart_agent` → **soft restart preferred**: `Agent.SoftRestartAsync()` cancels session loops, closes SSE, resets heartbeat back-off, clears `_acceptedSessions`/`_currentSessionId`, re-runs enrollment (idempotent), restarts SSE listener. Ack `delivered` **before** teardown so the ack isn't lost. **Fallback**: if `SoftRestartAsync` throws, `Process.Start(currentExe, "/background")` + `Shutdown()`.
+- Requires a small surface on `Agent`: `RestartStreamAsync()` and `SoftRestartAsync()` methods, plus a `PowerRelay.OnRestartStream` / `OnRestartAgent` static hook set in `Agent`'s ctor (same pattern as existing `OnWakeAgent`).
 
-### 3. Status window + tray behavior
+### 3c. Admin surfaces
+- `admin/src/ViewModels/LiveSessionViewModel.cs`: add `RestartStreamCommand` (enqueues `restart_stream`) and `RestartAgentCommand` (enqueues `restart_agent`). Existing "Reconnect" already enqueues `wake_agent`.
+- `admin/src/Views/LiveSessionWindow.xaml`: two new buttons next to the existing Restart/Reconnect row.
+- `src/routes/_authenticated/console.tsx`: expose the same two actions on the device row (parity with native admin).
+- `scripts/verify-agent-routes.ts`: extend the kind allow-list assertion to include the two new kinds so client/DB can't drift again.
 
-New `agent/src/MainWindow.xaml.cs` (code-only WPF window, same brand styling as `SplashWindow`): shows enrollment state, device id, link state, and current session state.
+## Step 4 — UI stays minimal
+Keep `SplashWindow` (5s progress) + `TrayIcon` (double-click → surface splash briefly; right-click → Exit writes `stop.flag`). `MainWindow` is retained as-is per current code but no new banners/dialogs/repair affordances are added.
 
-- X button → `e.Cancel = true`, hide to tray.
-- Tray double-click → show/activate the window.
-- Tray right-click → **Exit** → write `%ProgramData%\ConnectLive\stop.flag`, then shut the app down. This is the only quit path; the existing tray "Quit" item is replaced by it.
-- `ShutdownMode` set to `OnExplicitShutdown` so closing the last window never kills the process.
+## Files touched
+- **Backend:** migration for `power_commands_kind_check`.
+- **Agent:** `App.xaml.cs`, `Agent.cs`, `PowerRelay.cs`, `StreamListener.cs`.
+- **Admin:** `admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Views/LiveSessionWindow.xaml`.
+- **Web console:** `src/routes/_authenticated/console.tsx`.
+- **Verify:** `scripts/verify-agent-routes.ts`.
 
-### 4. HKCU startup key
+## Out of scope
+`agent/watcher/`, enrollment/DPAPI/`device.dat`, installer scripts, HKCU key logic.
 
-New `StartupRegistration.RegisterStartupWithWindows()` called right after `EnrollIfNeededAsync` succeeds (idempotent, wrapped in try/catch, never fatal):
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `ConnectLive` = `"<exe>" /background`.
-Also add `Unregister()` (deletes the value) invoked from the explicit tray Exit path only if the user chooses "Exit and don't start with Windows" — default Exit leaves the key intact so a reboot still brings the Agent back unless stop.flag says otherwise.
-
-### 5. stop.flag semantics inversion
-
-Rewrite `StopFlagWatcher.cs`:
-
-- On startup, if `stop.flag` exists **and** the launch was automatic (`/background`, `/minimized`, or Run-key origin), exit silently before any UI or network work.
-- If the user launched the Agent manually (no flag args), delete `stop.flag` and continue — a manual launch is an explicit opt-back-in.
-- Keep the 2s poll so a flag written during runtime still shuts the process down cleanly.
-
-### 6. Lifetime-owned heartbeat + SSE
-
-`Agent.RunAsync` already owns the heartbeat loop and is started from `App.OnStartup`, so it is already app-lifetime scoped — it stays there and is confirmed to be independent of any window.
-Add `agent/src/StreamListener.cs`: a long-lived task hitting `GET /api/public/agent/stream` with the same auth headers `ApiClient` uses, reconnecting with backoff, parsing `event: wake`. On wake (from SSE **or** from a `wake_agent` entry in the heartbeat's `power_commands`) the Agent shows/activates the session UI and forces an immediate heartbeat so any pending invite is picked up within a beat instead of up to 5s later.
-Add a `wake_agent` branch to `PowerRelay.HandleAsync` that surfaces the UI and acks `delivered`, so wake commands stop being acked as failed.
-
-### Technical notes
-
-- New files: `MainWindow.xaml.cs`, `StreamListener.cs`, `StartupRegistration.cs`. Modified: `App.xaml.cs`, `TrayIcon.cs`, `StopFlagWatcher.cs`, `Agent.cs`, `PowerRelay.cs`.
-- `TrayIcon` gains `OnDoubleClick` and an `Exit` item; its constructor signature changes, so `App.xaml.cs` is updated in the same pass.
-- No changes to `agent/watcher/`, packaging scripts, admin, backend routes, DB, `device.dat`, DPAPI enrollment, or the heartbeat API contract.
-- Builds can't be verified here (WPF needs Windows); the deliverable is source plus a repackaged `ConnectLive-RemoteAgent-src.zip` if you want it.
-
-Do you want the repackaged agent source zip emitted at the end of this phase?
-
-This plan is 100% verified and approved. Exceptional catch on the PowerRelay wake_agent bug and the WPF ShutdownMode logic.
-
-Please proceed with implementing Phase 1 exactly as outlined across MainWindow.xaml.cs, StreamListener.cs, StartupRegistration.cs, App.xaml.cs, TrayIcon.cs, StopFlagWatcher.cs, Agent.cs, and PowerRelay.cs.
-
-Yes, please emit the repackaged [ConnectLive-RemoteAgent-src.zip](http://ConnectLive-RemoteAgent-src.zip) deliverable at the end of this phase so we can compile and test it directly.
+## Deliverable
+Repackaged `ConnectLive-RemoteAgent-src.zip` and `ConnectLive-AdminConsole-src.zip` after implementation.
