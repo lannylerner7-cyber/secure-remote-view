@@ -7,28 +7,52 @@ using System.Windows;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Boss/Worker exit signal. The Watcher (LocalSystem) drops
-/// %ProgramData%\ConnectLive\stop.flag when the active session ends and no
-/// session binding remains, so the user-session Agent can shut down cleanly
-/// and stop consuming CPU. The Agent polls it every 2 s.
+/// User-quit override. %ProgramData%\ConnectLive\stop.flag means "the user
+/// explicitly quit ConnectLive" — nothing automatic (the HKCU Run key today,
+/// the Watcher in Phase 2) may bring the Agent back while it exists.
 ///
-/// We only honour the flag when it's newer than our own process start time
-/// — otherwise a stale flag left over from the previous session would kill
-/// the Agent the moment the Watcher wakes it back up.
+/// Semantics:
+///   • automatic launch (/background, /minimized) + flag present → exit silently
+///   • manual launch (no flag args)                              → delete the flag, run
+///   • flag appears while running                                → clean shutdown
 /// </summary>
 public static class StopFlagWatcher
 {
-    private static readonly string StopFlagPath = Path.Combine(
+    public static readonly string StopFlagPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "ConnectLive", "stop.flag");
 
+    public static bool Exists()
+    {
+        try { return File.Exists(StopFlagPath); } catch { return false; }
+    }
+
+    /// <summary>Called from the tray Exit item — the only explicit quit path.</summary>
+    public static void Write()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(StopFlagPath)!;
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(StopFlagPath, DateTime.UtcNow.ToString("o"));
+            Log.Info("stop.flag written (user requested exit)");
+        }
+        catch (Exception ex) { Log.Warn($"stop.flag write: {ex.Message}"); }
+    }
+
+    /// <summary>A manual launch is an explicit opt-back-in: clear the override.</summary>
+    public static void Clear()
+    {
+        try { if (File.Exists(StopFlagPath)) File.Delete(StopFlagPath); } catch { }
+    }
+
+    /// <summary>
+    /// Polls for a flag written after we started (e.g. by a second instance's
+    /// Exit, or by tooling) and shuts the process down cleanly.
+    /// </summary>
     public static void Start(CancellationToken ct)
     {
         var started = DateTime.UtcNow;
-
-        // Best-effort: remove a pre-existing stop.flag we inherited from a
-        // prior session so it can't race us at boot.
-        try { if (File.Exists(StopFlagPath)) File.Delete(StopFlagPath); } catch { }
 
         _ = Task.Run(async () =>
         {
@@ -41,8 +65,7 @@ public static class StopFlagWatcher
                         var writtenUtc = File.GetLastWriteTimeUtc(StopFlagPath);
                         if (writtenUtc >= started)
                         {
-                            Log.Info("stop.flag detected — Watcher requested shutdown");
-                            try { File.Delete(StopFlagPath); } catch { }
+                            Log.Info("stop.flag detected — shutting down");
                             Application.Current?.Dispatcher.Invoke(() =>
                             {
                                 Application.Current?.Shutdown();
