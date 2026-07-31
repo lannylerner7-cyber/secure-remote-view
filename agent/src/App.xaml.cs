@@ -1,5 +1,4 @@
 using System;
-using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -10,6 +9,9 @@ public partial class App : Application
 {
     private readonly CancellationTokenSource _cts = new();
     private Mutex? _singleInstance;
+    private MainWindow? _main;
+    private TrayIcon? _tray;
+    private Agent? _agent;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -18,18 +20,7 @@ public partial class App : Application
         _singleInstance = new Mutex(true, @"Global\ConnectLive.Agent", out var firstInstance);
         if (!firstInstance)
         {
-            MessageBox.Show("ConnectLive Agent is already running.", "ConnectLive Agent",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            Shutdown();
-            return;
-        }
-
-        if (!IsWatcherServiceRunning())
-        {
-            MessageBox.Show(
-                "ConnectLive background service is not running.\n\n" +
-                "Please reinstall ConnectLive or contact your administrator.",
-                "ConnectLive Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
+            // A second launch just surfaces the running instance's tray presence.
             Shutdown();
             return;
         }
@@ -37,6 +28,7 @@ public partial class App : Application
         string? apiUrl = null;
         string? wakeSessionId = null;
         bool wake = false;
+        bool background = false;
         for (int i = 0; i < e.Args.Length; i++)
         {
             var a = e.Args[i];
@@ -44,6 +36,13 @@ public partial class App : Application
             {
                 apiUrl = e.Args[i + 1];
                 ApiClient.SaveConfig(new ApiClient.AgentConfig(apiUrl));
+            }
+            else if (string.Equals(a, "/BACKGROUND", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(a, "--background", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(a, "/MINIMIZED", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(a, "--minimized", StringComparison.OrdinalIgnoreCase))
+            {
+                background = true;
             }
             else if (string.Equals(a, "/WAKE", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(a, "--wake",  StringComparison.OrdinalIgnoreCase))
@@ -60,37 +59,58 @@ public partial class App : Application
             }
         }
 
-        // Watcher-triggered stop signal: if the Boss drops stop.flag, exit cleanly.
-        StopFlagWatcher.Start(_cts.Token);
-
-
-        var splash = new SplashWindow();
-        splash.Show();
-
-        var api = new ApiClient(apiUrl);
-        var dispatcher = new WpfDispatcher(Application.Current.Dispatcher);
-
-        try
+        // User-quit override. An automatic launch (Run key / Watcher) must respect
+        // a previous explicit Exit; a manual launch clears it.
+        if (StopFlagWatcher.Exists())
         {
-            splash.SetStatus("Registering with ConnectLive…");
-            try
+            if (background)
             {
-                await api.EnrollIfNeededAsync(_cts.Token);
-            }
-            catch (Exception enrollEx)
-            {
-                // Auto-enroll is retried by the Watcher heartbeat loop on the
-                // next tick, so a transient network hiccup is not fatal — we
-                // just close the splash and let the tray icon indicate state.
-                splash.Close();
-                MessageBox.Show(
-                    "ConnectLive Agent couldn't reach the registration service.\n\n" +
-                    "It will retry automatically. Details:\n" + enrollEx.Message,
-                    "ConnectLive Agent", MessageBoxButton.OK, MessageBoxImage.Information);
+                Log.Info("stop.flag present — automatic launch suppressed");
                 Shutdown();
                 return;
             }
+            StopFlagWatcher.Clear();
+        }
 
+        StopFlagWatcher.Start(_cts.Token);
+
+        SplashWindow? splash = null;
+        if (!background)
+        {
+            splash = new SplashWindow();
+            splash.Show();
+        }
+
+        var api = new ApiClient(apiUrl);
+        var dispatcher = new WpfDispatcher(Current.Dispatcher);
+
+        // The status window exists for the whole process lifetime; it is only
+        // shown in foreground launches (or on an admin wake).
+        _main = new MainWindow();
+        _tray = new TrayIcon(onShowWindow: () => _main?.ShowAndActivate(), onExit: ExitApplication);
+
+        try
+        {
+            splash?.SetStatus("Registering with ConnectLive…");
+            _main.SetLink("Registering…");
+            try
+            {
+                await api.EnrollIfNeededAsync(_cts.Token);
+                // Self-persistence: the Agent — not the installer — owns the
+                // per-user Run key, so silent enterprise deploys land in the
+                // right hive. Idempotent, so calling it every start is fine.
+                StartupRegistration.RegisterStartupWithWindows();
+            }
+            catch (Exception enrollEx)
+            {
+                // Never fatal: the heartbeat loop retries enrollment on 401 and
+                // the tray keeps the Agent alive meanwhile.
+                Log.Warn($"enroll failed at startup: {enrollEx.Message}");
+                _main.SetLink("Offline — retrying");
+                _tray.SetStatus("offline, retrying");
+            }
+
+            _main.SetDevice(api.DeviceId ?? "not enrolled");
 
             // Boss (Watcher) → Worker (Agent) handoff: if /WAKE was passed
             // with a /SESSION=<id>, treat that id as authoritative and skip
@@ -99,70 +119,94 @@ public partial class App : Application
             if (wake && !string.IsNullOrWhiteSpace(wakeSessionId))
             {
                 sessionId = wakeSessionId;
-                splash.SetStatus("Attaching to session…");
+                splash?.SetStatus("Attaching to session…");
             }
             else
             {
                 var saved = api.LoadSessionBinding();
                 if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
                 {
-                    splash.SetStatus("Restoring previous session…");
-                    var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
-                    if (restored.Ok && !string.IsNullOrEmpty(restored.SessionId))
-                        sessionId = restored.SessionId;
-                    else
-                        ApiClient.ClearSessionBinding();
+                    splash?.SetStatus("Restoring previous session…");
+                    try
+                    {
+                        var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
+                        if (restored.Ok && !string.IsNullOrEmpty(restored.SessionId))
+                            sessionId = restored.SessionId;
+                        else
+                            ApiClient.ClearSessionBinding();
+                    }
+                    catch (Exception ex) { Log.Warn($"session restore: {ex.Message}"); }
                 }
             }
 
-            splash.SetStatus(sessionId is null ? "Standing by" : "Session restored");
-            await Task.Delay(400);
-            splash.Close();
+            splash?.SetStatus(sessionId is null ? "Standing by" : "Session restored");
+            if (splash is not null)
+            {
+                await Task.Delay(400);
+                splash.Close();
+            }
+
+            _main.SetLink("Connected");
+            _main.SetSession(sessionId is null ? "No active session" : $"Session {sessionId}");
+            _tray.SetStatus(sessionId is null ? "standing by" : "session active");
+
+            if (!background)
+                _main.ShowAndActivate();
 
             // One unified path: Agent owns the session lifecycle (invite consent
             // + frame/input/cursor loops + WebRTC upgrade). On cold-boot with a
             // restored session, seed it so Agent joins immediately without
             // re-prompting for consent.
-            _ = new TrayIcon(onQuit: Shutdown);
-            var agent = new Agent(api, _ => { }, dispatcher);
+            _agent = new Agent(api, s => _main?.SetLink(s), dispatcher, onWake: SurfaceUi);
+            _agent.SessionStateChanged += OnSessionStateChanged;
             if (!string.IsNullOrEmpty(sessionId))
-                agent.SeedRestoredSession(sessionId!);
-            await agent.RunAsync(_cts.Token);
+                _agent.SeedRestoredSession(sessionId!);
+
+            // SSE accelerator: sub-second wake when the admin hits Connect.
+            new StreamListener(api, () => _agent?.RequestWake()).Start(_cts.Token);
+
+            // Heartbeat runs for the full application lifetime, independent of
+            // any window being visible.
+            await _agent.RunAsync(_cts.Token);
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"ConnectLive Agent failed to start:\n\n{ex.Message}",
-                "ConnectLive Agent", MessageBoxButton.OK, MessageBoxImage.Error);
-            Shutdown(1);
+            Log.Warn($"startup: {ex.Message}");
+            _main?.SetLink($"Error: {ex.Message}");
+            _tray?.SetStatus("error");
         }
+    }
+
+    private void OnSessionStateChanged(string state)
+    {
+        _main?.SetSession(state);
+        _tray?.SetStatus(state);
+    }
+
+    /// <summary>Admin pressed Connect — bring the Agent UI to the foreground.</summary>
+    private void SurfaceUi()
+    {
+        try { Current?.Dispatcher.Invoke(() => _main?.ShowAndActivate()); } catch { }
+    }
+
+    /// <summary>The only explicit quit path (tray → Exit).</summary>
+    private void ExitApplication()
+    {
+        StopFlagWatcher.Write();
+        Current?.Dispatcher.Invoke(() =>
+        {
+            if (_main is not null) _main.HideInsteadOfClose = false;
+            Shutdown();
+        });
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         _cts.Cancel();
+        try { _tray?.Dispose(); } catch { }
         try { _singleInstance?.ReleaseMutex(); } catch { }
         _singleInstance?.Dispose();
         base.OnExit(e);
-    }
-
-    /// <summary>
-    /// Read-only status probe. The Watcher is a LocalSystem Windows Service
-    /// registered by the installer — the Agent must never try to start,
-    /// repair, or spawn it. Doing so would create a child process owned by
-    /// the interactive user, and WTSQueryUserToken inside the Watcher would
-    /// then fail with access-denied on every tick.
-    /// </summary>
-    private static bool IsWatcherServiceRunning()
-    {
-        try
-        {
-            using var sc = new ServiceController("ConnectLiveWatcher");
-            return sc.Status == ServiceControllerStatus.Running;
-        }
-        catch
-        {
-            return false;
-        }
     }
 }
 

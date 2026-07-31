@@ -24,6 +24,8 @@ public sealed class Agent
     private readonly ApiClient _api;
     private readonly Action<string> _splashStatus;
     private readonly Dispatcher _ui;
+    private readonly Action? _onWake;
+    private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private SessionIndicator? _indicator;
     private WebRtcSession? _rtc;
     private readonly HashSet<string> _acceptedSessions = new();
@@ -34,6 +36,14 @@ public sealed class Agent
     private Task? _inputTask;
     private Task? _cursorTask;
     private CancellationToken _outerCt;
+
+    /// <summary>Raised with a human-readable session state for tray/status UI.</summary>
+    public event Action<string>? SessionStateChanged;
+
+    private void ReportState(string s)
+    {
+        try { SessionStateChanged?.Invoke(s); } catch { }
+    }
 
     /// <summary>
     /// Pre-seed a session id restored from disk on cold boot so the next
@@ -47,12 +57,25 @@ public sealed class Agent
         _currentSessionId = sessionId;
     }
 
-    public Agent(ApiClient api, Action<string> splashStatus, Dispatcher ui)
+    /// <summary>
+    /// Wake nudge from SSE or a wake_agent power command: surface the UI and
+    /// break the heartbeat sleep so a pending invite is picked up immediately.
+    /// </summary>
+    public void RequestWake()
+    {
+        try { _onWake?.Invoke(); } catch (Exception ex) { Log.Warn($"wake handler: {ex.Message}"); }
+        try { if (_wakeSignal.CurrentCount == 0) _wakeSignal.Release(); } catch { }
+    }
+
+    public Agent(ApiClient api, Action<string> splashStatus, Dispatcher ui, Action? onWake = null)
     {
         _api = api;
         _splashStatus = splashStatus;
         _ui = ui;
+        _onWake = onWake;
+        PowerRelay.OnWakeAgent = RequestWake;
     }
+
 
     public async Task RunAsync(CancellationToken ct)
     {
@@ -95,7 +118,8 @@ public sealed class Agent
                 await DispatchPendingSessions(body, ct);
                 await DispatchPowerCommands(body, ct);
 
-                try { await Task.Delay(baseDelay, ct); } catch { }
+                // Interruptible sleep: a wake nudge (SSE / wake_agent) cuts it short.
+                try { await _wakeSignal.WaitAsync(baseDelay, ct); } catch { }
             }
             catch (Exception ex)
             {
@@ -234,11 +258,13 @@ public sealed class Agent
         _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct), t);
         _cursorTask = RunSessionLoop("cursor", sessionId, ct => CursorPump.RunAsync(_api, sessionId, ct), t);
         Log.Info($"session {sessionId} loops started ({mode})");
+        ReportState($"Session active ({mode})");
     }
 
     private void JoinActiveSession(string sessionId, string mode)
     {
         _currentSessionId = sessionId;
+        try { _onWake?.Invoke(); } catch { }
         _ui.Invoke(() =>
         {
             _indicator = new SessionIndicator("Helpdesk", onEnd: EndSession);
@@ -265,6 +291,9 @@ public sealed class Agent
 
         _acceptedSessions.Add(sessionId);
         _currentSessionId = sessionId;
+        try { _onWake?.Invoke(); } catch { }
+
+
 
         _ui.Invoke(() =>
         {
@@ -304,6 +333,7 @@ public sealed class Agent
         });
         try { _rtc?.Close(); _rtc = null; } catch { }
         _currentSessionId = null;
+        ReportState("No active session");
         Log.Info("session ended");
     }
 }

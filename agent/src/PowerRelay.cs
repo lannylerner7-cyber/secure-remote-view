@@ -25,6 +25,10 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class PowerRelay
 {
+    /// <summary>Set by Agent: surfaces the session UI on a wake_agent command.</summary>
+    public static Action? OnWakeAgent;
+
+
     public static async Task HandleAsync(ApiClient api, JsonElement command, CancellationToken ct)
     {
         string id = command.TryGetProperty("id", out var idEl) ? (idEl.GetString() ?? "") : "";
@@ -61,6 +65,14 @@ public static class PowerRelay
             else if (kind == "shutdown")
             {
                 RunHidden("shutdown.exe", "/s /t 5 /c \"ConnectLive: shutdown in 5s. Run 'shutdown /a' to cancel.\"");
+            }
+            else if (kind == "wake_agent")
+            {
+                // We're already running, so "wake" simply means: surface the
+                // session UI and force an immediate heartbeat. Previously this
+                // fell through to the unsupported branch and acked "failed".
+                OnWakeAgent?.Invoke();
+                Log.Info($"power/wake_agent surfaced UI (cmd {id})");
             }
             else
             {

@@ -1,39 +1,60 @@
-## What the screenshot actually shows
+## Phase 1 — Standalone, self-persistent Agent (`agent/src` only)
 
-This is not a C# error and not an Inno error. It is Windows Installer's own upgrade rule firing:
+Verified in the current code before planning:
 
-- `ConnectLive.wxs` hardcodes `Version="1.0.0.0"` with a fixed `UpgradeCode`.
-- `<MajorUpgrade>` defaults to `AllowSameVersionUpgrades="no"`, so installing 1.0.0.0 when 1.0.0.0 is already present is treated as a downgrade/same-version conflict and shows exactly the string in your `DowngradeErrorMessage`: "A newer version of ConnectLive Agent is already installed."
+- `agent/src/App.xaml.cs` has `IsWatcherServiceRunning()` and aborts startup with a MessageBox when `ConnectLiveWatcher` isn't running.
+- `agent/src/StopFlagWatcher.cs` currently *deletes* any pre-existing `stop.flag` at boot and only honours flags newer than process start — the opposite of the new "user quit wins" rule.
+- There is no main window today: only `SplashWindow`, `TrayIcon`, and the per-session `SessionIndicator`. So "X minimizes to tray" needs a real status window to exist.
+- The Agent has no SSE consumer; `/api/public/agent/stream` is only consumed by the Watcher. The heartbeat loop in `Agent.cs` does dispatch `power_commands`, but `PowerRelay` has no `wake_agent` branch — it currently acks it as `failed` ("unsupported command").
 
-So every rebuild produces an MSI that refuses to install over the previous one unless it is uninstalled first. The Inno path was skipped separately because `iscc` was not on PATH (the script only warns and continues), which is why the run ended with only an MSI.
+### 1. Remove the service blocker
 
-A second, quieter problem: `build.ps1` **rewrites** `packaging/msi/ConnectLive.wxs` from an inline here-string on every build. The tracked file in the repo (older schema, `DEPLOYMENT_KEY` custom action, `src\bin\...\publish` sources, no `service\` subfolder) is therefore dead code that silently diverges from what is actually compiled.
+`App.xaml.cs`: delete `IsWatcherServiceRunning()`, its call site, the warning MessageBox, and the `System.ServiceProcess` using. Startup proceeds unconditionally; a one-line note goes to the debug log only.
 
-## Plan
+### 2. Launch flags `/background` and `/minimized`
 
-1. **Make the MSI reinstallable**
-   - Add `AllowSameVersionUpgrades="yes"` and `Schedule="afterInstallInitialize"` to `<MajorUpgrade>` so a rebuild of the same version cleanly replaces the previous install instead of erroring.
-   - Keep `DowngradeErrorMessage` for genuinely older packages.
+Parse alongside the existing `--api-url` / `/WAKE` / `/SESSION=` args. In background mode: no splash, no main window, tray icon only, heartbeat + SSE start immediately after enrollment. Normal launch keeps today's splash-then-tray behavior and additionally opens the new status window.
 
-2. **Give the MSI a real, moving version**
-   - Introduce a `-Version` parameter in `build.ps1` (default derived from date/build counter, e.g. `1.0.<yyyyMMdd>.<HHmm>`-style 4-part numeric).
-   - Pass it to WiX with `-d Version=$Version` and change the `.wxs` to `Version="$(Version)"` so consecutive builds are always upgrades, never same-version collisions.
+### 3. Status window + tray behavior
 
-3. **Stop the dual-source `.wxs` drift**
-   - Remove the inline here-string generation from `build.ps1`; build the tracked `packaging/msi/ConnectLive.wxs` directly.
-   - Update the tracked `.wxs` to the current, correct content: `dist\ConnectLive.exe` and `dist\ConnectLiveService.exe` sources, `service\` subfolder for the service binary, `DelayedAutostart` registry value, `AuthenticatedUsers` PermissionEx via GenericRead/GenericWrite/Delete, and drop the obsolete `DEPLOYMENT_KEY` custom action (deployment keys were removed from the enrollment flow).
+New `agent/src/MainWindow.xaml.cs` (code-only WPF window, same brand styling as `SplashWindow`): shows enrollment state, device id, link state, and current session state.
 
-4. **Make a missing toolchain loud instead of silent**
-   - `iscc` or `wix` missing currently only warns. Change to fail the build unless the matching `-SkipInno` / `-SkipMsi` switch was passed, so you never again get a run that quietly produces just one artifact.
+- X button → `e.Cancel = true`, hide to tray.
+- Tray double-click → show/activate the window.
+- Tray right-click → **Exit** → write `%ProgramData%\ConnectLive\stop.flag`, then shut the app down. This is the only quit path; the existing tray "Quit" item is replaced by it.
+- `ShutdownMode` set to `OnExplicitShutdown` so closing the last window never kills the process.
 
-5. **Add an uninstall-first escape hatch**
-   - Document in `agent/INSTALL.md`: if a machine is stuck with a prior install, `msiexec /x {UpgradeCode-derived ProductCode} /qn` or Apps & Features removal, then reinstall. With step 1+2 in place this should stop being necessary.
+### 4. HKCU startup key
 
-6. **Repackage**
-   - Refresh `ConnectLive-RemoteAgent-src.zip` with the corrected `build.ps1`, `.wxs`, and docs.
+New `StartupRegistration.RegisterStartupWithWindows()` called right after `EnrollIfNeededAsync` succeeds (idempotent, wrapped in try/catch, never fatal):
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `ConnectLive` = `"<exe>" /background`.
+Also add `Unregister()` (deletes the value) invoked from the explicit tray Exit path only if the user chooses "Exit and don't start with Windows" — default Exit leaves the key intact so a reboot still brings the Agent back unless stop.flag says otherwise.
 
-## Technical notes
+### 5. stop.flag semantics inversion
 
-- No C# source changes are required for this failure; the Agent and Watcher code is untouched by this plan.
-- `AllowSameVersionUpgrades="yes"` can produce ICE61 warnings at build time; that is expected and harmless for a per-machine agent MSI.
-- The Inno `.iss` path already uses native SCM APIs and stays as the interactive installer; the MSI remains the Intune/GPO artifact.
+Rewrite `StopFlagWatcher.cs`:
+
+- On startup, if `stop.flag` exists **and** the launch was automatic (`/background`, `/minimized`, or Run-key origin), exit silently before any UI or network work.
+- If the user launched the Agent manually (no flag args), delete `stop.flag` and continue — a manual launch is an explicit opt-back-in.
+- Keep the 2s poll so a flag written during runtime still shuts the process down cleanly.
+
+### 6. Lifetime-owned heartbeat + SSE
+
+`Agent.RunAsync` already owns the heartbeat loop and is started from `App.OnStartup`, so it is already app-lifetime scoped — it stays there and is confirmed to be independent of any window.
+Add `agent/src/StreamListener.cs`: a long-lived task hitting `GET /api/public/agent/stream` with the same auth headers `ApiClient` uses, reconnecting with backoff, parsing `event: wake`. On wake (from SSE **or** from a `wake_agent` entry in the heartbeat's `power_commands`) the Agent shows/activates the session UI and forces an immediate heartbeat so any pending invite is picked up within a beat instead of up to 5s later.
+Add a `wake_agent` branch to `PowerRelay.HandleAsync` that surfaces the UI and acks `delivered`, so wake commands stop being acked as failed.
+
+### Technical notes
+
+- New files: `MainWindow.xaml.cs`, `StreamListener.cs`, `StartupRegistration.cs`. Modified: `App.xaml.cs`, `TrayIcon.cs`, `StopFlagWatcher.cs`, `Agent.cs`, `PowerRelay.cs`.
+- `TrayIcon` gains `OnDoubleClick` and an `Exit` item; its constructor signature changes, so `App.xaml.cs` is updated in the same pass.
+- No changes to `agent/watcher/`, packaging scripts, admin, backend routes, DB, `device.dat`, DPAPI enrollment, or the heartbeat API contract.
+- Builds can't be verified here (WPF needs Windows); the deliverable is source plus a repackaged `ConnectLive-RemoteAgent-src.zip` if you want it.
+
+Do you want the repackaged agent source zip emitted at the end of this phase?
+
+This plan is 100% verified and approved. Exceptional catch on the PowerRelay wake_agent bug and the WPF ShutdownMode logic.
+
+Please proceed with implementing Phase 1 exactly as outlined across MainWindow.xaml.cs, StreamListener.cs, StartupRegistration.cs, App.xaml.cs, TrayIcon.cs, StopFlagWatcher.cs, Agent.cs, and PowerRelay.cs.
+
+Yes, please emit the repackaged [ConnectLive-RemoteAgent-src.zip](http://ConnectLive-RemoteAgent-src.zip) deliverable at the end of this phase so we can compile and test it directly.
