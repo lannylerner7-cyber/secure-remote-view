@@ -5,11 +5,17 @@
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
         <!--
-          Curtain mode (BlockInput + SetWindowDisplayAffinity) needs elevation.
-          Running as requireAdministrator so the UAC prompt fires once at launch
-          rather than the feature silently no-oping mid-session.
+          Phase 1: Agent runs as the interactive user (asInvoker). Requiring
+          admin here would trigger UAC on every login and break the HKCU Run
+          self-persistence path.
+
+          SetWindowDisplayAffinity (curtain overlay's capture exclusion) does
+          NOT require elevation. The legacy BlockInput call was already
+          removed; if a future release needs it, gate it behind a separate
+          elevated helper EXE launched via ShellExecute on demand — do NOT
+          re-add requireAdministrator to the Agent itself.
         -->
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>
