@@ -258,6 +258,7 @@ public sealed class Agent
         _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct), t);
         _cursorTask = RunSessionLoop("cursor", sessionId, ct => CursorPump.RunAsync(_api, sessionId, ct), t);
         Log.Info($"session {sessionId} loops started ({mode})");
+        ReportState($"Session active ({mode})");
     }
 
     private void JoinActiveSession(string sessionId, string mode)
@@ -328,6 +329,7 @@ public sealed class Agent
         });
         try { _rtc?.Close(); _rtc = null; } catch { }
         _currentSessionId = null;
+        ReportState("No active session");
         Log.Info("session ended");
     }
 }
