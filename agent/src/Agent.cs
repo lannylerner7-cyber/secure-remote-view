@@ -129,11 +129,24 @@ public sealed class Agent
     public async Task RunAsync(CancellationToken ct)
     {
         _outerCt = ct;
+
+        // Boot-proof enrollment: retry every 5s forever. Windows Startup fires
+        // before Wi-Fi finishes negotiating, so a single failure here used to
+        // leave the Agent parked in the tray permanently.
         _splashStatus("Registering with ConnectLive…");
-        await _api.EnrollIfNeededAsync(ct);
+        while (!ct.IsCancellationRequested)
+        {
+            try { await _api.EnrollIfNeededAsync(ct); break; }
+            catch (Exception ex)
+            {
+                Log.Warn($"enroll retry: {ex.Message}");
+                _splashStatus("Waiting for network…");
+                try { await Task.Delay(TimeSpan.FromSeconds(5), ct); } catch { }
+            }
+        }
 
         _splashStatus("Sending heartbeat…");
-        await _api.HeartbeatAsync(ct);
+        try { await _api.HeartbeatAsync(ct); } catch (Exception ex) { Log.Warn($"first heartbeat: {ex.Message}"); }
 
         // If a session was pre-seeded (cold-boot reconnect), start its loops
         // immediately so we don't wait a whole heartbeat cycle for pixels.
@@ -145,13 +158,16 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Single loop: heartbeat every ~5s (healthy) with exponential back-off
-    /// on failure, and dispatch any pending invites from the response.
+    /// Single loop: heartbeat every ~5s (SSE unhealthy) or ~60s (SSE healthy),
+    /// with exponential back-off on failure. A wake nudge cuts the sleep short
+    /// so pending invites are picked up within a beat.
     /// </summary>
     private async Task HeartbeatLoop(CancellationToken ct)
     {
-        var baseDelay = TimeSpan.FromSeconds(5);   // fast enough that invites feel instant, still under the 60s reconnect-gap threshold
+        var fastDelay = TimeSpan.FromSeconds(5);
+        var slowDelay = TimeSpan.FromSeconds(60);
         var errDelay = TimeSpan.FromSeconds(1);
+
         int fails = 0;
         bool deadManTripped = false;
 
