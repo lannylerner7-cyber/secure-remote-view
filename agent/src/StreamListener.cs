@@ -22,6 +22,9 @@ public sealed class StreamListener
     private readonly ApiClient _api;
     private readonly Action _onWake;
 
+    /// <summary>True while the SSE stream is connected. Read by Agent to relax heartbeat cadence.</summary>
+    public bool Healthy { get; private set; }
+
     public StreamListener(ApiClient api, Action onWake)
     {
         _api = api;
@@ -29,6 +32,7 @@ public sealed class StreamListener
     }
 
     public void Start(CancellationToken ct) => _ = Task.Run(() => RunAsync(ct), CancellationToken.None);
+
 
     private async Task RunAsync(CancellationToken ct)
     {
