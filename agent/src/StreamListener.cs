@@ -78,6 +78,8 @@ public sealed class StreamListener
             throw new HttpRequestException($"stream HTTP {(int)resp.StatusCode}");
 
         Log.Info("sse: stream connected");
+        Healthy = true;
+
 
         using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream);
