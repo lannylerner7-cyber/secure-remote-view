@@ -774,12 +774,13 @@ function AdminPage() {
                 <div className="flex items-center gap-2">
                   {s.device_id && role !== "viewer" && (
                     <button
-                      onClick={() => { setLiveFrame(null); setLiveCursor(null); void requestReconnect(s); }}
+                      onClick={() => { setLiveFrame(null); setLiveCursor(null); void restartStream(s); void requestReconnect(s); }}
                       className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
-                      title="Clear local controls and ask the agent to rejoin this live stream"
+                      title="Ask the agent to rebuild its capture + WebRTC pipeline for this session"
                     >
                       Restart stream
                     </button>
+
                   )}
                   {s.device_id && role !== "viewer" && (
                     <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-red-500/90 hover:bg-red-500 text-white" : "bg-white/10 hover:bg-white/15"}`} title={s.mode === "control" ? "Release curtain and return control to the user" : "Block the user's keyboard/mouse and take control"}>
