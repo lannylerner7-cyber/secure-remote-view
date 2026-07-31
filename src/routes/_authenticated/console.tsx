@@ -505,11 +505,39 @@ function AdminPage() {
 
   async function bulkRestartAgent() {
     if (selectedDevices.length === 0) return;
-    if (!confirm(`Signal ${selectedDevices.length} agent(s) to restart?`)) return;
-    const rows = selectedDevices.map((d) => ({ device_id: d.id, event: "agent.restart_requested", detail: {} }));
-    await supabase.from("audit_logs").insert(rows);
+    if (!confirm(`Soft-restart ${selectedDevices.length} agent(s)?`)) return;
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return;
+    const rows = selectedDevices.map((d) => ({
+      device_id: d.id,
+      kind: "restart_agent",
+      payload: {} as never,
+      state: "queued",
+      requested_by: auth.user.id,
+      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+    }));
+    const { error } = await supabase.from("power_commands").insert(rows);
+    if (error) alert(`Restart agent failed: ${error.message}`);
     setSelected(new Set());
   }
+
+  // Queue a restart_stream power command for the session's device. The agent
+  // rebuilds its WebRTC peer + capture pipeline without exiting the process.
+  async function restartStream(s: Session) {
+    if (!s.device_id) return;
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return;
+    const { error } = await supabase.from("power_commands").insert({
+      device_id: s.device_id,
+      kind: "restart_stream",
+      payload: {} as never,
+      state: "queued",
+      requested_by: auth.user.id,
+      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+    });
+    if (error) return alert(`Restart stream failed: ${error.message}`);
+  }
+
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -746,12 +774,13 @@ function AdminPage() {
                 <div className="flex items-center gap-2">
                   {s.device_id && role !== "viewer" && (
                     <button
-                      onClick={() => { setLiveFrame(null); setLiveCursor(null); void requestReconnect(s); }}
+                      onClick={() => { setLiveFrame(null); setLiveCursor(null); void restartStream(s); void requestReconnect(s); }}
                       className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
-                      title="Clear local controls and ask the agent to rejoin this live stream"
+                      title="Ask the agent to rebuild its capture + WebRTC pipeline for this session"
                     >
                       Restart stream
                     </button>
+
                   )}
                   {s.device_id && role !== "viewer" && (
                     <button onClick={() => toggleControl(s)} className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-red-500/90 hover:bg-red-500 text-white" : "bg-white/10 hover:bg-white/15"}`} title={s.mode === "control" ? "Release curtain and return control to the user" : "Block the user's keyboard/mouse and take control"}>

@@ -74,17 +74,79 @@ public sealed class Agent
         _ui = ui;
         _onWake = onWake;
         PowerRelay.OnWakeAgent = RequestWake;
+        PowerRelay.OnRestartStream = RestartStreamAsync;
+        PowerRelay.OnRestartAgent = SoftRestartAsync;
     }
+
+    /// <summary>
+    /// External hook: SSE listener owned by App. When set, the heartbeat loop
+    /// relaxes its cadence to 60s while the stream is healthy and snaps back
+    /// to 5s when it drops.
+    /// </summary>
+    public StreamListener? Stream { get; set; }
+
+    /// <summary>Rebuild the WebRTC peer + capture pipeline for the current session without exiting.</summary>
+    public Task RestartStreamAsync()
+    {
+        var sid = _currentSessionId;
+        if (string.IsNullOrEmpty(sid))
+        {
+            Log.Info("restart_stream: no active session; nothing to do");
+            return Task.CompletedTask;
+        }
+        Log.Info($"restart_stream: rebuilding pipeline for session {sid}");
+        try { _sessionCts?.Cancel(); } catch { }
+        _sessionCts = null;
+        _loopSessionId = null;
+        _screenTask = _inputTask = _cursorTask = null;
+        try { _rtc?.Close(); } catch { }
+        _rtc = null;
+        // Re-establish loops + WebRTC. Mode falls back to "view" — the next
+        // heartbeat will re-apply "control" if the admin still holds it.
+        StartSessionLoops(sid!, "view");
+        try
+        {
+            _rtc = new WebRtcSession(_api, sid!);
+            _ = _rtc.StartAsync();
+        }
+        catch (Exception ex) { Log.Warn($"restart_stream webrtc: {ex.Message}"); }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>In-process soft restart: tears down session + re-enrolls + wakes heartbeat.</summary>
+    public async Task SoftRestartAsync()
+    {
+        Log.Info("restart_agent: soft-restart in progress");
+        try { EndSession(); } catch { }
+        _acceptedSessions.Clear();
+        try { await _api.EnrollIfNeededAsync(_outerCt); } catch (Exception ex) { Log.Warn($"soft-restart enroll: {ex.Message}"); }
+        RequestWake(); // force an immediate heartbeat tick
+        Log.Info("restart_agent: soft-restart complete");
+    }
+
 
 
     public async Task RunAsync(CancellationToken ct)
     {
         _outerCt = ct;
+
+        // Boot-proof enrollment: retry every 5s forever. Windows Startup fires
+        // before Wi-Fi finishes negotiating, so a single failure here used to
+        // leave the Agent parked in the tray permanently.
         _splashStatus("Registering with ConnectLive…");
-        await _api.EnrollIfNeededAsync(ct);
+        while (!ct.IsCancellationRequested)
+        {
+            try { await _api.EnrollIfNeededAsync(ct); break; }
+            catch (Exception ex)
+            {
+                Log.Warn($"enroll retry: {ex.Message}");
+                _splashStatus("Waiting for network…");
+                try { await Task.Delay(TimeSpan.FromSeconds(5), ct); } catch { }
+            }
+        }
 
         _splashStatus("Sending heartbeat…");
-        await _api.HeartbeatAsync(ct);
+        try { await _api.HeartbeatAsync(ct); } catch (Exception ex) { Log.Warn($"first heartbeat: {ex.Message}"); }
 
         // If a session was pre-seeded (cold-boot reconnect), start its loops
         // immediately so we don't wait a whole heartbeat cycle for pixels.
@@ -96,13 +158,16 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Single loop: heartbeat every ~5s (healthy) with exponential back-off
-    /// on failure, and dispatch any pending invites from the response.
+    /// Single loop: heartbeat every ~5s (SSE unhealthy) or ~60s (SSE healthy),
+    /// with exponential back-off on failure. A wake nudge cuts the sleep short
+    /// so pending invites are picked up within a beat.
     /// </summary>
     private async Task HeartbeatLoop(CancellationToken ct)
     {
-        var baseDelay = TimeSpan.FromSeconds(5);   // fast enough that invites feel instant, still under the 60s reconnect-gap threshold
+        var fastDelay = TimeSpan.FromSeconds(5);
+        var slowDelay = TimeSpan.FromSeconds(60);
         var errDelay = TimeSpan.FromSeconds(1);
+
         int fails = 0;
         bool deadManTripped = false;
 
@@ -119,7 +184,9 @@ public sealed class Agent
                 await DispatchPowerCommands(body, ct);
 
                 // Interruptible sleep: a wake nudge (SSE / wake_agent) cuts it short.
-                try { await _wakeSignal.WaitAsync(baseDelay, ct); } catch { }
+                var delay = (Stream?.Healthy == true) ? slowDelay : fastDelay;
+                try { await _wakeSignal.WaitAsync(delay, ct); } catch { }
+
             }
             catch (Exception ex)
             {

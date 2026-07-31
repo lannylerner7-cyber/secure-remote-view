@@ -92,23 +92,13 @@ public partial class App : Application
         try
         {
             splash?.SetStatus("Registering with ConnectLive…");
-            _main.SetLink("Registering…");
-            try
-            {
-                await api.EnrollIfNeededAsync(_cts.Token);
-                // Self-persistence: the Agent — not the installer — owns the
-                // per-user Run key, so silent enterprise deploys land in the
-                // right hive. Idempotent, so calling it every start is fine.
-                StartupRegistration.RegisterStartupWithWindows();
-            }
-            catch (Exception enrollEx)
-            {
-                // Never fatal: the heartbeat loop retries enrollment on 401 and
-                // the tray keeps the Agent alive meanwhile.
-                Log.Warn($"enroll failed at startup: {enrollEx.Message}");
-                _main.SetLink("Offline — retrying");
-                _tray.SetStatus("offline, retrying");
-            }
+            _main.SetLink("Connecting…");
+
+            // Self-persistence: HKCU Run key is idempotent and safe pre-enroll.
+            // Enrollment itself is boot-proof: Agent.RunAsync retries forever
+            // so a "Windows Startup fired before Wi-Fi came up" boot doesn't
+            // strand the Agent offline permanently.
+            try { StartupRegistration.RegisterStartupWithWindows(); } catch { }
 
             _main.SetDevice(api.DeviceId ?? "not enrolled");
 
@@ -121,7 +111,7 @@ public partial class App : Application
                 sessionId = wakeSessionId;
                 splash?.SetStatus("Attaching to session…");
             }
-            else
+            else if (!string.IsNullOrEmpty(api.DeviceToken))
             {
                 var saved = api.LoadSessionBinding();
                 if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
@@ -146,7 +136,7 @@ public partial class App : Application
                 splash.Close();
             }
 
-            _main.SetLink("Connected");
+            _main.SetLink(string.IsNullOrEmpty(api.DeviceToken) ? "Waiting for network" : "Connected");
             _main.SetSession(sessionId is null ? "No active session" : $"Session {sessionId}");
             _tray.SetStatus(sessionId is null ? "standing by" : "session active");
 
@@ -163,12 +153,17 @@ public partial class App : Application
                 _agent.SeedRestoredSession(sessionId!);
 
             // SSE accelerator: sub-second wake when the admin hits Connect.
-            new StreamListener(api, () => _agent?.RequestWake()).Start(_cts.Token);
+            // Hand the listener to Agent so the heartbeat cadence relaxes to
+            // 60s while SSE is healthy and snaps back to 5s when it drops.
+            var stream = new StreamListener(api, () => _agent?.RequestWake());
+            _agent.Stream = stream;
+            stream.Start(_cts.Token);
 
             // Heartbeat runs for the full application lifetime, independent of
             // any window being visible.
             await _agent.RunAsync(_cts.Token);
         }
+
         catch (Exception ex)
         {
             Log.Warn($"startup: {ex.Message}");

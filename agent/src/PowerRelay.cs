@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -7,6 +8,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+
 
 namespace ConnectLive.Agent;
 
@@ -27,6 +29,11 @@ public static class PowerRelay
 {
     /// <summary>Set by Agent: surfaces the session UI on a wake_agent command.</summary>
     public static Action? OnWakeAgent;
+    /// <summary>Set by Agent: tears down + re-establishes WebRTC/capture pipeline for the current session.</summary>
+    public static Func<Task>? OnRestartStream;
+    /// <summary>Set by Agent: soft-restart (in-process) preferred; process relaunch is the fallback.</summary>
+    public static Func<Task>? OnRestartAgent;
+
 
 
     public static async Task HandleAsync(ApiClient api, JsonElement command, CancellationToken ct)
@@ -74,10 +81,53 @@ public static class PowerRelay
                 OnWakeAgent?.Invoke();
                 Log.Info($"power/wake_agent surfaced UI (cmd {id})");
             }
+            else if (kind == "restart_stream")
+            {
+                // Ack before teardown so the admin never sees a "failed" ack
+                // for a command that actually succeeded but killed our
+                // outbound HTTP path mid-flight.
+                try { await api.AckPowerCommandAsync(id, "delivered", null, ct); } catch { }
+                if (OnRestartStream is not null) await OnRestartStream();
+                Log.Info($"power/restart_stream applied (cmd {id})");
+                return; // already acked
+            }
+            else if (kind == "restart_agent")
+            {
+                // Soft-restart preferred: tear down loops + SSE, re-enroll,
+                // re-attach. Process relaunch is the fallback if the in-process
+                // reset throws so we're never left offline permanently.
+                try { await api.AckPowerCommandAsync(id, "delivered", null, ct); } catch { }
+                try
+                {
+                    if (OnRestartAgent is not null) await OnRestartAgent();
+                    Log.Info($"power/restart_agent soft-restarted (cmd {id})");
+                }
+                catch (Exception soft)
+                {
+                    Log.Warn($"soft restart failed, spawning replacement: {soft.Message}");
+                    try
+                    {
+                        var exe = StartupRegistration.CurrentExePath();
+                        if (!string.IsNullOrWhiteSpace(exe))
+                        {
+                            var psi = new ProcessStartInfo(exe, "/background")
+                            {
+                                UseShellExecute = true,
+                                WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory,
+                            };
+                            Process.Start(psi);
+                        }
+                    }
+                    catch (Exception spawnEx) { Log.Warn($"replacement spawn failed: {spawnEx.Message}"); }
+                    try { System.Windows.Application.Current?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown()); } catch { }
+                }
+                return; // already acked
+            }
             else
             {
                 throw new InvalidOperationException($"unsupported command {kind}/{role}");
             }
+
         }
         catch (Exception ex)
         {

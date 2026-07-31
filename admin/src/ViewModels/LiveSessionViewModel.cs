@@ -161,7 +161,7 @@ public partial class LiveSessionViewModel : ObservableObject
     }
 
     // Queue a power command for the agent's PowerRelay
-    // (kind ∈ shutdown | reboot | lock | logoff | wake).
+    // (kind ∈ shutdown | reboot | lock | logoff | wake | wake_agent | restart_stream | restart_agent).
     [RelayCommand]
     private async Task PowerCommand(string kind)
     {
@@ -174,6 +174,24 @@ public partial class LiveSessionViewModel : ObservableObject
         catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
         catch (Exception ex) { SurfaceError(ex.Message); }
     }
+
+    // Ask the agent to tear down + re-establish its WebRTC peer + capture
+    // pipeline for this session without restarting the process. The Agent's
+    // PowerRelay.OnRestartStream hook handles this in place.
+    [RelayCommand]
+    private Task RestartStream() => PowerCommand("restart_stream");
+
+    // Ask the agent to soft-restart in-process. If the in-process reset
+    // throws, PowerRelay falls back to Process.Start + Shutdown, so the
+    // machine is never left offline permanently.
+    [RelayCommand]
+    private Task RestartAgent() => PowerCommand("restart_agent");
+
+    // Nudge the agent's UI + force an immediate heartbeat so a pending
+    // invite is picked up under a second (SSE delivers it in real time).
+    [RelayCommand]
+    private Task ReconnectAgent() => PowerCommand("wake_agent");
+
 
     [RelayCommand]
     private async Task TogglePause()

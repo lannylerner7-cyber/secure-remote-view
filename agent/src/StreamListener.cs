@@ -22,6 +22,9 @@ public sealed class StreamListener
     private readonly ApiClient _api;
     private readonly Action _onWake;
 
+    /// <summary>True while the SSE stream is connected. Read by Agent to relax heartbeat cadence.</summary>
+    public bool Healthy { get; private set; }
+
     public StreamListener(ApiClient api, Action onWake)
     {
         _api = api;
@@ -29,6 +32,7 @@ public sealed class StreamListener
     }
 
     public void Start(CancellationToken ct) => _ = Task.Run(() => RunAsync(ct), CancellationToken.None);
+
 
     private async Task RunAsync(CancellationToken ct)
     {
@@ -47,10 +51,12 @@ public sealed class StreamListener
                 Log.Warn($"sse: {ex.Message}");
                 backoff = TimeSpan.FromSeconds(Math.Min(30, backoff.TotalSeconds * 2));
             }
+            finally { Healthy = false; }
 
             try { await Task.Delay(backoff, ct); } catch { return; }
         }
     }
+
 
     private async Task ConnectOnceAsync(CancellationToken ct)
     {
@@ -72,6 +78,8 @@ public sealed class StreamListener
             throw new HttpRequestException($"stream HTTP {(int)resp.StatusCode}");
 
         Log.Info("sse: stream connected");
+        Healthy = true;
+
 
         using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream);

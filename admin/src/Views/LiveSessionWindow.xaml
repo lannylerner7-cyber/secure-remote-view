@@ -21,6 +21,15 @@
                                VerticalAlignment="Center" FontSize="11" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                    <Button Content="Reconnect" Command="{Binding ReconnectAgentCommand}"
+                            Background="#334155" Margin="4,0"
+                            ToolTip="Wake the agent and force it to pick up this session on the next heartbeat" />
+                    <Button Content="Restart stream" Command="{Binding RestartStreamCommand}"
+                            Background="#334155" Margin="4,0"
+                            ToolTip="Tear down and rebuild the live stream without restarting the agent process" />
+                    <Button Content="Restart agent" Command="{Binding RestartAgentCommand}"
+                            Background="#334155" Margin="4,0"
+                            ToolTip="Soft-restart the agent in place (falls back to relaunch if the reset fails)" />
                     <Button Content="Take control" Command="{Binding TogglePauseCommand}" Margin="4,0" />
                     <Button Content="Curtain" Command="{Binding ToggleCurtainCommand}"
                             Background="#7F1D1D" Margin="4,0" />
@@ -33,6 +42,7 @@
                     <Button Content="End session" Click="EndSession_Click"
                             Background="#334155" Margin="4,0,0,0" />
                 </StackPanel>
+
             </DockPanel>
         </Border>
 
