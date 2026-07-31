@@ -74,7 +74,56 @@ public sealed class Agent
         _ui = ui;
         _onWake = onWake;
         PowerRelay.OnWakeAgent = RequestWake;
+        PowerRelay.OnRestartStream = RestartStreamAsync;
+        PowerRelay.OnRestartAgent = SoftRestartAsync;
     }
+
+    /// <summary>
+    /// External hook: SSE listener owned by App. When set, the heartbeat loop
+    /// relaxes its cadence to 60s while the stream is healthy and snaps back
+    /// to 5s when it drops.
+    /// </summary>
+    public StreamListener? Stream { get; set; }
+
+    /// <summary>Rebuild the WebRTC peer + capture pipeline for the current session without exiting.</summary>
+    public Task RestartStreamAsync()
+    {
+        var sid = _currentSessionId;
+        if (string.IsNullOrEmpty(sid))
+        {
+            Log.Info("restart_stream: no active session; nothing to do");
+            return Task.CompletedTask;
+        }
+        Log.Info($"restart_stream: rebuilding pipeline for session {sid}");
+        try { _sessionCts?.Cancel(); } catch { }
+        _sessionCts = null;
+        _loopSessionId = null;
+        _screenTask = _inputTask = _cursorTask = null;
+        try { _rtc?.Close(); } catch { }
+        _rtc = null;
+        // Re-establish loops + WebRTC. Mode falls back to "view" — the next
+        // heartbeat will re-apply "control" if the admin still holds it.
+        StartSessionLoops(sid!, "view");
+        try
+        {
+            _rtc = new WebRtcSession(_api, sid!);
+            _ = _rtc.StartAsync();
+        }
+        catch (Exception ex) { Log.Warn($"restart_stream webrtc: {ex.Message}"); }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>In-process soft restart: tears down session + re-enrolls + wakes heartbeat.</summary>
+    public async Task SoftRestartAsync()
+    {
+        Log.Info("restart_agent: soft-restart in progress");
+        try { EndSession(); } catch { }
+        _acceptedSessions.Clear();
+        try { await _api.EnrollIfNeededAsync(_outerCt); } catch (Exception ex) { Log.Warn($"soft-restart enroll: {ex.Message}"); }
+        RequestWake(); // force an immediate heartbeat tick
+        Log.Info("restart_agent: soft-restart complete");
+    }
+
 
 
     public async Task RunAsync(CancellationToken ct)
