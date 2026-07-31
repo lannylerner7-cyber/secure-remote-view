@@ -27,6 +27,11 @@ public static class PowerRelay
 {
     /// <summary>Set by Agent: surfaces the session UI on a wake_agent command.</summary>
     public static Action? OnWakeAgent;
+    /// <summary>Set by Agent: tears down + re-establishes WebRTC/capture pipeline for the current session.</summary>
+    public static Func<Task>? OnRestartStream;
+    /// <summary>Set by Agent: soft-restart (in-process) preferred; process relaunch is the fallback.</summary>
+    public static Func<Task>? OnRestartAgent;
+
 
 
     public static async Task HandleAsync(ApiClient api, JsonElement command, CancellationToken ct)
