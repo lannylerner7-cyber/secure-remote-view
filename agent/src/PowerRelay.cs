@@ -79,10 +79,53 @@ public static class PowerRelay
                 OnWakeAgent?.Invoke();
                 Log.Info($"power/wake_agent surfaced UI (cmd {id})");
             }
+            else if (kind == "restart_stream")
+            {
+                // Ack before teardown so the admin never sees a "failed" ack
+                // for a command that actually succeeded but killed our
+                // outbound HTTP path mid-flight.
+                try { await api.AckPowerCommandAsync(id, "delivered", null, ct); } catch { }
+                if (OnRestartStream is not null) await OnRestartStream();
+                Log.Info($"power/restart_stream applied (cmd {id})");
+                return; // already acked
+            }
+            else if (kind == "restart_agent")
+            {
+                // Soft-restart preferred: tear down loops + SSE, re-enroll,
+                // re-attach. Process relaunch is the fallback if the in-process
+                // reset throws so we're never left offline permanently.
+                try { await api.AckPowerCommandAsync(id, "delivered", null, ct); } catch { }
+                try
+                {
+                    if (OnRestartAgent is not null) await OnRestartAgent();
+                    Log.Info($"power/restart_agent soft-restarted (cmd {id})");
+                }
+                catch (Exception soft)
+                {
+                    Log.Warn($"soft restart failed, spawning replacement: {soft.Message}");
+                    try
+                    {
+                        var exe = StartupRegistration.CurrentExePath();
+                        if (!string.IsNullOrWhiteSpace(exe))
+                        {
+                            var psi = new ProcessStartInfo(exe, "/background")
+                            {
+                                UseShellExecute = true,
+                                WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory,
+                            };
+                            Process.Start(psi);
+                        }
+                    }
+                    catch (Exception spawnEx) { Log.Warn($"replacement spawn failed: {spawnEx.Message}"); }
+                    try { System.Windows.Application.Current?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown()); } catch { }
+                }
+                return; // already acked
+            }
             else
             {
                 throw new InvalidOperationException($"unsupported command {kind}/{role}");
             }
+
         }
         catch (Exception ex)
         {
