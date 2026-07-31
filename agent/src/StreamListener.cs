@@ -51,10 +51,12 @@ public sealed class StreamListener
                 Log.Warn($"sse: {ex.Message}");
                 backoff = TimeSpan.FromSeconds(Math.Min(30, backoff.TotalSeconds * 2));
             }
+            finally { Healthy = false; }
 
             try { await Task.Delay(backoff, ct); } catch { return; }
         }
     }
+
 
     private async Task ConnectOnceAsync(CancellationToken ct)
     {
