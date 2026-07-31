@@ -62,6 +62,14 @@ public static class PowerRelay
             {
                 RunHidden("shutdown.exe", "/s /t 5 /c \"ConnectLive: shutdown in 5s. Run 'shutdown /a' to cancel.\"");
             }
+            else if (kind == "wake_agent")
+            {
+                // We're already running, so "wake" simply means: surface the
+                // session UI and force an immediate heartbeat. Previously this
+                // fell through to the unsupported branch and acked "failed".
+                OnWakeAgent?.Invoke();
+                Log.Info($"power/wake_agent surfaced UI (cmd {id})");
+            }
             else
             {
                 throw new InvalidOperationException($"unsupported command {kind}/{role}");
