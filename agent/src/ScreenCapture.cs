@@ -11,19 +11,24 @@ namespace ConnectLive.Agent;
 /// <summary>
 /// Desktop capture loop. Adaptive cadence: targets ~30 FPS (33ms) during
 /// motion, backs off to ~10 FPS (100ms) when the screen is static.
-/// Downsamples to max 960px long edge, JPEG q40 during motion / q55 idle.
+/// Normal profile: max 1920px long edge, JPEG q70 motion / q85 idle.
+/// Low-bandwidth profile (auto): 960px, q40 / q55.
 /// Reuses bitmap allocations across frames to minimise GC pressure.
 /// </summary>
 public static class ScreenCapture
 {
-    // Tunables — Performance mode (default) vs Normal mode.
-    private static int _maxEdge = 960;
-    private static long _motionQuality = 40L;
-    private static long _idleQuality = 55L;
+    // Tunables — Normal (default, sharp) vs low-bandwidth Performance mode.
+    private static int _maxEdge = 1920;
+    private static long _motionQuality = 70L;
+    private static long _idleQuality = 85L;
 
-    /// <summary>Switch between Normal (1280/q55) and Performance (960/q40) modes.</summary>
+    /// <summary>True when the low-bandwidth profile is engaged.</summary>
+    public static bool PerformanceMode { get; private set; }
+
+    /// <summary>Switch between Normal (1920/q70-85) and Performance (960/q40-55).</summary>
     public static void SetQualityMode(bool performance)
     {
+        PerformanceMode = performance;
         if (performance)
         {
             _maxEdge = 960;
@@ -32,9 +37,9 @@ public static class ScreenCapture
         }
         else
         {
-            _maxEdge = 1280;
-            _motionQuality = 55L;
-            _idleQuality = 55L;
+            _maxEdge = 1920;
+            _motionQuality = 70L;
+            _idleQuality = 85L;
         }
     }
 
@@ -139,7 +144,12 @@ public static class ScreenCapture
 
                 using (var g = Graphics.FromImage(scaledBmp))
                 {
-                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
+                    // Bicubic only matters when we actually downsample; a 1:1
+                    // blit stays on the cheap path.
+                    g.InterpolationMode = scale < 1.0
+                        ? System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
+                        : System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                     g.DrawImage(rawBmp, 0, 0, w, h);
                 }
 
@@ -189,7 +199,10 @@ public static class ScreenCapture
                     var encP = wasIdle ? idleParams : motionParams;
                     using var ms = new MemoryStream();
                     scaledBmp.Save(ms, jpegEnc, encP);
+                    var uploadSw = System.Diagnostics.Stopwatch.StartNew();
                     bool posted = await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
+                    uploadSw.Stop();
+                    NoteUploadLatency(uploadSw.ElapsedMilliseconds);
                     if (posted)
                     {
                         if (uploadFails > 0) Log.Info($"frame upload recovered after {uploadFails} failure(s)");
@@ -217,6 +230,46 @@ public static class ScreenCapture
         dxgi?.Dispose();
     }
 
+
+    // ---- Adaptive quality ------------------------------------------------
+    // Downgrade to the low-bandwidth profile after 5 consecutive frames whose
+    // upload took > 400 ms; upgrade back after a continuous 30 s window with
+    // every upload under 150 ms.
+    private static int _slowStreak;
+    private static DateTime _fastSince = DateTime.MinValue;
+
+    private static void NoteUploadLatency(long ms)
+    {
+        if (!PerformanceMode)
+        {
+            _fastSince = DateTime.MinValue;
+            if (ms > 400)
+            {
+                if (++_slowStreak >= 5)
+                {
+                    _slowStreak = 0;
+                    SetQualityMode(true);
+                    Log.Info("live view: link slow — switching to low-bandwidth profile (960px)");
+                }
+            }
+            else _slowStreak = 0;
+        }
+        else
+        {
+            _slowStreak = 0;
+            if (ms < 150)
+            {
+                if (_fastSince == DateTime.MinValue) _fastSince = DateTime.UtcNow;
+                else if ((DateTime.UtcNow - _fastSince).TotalSeconds >= 30)
+                {
+                    _fastSince = DateTime.MinValue;
+                    SetQualityMode(false);
+                    Log.Info("live view: link healthy — restoring sharp profile (1920px)");
+                }
+            }
+            else _fastSince = DateTime.MinValue;
+        }
+    }
 
     private static ulong HashBitmap(Bitmap bmp)
     {

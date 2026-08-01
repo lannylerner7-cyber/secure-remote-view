@@ -10,7 +10,6 @@ public partial class App : Application
     private readonly CancellationTokenSource _cts = new();
     private Mutex? _singleInstance;
     private MainWindow? _main;
-    private TrayIcon? _tray;
     private Agent? _agent;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -20,7 +19,8 @@ public partial class App : Application
         _singleInstance = new Mutex(true, @"Global\ConnectLive.Agent", out var firstInstance);
         if (!firstInstance)
         {
-            // A second launch just surfaces the running instance's tray presence.
+            // Headless build: a second launch simply exits. The already-running
+            // instance keeps its session; there is no tray surface to reveal.
             Shutdown();
             return;
         }
@@ -59,20 +59,8 @@ public partial class App : Application
             }
         }
 
-        // User-quit override. An automatic launch (Run key / Updater) must respect
-        // a previous explicit Exit; a manual launch clears it.
-        if (StopFlagWatcher.Exists())
-        {
-            if (background)
-            {
-                Log.Info("stop.flag present — automatic launch suppressed");
-                Shutdown();
-                return;
-            }
-            StopFlagWatcher.Clear();
-        }
-
-        StopFlagWatcher.Start(_cts.Token);
+        // No stop.flag any more: quitting the Agent only ends the current
+        // process. The three logon triggers bring it back at next sign-in.
 
         SplashWindow? splash = null;
         if (!background)
@@ -84,10 +72,9 @@ public partial class App : Application
         var api = new ApiClient(apiUrl);
         var dispatcher = new WpfDispatcher(Current.Dispatcher);
 
-        // The status window exists for the whole process lifetime; it is only
-        // shown in foreground launches (or on an admin wake).
+        // Status window exists for the process lifetime; only ever shown on a
+        // foreground (double-click / Start Menu) launch.
         _main = new MainWindow();
-        _tray = new TrayIcon(onShowWindow: () => _main?.ShowAndActivate(), onExit: ExitApplication);
 
         try
         {
@@ -102,12 +89,11 @@ public partial class App : Application
             // fired before Wi-Fi came up" boot doesn't strand the Agent.
             try { StartupSelfHeal.EnsureAll(); } catch { }
 
-
             _main.SetDevice(api.DeviceId ?? "not enrolled");
 
-            // Boss (Updater) → Worker (Agent) handoff: if /WAKE was passed
-            // with a /SESSION=<id>, treat that id as authoritative and skip
-            // the disk-restore lookup.
+            // Explicit /SESSION=<id> wins; otherwise restore the last session
+            // binding from the hidden local store. The Agent never creates a
+            // session on its own.
             string? sessionId = null;
             if (wake && !string.IsNullOrWhiteSpace(wakeSessionId))
             {
@@ -135,73 +121,52 @@ public partial class App : Application
             splash?.SetStatus(sessionId is null ? "Standing by" : "Session restored");
             if (splash is not null)
             {
-                await Task.Delay(400);
+                // Progressive splash: hold the full ~5s so a foreground launch
+                // reads as a real application start, then go quiet.
+                await Task.Delay(1200);
                 splash.Close();
             }
 
             _main.SetLink(string.IsNullOrEmpty(api.DeviceToken) ? "Waiting for network" : "Connected");
             _main.SetSession(sessionId is null ? "No active session" : $"Session {sessionId}");
-            _tray.SetStatus(sessionId is null ? "standing by" : "session active");
 
             if (!background)
                 _main.ShowAndActivate();
 
-            // One unified path: Agent owns the session lifecycle (invite consent
+            // One unified path: Agent owns the session lifecycle (invite pickup
             // + frame/input/cursor loops + WebRTC upgrade). On cold-boot with a
-            // restored session, seed it so Agent joins immediately without
-            // re-prompting for consent.
+            // restored session, seed it so Agent joins immediately.
             _agent = new Agent(api, s => _main?.SetLink(s), dispatcher, onWake: SurfaceUi);
             _agent.SessionStateChanged += OnSessionStateChanged;
             if (!string.IsNullOrEmpty(sessionId))
                 _agent.SeedRestoredSession(sessionId!);
 
-            // SSE accelerator: sub-second wake when the admin hits Connect.
-            // Hand the listener to Agent so the heartbeat cadence relaxes to
-            // 60s while SSE is healthy and snaps back to 5s when it drops.
-            var stream = new StreamListener(api, () => _agent?.RequestWake());
-            _agent.Stream = stream;
-            stream.Start(_cts.Token);
+            // Phase 2 dormant: StreamListener (SSE wake) is intentionally not
+            // instantiated in the standalone build. The heartbeat long-poll is
+            // the single transport. See agent/src/StreamListener.cs.
 
             // Heartbeat runs for the full application lifetime, independent of
             // any window being visible.
             await _agent.RunAsync(_cts.Token);
         }
-
         catch (Exception ex)
         {
             Log.Warn($"startup: {ex.Message}");
             _main?.SetLink($"Error: {ex.Message}");
-            _tray?.SetStatus("error");
         }
     }
 
-    private void OnSessionStateChanged(string state)
-    {
-        _main?.SetSession(state);
-        _tray?.SetStatus(state);
-    }
+    private void OnSessionStateChanged(string state) => _main?.SetSession(state);
 
-    /// <summary>Admin pressed Connect — bring the Agent UI to the foreground.</summary>
+    /// <summary>Admin pressed Connect — bring the status window forward.</summary>
     private void SurfaceUi()
     {
         try { Current?.Dispatcher.Invoke(() => _main?.ShowAndActivate()); } catch { }
     }
 
-    /// <summary>The only explicit quit path (tray → Exit).</summary>
-    private void ExitApplication()
-    {
-        StopFlagWatcher.Write();
-        Current?.Dispatcher.Invoke(() =>
-        {
-            if (_main is not null) _main.HideInsteadOfClose = false;
-            Shutdown();
-        });
-    }
-
     protected override void OnExit(ExitEventArgs e)
     {
         _cts.Cancel();
-        try { _tray?.Dispose(); } catch { }
         try { _singleInstance?.ReleaseMutex(); } catch { }
         _singleInstance?.Dispose();
         base.OnExit(e);

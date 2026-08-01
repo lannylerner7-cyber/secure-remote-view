@@ -15,9 +15,8 @@ namespace ConnectLive.Agent;
 /// idle/NAT disconnects and keeps the agent behind any egress-restricted
 /// network as long as HTTPS works.
 ///
-/// Session transparency is carried by the persistent tray icon + tooltip
-/// (see TrayIcon.cs). Curtain / input-block are still gated by explicit
-/// admin commands with dead-man release safeguards.
+/// The Agent is headless: no tray, no banner. Curtain / input-block are
+/// gated by explicit admin commands with dead-man release safeguards.
 /// </summary>
 public sealed class Agent
 {
@@ -131,7 +130,7 @@ public sealed class Agent
 
         // Boot-proof enrollment: retry every 5s forever. Windows Startup fires
         // before Wi-Fi finishes negotiating, so a single failure here used to
-        // leave the Agent parked in the tray permanently.
+        // leave the Agent running but permanently unenrolled.
         _splashStatus("Registering with ConnectLive…");
         while (!ct.IsCancellationRequested)
         {

@@ -33,7 +33,12 @@ public sealed class ApiClient
     // Override at build time or via first-run --api-url flag.
     public const string DefaultApiBaseUrl = "https://zoomlite.live";
 
+    // Hidden per-user store. LOCALAPPDATA (not ProgramData) so DPAPI
+    // CurrentUser/LocalMachine both work without elevation, and the folder is
+    // marked Hidden|System so it isn't casually deleted by the end user.
     private static readonly string ConfigDir =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ConnectLive");
+    private static readonly string LegacyConfigDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
     private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
     private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
@@ -63,9 +68,62 @@ public sealed class ApiClient
     public ApiClient(string? overrideBaseUrl = null)
     {
         Directory.CreateDirectory(ConfigDir);
+        HideStore();
+        MigrateLegacyStore();
         ApiBaseUrl = overrideBaseUrl ?? LoadConfig()?.ApiBaseUrl ?? DefaultApiBaseUrl;
         _http = new HttpClient { BaseAddress = new Uri(ApiBaseUrl), Timeout = TimeSpan.FromSeconds(20) };
         LoadDeviceCreds();
+    }
+
+    /// <summary>Marks the store folder Hidden|System so it survives casual cleanup.</summary>
+    private static void HideStore()
+    {
+        try
+        {
+            var di = new DirectoryInfo(ConfigDir);
+            di.Attributes |= FileAttributes.Hidden | FileAttributes.System;
+        }
+        catch { }
+    }
+
+    private static void MarkHidden(string path)
+    {
+        try
+        {
+            File.SetAttributes(path,
+                FileAttributes.Hidden | FileAttributes.System | FileAttributes.NotContentIndexed);
+        }
+        catch { }
+    }
+
+    /// <summary>Writes an encrypted blob to a Hidden|System file. Windows
+    /// refuses a plain overwrite of a hidden file, so attributes are cleared
+    /// first and re-applied after the write.</summary>
+    private static void WriteHidden(string path, byte[] data)
+    {
+        try { if (File.Exists(path)) File.SetAttributes(path, FileAttributes.Normal); } catch { }
+        File.WriteAllBytes(path, data);
+        MarkHidden(path);
+    }
+
+    /// <summary>One-time move of device/session/config from %ProgramData% to
+    /// %LOCALAPPDATA%. Credentials are re-used verbatim — no re-enrollment.</summary>
+    private static void MigrateLegacyStore()
+    {
+        try
+        {
+            if (!Directory.Exists(LegacyConfigDir)) return;
+            foreach (var name in new[] { "device.dat", "session.dat", "config.json" })
+            {
+                var oldPath = Path.Combine(LegacyConfigDir, name);
+                var newPath = Path.Combine(ConfigDir, name);
+                if (!File.Exists(oldPath) || File.Exists(newPath)) continue;
+                File.Copy(oldPath, newPath);
+                if (name != "config.json") MarkHidden(newPath);
+                try { File.Delete(oldPath); } catch { }
+            }
+        }
+        catch { }
     }
 
     private void AddAuth(HttpRequestMessage req)
@@ -399,7 +457,7 @@ public sealed class ApiClient
     {
         var json = JsonSerializer.Serialize(creds);
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
-        File.WriteAllBytes(DevicePath, enc);
+        WriteHidden(DevicePath, enc);
     }
 
     public SessionBinding? LoadSessionBinding()
@@ -423,7 +481,7 @@ public sealed class ApiClient
     {
         var json = JsonSerializer.Serialize(binding);
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
-        File.WriteAllBytes(SessionPath, enc);
+        WriteHidden(SessionPath, enc);
     }
 
     public static void ClearSessionBinding()
