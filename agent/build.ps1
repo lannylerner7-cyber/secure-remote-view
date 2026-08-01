@@ -83,16 +83,39 @@ if (-not $SkipUpdater) {
 # source their payload from dist\.
 
 New-Item -ItemType Directory -Force -Path dist | Out-Null
-Copy-Item publish/agent/ConnectLive.exe dist/ -Force
+
+# Publish emits whatever <AssemblyName> says. When the csproj and this script
+# disagree, Copy-Item used to die with a bare "PathNotFound" that named the file
+# we WANTED, never the one that was actually produced. Assert with a diagnostic.
+function Assert-Published([string]$Dir, [string]$Exe, [string]$Project) {
+    $full = Join-Path $Dir $Exe
+    if (Test-Path $full) { return $full }
+    $found = @(Get-ChildItem -Path $Dir -Filter *.exe -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    $actual = if ($found.Count -gt 0) { $found -join ', ' } else { '(none)' }
+    throw "Expected '$Exe' in '$Dir' but publish produced: $actual.`n" +
+          "Check <AssemblyName> in $Project - it must match the name this script, " +
+          "packaging\inno\ConnectLiveSetup.iss and packaging\msi\ConnectLive.wxs use."
+}
+
+Copy-Item (Assert-Published "publish/agent" "ConnectLive.exe" "src\ConnectLiveAgent.csproj") dist/ -Force
 
 $required = @("dist/ConnectLive.exe")
 if (-not $SkipUpdater) {
-    Copy-Item publish/updater/ConnectLiveUpdater.exe dist/ -Force
+    Copy-Item (Assert-Published "publish/updater" "ConnectLiveUpdater.exe" "updater\ConnectLiveUpdater.csproj") dist/ -Force
     $required += "dist/ConnectLiveUpdater.exe"
 } elseif (Test-Path dist/ConnectLiveUpdater.exe) {
     # A stale binary from a previous full build must not leak into an
     # Agent-only installer.
     Remove-Item dist/ConnectLiveUpdater.exe -Force
+}
+
+# Purge the old ConnectLiveService.exe name so a pre-rename build can never be
+# picked up by the installers or slipped into the distribution ZIP.
+foreach ($stale in @("dist/ConnectLiveService.exe", "publish/updater/ConnectLiveService.exe")) {
+    if (Test-Path $stale) {
+        Remove-Item $stale -Force
+        Write-Host "  Removed stale: $($stale -replace '/','\')"
+    }
 }
 
 foreach ($path in $required) {

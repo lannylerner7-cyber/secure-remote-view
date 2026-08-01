@@ -6,7 +6,11 @@
     <UseWPF>false</UseWPF>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>ConnectLiveService</AssemblyName>
+    <!-- MUST stay ConnectLiveUpdater: build.ps1, packaging/inno/ConnectLiveSetup.iss,
+         packaging/msi/ConnectLive.wxs and install.ps1 all copy/register
+         ConnectLiveUpdater.exe by name. Renaming this breaks staging with a
+         Copy-Item PathNotFound. -->
+    <AssemblyName>ConnectLiveUpdater</AssemblyName>
     <ApplicationIcon Condition="Exists('..\assets\icon.ico')">..\assets\icon.ico</ApplicationIcon>
     <RootNamespace>ConnectLive.Updater</RootNamespace>
     <Version>1.1.0</Version>
