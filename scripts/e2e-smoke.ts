@@ -138,7 +138,7 @@ async function cleanup(deviceId?: string) {
   const { data: dev } = await admin.from("devices").select("id").eq("device_id", deviceId).maybeSingle();
   if (dev?.id) {
     await admin.from("sessions").delete().eq("device_id", dev.id);
-    await admin.from("session_frames").delete().eq("session_id", dev.id).catch(() => {});
+    
     await admin.from("devices").delete().eq("id", dev.id);
     console.log(`cleanup: removed device ${deviceId}`);
   }
