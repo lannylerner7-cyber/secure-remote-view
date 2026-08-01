@@ -319,7 +319,6 @@ public sealed class Agent
         _sessionCts = CancellationTokenSource.CreateLinkedTokenSource(_outerCt);
         var t = _sessionCts.Token;
         _loopSessionId = sessionId;
-        try { InputRelay.SessionBanner = _indicator; } catch { }
         _screenTask = RunSessionLoop("screen", sessionId, ct => ScreenCapture.RunAsync(_api, sessionId, ct), t);
         _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct), t);
         _cursorTask = RunSessionLoop("cursor", sessionId, ct => CursorPump.RunAsync(_api, sessionId, ct), t);
@@ -331,12 +330,6 @@ public sealed class Agent
     {
         _currentSessionId = sessionId;
         try { _onWake?.Invoke(); } catch { }
-        _ui.Invoke(() =>
-        {
-            _indicator = new SessionIndicator("Helpdesk", onEnd: EndSession);
-            _indicator.Show();
-            if (mode == "control") _indicator?.SetControlGranted(true);
-        });
         StartSessionLoops(sessionId, mode);
         try
         {
@@ -358,15 +351,6 @@ public sealed class Agent
         _acceptedSessions.Add(sessionId);
         _currentSessionId = sessionId;
         try { _onWake?.Invoke(); } catch { }
-
-
-
-        _ui.Invoke(() =>
-        {
-            _indicator = new SessionIndicator(technician, onEnd: EndSession);
-            _indicator.Show();
-            if (mode == "control") _indicator?.SetControlGranted(true);
-        });
 
         // HTTPS is the primary transport: start the frame/input/cursor loops
         // immediately so the admin panel gets pixels within one frame interval.
@@ -392,11 +376,6 @@ public sealed class Agent
         _screenTask = null;
         _inputTask = null;
         _cursorTask = null;
-        _ui.Invoke(() =>
-        {
-            _indicator?.Close();
-            _indicator = null;
-        });
         try { _rtc?.Close(); _rtc = null; } catch { }
         _currentSessionId = null;
         ReportState("No active session");
