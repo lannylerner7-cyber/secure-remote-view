@@ -903,20 +903,32 @@ function AdminPage() {
           paused: "Session paused",
         }[streamState];
         const rtSinceLastPush = lastRealtimePushAtRef.current ? now - lastRealtimePushAtRef.current : Infinity;
-        const transport: "connecting" | "live" | "reconnecting" | "polling" =
-          realtimeStatus === "reconnecting" || realtimeStatus === "closed"
-            ? "reconnecting"
-            : realtimeStatus === "connecting"
+        // Transport pill: WebRTC video is the primary surface; everything else
+        // is an explicit statement that we are on the fallback slideshow.
+        const transport: "connecting" | "video" | "live" | "reconnecting" | "polling" =
+          rtcVideoLive
+            ? "video"
+            : rtcState === "connecting"
               ? "connecting"
-              : rtSinceLastPush < 5000
-                ? "live"
-                : "polling";
-        const transportTone = transport === "live"
+              : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
+                ? "reconnecting"
+                : realtimeStatus === "connecting"
+                  ? "connecting"
+                  : rtSinceLastPush < 5000
+                    ? "live"
+                    : "polling";
+        const transportTone = transport === "video"
           ? "bg-emerald-400"
-          : transport === "polling" || transport === "connecting"
+          : transport === "live" || transport === "polling" || transport === "connecting"
             ? "bg-amber-400"
             : "bg-rose-500";
-        const transportLabel = { connecting: "Connecting", live: "Realtime live", reconnecting: "Reconnecting", polling: "Fallback polling" }[transport];
+        const transportLabel = {
+          connecting: "Connecting",
+          video: "WebRTC video",
+          live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
+          reconnecting: "Reconnecting",
+          polling: "Frame fallback (polling)",
+        }[transport];
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
             <div className="w-full max-w-[min(96vw,1760px)] overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
