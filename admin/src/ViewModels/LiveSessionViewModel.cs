@@ -116,6 +116,45 @@ public partial class LiveSessionViewModel : ObservableObject
         }, onError: SurfaceError);
         _cursorPump.Start(_cts.Token);
 
+        // Raw Supabase Realtime is the fast path: session_frames /
+        // session_cursors rows are pushed the instant the agent writes them,
+        // so the picture no longer waits on the next 200 ms poll tick. The
+        // HTTP pumps above stay running as an always-on fallback if the
+        // socket disconnects or the project's Realtime quota is exhausted.
+        _realtime = new RealtimeChannel(
+            App.Config.SupabaseUrl,
+            App.Config.SupabaseAnonKey,
+            App.Auth.Current?.AccessToken,
+            SessionId,
+            onFrameBytes: (bytes, utc) =>
+            {
+                var bmp = DecodeJpeg(bytes);
+                if (bmp == null) return;
+                _lastFrameUtc = utc;
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    CurrentFrame = bmp;
+                    if (Transport != "webrtc") Transport = "realtime";
+                });
+            },
+            onCursor: e =>
+            {
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    if (!e.Visible || e.FrameW is null or 0 || e.FrameH is null or 0)
+                    {
+                        CursorVisible = false;
+                        return;
+                    }
+                    CursorNormX = Math.Clamp((double)e.X / e.FrameW.Value, 0, 1);
+                    CursorNormY = Math.Clamp((double)e.Y / e.FrameH.Value, 0, 1);
+                    CursorVisible = true;
+                });
+            },
+            onError: SurfaceError,
+            onHealth: healthy => _realtimeHealthy = healthy);
+        _realtime.Start();
+
         _rtc = new WebRtcClient(SessionId);
         _ = _rtc.StartAsync(_cts.Token,
             onConnected: () =>
@@ -130,6 +169,20 @@ public partial class LiveSessionViewModel : ObservableObject
             onError: SurfaceError);
 
         StartLinkWatchdog(_cts.Token);
+    }
+
+    private static BitmapSource? DecodeJpeg(byte[] bytes)
+    {
+        try
+        {
+            using var ms = new System.IO.MemoryStream(bytes);
+            var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            if (decoder.Frames.Count == 0) return null;
+            var f = decoder.Frames[0];
+            f.Freeze();
+            return f;
+        }
+        catch { return null; }
     }
 
     // 1 Hz UI-thread tick that reports how fresh the picture actually is.
