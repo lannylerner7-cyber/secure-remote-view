@@ -96,8 +96,11 @@ function AdminPage() {
   const [role, setRole] = useState<AppRole | null>(null);
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
   const rtcRef = useRef<WebRtcLive | null>(null);
-  const lastScreenMoveAtRef = useRef(0);
+  const videoHostRef = useRef<HTMLDivElement | null>(null);
   const mouseButtonDownRef = useRef(false);
+  // rAF pointer-move coalescer: only the latest position is flushed per frame.
+  const pendingMoveRef = useRef<{ sessionId: string; kind: string; payload: Record<string, unknown> } | null>(null);
+  const moveRafRef = useRef<number | null>(null);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
