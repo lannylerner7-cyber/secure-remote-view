@@ -34,6 +34,10 @@ public partial class LiveSessionViewModel : ObservableObject
     private FrameFallbackPump? _framePump;
     private CursorPollPump? _cursorPump;
     private WebRtcClient? _rtc;
+    private RealtimeChannel? _realtime;
+    // True while the raw Supabase Realtime socket is delivering frames — the
+    // HTTP fallback pumps still run but the Realtime pipe is our fast path.
+    private volatile bool _realtimeHealthy;
 
     // Latest cursor sample (normalised 0..1) bound by LiveSessionWindow.
     [ObservableProperty] private double cursorNormX;
