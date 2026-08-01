@@ -140,7 +140,7 @@ public sealed class ApiClient
     public async Task<List<DeviceRow>> ListDevicesAsync(CancellationToken ct)
     {
         using var req = NewSupabase(HttpMethod.Get,
-            "/rest/v1/devices?select=id,device_id,display_name,hostname,os,last_seen_at,status,is_session_active&order=last_seen_at.desc");
+            "/rest/v1/devices?select=id,device_id,display_name,hostname,os,last_seen_at,status,is_session_active,metadata&order=last_seen_at.desc");
         using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         await EnsureOkAsync(res, "list devices", ct).ConfigureAwait(false);
         var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
