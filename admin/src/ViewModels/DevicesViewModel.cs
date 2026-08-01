@@ -20,6 +20,11 @@ public partial class DeviceItem : ObservableObject
     [ObservableProperty] private string status = "offline";
     [ObservableProperty] private string lastSeen = "never";
     [ObservableProperty] private bool inSession;
+    // WoL routing hints copied from devices.metadata (subnet + MAC). Populated
+    // by the agent's heartbeat; used by the staged Wake command below.
+    public string? LanSubnetV4 { get; init; }
+    public string? Mac { get; init; }
+    public bool IsOffline => Status != "online";
 }
 
 public partial class DevicesViewModel : ObservableObject
