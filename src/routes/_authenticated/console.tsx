@@ -1122,15 +1122,29 @@ function AdminPage() {
   );
 }
 
-function getContainedImagePoint(
+/**
+ * Map a client-space point onto the visible remote surface, normalized 0..1.
+ *
+ * Both live layers — the WebRTC <video> and the JPEG <img> — are letterboxed
+ * with object-contain inside the same element, so the rect maths is identical
+ * and only the SOURCE dimensions differ (video.videoWidth/Height vs the frame
+ * row's width/height). The caller passes whichever layer is currently visible.
+ *
+ * `source` is null while the active layer's natural size is still unknown (a
+ * video element before its first decoded frame). We return null in that case
+ * so the caller HOLDS the input rather than sending a click computed against a
+ * guessed size — a wrong mapping during a transport swap lands the click in
+ * the wrong place on the user's desktop.
+ */
+function getContainedPoint(
   el: HTMLElement,
   clientX: number,
   clientY: number,
-  frame: LiveFrame | null,
+  source: { width: number; height: number } | null,
 ): { x: number; y: number } | null {
+  if (!source) return null;
   const rect = el.getBoundingClientRect();
-  const sourceW = frame?.width || rect.width;
-  const sourceH = frame?.height || rect.height;
+  const { width: sourceW, height: sourceH } = source;
   if (!sourceW || !sourceH || !rect.width || !rect.height) return null;
 
   const scale = Math.min(rect.width / sourceW, rect.height / sourceH);
