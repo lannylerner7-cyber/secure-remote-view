@@ -1,58 +1,58 @@
 # ConnectLive Remote Agent — Inno Setup installer
 
-Produces a single `ConnectLiveSetup.exe` that installs the Agent + Updater,
-registers the Updater as a LocalSystem service, and lets the first-boot
-auto-enrollment flow mint the per-device token. **No deployment key is
-required** — the Updater POSTs `/api/public/agent/enroll` on first tick
-and stores the DPAPI-encrypted token in `%ProgramData%\ConnectLive\device.dat`.
+Produces a single `ConnectLiveSetup.exe` that installs the Agent and, as an
+**optional component**, the background Updater service. Enrollment needs no
+deployment key — the Agent POSTs `/api/public/agent/enroll` on first tick and
+stores the DPAPI-encrypted token in `%ProgramData%\ConnectLive\device.dat`.
 
 ## Prerequisites
 
 1. Install [Inno Setup 6](https://jrsoftware.org/isdl.php).
-2. Run `build.bat` at the repo root once so
-   `agent\dist\ConnectLive.exe` and `agent\dist\ConnectLiveUpdater.exe`
-   exist — the installer script pulls those single-file publishes.
+2. Run `powershell -File agent\build.ps1` once so `agent\dist\ConnectLive.exe`
+   (and `agent\dist\ConnectLiveUpdater.exe`, unless `-SkipUpdater`) exist —
+   the installer script pulls those single-file publishes from `dist\`.
 
 ## Build
 
 ```
 iscc agent\packaging\inno\ConnectLiveSetup.iss
+iscc agent\packaging\inno\ConnectLiveSetup.iss /DNoUpdater          # agent-only
+iscc agent\packaging\inno\ConnectLiveSetup.iss /DAppVer=1.0.260801.1200
 ```
 
-Output lands in `Output\ConnectLiveSetup.exe` next to the script.
+Output lands in `agent\dist\ConnectLiveSetup.exe`.
+
+## Components
+
+| Component | Default | What it does |
+|---|---|---|
+| `agent`   | always (fixed) | Installs `ConnectLive.exe`, firewall rule, launches it `/background`. Startup persistence is the Agent's own HKCU Run key. |
+| `updater` | off (on only in the "Full" type) | Installs `ConnectLiveUpdater.exe` and registers `ConnectLiveUpdater` as a LocalSystem auto-start service so an admin can wake the Agent after the user closed it. |
+
+Compiling with `/DNoUpdater` removes the component, the payload, the firewall
+rule and the service code from the installer entirely.
 
 ## Interactive install
 
-Run `ConnectLiveSetup.exe` — the wizard lets the user pick the install
-folder (default `C:\Program Files\ConnectLive`).
+Run `ConnectLiveSetup.exe` — the wizard lets the user pick the install folder
+(default `C:\Program Files\ConnectLive`) and the setup type.
 
-## Silent deployment (RMM / Intune / GPO / Jamf)
+## Silent deployment (RMM / Intune / GPO)
 
 ```
 ConnectLiveSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-```
-
-Override the install folder if needed:
-
-```
+ConnectLiveSetup.exe /VERYSILENT /COMPONENTS="agent,updater"   # include the service
 ConnectLiveSetup.exe /VERYSILENT /DIR="C:\Apps\ConnectLive"
 ```
 
-That is the entire command line — no key, no tokens, no sidecar files.
+## Service registration
 
-## What the installer does
-
-- Bundles both `ConnectLive.exe` and `ConnectLiveUpdater.exe` (registered as service `ConnectLiveUpdater`) into one
-  installer and copies them to the user-selected `{app}` folder.
-- Stops any running Updater service and drops fresh binaries.
-- Registers `ConnectLiveUpdater` as a delayed-auto LocalSystem service with
-  self-heal restarts at 5s / 10s / 30s.
-- Hardens the service ACL (via `sc sdset`) so only SYSTEM and Administrators
-  can stop or delete it — end users cannot remove the Updater from
-  `services.msc` or the Programs list by mistake. The uninstaller relaxes
-  this ACL before removal.
-- Adds outbound TCP/443 firewall allow rules for both binaries.
-- Starts the Updater, which auto-enrolls on first tick.
+Registration uses the native Service Control Manager API (`OpenSCManager` /
+`CreateService` / `StartService`), not `sc.exe`, so failures report the exact
+Win32 error instead of a generic exit code. Every step is appended to
+`%ProgramData%\ConnectLive\install.log`. If the service cannot start, the
+install still succeeds — only remote wake-after-close is unavailable — and the
+wizard says so with the log path.
 
 ## Uninstall
 
@@ -60,7 +60,6 @@ That is the entire command line — no key, no tokens, no sidecar files.
 "%ProgramFiles%\ConnectLive\unins000.exe" /VERYSILENT
 ```
 
-Removes the service, kills any lingering interactive Agent, and clears the
-firewall rules. `%ProgramData%\ConnectLive\device.dat` is left in place so a
-re-install on the same box keeps its identity — delete that folder manually
-if you want a completely fresh enrollment.
+Stops and deletes the service (no-op when it was never installed), kills any
+lingering Agent, and clears the firewall rules. `device.dat` is removed so a
+re-install re-enrolls cleanly.
