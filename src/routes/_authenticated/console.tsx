@@ -2041,7 +2041,7 @@ function DirectNotifyModal({
  * math so the pointer lands where it truly is on the remote screen,
  * even when the container is letterboxed.
  */
-function RemoteCursorOverlay({ cursor, frame }: { cursor: LiveCursor; frame: LiveFrame }) {
+function RemoteCursorOverlay({ cursor, frame }: { cursor: LiveCursor; frame: LiveFrame | null }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   useEffect(() => {
@@ -2051,8 +2051,8 @@ function RemoteCursorOverlay({ cursor, frame }: { cursor: LiveCursor; frame: Liv
     const ro = new ResizeObserver(update); ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const fw = cursor.frame_w ?? frame.width ?? 0;
-  const fh = cursor.frame_h ?? frame.height ?? 0;
+  const fw = cursor.frame_w ?? frame?.width ?? 0;
+  const fh = cursor.frame_h ?? frame?.height ?? 0;
   if (!fw || !fh || !box.w || !box.h) return <div ref={ref} className="pointer-events-none absolute inset-0" />;
   const scale = Math.min(box.w / fw, box.h / fh);
   const drawW = fw * scale, drawH = fh * scale;
