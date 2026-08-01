@@ -141,9 +141,8 @@ public partial class App : Application
             if (!string.IsNullOrEmpty(sessionId))
                 _agent.SeedRestoredSession(sessionId!);
 
-            // Phase 2 dormant: StreamListener (SSE wake) is intentionally not
-            // instantiated in the standalone build. The heartbeat long-poll is
-            // the single transport. See agent/src/StreamListener.cs.
+            // Standalone build: heartbeat long-poll is the single transport.
+            // No SSE listener, no helper service — the Agent is self-contained.
 
             // Heartbeat runs for the full application lifetime, independent of
             // any window being visible.
