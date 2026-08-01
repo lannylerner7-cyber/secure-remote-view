@@ -9,7 +9,10 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>ConnectLive.Admin</RootNamespace>
     <AssemblyName>ConnectLiveAdmin</AssemblyName>
-    <ApplicationIcon Condition="Exists('..\..\agent\assets\icon.ico')">..\..\agent\assets\icon.ico</ApplicationIcon>
+    <!-- Prefer the admin's own icon (admin\assets\icon.ico, added manually).
+         Fall back to the agent icon only when the admin one is absent. -->
+    <ApplicationIcon Condition="Exists('..\..\assets\icon.ico')">..\..\assets\icon.ico</ApplicationIcon>
+    <ApplicationIcon Condition="'$(ApplicationIcon)' == '' And Exists('..\..\agent\assets\icon.ico')">..\..\agent\assets\icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -32,6 +35,12 @@
     <None Include="admin.config.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- Embedded window/taskbar icon. Conditional: the .ico is dropped into
+         admin\assets\ manually and the build must not fail without it.
+         Consumed by ConnectLive.Admin.Ui.AppIcon. -->
+    <Resource Include="..\assets\icon.ico" Link="assets\icon.ico"
+              Condition="Exists('..\assets\icon.ico')" />
   </ItemGroup>
+
 
 </Project>
