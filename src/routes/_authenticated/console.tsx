@@ -940,10 +940,10 @@ function AdminPage() {
                     <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state} · {streamCopy}</div>
                   </div>
                   <span
-                    title={`Supabase Realtime socket: ${realtimeStatus}. Last push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                    title={`WebRTC: ${rtcState}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
                     className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
                   >
-                    <span className={`h-1.5 w-1.5 rounded-full ${transportTone} ${transport === "live" ? "animate-pulse" : ""}`} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${transportTone} ${transport === "video" ? "animate-pulse" : ""}`} />
                     {transportLabel}
                   </span>
                 </div>
