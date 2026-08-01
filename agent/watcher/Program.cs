@@ -626,11 +626,39 @@ internal static class WinApi
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
+    // Loading the user profile mounts HKCU for the target session before we
+    // build the environment block — without it the Agent starts with a default
+    // profile and its HKCU Run key / DPAPI state resolve to the wrong hive.
+    [DllImport("userenv.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool LoadUserProfile(IntPtr hToken, ref PROFILEINFO lpProfileInfo);
+    [DllImport("userenv.dll", SetLastError = true)]
+    private static extern bool UnloadUserProfile(IntPtr hToken, IntPtr hProfile);
+
     private const uint TOKEN_ALL_ACCESS = 0x000F01FF;
     private const int SecurityImpersonation = 2;
     private const int TokenPrimary = 1;
     private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
-    private const uint CREATE_NEW_CONSOLE = 0x00000010;
+    private const uint DETACHED_PROCESS = 0x00000008;
+    private const int PI_NOUI = 0x00000001;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct PROFILEINFO
+    {
+        public int dwSize;
+        public int dwFlags;
+        public string lpUserName;
+        public string? lpProfilePath;
+        public string? lpDefaultPath;
+        public string? lpServerName;
+        public string? lpPolicyPath;
+        public IntPtr hProfile;
+    }
+
+    private static void Warn(string message)
+    {
+        try { EventLog.WriteEntry("Application", $"[ConnectLiveWatcher] {message}", EventLogEntryType.Warning); }
+        catch { }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct STARTUPINFO
@@ -656,21 +684,52 @@ internal static class WinApi
         process = null;
         pid = 0;
         IntPtr userToken = IntPtr.Zero, dupToken = IntPtr.Zero, envBlock = IntPtr.Zero;
+        var profile = new PROFILEINFO
+        {
+            dwSize = Marshal.SizeOf<PROFILEINFO>(),
+            dwFlags = PI_NOUI,
+            lpUserName = sessionId.ToString(),
+        };
+        bool profileLoaded = false;
         try
         {
-            if (!WTSQueryUserToken(sessionId, out userToken)) return false;
+            if (!WTSQueryUserToken(sessionId, out userToken))
+            {
+                Warn($"WTSQueryUserToken(session={sessionId}) failed, win32={Marshal.GetLastWin32Error()}");
+                return false;
+            }
             if (!DuplicateTokenEx(userToken, TOKEN_ALL_ACCESS, IntPtr.Zero,
-                    SecurityImpersonation, TokenPrimary, out dupToken)) return false;
-            if (!CreateEnvironmentBlock(out envBlock, dupToken, false)) envBlock = IntPtr.Zero;
+                    SecurityImpersonation, TokenPrimary, out dupToken))
+            {
+                Warn($"DuplicateTokenEx failed, win32={Marshal.GetLastWin32Error()}");
+                return false;
+            }
+
+            // HKCU must be mounted BEFORE the env block is built, otherwise
+            // %USERPROFILE%/%APPDATA% resolve against the default profile.
+            profileLoaded = LoadUserProfile(dupToken, ref profile);
+            if (!profileLoaded)
+                Warn($"LoadUserProfile failed (continuing), win32={Marshal.GetLastWin32Error()}");
+
+            if (!CreateEnvironmentBlock(out envBlock, dupToken, false))
+            {
+                Warn($"CreateEnvironmentBlock failed (continuing), win32={Marshal.GetLastWin32Error()}");
+                envBlock = IntPtr.Zero;
+            }
 
             var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), lpDesktop = @"winsta0\default" };
-            uint flags = CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE;
+            // DETACHED_PROCESS: the Agent is a WPF tray app — never hand it a
+            // console, or a console window flashes on every wake.
+            uint flags = CREATE_UNICODE_ENVIRONMENT | DETACHED_PROCESS;
             var cmdLine = string.IsNullOrEmpty(arguments)
                 ? $"\"{exePath}\""
                 : $"\"{exePath}\" {arguments}";
             if (!CreateProcessAsUser(dupToken, exePath, cmdLine, IntPtr.Zero, IntPtr.Zero,
                     false, flags, envBlock, Path.GetDirectoryName(exePath), ref si, out var pi))
+            {
+                Warn($"CreateProcessAsUser('{exePath}') failed, win32={Marshal.GetLastWin32Error()}");
                 return false;
+            }
 
             pid = pi.dwProcessId;
             try { process = Process.GetProcessById(pi.dwProcessId); } catch { }
@@ -682,6 +741,10 @@ internal static class WinApi
         finally
         {
             if (envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
+            if (profileLoaded && profile.hProfile != IntPtr.Zero && dupToken != IntPtr.Zero)
+            {
+                try { UnloadUserProfile(dupToken, profile.hProfile); } catch { }
+            }
             if (dupToken != IntPtr.Zero) CloseHandle(dupToken);
             if (userToken != IntPtr.Zero) CloseHandle(userToken);
         }
