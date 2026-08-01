@@ -15,7 +15,7 @@ How it is consumed:
 
 | Consumer | Path | Behaviour when missing |
 |---|---|---|
-| `admin/src/ConnectLiveAdmin.csproj` `<ApplicationIcon>` | `..\..\assets\icon.ico` | falls back to `agent\assets\icon.ico`, then to the default .NET icon |
+| `admin/src/ConnectLiveAdmin.csproj` `<ApplicationIcon>` | `..\assets\icon.ico` | falls back to `agent\assets\icon.ico`, then to the default .NET icon |
 | WPF window / taskbar icon (`AppIcon.Apply`) | embedded `Resource` `assets/icon.ico` | window keeps the default icon, no crash |
 | `admin/build.ps1` | staged into `dist\` and into `ConnectLiveAdmin.zip` | prints a warning, build continues |
 

@@ -11,7 +11,7 @@
     <AssemblyName>ConnectLiveAdmin</AssemblyName>
     <!-- Prefer the admin's own icon (admin\assets\icon.ico, added manually).
          Fall back to the agent icon only when the admin one is absent. -->
-    <ApplicationIcon Condition="Exists('..\..\assets\icon.ico')">..\..\assets\icon.ico</ApplicationIcon>
+    <ApplicationIcon Condition="Exists('..\assets\icon.ico')">..\assets\icon.ico</ApplicationIcon>
     <ApplicationIcon Condition="'$(ApplicationIcon)' == '' And Exists('..\..\agent\assets\icon.ico')">..\..\agent\assets\icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PublishSingleFile>true</PublishSingleFile>
