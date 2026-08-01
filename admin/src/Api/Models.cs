@@ -27,6 +27,7 @@ public sealed class DeviceRow
     [JsonPropertyName("last_seen_at")] public DateTimeOffset? LastSeenAt { get; set; }
     [JsonPropertyName("status")] public string? Status { get; set; }
     [JsonPropertyName("is_session_active")] public bool IsSessionActive { get; set; }
+    [JsonPropertyName("metadata")] public System.Text.Json.JsonElement Metadata { get; set; }
 }
 
 public sealed class SessionRow
