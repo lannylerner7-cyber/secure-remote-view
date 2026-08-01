@@ -112,6 +112,11 @@ function AdminPage() {
   const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
   const lastRealtimePushAtRef = useRef<number>(0);
   const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "subscribed" | "reconnecting" | "closed">("connecting");
+  // WebRTC video is the primary surface; the JPEG frame pipe is the fallback.
+  const [rtcState, setRtcState] = useState<WebRtcState>("idle");
+  const rtcVideoLive = rtcState === "connected";
+  const rtcVideoLiveRef = useRef(false);
+  rtcVideoLiveRef.current = rtcVideoLive;
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
