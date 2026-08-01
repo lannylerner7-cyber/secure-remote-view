@@ -2,7 +2,7 @@
  * Central API route registry.
  *
  * Consumers that MUST stay in sync with this file:
- *   - Agent (C#):   agent/src/ApiClient.cs + agent/watcher/Program.cs
+ *   - Agent (C#):   agent/src/ApiClient.cs + agent/updater/Program.cs
  *   - Admin (C#):   admin/src/Api/ApiClient.cs
  *   - Web admin:    src/routes/_authenticated/console.tsx
  *

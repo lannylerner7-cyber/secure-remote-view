@@ -42,7 +42,7 @@ Edit `src/ApiClient.cs` — set `ApiBaseUrl` to your ConnectLive gateway before 
 Ship `ConnectLive.exe` through Intune, SCCM, or GPO. On first run the agent:
 
 1. Registers with the gateway (`POST /api/devices/enroll`) — device token stored DPAPI-encrypted at `%ProgramData%\ConnectLive\device.dat`
-2. Runs under the Watcher service for heartbeat + reconnect when installed
+2. Runs under the Updater service for heartbeat + reconnect when installed
 3. Runs a per-user tray app plus the non-hideable live-session banner
 
 ## Non-negotiables (baked into the code)

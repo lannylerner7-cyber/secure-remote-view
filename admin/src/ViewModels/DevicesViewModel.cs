@@ -20,6 +20,11 @@ public partial class DeviceItem : ObservableObject
     [ObservableProperty] private string status = "offline";
     [ObservableProperty] private string lastSeen = "never";
     [ObservableProperty] private bool inSession;
+    // WoL routing hints copied from devices.metadata (subnet + MAC). Populated
+    // by the agent's heartbeat; used by the staged Wake command below.
+    public string? LanSubnetV4 { get; init; }
+    public string? Mac { get; init; }
+    public bool IsOffline => Status != "online";
 }
 
 public partial class DevicesViewModel : ObservableObject
@@ -45,7 +50,7 @@ public partial class DevicesViewModel : ObservableObject
     }
 
     // Exponential back-off (seconds) on consecutive Refresh() failures.
-    // Mirrors the watcher's cadence so a flaky link doesn't hammer the gateway.
+    // Mirrors the updater's cadence so a flaky link doesn't hammer the gateway.
     private static readonly int[] BackoffSeconds = { 5, 10, 20, 30 };
 
     private async Task PollLoop(CancellationToken ct)
@@ -99,6 +104,19 @@ public partial class DevicesViewModel : ObservableObject
                         ? (DateTime.UtcNow - d.LastSeenAt.Value.UtcDateTime).TotalSeconds
                         : double.MaxValue;
                     var isOnline = age < 30;
+                    string? subnet = null;
+                    string? mac = null;
+                    try
+                    {
+                        if (d.Metadata.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        {
+                            if (d.Metadata.TryGetProperty("lan_subnet_v4", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.String)
+                                subnet = s.GetString();
+                            if (d.Metadata.TryGetProperty("mac", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String)
+                                mac = m.GetString();
+                        }
+                    }
+                    catch { /* metadata is best-effort */ }
                     Devices.Add(new DeviceItem
                     {
                         RowId = d.Id,
@@ -109,6 +127,8 @@ public partial class DevicesViewModel : ObservableObject
                         Status = isOnline ? "online" : "offline",
                         LastSeen = FormatAge(age),
                         InSession = d.IsSessionActive,
+                        LanSubnetV4 = subnet,
+                        Mac = mac,
                     });
                 }
                 Error = null;
@@ -145,7 +165,7 @@ public partial class DevicesViewModel : ObservableObject
         {
             var session = await App.Api.CreateSessionAsync(item.RowId, "view", CancellationToken.None);
             // Explicit wake: covers the case where the user manually closed the
-            // agent tray icon. Watcher heartbeat picks this up and relaunches.
+            // agent tray icon. Updater heartbeat picks this up and relaunches.
             try
             {
                 await App.Api.EnqueuePowerCommandAsync(
@@ -186,6 +206,70 @@ public partial class DevicesViewModel : ObservableObject
         {
             MessageBox.Show(ex.Message, "ConnectLive Admin — delete failed",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    // Staged Wake-on-LAN command that mirrors the web console's failure
+    // reporting: we surface *why* a wake can or can't route before we ever
+    // touch power_commands, so the operator never gets a silent no-op.
+    //   Stage 1: already online — nothing to wake, just Connect.
+    //   Stage 2: no LAN subnet on file — device hasn't heartbeat'd yet.
+    //   Stage 3: no MAC on file — WoL needs both subnet + MAC.
+    //   Stage 4: no online peer on the same subnet to broadcast the packet.
+    // Only when all four gates pass do we enqueue the WoL power command.
+    [RelayCommand]
+    public async Task Wake(DeviceItem? item)
+    {
+        if (item == null) return;
+        if (!item.IsOffline)
+        {
+            MessageBox.Show($"{item.DisplayName} is already online — use Connect instead.",
+                "Wake", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (string.IsNullOrEmpty(item.LanSubnetV4))
+        {
+            MessageBox.Show(
+                $"{item.DisplayName} has never reported a LAN subnet, so Wake-on-LAN can't be routed. It must check in once while online first.",
+                "Wake unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (string.IsNullOrEmpty(item.Mac))
+        {
+            MessageBox.Show(
+                $"Subnet {item.LanSubnetV4} is known but no MAC address has been recorded yet — WoL needs both. Let the agent check in once more while online.",
+                "Wake unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        DeviceItem? peer = null;
+        foreach (var p in Devices)
+        {
+            if (p.RowId == item.RowId) continue;
+            if (p.IsOffline) continue;
+            if (!string.Equals(p.LanSubnetV4, item.LanSubnetV4, StringComparison.Ordinal)) continue;
+            peer = p; break;
+        }
+        if (peer == null)
+        {
+            MessageBox.Show(
+                $"Powered-off wake needs another ConnectLive machine online on {item.LanSubnetV4} to broadcast the magic packet. None is online right now.",
+                "No relay peer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        try
+        {
+            await App.Api.EnqueuePowerCommandAsync(
+                item.RowId, "wake",
+                new { mac = item.Mac },
+                peer.RowId,
+                CancellationToken.None);
+            MessageBox.Show(
+                $"Wake queued for {item.DisplayName} via {peer.DisplayName}.",
+                "Wake", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (SupabaseCallException ex)
+        {
+            MessageBox.Show(ex.Message, "Wake failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }

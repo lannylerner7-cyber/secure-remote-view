@@ -10,7 +10,7 @@ namespace ConnectLive.Agent;
 /// runs — it is not a covert background service.
 ///
 /// Double-click shows the status window. Exit is the ONLY quit path: it drops
-/// stop.flag so nothing (Run key, Watcher in Phase 2) brings the Agent back
+/// stop.flag so nothing (Run key, Updater in Phase 2) brings the Agent back
 /// until the user launches it manually again.
 /// </summary>
 public sealed class TrayIcon : IDisposable

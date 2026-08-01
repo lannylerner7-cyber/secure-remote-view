@@ -5,7 +5,7 @@ import { adminClient } from "@/lib/server-supabase";
 /**
  * Agent auto-enrollment (deployment-key-free).
  *
- * The Watcher/Agent POSTs here on first boot with no shared secret. The
+ * The Updater/Agent POSTs here on first boot with no shared secret. The
  * server mints a random per-device token, stores only its SHA-256 hash in
  * `devices.metadata.token_hash`, and returns { deviceId, deviceToken }.
  * The token is DPAPI-encrypted client-side; subsequent calls authenticate

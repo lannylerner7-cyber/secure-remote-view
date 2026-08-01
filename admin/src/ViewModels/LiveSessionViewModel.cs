@@ -34,6 +34,10 @@ public partial class LiveSessionViewModel : ObservableObject
     private FrameFallbackPump? _framePump;
     private CursorPollPump? _cursorPump;
     private WebRtcClient? _rtc;
+    private RealtimeChannel? _realtime;
+    // True while the raw Supabase Realtime socket is delivering frames — the
+    // HTTP fallback pumps still run but the Realtime pipe is our fast path.
+    private volatile bool _realtimeHealthy;
 
     // Latest cursor sample (normalised 0..1) bound by LiveSessionWindow.
     [ObservableProperty] private double cursorNormX;
@@ -112,6 +116,45 @@ public partial class LiveSessionViewModel : ObservableObject
         }, onError: SurfaceError);
         _cursorPump.Start(_cts.Token);
 
+        // Raw Supabase Realtime is the fast path: session_frames /
+        // session_cursors rows are pushed the instant the agent writes them,
+        // so the picture no longer waits on the next 200 ms poll tick. The
+        // HTTP pumps above stay running as an always-on fallback if the
+        // socket disconnects or the project's Realtime quota is exhausted.
+        _realtime = new RealtimeChannel(
+            App.Config.SupabaseUrl,
+            App.Config.SupabaseAnonKey,
+            App.Auth.Current?.AccessToken,
+            SessionId,
+            onFrameBytes: (bytes, utc) =>
+            {
+                var bmp = DecodeJpeg(bytes);
+                if (bmp == null) return;
+                _lastFrameUtc = utc;
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    CurrentFrame = bmp;
+                    if (Transport != "webrtc") Transport = "realtime";
+                });
+            },
+            onCursor: e =>
+            {
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    if (!e.Visible || e.FrameW is null or 0 || e.FrameH is null or 0)
+                    {
+                        CursorVisible = false;
+                        return;
+                    }
+                    CursorNormX = Math.Clamp((double)e.X / e.FrameW.Value, 0, 1);
+                    CursorNormY = Math.Clamp((double)e.Y / e.FrameH.Value, 0, 1);
+                    CursorVisible = true;
+                });
+            },
+            onError: SurfaceError,
+            onHealth: healthy => _realtimeHealthy = healthy);
+        _realtime.Start();
+
         _rtc = new WebRtcClient(SessionId);
         _ = _rtc.StartAsync(_cts.Token,
             onConnected: () =>
@@ -126,6 +169,20 @@ public partial class LiveSessionViewModel : ObservableObject
             onError: SurfaceError);
 
         StartLinkWatchdog(_cts.Token);
+    }
+
+    private static BitmapSource? DecodeJpeg(byte[] bytes)
+    {
+        try
+        {
+            using var ms = new System.IO.MemoryStream(bytes);
+            var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            if (decoder.Frames.Count == 0) return null;
+            var f = decoder.Frames[0];
+            f.Freeze();
+            return f;
+        }
+        catch { return null; }
     }
 
     // 1 Hz UI-thread tick that reports how fresh the picture actually is.
@@ -154,6 +211,13 @@ public partial class LiveSessionViewModel : ObservableObject
     {
         try { _cts?.Cancel(); } catch { }
         try { _rtc?.Close(); } catch { }
+        if (_realtime != null)
+        {
+            var rt = _realtime;
+            _realtime = null;
+            _ = Task.Run(async () => { try { await rt.DisposeAsync(); } catch { } });
+        }
+        _realtimeHealthy = false;
         _rtc = null;
         _framePump = null;
         _cursorPump = null;

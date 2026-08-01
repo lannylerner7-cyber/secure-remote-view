@@ -59,7 +59,7 @@ public partial class App : Application
             }
         }
 
-        // User-quit override. An automatic launch (Run key / Watcher) must respect
+        // User-quit override. An automatic launch (Run key / Updater) must respect
         // a previous explicit Exit; a manual launch clears it.
         if (StopFlagWatcher.Exists())
         {
@@ -102,7 +102,7 @@ public partial class App : Application
 
             _main.SetDevice(api.DeviceId ?? "not enrolled");
 
-            // Boss (Watcher) → Worker (Agent) handoff: if /WAKE was passed
+            // Boss (Updater) → Worker (Agent) handoff: if /WAKE was passed
             // with a /SESSION=<id>, treat that id as authoritative and skip
             // the disk-restore lookup.
             string? sessionId = null;

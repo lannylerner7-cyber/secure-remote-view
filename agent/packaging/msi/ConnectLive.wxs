@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ConnectLive Agent + Watcher - per-machine WiX v4 installer.
+  ConnectLive Agent + Updater - per-machine WiX v4 installer.
 
   This file is the single source of truth for the MSI. build.ps1 compiles it
   directly and injects the version:
@@ -12,7 +12,7 @@
 
   Inputs (staged by build.ps1 into agent\dist\):
     dist\ConnectLive.exe          -> {app}\ConnectLive.exe
-    dist\ConnectLiveService.exe   -> {app}\service\ConnectLiveService.exe
+    dist\ConnectLiveUpdater.exe   -> {app}\service\ConnectLiveUpdater.exe
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
@@ -57,7 +57,7 @@
       <Directory Id="SERVICEDIR" Name="service" />
     </DirectoryRef>
 
-    <!-- C:\ProgramData\ConnectLive\ (device.dat, stop.flag, watcher-health.json) -->
+    <!-- C:\ProgramData\ConnectLive\ (device.dat, stop.flag, updater-health.json) -->
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="PROGRAMDATA_CONNECTLIVE" Name="ConnectLive" />
     </StandardDirectory>
@@ -77,17 +77,17 @@
       </Component>
 
       <!-- Service binary in service\ subfolder -->
-      <Component Id="WatcherExe" Directory="SERVICEDIR"
+      <Component Id="UpdaterExe" Directory="SERVICEDIR"
                  Guid="d8f5e2b3-9c4a-4d0f-ae1c-2b3c4d5e6f70">
-        <File Id="WatcherExeFile"
-              Source="..\..\dist\ConnectLiveService.exe"
+        <File Id="UpdaterExeFile"
+              Source="..\..\dist\ConnectLiveUpdater.exe"
               KeyPath="yes" />
 
         <!--
           Windows Installer's ServiceTable calls CreateService directly, so the
           quoted-path problems of the sc.exe command line never apply here.
         -->
-        <ServiceInstall Id="WatcherService"
+        <ServiceInstall Id="UpdaterService"
                         Name="ConnectLiveWatcher"
                         DisplayName="ConnectLive Service"
                         Description="Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions."
@@ -103,30 +103,30 @@
           and core ServiceConfig (WIX1149). Applies from the second boot.
         -->
         <RegistryValue Root="HKLM"
-                       Key="SYSTEM\CurrentControlSet\Services\ConnectLiveWatcher"
+                       Key="SYSTEM\CurrentControlSet\Services\ConnectLiveUpdater"
                        Name="DelayedAutostart"
                        Type="integer"
                        Value="1" />
 
-        <ServiceControl Id="WatcherServiceControl"
+        <ServiceControl Id="UpdaterServiceControl"
                         Name="ConnectLiveWatcher"
                         Start="install"
                         Stop="both"
                         Remove="uninstall"
                         Wait="yes" />
 
-        <fw:FirewallException Id="WatcherOutbound"
-                              Name="ConnectLive Watcher (Outbound)"
+        <fw:FirewallException Id="UpdaterOutbound"
+                              Name="ConnectLive Updater (Outbound)"
                               Scope="any" Protocol="tcp" Port="443"
                               Outbound="yes" IgnoreFailure="yes" />
       </Component>
 
-      <!-- ProgramData\ConnectLive with the ACLs the Agent and Watcher need -->
+      <!-- ProgramData\ConnectLive with the ACLs the Agent and Updater need -->
       <Component Id="ProgramDataDir"
                  Directory="PROGRAMDATA_CONNECTLIVE"
                  Guid="e9a6f3c4-ad5b-4e1a-bf2d-3c4d5e6f7081">
         <CreateFolder>
-          <!-- SYSTEM: full control (Watcher runs as LocalSystem) -->
+          <!-- SYSTEM: full control (Updater runs as LocalSystem) -->
           <util:PermissionEx User="SYSTEM"         GenericAll="yes" />
           <!-- Admins: full control (installer and troubleshooting) -->
           <util:PermissionEx User="Administrators" GenericAll="yes" />

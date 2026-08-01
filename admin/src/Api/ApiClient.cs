@@ -140,7 +140,7 @@ public sealed class ApiClient
     public async Task<List<DeviceRow>> ListDevicesAsync(CancellationToken ct)
     {
         using var req = NewSupabase(HttpMethod.Get,
-            "/rest/v1/devices?select=id,device_id,display_name,hostname,os,last_seen_at,status,is_session_active&order=last_seen_at.desc");
+            "/rest/v1/devices?select=id,device_id,display_name,hostname,os,last_seen_at,status,is_session_active,metadata&order=last_seen_at.desc");
         using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         await EnsureOkAsync(res, "list devices", ct).ConfigureAwait(false);
         var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -408,7 +408,10 @@ public sealed class ApiClient
     // Queue a power-management command (shutdown / restart / lock / logoff /
     // wake) for the agent's PowerRelay to pick up. RLS restricts inserts to
     // authenticated staff with the admin/super_admin role.
-    public async Task EnqueuePowerCommandAsync(string deviceRowId, string kind, object? payload, CancellationToken ct)
+    public Task EnqueuePowerCommandAsync(string deviceRowId, string kind, object? payload, CancellationToken ct)
+        => EnqueuePowerCommandAsync(deviceRowId, kind, payload, null, ct);
+
+    public async Task EnqueuePowerCommandAsync(string deviceRowId, string kind, object? payload, string? relayDeviceId, CancellationToken ct)
     {
         // Older UI builds used "restart" while the database and Agent use
         // "reboot". Normalize at the API boundary so stale callers cannot
@@ -417,15 +420,17 @@ public sealed class ApiClient
             kind = "reboot";
         using var req = NewSupabase(HttpMethod.Post, "/rest/v1/power_commands");
         req.Headers.Add("Prefer", "return=minimal");
-        req.Content = JsonContent.Create(new
+        var body = new System.Collections.Generic.Dictionary<string, object?>
         {
-            device_id = deviceRowId,
-            kind,
-            payload = payload ?? new { },
-            state = "queued",
-            expires_at = DateTime.UtcNow.AddMinutes(5),
-            requested_by = _auth.Current?.UserId,
-        });
+            ["device_id"] = deviceRowId,
+            ["kind"] = kind,
+            ["payload"] = payload ?? new { },
+            ["state"] = "queued",
+            ["expires_at"] = DateTime.UtcNow.AddMinutes(5),
+            ["requested_by"] = _auth.Current?.UserId,
+        };
+        if (!string.IsNullOrEmpty(relayDeviceId)) body["relay_device_id"] = relayDeviceId;
+        req.Content = JsonContent.Create(body);
         using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         await EnsureOkAsync(res, "enqueue power command", ct).ConfigureAwait(false);
     }
