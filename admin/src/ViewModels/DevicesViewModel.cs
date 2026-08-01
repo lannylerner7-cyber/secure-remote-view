@@ -104,6 +104,19 @@ public partial class DevicesViewModel : ObservableObject
                         ? (DateTime.UtcNow - d.LastSeenAt.Value.UtcDateTime).TotalSeconds
                         : double.MaxValue;
                     var isOnline = age < 30;
+                    string? subnet = null;
+                    string? mac = null;
+                    try
+                    {
+                        if (d.Metadata.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        {
+                            if (d.Metadata.TryGetProperty("lan_subnet_v4", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.String)
+                                subnet = s.GetString();
+                            if (d.Metadata.TryGetProperty("mac", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String)
+                                mac = m.GetString();
+                        }
+                    }
+                    catch { /* metadata is best-effort */ }
                     Devices.Add(new DeviceItem
                     {
                         RowId = d.Id,
@@ -114,6 +127,8 @@ public partial class DevicesViewModel : ObservableObject
                         Status = isOnline ? "online" : "offline",
                         LastSeen = FormatAge(age),
                         InSession = d.IsSessionActive,
+                        LanSubnetV4 = subnet,
+                        Mac = mac,
                     });
                 }
                 Error = null;
