@@ -9,7 +9,7 @@ Transparent remote-support agent for managed Windows devices. Every session show
 | `src/Agent.cs` | Session coordinator, heartbeat loop, frame/input/cursor streaming |
 | `src/ApiClient.cs` | HTTP + WebSocket client for the ConnectLive API |
 | `src/App.xaml` / `src/App.xaml.cs` | WPF entry, splash window styling |
-| `src/SessionIndicator.cs` | Persistent live-session banner shown during support |
+| `src/TrayIcon.cs` | Persistent tray icon that carries session transparency |
 | `src/ConnectLiveAgent.csproj` | .NET 8 single-file project |
 | `assets/logo.svg` / `assets/icon.ico` | ConnectLive branding |
 | `build.ps1` | One-command build → `dist/ConnectLiveAgent.zip` |
