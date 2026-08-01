@@ -136,7 +136,7 @@ public partial class LiveSessionViewModel : ObservableObject
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
                     CurrentFrame = bmp;
-                    if (Transport != "webrtc") Transport = "realtime";
+                    if (Transport != "WebRTC video") Transport = "Realtime frames";
                 });
             },
             onCursor: e =>
@@ -163,7 +163,7 @@ public partial class LiveSessionViewModel : ObservableObject
             {
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
-                    Transport = "webrtc";
+                    Transport = "WebRTC video";
                     StatusMessage = null;
                 });
             },
