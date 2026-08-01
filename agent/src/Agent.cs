@@ -177,8 +177,9 @@ public sealed class Agent
                 await DispatchPendingSessions(body, ct);
                 await DispatchPowerCommands(body, ct);
 
-                // Interruptible sleep: a wake nudge (SSE / wake_agent) cuts it short.
-                var delay = (Stream?.Healthy == true) ? slowDelay : fastDelay;
+                // Interruptible sleep: a wake nudge (wake_agent power command)
+                // cuts it short. Cadence is fast while a session is active.
+                var delay = string.IsNullOrEmpty(_currentSessionId) ? slowDelay : fastDelay;
                 try { await _wakeSignal.WaitAsync(delay, ct); } catch { }
 
             }
