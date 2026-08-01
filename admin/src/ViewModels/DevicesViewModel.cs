@@ -260,7 +260,8 @@ public partial class DevicesViewModel : ObservableObject
         {
             await App.Api.EnqueuePowerCommandAsync(
                 item.RowId, "wake",
-                new { mac = item.Mac, relay_device_id = peer.RowId },
+                new { mac = item.Mac },
+                peer.RowId,
                 CancellationToken.None);
             MessageBox.Show(
                 $"Wake queued for {item.DisplayName} via {peer.DisplayName}.",
