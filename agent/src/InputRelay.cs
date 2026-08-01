@@ -27,13 +27,23 @@ public static class InputRelay
             try { pump.Release("session_cancelled"); } catch { }
         });
 
+        // Adaptive poll cadence. Under active input the admin drops many events
+        // into session_inputs per second and we want to replay them as close to
+        // real-time as the DB round-trip allows — 25ms is the tight floor. In
+        // idle periods (no admin, no keystrokes) we back off toward 60ms so we
+        // do not hammer PostgREST for empty result sets. The web console's
+        // primary path is WebRTC DataChannel today; this poller is the belt-
+        // and-braces fallback that must never miss a keystroke.
+        int delayMs = 25;
         while (!ct.IsCancellationRequested)
         {
+            bool sawWork = false;
             try
             {
                 var (max, items) = await api.PollInputsAsync(sessionId, since, ct);
-                if (items != null)
+                if (items != null && items.Count > 0)
                 {
+                    sawWork = true;
                     foreach (var it in items)
                     {
                         try { pump.Enqueue(it); } catch (Exception ex) { Log.Warn($"input enqueue: {ex.Message}"); }
@@ -42,7 +52,8 @@ public static class InputRelay
                 }
             }
             catch (Exception ex) { Log.Warn($"input poll: {ex.Message}"); }
-            try { await Task.Delay(90, ct); } catch { }
+            delayMs = sawWork ? 25 : Math.Min(60, delayMs + 5);
+            try { await Task.Delay(delayMs, ct); } catch { }
         }
     }
 
