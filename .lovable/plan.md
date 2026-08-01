@@ -1,58 +1,42 @@
-# Phase 1 — Rename, Strip Removal, Staged Wake, Admin Realtime
+## Goal
 
-Scope note: service registration is **not** reopened. Wake stage 1 (updater-first) stays deferred to Phase 2.
+1. Make transport status visible in the admin surfaces (Realtime connected / reconnecting / fallback polling).
+2. Prove the wake path works end to end.
+3. Prove enrollment → session → frame/cursor delivery works end to end.
 
-## Status of already-shipped work
+## 1. Transport health indicator
 
-Item 1 (on-screen live strip removal + InputRelay re-gate) and the console.tsx staged Wake messaging were applied in the previous turn, and only the agent zip was refreshed. This plan finishes the remaining items and re-emits **both** archives so the admin side is not left behind.
+**Web console (`src/routes/_authenticated/console.tsx`)**
+- Track a single `transport` state derived from the existing `frames-{sessionId}` / `admin-live` channel subscribe callbacks: `connecting`, `live` (SUBSCRIBED + a push seen in the last 5s), `reconnecting` (CHANNEL_ERROR/TIMED_OUT/CLOSED), `polling` (subscribed but no push within 5s while the polling fallback is returning frames).
+- Render a small pill in the live-view header: coloured dot + label + last-frame age in ms, plus frames/sec counter. Uses existing semantic tokens, no hardcoded colours.
 
-Confirmed non-regression: `SessionBanner` was only used by `EngageCurtain()` for curtain stacking. The relay loop runs purely on `ct.IsCancellationRequested`, so remote input works with zero on-screen UI.
+**Native admin (`admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Media/RealtimeChannel.cs`, `admin/src/Views/LiveSessionWindow.xaml`)**
+- Promote the existing `_realtimeHealthy` flag to an observable `TransportState` string + brush, fed by `RealtimeChannel`'s `onHealth` callback and by whether `FrameFallbackPump` / `CursorPollPump` produced the most recent frame.
+- Add a status pill bound to it in the live window header, next to the existing banner.
 
-## 0. Watcher → Updater rename (whole repo)
+## 2. End-to-end wake test
 
-| Now | After |
-|---|---|
-| `agent/watcher/` | `agent/updater/` |
-| `ConnectLiveWatcher.csproj` | `ConnectLiveUpdater.csproj` |
-| assembly `ConnectLiveService.exe` | `ConnectLiveUpdater.exe` |
-| `IsWatcherServiceRunning`, `StreamLoop` log tags, `"watcher"` strings | updater equivalents |
+New script `scripts/e2e-wake.ts` (run with bun, against the deployed public API):
+- Enroll a throwaway virtual device via `/api/public/agent/enroll`.
+- Heartbeat once, then stop heart-beating so it goes offline.
+- Open an SSE connection to `/api/public/agent/stream` as that device (this stands in for the updater).
+- Enqueue a `wake_agent` power command the same way the admin Wake button does.
+- Assert: the SSE client receives the wake event within a few seconds, then ack via `/api/public/agent/power/{id}/ack`, and confirm the command flips to `delivered`.
+- Also assert the staged failure messaging: with the SSE listener closed and no LAN peer, the command path reports the precise reason rather than a generic "no online peer found".
 
-Also updated: `build.bat`, `agent/build.ps1`, `agent/install.ps1`, `agent/packaging/inno/ConnectLiveSetup.iss`, `agent/packaging/msi/ConnectLive.wxs`, GPO/Intune/Jamf manifests, `agent/README.md`, `agent/INSTALL.md`, `AGENTS.md`, and admin/web user-facing strings ("Updater not running").
+## 3. Enrollment + render smoke test
 
-`InputBlocker.CheckWatchdog` keeps its name — genuine watchdog timer, not the updater. No registration logic is added or removed; existing behavior carries over under the new name.
+New script `scripts/e2e-smoke.ts`:
+- Enroll a virtual agent, heartbeat, create a session, push a synthetic JPEG frame to `/api/public/agent/session/{id}/frame` and a cursor to `.../cursor`.
+- In parallel, subscribe with a Supabase Realtime client (same filters the admin uses) and assert both the frame and cursor arrive over Realtime, measuring latency.
+- Assert the REST fallback read returns the same row (so the fallback pumps still work if the socket is down).
+- Tear down: end the session, delete the test device.
 
-## 1. Live strip removal — verification pass
-
-Confirm no dangling references remain: `SessionIndicator.cs` deleted, `Agent.cs` `_indicator` sites gone, `CurtainOverlay.Show()` signature without banner, `App.xaml.cs` assignment removed, README row dropped, class comment in `InputRelay.cs` rewritten to the session-token + tray-quit kill switch story.
-
-## 2. Wake — stages 2 and 3, admin side
-
-Mirror the staged reporting already in `console.tsx` into `admin/src/ViewModels/DevicesViewModel.cs`:
-
-```text
-Wake pressed
-  ├─ device ONLINE            → "Device is already online — use Connect."
-  ├─ no lan_subnet_v4         → never reported a LAN subnet; must check in once online first
-  ├─ subnet but no MAC        → names the missing field explicitly
-  ├─ subnet + MAC, no peer    → needs another ConnectLive machine online on <subnet>
-  └─ peer found               → queue relay WoL, report which peer relayed it
-```
-
-Surfaced inline in the device row, not a modal dead end. A **Wake** button is added to the admin device row so it is reachable without opening a session.
-
-## 3. Admin console — raw Supabase Realtime rendering
-
-- New `admin/src/Media/RealtimeChannel.cs` — Realtime WebSocket authenticated with the stored user access token; `postgres_changes` on `session_frames`, `session_cursors`, `session_signals`, filtered to the active `session_id`; reconnect/backoff and token-refresh handling.
-- `FrameFallbackPump.cs` / `CursorPollPump.cs` become true fallbacks: idle while the socket is healthy, resume adaptive polling within ~2s of a drop.
-- `LiveSessionViewModel.cs` accepts frames from whichever transport lands first, de-duplicated on `updated_at`; the WebRTC upgrade path is unchanged and still preferred.
-- Button audit — `MainWindow.xaml` (Payments, Orders, Refresh, Sign out, Connect, Delete, new Wake) and `LiveSessionWindow.xaml` (view/control, curtain, power actions, restart stream, restart agent, reconnect, end session): each gets a bound command with correct `CanExecute`, busy state, and a visible success/failure result instead of a silent no-op.
+Then drive the real web console in a headless browser against a live virtual agent to confirm the rendered screen and cursor overlay actually paint, and capture screenshots as evidence.
 
 ## Technical notes
 
-- Realtime prerequisite: additive migration adding `session_frames` and `session_cursors` to the `supabase_realtime` publication with `REPLICA IDENTITY FULL`. No RLS changes.
-- Security rule preserved: no backend key or JWT is ever written to an agent/updater machine; agent/updater stay device-token SSE only.
-- Deliverables: refreshed `ConnectLive-RemoteAgent-src.zip` **and** `ConnectLive-AdminConsole-src.zip`, emitted one after the other.
-
-## Deferred to Phase 2
-
-Wake stage 1 — updater receives the wake over device-token SSE, reads the last-used session id from `%ProgramData%\ConnectLive`, relaunches the Agent in the interactive session, acks `delivered`. Requires the updater installed as LocalSystem, which reopens service registration — done deliberately, not as a side effect.
+- The native WPF admin cannot be compiled or executed in this Linux environment, so its indicator is verified by code review + the shared server-side assertions; the browser-driven verification runs against the web console. The virtual agent scripts exercise the exact same HTTP endpoints the C# agent uses.
+- No schema changes required — `session_frames`, `session_cursors`, and `power_commands` are already in the `supabase_realtime` publication with `REPLICA IDENTITY FULL`.
+- Test artifacts clean up after themselves so no stray devices/sessions linger.
+- Both source zips are repackaged afterwards if the native admin files change.

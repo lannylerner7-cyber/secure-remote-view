@@ -107,6 +107,8 @@ function AdminPage() {
   const [liveId, setLiveId] = useState<string | null>(null);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
   const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
+  const lastRealtimePushAtRef = useRef<number>(0);
+  const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "subscribed" | "reconnecting" | "closed">("connecting");
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
@@ -140,8 +142,10 @@ function AdminPage() {
   // Live frame subscription: whenever an admin opens a session, we stream the
   // agent's latest screen snapshot (session_frames table, updated ~2fps).
   useEffect(() => {
-    if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); return; }
+    if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); setRealtimeStatus("connecting"); return; }
     let cancelled = false;
+    setRealtimeStatus("connecting");
+    lastRealtimePushAtRef.current = 0;
     supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
       .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
     supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle()
@@ -153,6 +157,7 @@ function AdminPage() {
           const row = payload.new as never as LiveFrame;
           if (row) {
             setLiveFrame(row);
+            lastRealtimePushAtRef.current = Date.now();
             // FPS counter
             const c = fpsCounterRef.current;
             c.count++;
@@ -161,9 +166,27 @@ function AdminPage() {
           }
         })
       .on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
-        (payload) => { const row = payload.new as never as LiveCursor; if (row) setLiveCursor(row); })
-      .subscribe();
-    return () => { cancelled = true; supabase.removeChannel(ch); };
+        (payload) => { const row = payload.new as never as LiveCursor; if (row) { setLiveCursor(row); lastRealtimePushAtRef.current = Date.now(); } })
+      .subscribe((status) => {
+        if (cancelled) return;
+        if (status === "SUBSCRIBED") setRealtimeStatus("subscribed");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeStatus("reconnecting");
+        else if (status === "CLOSED") setRealtimeStatus("closed");
+      });
+    // Fallback poller: only fetches when the realtime socket has been quiet
+    // for >5s, so we can prove the pipe is alive even when postgres_changes drops.
+    const poll = setInterval(async () => {
+      if (cancelled) return;
+      if (Date.now() - lastRealtimePushAtRef.current < 5000) return;
+      const [{ data: f }, { data: c }] = await Promise.all([
+        supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle(),
+        supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      if (f) setLiveFrame(f as never);
+      if (c) setLiveCursor(c as never);
+    }, 3000);
+    return () => { cancelled = true; supabase.removeChannel(ch); clearInterval(poll); };
   }, [liveId]);
 
   useEffect(() => {
@@ -773,6 +796,21 @@ function AdminPage() {
           reconnecting: "Device reconnecting",
           paused: "Session paused",
         }[streamState];
+        const rtSinceLastPush = lastRealtimePushAtRef.current ? now - lastRealtimePushAtRef.current : Infinity;
+        const transport: "connecting" | "live" | "reconnecting" | "polling" =
+          realtimeStatus === "reconnecting" || realtimeStatus === "closed"
+            ? "reconnecting"
+            : realtimeStatus === "connecting"
+              ? "connecting"
+              : rtSinceLastPush < 5000
+                ? "live"
+                : "polling";
+        const transportTone = transport === "live"
+          ? "bg-emerald-400"
+          : transport === "polling" || transport === "connecting"
+            ? "bg-amber-400"
+            : "bg-rose-500";
+        const transportLabel = { connecting: "Connecting", live: "Realtime live", reconnecting: "Reconnecting", polling: "Fallback polling" }[transport];
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
             <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -783,6 +821,13 @@ function AdminPage() {
                     <div className="text-sm font-semibold">{dev?.display_name ?? "Waiting for agent…"}</div>
                     <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state} · {streamCopy}</div>
                   </div>
+                  <span
+                    title={`Supabase Realtime socket: ${realtimeStatus}. Last push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                    className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${transportTone} ${transport === "live" ? "animate-pulse" : ""}`} />
+                    {transportLabel}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   {s.device_id && role !== "viewer" && (
