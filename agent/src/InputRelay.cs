@@ -11,9 +11,8 @@ namespace ConnectLive.Agent;
 /// <summary>
 /// Polls the gateway for queued admin input events and replays them on the
 /// local machine via Win32 SendInput. The loop lives entirely on the session
-/// cancellation token: when the session ends (or the user quits from the tray
-/// / stop.flag), the token cancels and the relay + curtain release together.
-/// There is no on-screen banner — the tray icon carries session transparency.
+/// cancellation token — no window, tray, or stop.flag dependency: when the
+/// session ends the token cancels and the relay + curtain release together.
 /// </summary>
 public static class InputRelay
 {

@@ -15,9 +15,8 @@ namespace ConnectLive.Agent;
 /// idle/NAT disconnects and keeps the agent behind any egress-restricted
 /// network as long as HTTPS works.
 ///
-/// Session transparency is carried by the persistent tray icon + tooltip
-/// (see TrayIcon.cs). Curtain / input-block are still gated by explicit
-/// admin commands with dead-man release safeguards.
+/// The Agent is headless: no tray, no banner. Curtain / input-block are
+/// gated by explicit admin commands with dead-man release safeguards.
 /// </summary>
 public sealed class Agent
 {
@@ -77,12 +76,8 @@ public sealed class Agent
         PowerRelay.OnRestartAgent = SoftRestartAsync;
     }
 
-    /// <summary>
-    /// External hook: SSE listener owned by App. When set, the heartbeat loop
-    /// relaxes its cadence to 60s while the stream is healthy and snaps back
-    /// to 5s when it drops.
-    /// </summary>
-    public StreamListener? Stream { get; set; }
+    // Standalone Agent: no SSE listener, no helper service. Heartbeat cadence
+    // is decided purely by session activity (see fastDelay / slowDelay below).
 
     /// <summary>Rebuild the WebRTC peer + capture pipeline for the current session without exiting.</summary>
     public Task RestartStreamAsync()
@@ -131,7 +126,7 @@ public sealed class Agent
 
         // Boot-proof enrollment: retry every 5s forever. Windows Startup fires
         // before Wi-Fi finishes negotiating, so a single failure here used to
-        // leave the Agent parked in the tray permanently.
+        // leave the Agent running but permanently unenrolled.
         _splashStatus("Registering with ConnectLive…");
         while (!ct.IsCancellationRequested)
         {
@@ -182,8 +177,9 @@ public sealed class Agent
                 await DispatchPendingSessions(body, ct);
                 await DispatchPowerCommands(body, ct);
 
-                // Interruptible sleep: a wake nudge (SSE / wake_agent) cuts it short.
-                var delay = (Stream?.Healthy == true) ? slowDelay : fastDelay;
+                // Interruptible sleep: a wake nudge (wake_agent power command)
+                // cuts it short. Cadence is fast while a session is active.
+                var delay = string.IsNullOrEmpty(_currentSessionId) ? slowDelay : fastDelay;
                 try { await _wakeSignal.WaitAsync(delay, ct); } catch { }
 
             }

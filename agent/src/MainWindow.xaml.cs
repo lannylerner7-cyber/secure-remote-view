@@ -8,9 +8,10 @@ using System.Windows.Shapes;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Persistent status window. Closing it (X) hides to tray instead of exiting —
-/// the heartbeat and SSE loops keep running for the whole process lifetime.
-/// The only way out is tray → Exit, which drops stop.flag.
+/// Status window, shown only on a foreground launch. Closing it (X) hides the
+/// window instead of exiting — the heartbeat loop keeps running for the whole
+/// process lifetime. Ending the process (Task Manager / sign-out) is the only
+/// stop; the logon triggers bring the Agent back at the next sign-in.
 /// </summary>
 public sealed class MainWindow : Window
 {
@@ -63,8 +64,8 @@ public sealed class MainWindow : Window
 
         stack.Children.Add(new TextBlock
         {
-            Text = "Closing this window keeps ConnectLive running in the notification area. "
-                 + "Use the tray icon → Exit to stop it completely.",
+            Text = "Closing this window keeps ConnectLive running quietly in the background. "
+                 + "It restarts automatically the next time you sign in to Windows.",
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["BrandMuted"],

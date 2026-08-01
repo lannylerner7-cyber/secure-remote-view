@@ -1,24 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ConnectLive Agent + Updater - per-machine WiX v4 installer.
+  ConnectLive Agent - per-machine WiX v4 installer (standalone, agent-only).
 
-  This file is the single source of truth for the MSI. build.ps1 compiles it
-  directly and injects the version:
+  There is no helper service. Startup persistence is delivered by the Agent
+  itself (HKCU Run key + Startup shortcut, self-healed on every launch) plus
+  the ONLOGON Scheduled Task created below.
 
-    wix build ConnectLive.wxs -d Version=1.0.20260730.1948 ...
+  build.ps1 injects the version:
+    wix build ConnectLive.wxs -d Version=1.0.20260801.1200 ...
 
-  Silent install / upgrade (IT / Intune / GPO) - same command both times:
+  Silent install / upgrade:
     msiexec /i ConnectLiveAgent.msi /qn
-
-  Inputs (staged by build.ps1 into agent\dist\):
-    dist\ConnectLive.exe          -> {app}\ConnectLive.exe
-    dist\ConnectLiveUpdater.exe   -> {app}\service\ConnectLiveUpdater.exe
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
 
-  <!-- Fallback so the file still compiles if -d Version=... is omitted. -->
   <?ifndef Version ?>
   <?define Version = "1.0.0.0" ?>
   <?endif ?>
@@ -30,13 +27,6 @@
            Scope="perMachine"
            InstallerVersion="500">
 
-    <!--
-      AllowSameVersionUpgrades="yes" is the fix for
-      "A newer version of ConnectLive Agent is already installed."
-      Without it, reinstalling an identical ProductVersion is treated as a
-      downgrade and blocked. Schedule="afterInstallInitialize" removes the old
-      product before the new files land, so the service is cleanly re-registered.
-    -->
     <MajorUpgrade AllowSameVersionUpgrades="yes"
                   Schedule="afterInstallInitialize"
                   DowngradeErrorMessage="A newer version of ConnectLive Agent is already installed. Remove it from Apps &amp; Features before installing this build." />
@@ -47,24 +37,21 @@
       <ComponentGroupRef Id="ConnectLiveComponents" />
     </Feature>
 
-    <!-- C:\Program Files\ConnectLive\ -->
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLDIR" Name="ConnectLive" />
     </StandardDirectory>
 
-    <!-- C:\Program Files\ConnectLive\service\ -->
-    <DirectoryRef Id="INSTALLDIR">
-      <Directory Id="SERVICEDIR" Name="service" />
-    </DirectoryRef>
-
-    <!-- C:\ProgramData\ConnectLive\ (device.dat, stop.flag, updater-health.json) -->
+    <!--
+      ProgramData\ConnectLive stays as a legacy landing spot for install.log
+      and any pre-migration device.dat. The Agent's live storage moved to
+      %LOCALAPPDATA%\ConnectLive on first launch (see ApiClient.MigrateLegacyStore).
+    -->
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="PROGRAMDATA_CONNECTLIVE" Name="ConnectLive" />
     </StandardDirectory>
 
     <ComponentGroup Id="ConnectLiveComponents">
 
-      <!-- Agent - the only file a user ever opens -->
       <Component Id="AgentExe" Directory="INSTALLDIR"
                  Guid="c7e4d1a2-8b3f-4c9e-9d0b-1a2b3c4d5e6f">
         <File Id="AgentExeFile"
@@ -76,66 +63,12 @@
                               Outbound="yes" IgnoreFailure="yes" />
       </Component>
 
-      <!-- Service binary in service\ subfolder -->
-      <Component Id="UpdaterExe" Directory="SERVICEDIR"
-                 Guid="d8f5e2b3-9c4a-4d0f-ae1c-2b3c4d5e6f70">
-        <File Id="UpdaterExeFile"
-              Source="..\..\dist\ConnectLiveUpdater.exe"
-              KeyPath="yes" />
-
-        <!--
-          Windows Installer's ServiceTable calls CreateService directly, so the
-          quoted-path problems of the sc.exe command line never apply here.
-        -->
-        <ServiceInstall Id="UpdaterService"
-                        Name="ConnectLiveWatcher"
-                        DisplayName="ConnectLive Service"
-                        Description="Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions."
-                        Type="ownProcess"
-                        Start="auto"
-                        Account="LocalSystem"
-                        ErrorControl="normal"
-                        Vital="yes" />
-
-        <!--
-          Delayed auto-start via the exact registry value services.msc writes.
-          Avoids util:ServiceConfig (no DelayedAutoStart in the WiX v4 schema)
-          and core ServiceConfig (WIX1149). Applies from the second boot.
-        -->
-        <RegistryValue Root="HKLM"
-                       Key="SYSTEM\CurrentControlSet\Services\ConnectLiveUpdater"
-                       Name="DelayedAutostart"
-                       Type="integer"
-                       Value="1" />
-
-        <ServiceControl Id="UpdaterServiceControl"
-                        Name="ConnectLiveWatcher"
-                        Start="install"
-                        Stop="both"
-                        Remove="uninstall"
-                        Wait="yes" />
-
-        <fw:FirewallException Id="UpdaterOutbound"
-                              Name="ConnectLive Updater (Outbound)"
-                              Scope="any" Protocol="tcp" Port="443"
-                              Outbound="yes" IgnoreFailure="yes" />
-      </Component>
-
-      <!-- ProgramData\ConnectLive with the ACLs the Agent and Updater need -->
       <Component Id="ProgramDataDir"
                  Directory="PROGRAMDATA_CONNECTLIVE"
                  Guid="e9a6f3c4-ad5b-4e1a-bf2d-3c4d5e6f7081">
         <CreateFolder>
-          <!-- SYSTEM: full control (Updater runs as LocalSystem) -->
           <util:PermissionEx User="SYSTEM"         GenericAll="yes" />
-          <!-- Admins: full control (installer and troubleshooting) -->
           <util:PermissionEx User="Administrators" GenericAll="yes" />
-          <!--
-            AuthenticatedUsers: read + write + delete so the Agent (running as
-            the signed-in user) can read device.dat and write/clear stop.flag.
-            GenericRead + GenericWrite + Delete = Windows "Modify".
-            (Modify="yes" is not a valid PermissionEx attribute - WIX0004.)
-          -->
           <util:PermissionEx User="AuthenticatedUsers"
                              GenericRead="yes"
                              GenericWrite="yes"
@@ -149,6 +82,27 @@
       </Component>
 
     </ComponentGroup>
+
+    <!--
+      Register + tear down the ONLOGON Scheduled Task via schtasks.exe. The
+      Agent's StartupSelfHeal writes the HKCU Run key and Startup shortcut on
+      every launch; this task is the third (most robust) logon trigger.
+    -->
+    <CustomAction Id="RegisterLogonTask"
+                  Directory="INSTALLDIR"
+                  ExeCommand="schtasks.exe /Create /F /SC ONLOGON /TN &quot;ConnectLiveAgent&quot; /TR &quot;\&quot;[INSTALLDIR]ConnectLive.exe\&quot; /background&quot; /RL LIMITED /DELAY 0000:10"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveLogonTask"
+                  Directory="INSTALLDIR"
+                  ExeCommand="schtasks.exe /Delete /F /TN &quot;ConnectLiveAgent&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RegisterLogonTask" After="InstallFiles"
+              Condition="NOT Installed" />
+      <Custom Action="RemoveLogonTask"  Before="RemoveFiles"
+              Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
 
   </Package>
 </Wix>

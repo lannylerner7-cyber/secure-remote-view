@@ -1,7 +1,6 @@
 # ConnectLive Agent -- build script (Windows, .NET 8 SDK required)
 # Produces:
 #   dist/ConnectLive.exe           (raw agent binary - input to the installers)
-#   dist/ConnectLiveUpdater.exe    (raw service binary - optional component)
 #   dist/ConnectLiveSetup.exe      (Inno Setup installer - interactive IT installs)
 #   dist/ConnectLiveAgent.msi      (MSI - Intune / GPO / silent)
 #   dist/ConnectLiveAgent.zip      (contains the installer(s) + README)
@@ -16,7 +15,6 @@
 #   powershell -ExecutionPolicy Bypass -File build.ps1
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipMsi       # Inno only
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInno      # MSI only
-#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipUpdater   # agent-only installer
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.2.0.0
 #
 # A missing toolchain is a HARD FAILURE unless the matching -Skip switch is
@@ -25,7 +23,6 @@
 param(
     [switch]$SkipInno,
     [switch]$SkipMsi,
-    [switch]$SkipUpdater,   # Agent-only build: no Updater binary, no Updater component
     [string]$Version
 )
 
@@ -50,7 +47,6 @@ Write-Host "==> Build version: $Version"
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAgent.csproj
-if (-not $SkipUpdater) { dotnet restore updater/ConnectLiveUpdater.csproj }
 
 # -- 2. Publish binaries -------------------------------------------------------
 
@@ -63,20 +59,6 @@ dotnet publish src/ConnectLiveAgent.csproj `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
     -o publish/agent
-
-if (-not $SkipUpdater) {
-    Write-Host "==> Publishing Updater service (single-file, self-contained, win-x64)..."
-    dotnet publish updater/ConnectLiveUpdater.csproj `
-        -c Release `
-        -r win-x64 `
-        --self-contained true `
-        -p:PublishSingleFile=true `
-        -p:IncludeNativeLibrariesForSelfExtract=true `
-        -p:EnableCompressionInSingleFile=true `
-        -o publish/updater
-} else {
-    Write-Host "==> Skipping Updater (-SkipUpdater): Agent-only installer."
-}
 
 # -- 3. Stage binaries to dist\ ------------------------------------------------
 # Both packaging/inno/ConnectLiveSetup.iss and packaging/msi/ConnectLive.wxs
@@ -100,20 +82,12 @@ function Assert-Published([string]$Dir, [string]$Exe, [string]$Project) {
 Copy-Item (Assert-Published "publish/agent" "ConnectLive.exe" "src\ConnectLiveAgent.csproj") dist/ -Force
 
 $required = @("dist/ConnectLive.exe")
-if (-not $SkipUpdater) {
-    Copy-Item (Assert-Published "publish/updater" "ConnectLiveUpdater.exe" "updater\ConnectLiveUpdater.csproj") dist/ -Force
-    $required += "dist/ConnectLiveUpdater.exe"
-} elseif (Test-Path dist/ConnectLiveUpdater.exe) {
-    # A stale binary from a previous full build must not leak into an
-    # Agent-only installer.
-    Remove-Item dist/ConnectLiveUpdater.exe -Force
-}
 
-# Purge the old ConnectLiveService.exe name so a pre-rename build can never be
-# picked up by the installers or slipped into the distribution ZIP.
-foreach ($stale in @("dist/ConnectLiveService.exe", "publish/updater/ConnectLiveService.exe")) {
+# Standalone build: the Agent is the only payload. Purge any helper-service
+# binary left over from an older full build so it cannot leak into a package.
+foreach ($stale in @("dist/ConnectLiveService.exe", "dist/ConnectLiveUpdater.exe", "publish/updater")) {
     if (Test-Path $stale) {
-        Remove-Item $stale -Force
+        Remove-Item $stale -Force -Recurse
         Write-Host "  Removed stale: $($stale -replace '/','\')"
     }
 }
@@ -143,7 +117,6 @@ if (-not $SkipInno) {
         throw "Missing packaging\inno\ConnectLiveSetup.iss - cannot build the Inno installer."
     }
     $innoArgs = @("packaging/inno/ConnectLiveSetup.iss", "/DAppVer=$Version")
-    if ($SkipUpdater) { $innoArgs += "/DNoUpdater" }
     & iscc @innoArgs
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed (exit $LASTEXITCODE)" }
     Write-Host "  Built: dist\ConnectLiveSetup.exe"
@@ -198,7 +171,6 @@ Write-Host "=== Build complete (version $Version) ==="
 Write-Host ""
 Write-Host "  Raw binaries (input to installer - do NOT ship directly):"
 Write-Host "    dist\ConnectLive.exe"
-if (Test-Path dist/ConnectLiveUpdater.exe) { Write-Host "    dist\ConnectLiveUpdater.exe  (optional installer component)" }
 Write-Host ""
 Write-Host "  Installers (ship ONE of these to IT staff):"
 if (Test-Path dist/ConnectLiveSetup.exe) { Write-Host "    dist\ConnectLiveSetup.exe   <- interactive install" }
