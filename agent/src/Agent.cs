@@ -15,9 +15,9 @@ namespace ConnectLive.Agent;
 /// idle/NAT disconnects and keeps the agent behind any egress-restricted
 /// network as long as HTTPS works.
 ///
-/// Every session shows a non-hideable SessionIndicator banner for the entire
-/// session duration, with curtain/input blocking controlled by explicit admin
-/// commands and dead-man release safeguards.
+/// Session transparency is carried by the persistent tray icon + tooltip
+/// (see TrayIcon.cs). Curtain / input-block are still gated by explicit
+/// admin commands with dead-man release safeguards.
 /// </summary>
 public sealed class Agent
 {
@@ -26,7 +26,6 @@ public sealed class Agent
     private readonly Dispatcher _ui;
     private readonly Action? _onWake;
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
-    private SessionIndicator? _indicator;
     private WebRtcSession? _rtc;
     private readonly HashSet<string> _acceptedSessions = new();
     private string? _currentSessionId;
