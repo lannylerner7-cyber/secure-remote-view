@@ -19,7 +19,9 @@ param(
 $ErrorActionPreference = "Stop"
 $InstallDir  = "$env:ProgramFiles\ConnectLive"
 $DataDir     = "$env:ProgramData\ConnectLive"
-$ServiceName = "ConnectLiveWatcher"
+# Must match the name ConnectLiveSetup.iss registers (SVC_NAME), otherwise a
+# script install and an Inno install leave two competing service registrations.
+$ServiceName = "ConnectLiveUpdater"
 
 function Require-Admin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
