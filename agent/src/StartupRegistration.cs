@@ -60,7 +60,7 @@ public static class StartupRegistration
         return null;
     }
 
-    private static bool IsRunningFromInstallDir(string exePath, out string? installDir)
+    internal static bool IsRunningFromInstallDir(string exePath, out string? installDir)
     {
         installDir = InstalledDirectory();
         if (string.IsNullOrWhiteSpace(installDir)) return false;
@@ -72,6 +72,7 @@ public static class StartupRegistration
         }
         catch { return false; }
     }
+
 
     public static void RegisterStartupWithWindows()
     {
