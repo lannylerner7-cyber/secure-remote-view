@@ -276,6 +276,37 @@ function AdminPage() {
     return "offline";
   };
 
+  // Single funnel for Telegram pushes so delivery problems (muted toggle,
+  // missing bot token, Telegram API errors) are visible in the console
+  // instead of silently swallowed by a floating promise.
+  async function pushNotify(kind: "session_start" | "session_end" | "control_taken" | "device_offline", text: string) {
+    try {
+      const r = await notify({ data: { kind, text } });
+      if (!r?.ok) console.warn(`[telegram:${kind}] not delivered —`, r?.reason ?? "unknown reason");
+      return r;
+    } catch (e) {
+      console.warn(`[telegram:${kind}] request failed —`, e);
+      return { ok: false as const, reason: "request_failed" };
+    }
+  }
+
+  // device_offline: fire once per online → offline transition. A ref keeps the
+  // last presence per device so the 5s refresh loop can't spam the channel.
+  const prevPresenceRef = useRef<Map<string, "online" | "reconnecting" | "offline">>(new Map());
+  useEffect(() => {
+    const prev = prevPresenceRef.current;
+    for (const d of devices) {
+      const p = presenceOf(d);
+      const was = prev.get(d.id);
+      prev.set(d.id, p);
+      if (!was) continue;
+      if (was !== "offline" && p === "offline") {
+        void pushNotify("device_offline", `🔌 <b>${d.display_name ?? "Device"}</b> went offline (last seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}).`);
+      }
+    }
+    for (const id of [...prev.keys()]) if (!devices.some((d) => d.id === id)) prev.delete(id);
+  }, [devices, now]);
+
   // Open a session on a specific enrolled device. The agent picks it up
   // via /heartbeat within ~5s (no PIN, no user prompt) and prompts the
   // local user for consent per the standing-consent model.
