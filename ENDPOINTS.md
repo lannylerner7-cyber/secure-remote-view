@@ -68,6 +68,15 @@ chat id, per-kind toggles). All sends funnel through `pushNotify()` in
 | Curtain released | `control_released` | Release curtain |
 | Device went offline | `device_offline` | Presence transition online → offline in the console poll loop |
 
+## Transport parity (web console + native admin + agent)
+
+Mouse-move coalescing runs on a per-frame flush (browser rAF, WPF
+`CompositionTarget.Rendering`, agent batch-local drain). Ordered events
+(mousedown/up, wheel, keys, text, curtain_*) flush any pending move first so
+click targeting stays pixel-accurate across transport swaps. Transport labels
+are shared between surfaces: `WebRTC video`, `Realtime frames`,
+`Frame fallback`, `Reconnecting`, `Ended`.
+
 ## Verification
 
 `bun run scripts/verify-agent-routes.ts` smoke-tests the agent routes.
