@@ -208,4 +208,67 @@ public partial class DevicesViewModel : ObservableObject
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
+    // Staged Wake-on-LAN command that mirrors the web console's failure
+    // reporting: we surface *why* a wake can or can't route before we ever
+    // touch power_commands, so the operator never gets a silent no-op.
+    //   Stage 1: already online — nothing to wake, just Connect.
+    //   Stage 2: no LAN subnet on file — device hasn't heartbeat'd yet.
+    //   Stage 3: no MAC on file — WoL needs both subnet + MAC.
+    //   Stage 4: no online peer on the same subnet to broadcast the packet.
+    // Only when all four gates pass do we enqueue the WoL power command.
+    [RelayCommand]
+    public async Task Wake(DeviceItem? item)
+    {
+        if (item == null) return;
+        if (!item.IsOffline)
+        {
+            MessageBox.Show($"{item.DisplayName} is already online — use Connect instead.",
+                "Wake", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (string.IsNullOrEmpty(item.LanSubnetV4))
+        {
+            MessageBox.Show(
+                $"{item.DisplayName} has never reported a LAN subnet, so Wake-on-LAN can't be routed. It must check in once while online first.",
+                "Wake unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (string.IsNullOrEmpty(item.Mac))
+        {
+            MessageBox.Show(
+                $"Subnet {item.LanSubnetV4} is known but no MAC address has been recorded yet — WoL needs both. Let the agent check in once more while online.",
+                "Wake unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        DeviceItem? peer = null;
+        foreach (var p in Devices)
+        {
+            if (p.RowId == item.RowId) continue;
+            if (p.IsOffline) continue;
+            if (!string.Equals(p.LanSubnetV4, item.LanSubnetV4, StringComparison.Ordinal)) continue;
+            peer = p; break;
+        }
+        if (peer == null)
+        {
+            MessageBox.Show(
+                $"Powered-off wake needs another ConnectLive machine online on {item.LanSubnetV4} to broadcast the magic packet. None is online right now.",
+                "No relay peer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        try
+        {
+            await App.Api.EnqueuePowerCommandAsync(
+                item.RowId, "wake",
+                new { mac = item.Mac, relay_device_id = peer.RowId },
+                CancellationToken.None);
+            MessageBox.Show(
+                $"Wake queued for {item.DisplayName} via {peer.DisplayName}.",
+                "Wake", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (SupabaseCallException ex)
+        {
+            MessageBox.Show(ex.Message, "Wake failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 }
