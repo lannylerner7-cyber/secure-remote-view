@@ -111,6 +111,10 @@ public static class ScreenCapture
                     if (dxFrame != null)
                     {
                         using var g = Graphics.FromImage(rawBmp);
+                        // SourceCopy: copy the desktop pixels verbatim. The default
+                        // SourceOver would blend against the meaningless alpha byte
+                        // in the duplication surface and darken the frame.
+                        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
                         g.DrawImageUnscaled(dxFrame, 0, 0);
                         haveFreshRaw = true;
                         framesSinceKeyframe = forceRefresh ? 0 : framesSinceKeyframe + 1;
@@ -118,7 +122,10 @@ public static class ScreenCapture
                     else if (!dxgi.LastFrameHadContentChange)
                     {
                         // Nothing changed on screen — hold last frame, back off.
+                        // Still keep the VP8 encoder fed (throttled) so a static
+                        // desktop never freezes the admin's decoded picture.
                         framesSinceKeyframe++;
+                        if (scaledBmp != null) TeeToWebRtc(scaledBmp, throttled: true);
                         try { await Task.Delay(100, ct); } catch { }
                         continue;
                     }
@@ -141,7 +148,8 @@ public static class ScreenCapture
                 if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
                 {
                     scaledBmp?.Dispose();
-                    scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+                    // No alpha channel — see rawBmp above.
+                    scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
                     prevScaledW = w;
                     prevScaledH = h;
                 }
@@ -154,6 +162,9 @@ public static class ScreenCapture
                         ? System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
                         : System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
                     g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                    // Second guard against alpha blending on the downscale.
+                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
                     g.DrawImage(rawBmp, 0, 0, w, h);
                 }
 
@@ -168,6 +179,8 @@ public static class ScreenCapture
                 {
                     idleCount++;
                     delayMs = idleCount >= 3 ? 100 : 33;
+                    // Keep the video track alive at ~1 fps while idle.
+                    TeeToWebRtc(scaledBmp, throttled: true);
                 }
                 else
                 {
@@ -181,23 +194,8 @@ public static class ScreenCapture
                     idleParams.Param[0] = new EncoderParameter(Encoder.Quality, _idleQuality);
 
                     // Tee the frame into the WebRTC track when a peer is connected.
-                    try
-                    {
-                        var live = WebRtcSession.Current;
-                        if (live != null)
-                        {
-                            var rect = new Rectangle(0, 0, scaledBmp.Width, scaledBmp.Height);
-                            var data = scaledBmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-                            try
-                            {
-                                var buf = new byte[data.Stride * data.Height];
-                                Marshal.Copy(data.Scan0, buf, 0, buf.Length);
-                                live.PushFrame(buf, data.Width, data.Height, data.Stride);
-                            }
-                            finally { scaledBmp.UnlockBits(data); }
-                        }
-                    }
-                    catch (Exception ex) { Log.Warn($"webrtc tee: {ex.Message}"); }
+                    TeeToWebRtc(scaledBmp, throttled: false);
+
 
                     // Use higher quality for idle keyframes, lower for motion frames.
                     var encP = wasIdle ? idleParams : motionParams;
