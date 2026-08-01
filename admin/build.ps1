@@ -22,9 +22,19 @@ Copy-Item publish/admin/ConnectLiveAdmin.exe dist/ -Force
 Copy-Item src/admin.config.json dist/ -Force
 Copy-Item INSTALL.md dist/README-INSTALL.txt -Force
 
+# Branding icon is optional — see admin/assets/README.md.
+$zipItems = @("dist/ConnectLiveAdmin.exe", "dist/admin.config.json", "dist/README-INSTALL.txt")
+if (Test-Path assets/icon.ico) {
+    Copy-Item assets/icon.ico dist/ -Force
+    $zipItems += "dist/icon.ico"
+    Write-Host "  Icon : assets\icon.ico staged"
+} else {
+    Write-Warning "assets\icon.ico not found - building without admin branding icon."
+}
+
 if (Test-Path dist/ConnectLiveAdmin.zip) { Remove-Item dist/ConnectLiveAdmin.zip }
-Compress-Archive -Path dist/ConnectLiveAdmin.exe, dist/admin.config.json, dist/README-INSTALL.txt `
-    -DestinationPath dist/ConnectLiveAdmin.zip -Force
+Compress-Archive -Path $zipItems -DestinationPath dist/ConnectLiveAdmin.zip -Force
+
 
 Write-Host ""
 Write-Host "Built: dist/ConnectLiveAdmin.exe"

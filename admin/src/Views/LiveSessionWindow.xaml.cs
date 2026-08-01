@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using ConnectLive.Admin.Input;
+using ConnectLive.Admin.Ui;
 using ConnectLive.Admin.ViewModels;
 
 namespace ConnectLive.Admin.Views;
@@ -17,6 +18,7 @@ public partial class LiveSessionWindow : Window
     public LiveSessionWindow(string sessionId, DeviceItem device)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         _vm = new LiveSessionViewModel(sessionId, device);
         DataContext = _vm;
         DeviceLabel.Text = device.DisplayName;

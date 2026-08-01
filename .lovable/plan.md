@@ -1,42 +1,36 @@
 ## Goal
 
-1. Make transport status visible in the admin surfaces (Realtime connected / reconnecting / fallback polling).
-2. Prove the wake path works end to end.
-3. Prove enrollment → session → frame/cursor delivery works end to end.
+1. Give the Admin console its own icon asset slot (`admin/assets/icon.ico`, which you drop in manually).
+2. Tighten `agent/build.ps1`.
+3. Fold the Updater back into `ConnectLiveSetup.iss` as an **optional** component (option C).
 
-## 1. Transport health indicator
+## 1. Admin icon asset
 
-**Web console (`src/routes/_authenticated/console.tsx`)**
-- Track a single `transport` state derived from the existing `frames-{sessionId}` / `admin-live` channel subscribe callbacks: `connecting`, `live` (SUBSCRIBED + a push seen in the last 5s), `reconnecting` (CHANNEL_ERROR/TIMED_OUT/CLOSED), `polling` (subscribed but no push within 5s while the polling fallback is returning frames).
-- Render a small pill in the live-view header: coloured dot + label + last-frame age in ms, plus frames/sec counter. Uses existing semantic tokens, no hardcoded colours.
+- Create `admin/assets/` with a `README.md` stating the required file: `icon.ico` (multi-res 16/32/48/256, 32-bit). You add the real `.ico` manually.
+- `admin/src/ConnectLiveAdmin.csproj`: change `<ApplicationIcon>` from the agent path to prefer `..\..\assets\icon.ico` (admin's own), falling back to the agent icon only if the admin one is absent. Add the icon as `<Resource>` so WPF windows/taskbar can use it.
+- `admin/src/Views/MainWindow.xaml` and `LiveSessionWindow.xaml`: add `Icon="pack://application:,,,/assets/icon.ico"` guarded so a missing file doesn't break the build (set in code-behind only when the resource exists — XAML hard-references fail at runtime if absent).
+- `admin/build.ps1`: stage `assets/icon.ico` to `dist/` and include it in `ConnectLiveAdmin.zip` (harmless if missing; warn, don't fail).
 
-**Native admin (`admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Media/RealtimeChannel.cs`, `admin/src/Views/LiveSessionWindow.xaml`)**
-- Promote the existing `_realtimeHealthy` flag to an observable `TransportState` string + brush, fed by `RealtimeChannel`'s `onHealth` callback and by whether `FrameFallbackPump` / `CursorPollPump` produced the most recent frame.
-- Add a status pill bound to it in the live window header, next to the existing banner.
+## 2. `agent/build.ps1` corrections
 
-## 2. End-to-end wake test
+- Publish steps stay. Fix the staging line `Copy-Item assets/* dist/ -Recurse` — it currently ships `logo.svg` into `dist` and swallows errors with `SilentlyContinue`; narrow it to `assets\icon.ico` and emit an explicit warning when missing (Inno's `SetupIconFile` needs it).
+- Add a pre-flight check that `packaging\inno\ConnectLiveSetup.iss` and `packaging\msi\ConnectLive.wxs` exist before invoking `iscc` / `wix`, so a missing file fails with a clear message rather than a tool error.
+- Add `-SkipUpdater` switch: when passed, skip the Updater restore/publish/stage and pass `/DNoUpdater` to `iscc` so the installer compiles Agent-only (matches Phase 1 default). Default remains: build both.
+- Verify `OutputDir=..\..\dist` in the .iss resolves to `agent\dist` (it does) and keep zip packaging as-is.
 
-New script `scripts/e2e-wake.ts` (run with bun, against the deployed public API):
-- Enroll a throwaway virtual device via `/api/public/agent/enroll`.
-- Heartbeat once, then stop heart-beating so it goes offline.
-- Open an SSE connection to `/api/public/agent/stream` as that device (this stands in for the updater).
-- Enqueue a `wake_agent` power command the same way the admin Wake button does.
-- Assert: the SSE client receives the wake event within a few seconds, then ack via `/api/public/agent/power/{id}/ack`, and confirm the command flips to `delivered`.
-- Also assert the staged failure messaging: with the SSE listener closed and no LAN peer, the command path reports the precise reason rather than a generic "no online peer found".
+## 3. `ConnectLiveSetup.iss` — Updater as optional component
 
-## 3. Enrollment + render smoke test
-
-New script `scripts/e2e-smoke.ts`:
-- Enroll a virtual agent, heartbeat, create a session, push a synthetic JPEG frame to `/api/public/agent/session/{id}/frame` and a cursor to `.../cursor`.
-- In parallel, subscribe with a Supabase Realtime client (same filters the admin uses) and assert both the frame and cursor arrive over Realtime, measuring latency.
-- Assert the REST fallback read returns the same row (so the fallback pumps still work if the socket is down).
-- Tear down: end the session, delete the test device.
-
-Then drive the real web console in a headless browser against a live virtual agent to confirm the rendered screen and cursor overlay actually paint, and capture screenshots as evidence.
+- Add a `[Components]` section:
+  - `agent` — "ConnectLive Agent (required)", `Types: full compact custom; Flags: fixed`
+  - `updater` — "Background Updater service (optional, runs as LocalSystem; enables remote wake when the Agent is closed)", unchecked by default in compact.
+- Wrap the Updater payload in `[Files]` with `Components: updater`, sourcing `..\..\dist\ConnectLiveUpdater.exe` into `{app}`.
+- Service registration for the Updater goes in the existing `ssPostInstall` Pascal code path, executed only when `WizardIsComponentSelected('updater')`; reuse the native Service-API registration + state polling + `install.log` reporting already written for this project. Uninstall stops and deletes the service only if it was installed.
+- Guard the whole Updater block with `{#ifndef NoUpdater}` so `-SkipUpdater` produces a clean Agent-only installer from the same script.
+- Update the header comment block (currently says "Does NOT reference ConnectLiveUpdater.exe") to describe the optional component.
+- Add firewall rule + `[UninstallRun]` taskkill for `ConnectLiveUpdater.exe`, both scoped to the component.
 
 ## Technical notes
 
-- The native WPF admin cannot be compiled or executed in this Linux environment, so its indicator is verified by code review + the shared server-side assertions; the browser-driven verification runs against the web console. The virtual agent scripts exercise the exact same HTTP endpoints the C# agent uses.
-- No schema changes required — `session_frames`, `session_cursors`, and `power_commands` are already in the `supabase_realtime` publication with `REPLICA IDENTITY FULL`.
-- Test artifacts clean up after themselves so no stray devices/sessions linger.
-- Both source zips are repackaged afterwards if the native admin files change.
+- No changes to agent runtime code, routes, or endpoints — packaging and icon wiring only.
+- The Agent keeps its own HKCU-Run persistence; the Updater component is purely additive for wake- when agent quite -closed.
+- After the edits I'll repackage `ConnectLive-RemoteAgent-src.zip` and `ConnectLive-AdminConsole-src.zip`.

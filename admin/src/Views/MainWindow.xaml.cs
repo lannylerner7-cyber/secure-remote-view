@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using ConnectLive.Admin.Ui;
 using ConnectLive.Admin.ViewModels;
 
 namespace ConnectLive.Admin.Views;
@@ -9,6 +10,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         Loaded += (_, _) => (DataContext as DevicesViewModel)?.StartPolling();
         Closed += (_, _) => (DataContext as DevicesViewModel)?.StopPolling();
     }
