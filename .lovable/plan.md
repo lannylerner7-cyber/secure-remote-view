@@ -1,36 +1,37 @@
-## Problem
+## Verified current state (checked before writing this)
 
-The installer error `CreateProcess failed; code 740 — The requested operation requires elevation` happens because:
+- `agent/packaging/inno/ConnectLiveSetup.iss` has **no `[Registry]` section** — the installer does *not* write the HKCU Run key. It only launches the exe post-install with `/background`. So today there is exactly **one** writer: `StartupRegistration.cs`. The "two writers" concern doesn't exist yet, but the path guard you asked for is still worth having.
+- `power_commands_kind_check` **already allows** `wake_agent`, `restart_stream`, `restart_agent` (plus wake/reboot/shutdown/lock/logoff). No constraint change needed.
+- `supabase_realtime` publication currently carries devices, sessions, session_frames, session_signals, session_cursors, notifications — **`power_commands` is missing**.
+- `WinApi.LaunchInSession` (agent/watcher/Program.cs ~654) already does `WTSQueryUserToken` → `DuplicateTokenEx` → `CreateEnvironmentBlock` → `CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE`. Missing: `LoadUserProfile`, `DETACHED_PROCESS` instead of `CREATE_NEW_CONSOLE`, and per-step failure logging.
+- `App.xaml.cs` arg parsing accepts `/BACKGROUND`, `--background`, `/MINIMIZED`, `--minimized` — all case-insensitive via `OrdinalIgnoreCase`. Any casing works.
 
-- `agent/src/app.manifest` declares `requestedExecutionLevel level="requireAdministrator"`, so `ConnectLive.exe` refuses to launch without a UAC elevation prompt.
-- Inno's `[Run] ... Flags: postinstall skipifsilent` launches the post-install command as the **interactive user without elevation**, even though the installer itself is elevated. `CreateProcess` on an admin-manifested EXE from a non-elevated token fails with 740 — it can't silently auto-elevate; only ShellExecute can trigger UAC.
+## (a) StartupRegistration.cs — installer-consistent Run key
 
-Phase 1's goal is a standalone Agent that runs in the logged-in user's session and self-persists via `HKCU\...\Run`. Requiring admin on every launch conflicts with that: the user would get a UAC prompt at every login, and the HKCU Run key would fail to auto-launch cleanly.
+- Keep value format exactly `"<exe path>" /background` (lowercase, matching what the installer passes on post-install launch; parsing is case-insensitive so this is safe either way).
+- Add an **install-location guard**: resolve the current exe path and compare its directory against the installed location, read from `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B4E9A1C2-...CONNECTLIVE500}_is1\InstallLocation`, falling back to `%ProgramFiles%\ConnectLive`. If the running exe is **not** under that directory, log `startup: dev/non-installed path — Run key left untouched` and return without writing or deleting. A dev `dist\` run can never clobber the installed key.
+- Keep the existing idempotent compare-then-write and the swallow-all-errors behavior.
 
-## Root cause
+## (b) WinApi.LaunchInSession — token/env hardening (in place, no new file)
 
-The `requireAdministrator` manifest is a leftover from when the Agent owned curtain-mode `BlockInput` + `SetWindowDisplayAffinity`. In Phase 1 (Agent-only, no service, tray-first), curtain mode is either gone or must be opt-in — the Agent should run as the standard interactive user.
+Modify the existing method only:
+- Call `LoadUserProfile` on the duplicated token before `CreateEnvironmentBlock` so `HKCU` is mounted for the target session; `UnloadUserProfile` in the `finally` block.
+- Build the env block from the token *after* the profile is loaded.
+- Replace `CREATE_NEW_CONSOLE` with `DETACHED_PROCESS` (keeping `CREATE_UNICODE_ENVIRONMENT`) so the WPF Agent never flashes a console window.
+- Log `Marshal.GetLastWin32Error()` at each failing step (`WTSQueryUserToken`, `DuplicateTokenEx`, `CreateProcessAsUser`) instead of a bare `return false`, so the "Agent not launched this tick" warning becomes diagnosable.
+- Add the required P/Invokes (`LoadUserProfile`/`UnloadUserProfile`, `PROFILEINFO`) and `SetLastError = true` where missing.
 
-## Plan
+## (c) Migration — realtime publication only
 
-1. **Drop the admin requirement from the Agent manifest**
-   - `agent/src/app.manifest`: change `requestedExecutionLevel` to `asInvoker`. Keep DPI awareness and `supportedOS` blocks. Update the comment to explain that curtain mode, if needed later, must be gated by a separate elevated helper — not by forcing every Agent launch to elevate.
+- `ALTER PUBLICATION supabase_realtime ADD TABLE public.power_commands;`
+- `ALTER TABLE public.power_commands REPLICA IDENTITY FULL;`
+- `session_signals` is already published; leave it alone.
+- No constraint change (already correct), no RLS/grant change, no client-side Supabase key anywhere — the SSE gateway remains the only reader.
 
-2. **Audit curtain-mode call sites for the manifest change**
-   - Read `agent/src/CurtainOverlay.cs` and `agent/src/InputBlocker.cs` to confirm what actually needs elevation today. If `BlockInput`/`SetWindowDisplayAffinity` is still called, wrap those calls to no-op gracefully when the process token isn't elevated (log a warning; don't crash). Curtain mode becoming best-effort is the correct Phase 1 tradeoff — the alternative (UAC prompt on every boot) breaks self-persistence.
+## Explicitly not doing
 
-3. **Fix the post-install launch to be robust either way**
-   - `agent/packaging/inno/ConnectLiveSetup.iss` line 57: change the post-install `[Run]` entry to use `Flags: nowait postinstall skipifsilent shellexec runasoriginaluser`.
-     - `shellexec` → uses `ShellExecute` instead of `CreateProcess`, so it can honor a manifest if one is ever re-added.
-     - `runasoriginaluser` → launches as the interactive desktop user, not the elevated installer token. This is what we want for a tray app: the Agent runs in the user's session and its HKCU Run key writes into the right hive.
+No `SupabaseSocket.cs`, no `SessionInjector.cs`, no `agent-alive.json`, no heartbeat-loop removal, no installer `[Registry]` section added, no other file touched.
 
-4. **Verify nothing else in the Agent still assumes elevation**
-   - Grep `agent/src/` for `IsUserAnAdmin`, `WindowsIdentity`, `RequireAdmin`, or manifest-related checks and adjust any hard gates to warnings.
+## Output
 
-5. **Repackage** `ConnectLive-RemoteAgent-src.zip` with the manifest, curtain-mode fallbacks, and installer change.
-
-## Notes
-
-- No admin-console changes needed; this is purely Agent + installer.
-- No DB migration.
-- If you want curtain mode to keep working reliably later, the right pattern is a separate small elevated helper EXE (`ConnectLiveCurtain.exe`, `requireAdministrator`) that the Agent launches on-demand via `ShellExecute` — triggering a one-time UAC only when an admin actually starts a curtained session. Out of scope for this fix unless you say otherwise.
+Repackage `ConnectLive-RemoteAgent-src.zip` after the agent/watcher edits.
