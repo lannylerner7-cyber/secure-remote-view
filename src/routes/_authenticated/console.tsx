@@ -142,8 +142,10 @@ function AdminPage() {
   // Live frame subscription: whenever an admin opens a session, we stream the
   // agent's latest screen snapshot (session_frames table, updated ~2fps).
   useEffect(() => {
-    if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); return; }
+    if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); setRealtimeStatus("connecting"); return; }
     let cancelled = false;
+    setRealtimeStatus("connecting");
+    lastRealtimePushAtRef.current = 0;
     supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
       .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
     supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle()
@@ -155,6 +157,7 @@ function AdminPage() {
           const row = payload.new as never as LiveFrame;
           if (row) {
             setLiveFrame(row);
+            lastRealtimePushAtRef.current = Date.now();
             // FPS counter
             const c = fpsCounterRef.current;
             c.count++;
@@ -163,9 +166,27 @@ function AdminPage() {
           }
         })
       .on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
-        (payload) => { const row = payload.new as never as LiveCursor; if (row) setLiveCursor(row); })
-      .subscribe();
-    return () => { cancelled = true; supabase.removeChannel(ch); };
+        (payload) => { const row = payload.new as never as LiveCursor; if (row) { setLiveCursor(row); lastRealtimePushAtRef.current = Date.now(); } })
+      .subscribe((status) => {
+        if (cancelled) return;
+        if (status === "SUBSCRIBED") setRealtimeStatus("subscribed");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeStatus("reconnecting");
+        else if (status === "CLOSED") setRealtimeStatus("closed");
+      });
+    // Fallback poller: only fetches when the realtime socket has been quiet
+    // for >5s, so we can prove the pipe is alive even when postgres_changes drops.
+    const poll = setInterval(async () => {
+      if (cancelled) return;
+      if (Date.now() - lastRealtimePushAtRef.current < 5000) return;
+      const [{ data: f }, { data: c }] = await Promise.all([
+        supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle(),
+        supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      if (f) setLiveFrame(f as never);
+      if (c) setLiveCursor(c as never);
+    }, 3000);
+    return () => { cancelled = true; supabase.removeChannel(ch); clearInterval(poll); };
   }, [liveId]);
 
   useEffect(() => {
