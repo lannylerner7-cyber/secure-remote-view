@@ -232,6 +232,37 @@ public static class ScreenCapture
         dxgi?.Dispose();
     }
 
+    // ---- WebRTC tee ------------------------------------------------------
+    // Copies the scaled frame into the VP8 track. `throttled` limits pushes to
+    // ~1/sec so a static desktop still keeps the encoder (and the admin's
+    // decoded picture) alive without burning CPU. Alpha is forced opaque
+    // before hand-off: the BGRA→I420 conversion must never read a stale 0.
+    private static DateTime _lastTeeUtc = DateTime.MinValue;
+
+    private static void TeeToWebRtc(Bitmap scaled, bool throttled)
+    {
+        try
+        {
+            var live = WebRtcSession.Current;
+            if (live == null) return;
+            var now = DateTime.UtcNow;
+            if (throttled && (now - _lastTeeUtc).TotalMilliseconds < 1000) return;
+            _lastTeeUtc = now;
+
+            var rect = new Rectangle(0, 0, scaled.Width, scaled.Height);
+            var data = scaled.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
+            try
+            {
+                var buf = new byte[data.Stride * data.Height];
+                Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+                for (int i = 3; i < buf.Length; i += 4) buf[i] = 0xFF;
+                live.PushFrame(buf, data.Width, data.Height, data.Stride);
+            }
+            finally { scaled.UnlockBits(data); }
+        }
+        catch (Exception ex) { Log.Warn($"webrtc tee: {ex.Message}"); }
+    }
+
 
     // ---- Adaptive quality ------------------------------------------------
     // Downgrade to the low-bandwidth profile after 5 consecutive frames whose
