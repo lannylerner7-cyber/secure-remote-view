@@ -157,9 +157,9 @@ public sealed class DxgiCapture : IDisposable
             var map = _context.Map(_staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
             try
             {
-                var bmp = new Bitmap(_width, _height, PixelFormat.Format32bppArgb);
+                var bmp = new Bitmap(_width, _height, PixelFormat.Format32bppRgb);
                 var rect = new Rectangle(0, 0, _width, _height);
-                var bmpData = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                var bmpData = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
                 try
                 {
                     int srcStride = (int)map.RowPitch;
