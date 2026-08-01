@@ -307,7 +307,7 @@ public static class ScreenCapture
     private static ulong HashBitmap(Bitmap bmp)
     {
         var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
-        var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
         try
         {
             int total = data.Stride * bmp.Height;
