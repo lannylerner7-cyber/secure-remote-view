@@ -147,20 +147,27 @@ function AdminPage() {
     return () => { supabase.removeChannel(ch); clearInterval(t); clearInterval(clock); };
   }, []);
 
-  // Live frame subscription: whenever an admin opens a session, we stream the
-  // agent's latest screen snapshot (session_frames table, updated ~2fps).
+  // Live surface subscriptions.
+  //   * Cursor telemetry always streams (it is tiny and drives the SVG overlay).
+  //   * JPEG frames (session_frames) are the FALLBACK surface only — while the
+  //     WebRTC video track is connected we unsubscribe from them entirely and
+  //     stop the poller, so the slideshow pipe costs nothing. It resumes
+  //     automatically the moment RTC drops to failed/superseded.
   useEffect(() => {
     if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); setRealtimeStatus("connecting"); return; }
     let cancelled = false;
+    const wantFrames = !rtcVideoLive;
     setRealtimeStatus("connecting");
     lastRealtimePushAtRef.current = 0;
-    supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
-      .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    if (wantFrames) {
+      supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
+        .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    }
     supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle()
       .then(({ data }) => { if (!cancelled && data) setLiveCursor(data as never); });
-    const ch = supabase
-      .channel(`frames-${liveId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
+    let ch = supabase.channel(`frames-${liveId}-${wantFrames ? "full" : "cursor"}`);
+    if (wantFrames) {
+      ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
         (payload) => {
           const row = payload.new as never as LiveFrame;
           if (row) {
@@ -172,10 +179,11 @@ function AdminPage() {
             const elapsed = Date.now() - c.lastReset;
             if (elapsed >= 1000) { c.fps = Math.round(c.count * 1000 / elapsed); c.count = 0; c.lastReset = Date.now(); }
           }
-        })
-      .on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
-        (payload) => { const row = payload.new as never as LiveCursor; if (row) { setLiveCursor(row); lastRealtimePushAtRef.current = Date.now(); } })
-      .subscribe((status) => {
+        });
+    }
+    ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
+        (payload) => { const row = payload.new as never as LiveCursor; if (row) { setLiveCursor(row); lastRealtimePushAtRef.current = Date.now(); } });
+    ch.subscribe((status) => {
         if (cancelled) return;
         if (status === "SUBSCRIBED") setRealtimeStatus("subscribed");
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeStatus("reconnecting");
@@ -187,7 +195,9 @@ function AdminPage() {
       if (cancelled) return;
       if (Date.now() - lastRealtimePushAtRef.current < 5000) return;
       const [{ data: f }, { data: c }] = await Promise.all([
-        supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle(),
+        wantFrames
+          ? supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
+          : Promise.resolve({ data: null } as { data: null }),
         supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle(),
       ]);
       if (cancelled) return;
@@ -195,21 +205,37 @@ function AdminPage() {
       if (c) setLiveCursor(c as never);
     }, 3000);
     return () => { cancelled = true; supabase.removeChannel(ch); clearInterval(poll); };
-  }, [liveId]);
+  }, [liveId, rtcVideoLive]);
 
   useEffect(() => {
     if (!liveId) {
       rtcRef.current?.close();
       rtcRef.current = null;
+      setRtcState("idle");
       return;
     }
     const live = startWebRtcLive(liveId);
     rtcRef.current = live;
+    setRtcState(live.state());
+    live.onState((s) => { if (rtcRef.current === live) setRtcState(s); });
     return () => {
       if (rtcRef.current === live) rtcRef.current = null;
+      setRtcState("idle");
       live.close();
     };
   }, [liveId]);
+
+  // Mount the WebRTC <video> element into the live surface. The element is
+  // owned by startWebRtcLive() and reused across re-renders; we only move it
+  // in and out of the DOM here.
+  useEffect(() => {
+    const host = videoHostRef.current;
+    const video = rtcRef.current?.video;
+    if (!host || !video) return;
+    if (video.parentElement !== host) host.appendChild(video);
+    return () => { if (video.parentElement === host) host.removeChild(video); };
+  }, [liveId, rtcVideoLive]);
+
 
   useEffect(() => {
     if (!liveId) return;
