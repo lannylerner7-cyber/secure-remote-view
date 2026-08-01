@@ -424,14 +424,12 @@ function AdminPage() {
       payload: {} as never,
     });
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
-    void notify({
-      data: {
-        kind: nextMode === "control" ? "control_taken" : "control_released",
-        text: nextMode === "control"
-          ? `🎮 Curtain engaged on <b>${dev?.display_name ?? "device"}</b>`
-          : `👤 Curtain released on <b>${dev?.display_name ?? "device"}</b>`,
-      },
-    });
+    void pushNotify(
+      nextMode === "control" ? "control_taken" : "control_released",
+      nextMode === "control"
+        ? `🎮 Curtain engaged on <b>${dev?.display_name ?? "device"}</b>`
+        : `👤 Curtain released on <b>${dev?.display_name ?? "device"}</b>`,
+    );
   }
 
   async function requestReconnect(s: Session) {
