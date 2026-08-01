@@ -7,7 +7,7 @@ import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type 
 import { broadcastNotification, sendNotification, type NotificationSeverity } from "@/lib/notifications.functions";
 import { NotificationBell } from "@/components/NotificationBell";
 import { PaymentsPanel } from "@/components/PaymentsPanel";
-import { startWebRtcLive, type WebRtcLive } from "@/lib/webrtc-live";
+import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Device = Tables<"devices">;
