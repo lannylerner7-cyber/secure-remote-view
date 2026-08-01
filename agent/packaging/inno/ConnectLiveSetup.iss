@@ -99,8 +99,11 @@ Filename: "{app}\ConnectLive.exe"; Parameters: "/background"; Flags: nowait post
 
 
 [UninstallRun]
+; Remove the logon Scheduled Task first so nothing relaunches the Agent mid-uninstall.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""ConnectLiveAgent"""; Flags: runhidden; RunOnceId: "DelConnectLiveTask"
 ; Kill the Agent process cleanly.
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLive.exe"; Flags: runhidden; RunOnceId: "KillAgent"
+
 #ifndef NoUpdater
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLiveUpdater.exe"; Flags: runhidden; RunOnceId: "KillUpdater"
 #endif
