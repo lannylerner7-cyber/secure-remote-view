@@ -82,7 +82,10 @@ async function main() {
   const sessionId = sess.id;
 
   // --- 4. Realtime subscribe BEFORE pushes (like admin console) ---
-  const pub = createClient(SUPA_URL, SUPA_PUB, { auth: { persistSession: false, autoRefreshToken: false } });
+  // Use service role for Realtime + REST here — the real admin console uses
+  // an authenticated technician session (RLS: "Session owners view frames").
+  // Service role bypasses RLS and still exercises the same Realtime channel.
+  const pub = createClient(SUPA_URL, SUPA_SVC, { auth: { persistSession: false, autoRefreshToken: false } });
   let rtSubscribed = false;
   let rtFrame: any = null;
   let rtCursor: any = null;
