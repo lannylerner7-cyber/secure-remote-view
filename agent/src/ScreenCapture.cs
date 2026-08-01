@@ -90,7 +90,11 @@ public static class ScreenCapture
                 if (rawBmp == null || bounds.Width != prevBoundsW || bounds.Height != prevBoundsH)
                 {
                     rawBmp?.Dispose();
-                    rawBmp = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
+                    // 32bppRgb (no alpha): DXGI hands back B8G8R8A8 surfaces whose
+                    // alpha byte is meaningless (often 0) over composited windows.
+                    // An ARGB target would alpha-blend those toward black and dim
+                    // the whole picture.
+                    rawBmp = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb);
                     prevBoundsW = bounds.Width;
                     prevBoundsH = bounds.Height;
                 }
