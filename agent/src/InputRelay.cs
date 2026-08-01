@@ -44,9 +44,29 @@ public static class InputRelay
                 if (items != null && items.Count > 0)
                 {
                     sawWork = true;
+                    // Batch-local coalescer: consecutive `mousemove` rows collapse
+                    // to the latest before hitting the pump. Any non-move event
+                    // (button/wheel/key/text/curtain_*) flushes the pending move
+                    // first so ordering is preserved.
+                    JsonElement? pendingMove = null;
                     foreach (var it in items)
                     {
+                        var k = it.TryGetProperty("kind", out var kv) ? kv.GetString() : null;
+                        if (k == "mousemove")
+                        {
+                            pendingMove = it;
+                            continue;
+                        }
+                        if (pendingMove.HasValue)
+                        {
+                            try { pump.Enqueue(pendingMove.Value); } catch (Exception ex) { Log.Warn($"input enqueue: {ex.Message}"); }
+                            pendingMove = null;
+                        }
                         try { pump.Enqueue(it); } catch (Exception ex) { Log.Warn($"input enqueue: {ex.Message}"); }
+                    }
+                    if (pendingMove.HasValue)
+                    {
+                        try { pump.Enqueue(pendingMove.Value); } catch (Exception ex) { Log.Warn($"input enqueue: {ex.Message}"); }
                     }
                     if (max > since) since = max;
                 }
@@ -54,6 +74,7 @@ public static class InputRelay
             catch (Exception ex) { Log.Warn($"input poll: {ex.Message}"); }
             delayMs = sawWork ? 25 : Math.Min(60, delayMs + 5);
             try { await Task.Delay(delayMs, ct); } catch { }
+
         }
     }
 

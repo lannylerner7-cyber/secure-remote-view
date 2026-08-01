@@ -17,7 +17,9 @@ public partial class LiveSessionViewModel : ObservableObject
 
     [ObservableProperty] private string mode = "view";
     [ObservableProperty] private bool curtainOn;
-    [ObservableProperty] private string transport = "connecting";
+    // Shared transport taxonomy with the web console:
+    // "WebRTC video" | "Realtime frames" | "Frame fallback" | "Reconnecting" | "Ended".
+    [ObservableProperty] private string transport = "Reconnecting";
     [ObservableProperty] private BitmapSource? currentFrame;
 
     // When set, the live view was superseded by another admin machine
@@ -76,7 +78,7 @@ public partial class LiveSessionViewModel : ObservableObject
         {
             TakenOver = true;
             TakenOverMessage = "This session was taken over by another admin console.";
-            Transport = "ended";
+            Transport = "Ended";
         });
         try { _cts?.Cancel(); } catch { }
     }
@@ -97,7 +99,7 @@ public partial class LiveSessionViewModel : ObservableObject
             onSuperseded: HandleTakenOver,
             onFrameStamp: utc => _lastFrameUtc = utc);
         _framePump.Start(_cts.Token);
-        Transport = "http-poll";
+        Transport = "Frame fallback";
 
         _cursorPump = new CursorPollPump(SessionId, sample =>
         {
@@ -134,7 +136,7 @@ public partial class LiveSessionViewModel : ObservableObject
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
                     CurrentFrame = bmp;
-                    if (Transport != "webrtc") Transport = "realtime";
+                    if (Transport != "WebRTC video") Transport = "Realtime frames";
                 });
             },
             onCursor: e =>
@@ -161,7 +163,7 @@ public partial class LiveSessionViewModel : ObservableObject
             {
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
-                    Transport = "webrtc";
+                    Transport = "WebRTC video";
                     StatusMessage = null;
                 });
             },

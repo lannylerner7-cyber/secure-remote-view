@@ -76,29 +76,34 @@ public partial class LiveSessionWindow : Window
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
         var (x, y) = ToAbs(e);
+        _coalesce.FlushNow();
         await _mouse.DownAsync("left", x, y);
     }
 
     private async void Frame_MouseUp(object sender, MouseButtonEventArgs e)
     {
         var (x, y) = ToAbs(e);
+        _coalesce.FlushNow();
         await _mouse.UpAsync("left", x, y);
     }
 
     private async void Frame_MouseRightDown(object sender, MouseButtonEventArgs e)
     {
         var (x, y) = ToAbs(e);
+        _coalesce.FlushNow();
         await _mouse.DownAsync("right", x, y);
     }
 
     private async void Frame_MouseRightUp(object sender, MouseButtonEventArgs e)
     {
         var (x, y) = ToAbs(e);
+        _coalesce.FlushNow();
         await _mouse.UpAsync("right", x, y);
     }
 
     private async void Frame_MouseWheel(object sender, MouseWheelEventArgs e)
     {
+        _coalesce.FlushNow();
         await _mouse.WheelAsync(0, e.Delta);
     }
 
@@ -107,6 +112,7 @@ public partial class LiveSessionWindow : Window
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         var alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
+        _coalesce.FlushNow();
         await _kb.KeyAsync(e.Key.ToString(), true, ctrl, shift, alt);
     }
 
@@ -115,8 +121,10 @@ public partial class LiveSessionWindow : Window
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         var alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
+        _coalesce.FlushNow();
         await _kb.KeyAsync(e.Key.ToString(), false, ctrl, shift, alt);
     }
+
 
     private async void OnTextInput(object sender, TextCompositionEventArgs e)
     {

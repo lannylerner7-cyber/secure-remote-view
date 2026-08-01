@@ -31,9 +31,10 @@ public sealed class CursorPollPump
 
     public void Start(CancellationToken ct) => _ = Task.Run(() => Loop(ct), CancellationToken.None);
 
-    private const int FastDelayMs = 200;
-    private const int IdleDelayMs = 800;
+    private const int FastDelayMs = 100;
+    private const int IdleDelayMs = 500;
     private const int ErrorDelayMs = 2000;
+
 
     private async Task Loop(CancellationToken ct)
     {
