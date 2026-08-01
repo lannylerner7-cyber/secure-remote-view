@@ -878,15 +878,17 @@ function AdminPage() {
         const frameAge = liveFrame?.updated_at ? now - new Date(liveFrame.updated_at).getTime() : Infinity;
         const streamState = !active
           ? "paused"
-          : presence && presence !== "online"
-            ? "reconnecting"
-            : !liveFrame?.frame
-              ? "waiting"
-              : frameAge < 2000
-                ? "live"
-                : frameAge < 8000
-                  ? "lag"
-                  : "stalled";
+          : rtcVideoLive
+            ? "live"
+            : presence && presence !== "online"
+              ? "reconnecting"
+              : !liveFrame?.frame
+                ? "waiting"
+                : frameAge < 2000
+                  ? "live"
+                  : frameAge < 8000
+                    ? "lag"
+                    : "stalled";
         const streamTone = streamState === "live"
           ? "bg-emerald-400"
           : streamState === "lag" || streamState === "waiting" || streamState === "reconnecting"
