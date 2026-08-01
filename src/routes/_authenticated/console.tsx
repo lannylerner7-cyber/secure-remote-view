@@ -276,9 +276,40 @@ function AdminPage() {
     return "offline";
   };
 
+  // Single funnel for Telegram pushes so delivery problems (muted toggle,
+  // missing bot token, Telegram API errors) are visible in the console
+  // instead of silently swallowed by a floating promise.
+  async function pushNotify(kind: "session_start" | "session_end" | "control_taken" | "control_released" | "device_offline", text: string) {
+    try {
+      const r = await notify({ data: { kind, text } });
+      if (!r?.ok) console.warn(`[telegram:${kind}] not delivered —`, (r as { reason?: string })?.reason ?? "unknown reason");
+      return r;
+    } catch (e) {
+      console.warn(`[telegram:${kind}] request failed —`, e);
+      return { ok: false as const, reason: "request_failed" };
+    }
+  }
+
+  // device_offline: fire once per online → offline transition. A ref keeps the
+  // last presence per device so the 5s refresh loop can't spam the channel.
+  const prevPresenceRef = useRef<Map<string, "online" | "reconnecting" | "offline">>(new Map());
+  useEffect(() => {
+    const prev = prevPresenceRef.current;
+    for (const d of devices) {
+      const p = presenceOf(d);
+      const was = prev.get(d.id);
+      prev.set(d.id, p);
+      if (!was) continue;
+      if (was !== "offline" && p === "offline") {
+        void pushNotify("device_offline", `🔌 <b>${d.display_name ?? "Device"}</b> went offline (last seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}).`);
+      }
+    }
+    for (const id of [...prev.keys()]) if (!devices.some((d) => d.id === id)) prev.delete(id);
+  }, [devices, now]);
+
   // Open a session on a specific enrolled device. The agent picks it up
-  // via /heartbeat within ~5s (no PIN, no user prompt) and prompts the
-  // local user for consent per the standing-consent model.
+  // via /heartbeat within ~5s (no PIN, no user prompt) and starts streaming
+  // immediately — the standalone agent has no local consent dialog.
   async function connectDevice(d: Device) {
     const { data: u } = await supabase.auth.getUser();
     // Reuse the newest live session for this device instead of stacking a
@@ -313,7 +344,7 @@ function AdminPage() {
     await sendInput(s.id, "curtain_off", {});
     await supabase.from("sessions").update({ state: "ended", ended_at: new Date().toISOString(), pairing_code: null }).eq("id", s.id);
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
-    void notify({ data: { kind: "session_end", text: `⏹️ Session ended on <b>${dev?.display_name ?? "device"}</b>` } });
+    void pushNotify("session_end", `⏹️ Session ended on <b>${dev?.display_name ?? "device"}</b>`);
   }
 
   async function deleteSession(s: Session) {
@@ -377,7 +408,7 @@ function AdminPage() {
     });
     if (error) { alert(`Queue failed: ${error.message}`); return; }
     const via = relayId ? ` (via ${devices.find((p) => p.id === relayId)?.display_name})` : "";
-    void notify({ data: { kind: "control_taken", text: `⚡ ${labels[kind]} queued for <b>${d.display_name}</b>${via}` } });
+    void pushNotify("control_taken", `⚡ ${labels[kind]} queued for <b>${d.display_name}</b>${via}`);
   }
 
 
@@ -393,14 +424,12 @@ function AdminPage() {
       payload: {} as never,
     });
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
-    void notify({
-      data: {
-        kind: nextMode === "control" ? "control_taken" : "control_released",
-        text: nextMode === "control"
-          ? `🎮 Curtain engaged on <b>${dev?.display_name ?? "device"}</b>`
-          : `👤 Curtain released on <b>${dev?.display_name ?? "device"}</b>`,
-      },
-    });
+    void pushNotify(
+      nextMode === "control" ? "control_taken" : "control_released",
+      nextMode === "control"
+        ? `🎮 Curtain engaged on <b>${dev?.display_name ?? "device"}</b>`
+        : `👤 Curtain released on <b>${dev?.display_name ?? "device"}</b>`,
+    );
   }
 
   async function requestReconnect(s: Session) {
@@ -417,7 +446,7 @@ function AdminPage() {
     if (!wakeQueued) return;
     setLiveId(s.id);
     const dev = devices.find((d) => d.id === s.device_id);
-    void notify({ data: { kind: "session_start", text: `🔁 Wake sent — waiting for <b>${dev?.display_name ?? "device"}</b> to reconnect to the existing session.` } });
+    void pushNotify("session_start", `🔁 Wake sent — waiting for <b>${dev?.display_name ?? "device"}</b> to reconnect to the existing session.`);
     void refresh();
   }
 
@@ -651,13 +680,13 @@ function AdminPage() {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                   <StatCard label="Online devices" value={onlineCount} tone="blue" />
                   <StatCard label="Active sessions" value={activeSessions.length} tone="green" />
-                  <StatCard label="Waiting for consent" value={pendingSessions.length} tone="amber" />
+                  <StatCard label="Pending invites" value={pendingSessions.length} tone="amber" />
                   <StatCard label="Total devices" value={devices.length} tone="slate" />
                 </div>
 
                 {pendingSessions.length > 0 && (
                   <section>
-                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Waiting for consent</h2>
+                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-white/60">Pending invites</h2>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                       {pendingSessions.map((s) => {
                         const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
@@ -813,7 +842,7 @@ function AdminPage() {
         const transportLabel = { connecting: "Connecting", live: "Realtime live", reconnecting: "Reconnecting", polling: "Fallback polling" }[transport];
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
-            <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full max-w-[min(96vw,1760px)] overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
                 <div className="flex items-center gap-3">
                   <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-[#4F7CFF] animate-pulse" : "bg-amber-400"}`} />
@@ -888,8 +917,9 @@ function AdminPage() {
                     <img
                       src={`data:image/jpeg;base64,${liveFrame.frame}`}
                       alt="Live screen"
-                      className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                      className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:auto]"
                       draggable={false}
+                      decoding="async"
                     />
                   </div>
                 ) : (
@@ -1509,7 +1539,7 @@ function SessionsTable({ sessions, devices, onLive, onToggleControl, onReconnect
                 <td className="px-4 py-2 text-white/60">{new Date(s.created_at).toLocaleTimeString()}</td>
                 <td className="px-4 py-2 text-right space-x-1">
                   {s.state === "invited" && (
-                    <span className="text-xs text-white/40">awaiting consent…</span>
+                    <span className="text-xs text-white/40">waiting for agent…</span>
                   )}
                   {(s.state === "active" || s.state === "paused") && (
                     <>
