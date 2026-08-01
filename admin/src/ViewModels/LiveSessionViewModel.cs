@@ -211,6 +211,13 @@ public partial class LiveSessionViewModel : ObservableObject
     {
         try { _cts?.Cancel(); } catch { }
         try { _rtc?.Close(); } catch { }
+        if (_realtime != null)
+        {
+            var rt = _realtime;
+            _realtime = null;
+            _ = Task.Run(async () => { try { await rt.DisposeAsync(); } catch { } });
+        }
+        _realtimeHealthy = false;
         _rtc = null;
         _framePump = null;
         _cursorPump = null;
