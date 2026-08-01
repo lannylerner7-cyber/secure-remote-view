@@ -69,9 +69,10 @@ public sealed class FrameFallbackPump
         }
     }
 
-    private const int FastDelayMs = 200;   // frames are moving
-    private const int IdleDelayMs = 1000;  // nothing new for a while
+    private const int FastDelayMs = 120;   // frames are moving
+    private const int IdleDelayMs = 600;   // nothing new for a while
     private const int ErrorDelayMs = 2000; // link is unhappy
+
 
     private async Task Loop(CancellationToken ct)
     {

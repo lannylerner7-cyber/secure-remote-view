@@ -95,17 +95,36 @@ public sealed class WebRtcSession : IDisposable
         _pc.ondatachannel += (dc) =>
         {
             Log.Info($"webrtc dc open: {dc.label}");
+            // Ingress coalescer: consecutive `mousemove` messages collapse to
+            // the latest before hitting the input pump. Any other kind (click,
+            // key, wheel, text, curtain_*) flushes the pending move first to
+            // preserve ordering with click landing sites.
+            JsonElement? pendingMove = null;
+            var moveLock = new object();
             dc.onmessage += (_, __, data) =>
             {
                 try
                 {
                     var json = System.Text.Encoding.UTF8.GetString(data);
-                    using var doc = JsonDocument.Parse(json);
-                    InputRelayBridge.Apply(doc.RootElement);
+                    var doc = JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+                    var kind = root.TryGetProperty("kind", out var kv) ? kv.GetString() : null;
+                    if (kind == "mousemove")
+                    {
+                        lock (moveLock) { pendingMove = root.Clone(); }
+                        doc.Dispose();
+                        return;
+                    }
+                    JsonElement? flush;
+                    lock (moveLock) { flush = pendingMove; pendingMove = null; }
+                    if (flush.HasValue) InputRelayBridge.Apply(flush.Value);
+                    InputRelayBridge.Apply(root);
+                    doc.Dispose();
                 }
                 catch (Exception ex) { Log.Warn($"webrtc dc apply: {ex.Message}"); }
             };
         };
+
 
         _pc.onicecandidate += async (c) =>
         {
