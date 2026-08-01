@@ -72,23 +72,30 @@ public static class StartupSelfHeal
         // on any WPF/.NET desktop install.
         var shellType = Type.GetTypeFromProgID("WScript.Shell");
         if (shellType is null) { Log.Warn("self-heal[shortcut]: WScript.Shell unavailable"); return; }
-        dynamic? shell = Activator.CreateInstance(shellType);
+        object? shell = Activator.CreateInstance(shellType);
         if (shell is null) { Log.Warn("self-heal[shortcut]: cannot instantiate WScript.Shell"); return; }
         try
         {
-            dynamic shortcut = shell.CreateShortcut(lnkPath);
-            shortcut.TargetPath = exePath;
-            shortcut.Arguments = BackgroundFlag;
-            shortcut.WorkingDirectory = installDir;
-            shortcut.WindowStyle = 7; // Minimized
-            shortcut.Description = "ConnectLive Agent";
-            shortcut.Save();
+            var shortcut = shellType.InvokeMember("CreateShortcut",
+                System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { lnkPath });
+            if (shortcut is null) return;
+            var sType = shortcut.GetType();
+            void Set(string prop, object val) => sType.InvokeMember(prop,
+                System.Reflection.BindingFlags.SetProperty, null, shortcut, new[] { val });
+            Set("TargetPath", exePath);
+            Set("Arguments", BackgroundFlag);
+            Set("WorkingDirectory", installDir);
+            Set("WindowStyle", 7);
+            Set("Description", "ConnectLive Agent");
+            sType.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, shortcut, null);
+            try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut); } catch { }
             Log.Info($"self-heal: startup shortcut created at {lnkPath}");
         }
         finally
         {
             try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); } catch { }
         }
+
     }
 
     private static void EnsureScheduledTask(string exePath)
