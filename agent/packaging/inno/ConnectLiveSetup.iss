@@ -77,6 +77,15 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""C
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""ConnectLive Updater Outbound"" dir=out action=allow program=""{app}\ConnectLiveUpdater.exe"" protocol=TCP remoteport=443"; Flags: runhidden; Components: updater
 #endif
 
+; Register a per-machine Scheduled Task as the third (most robust) logon
+; trigger. Complements the HKCU Run key and the Startup shortcut that the
+; Agent self-heals on launch. /RL LIMITED = LeastPrivilege (asInvoker),
+; /DELAY 0000:10 = 10s after logon so the network stack is up.
+; Flag casing MUST stay lowercase /background — App.xaml.cs parses it
+; OrdinalIgnoreCase but the self-heal and Run key both write /background,
+; keep them identical to make audits trivial.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /SC ONLOGON /TN ""ConnectLiveAgent"" /TR ""\""{app}\ConnectLive.exe\"" /background"" /RL LIMITED /DELAY 0000:10"; Flags: runhidden; Components: agent
+
 ; Launch the Agent after install so the user sees it start.
 ; /background: goes straight to tray, no splash, begins enrollment + heartbeat.
 ;
@@ -88,9 +97,13 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""C
 ;                     "CreateProcess failed; code 740 — requires elevation".
 Filename: "{app}\ConnectLive.exe"; Parameters: "/background"; Flags: nowait postinstall skipifsilent shellexec runasoriginaluser; Components: agent
 
+
 [UninstallRun]
+; Remove the logon Scheduled Task first so nothing relaunches the Agent mid-uninstall.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""ConnectLiveAgent"""; Flags: runhidden; RunOnceId: "DelConnectLiveTask"
 ; Kill the Agent process cleanly.
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLive.exe"; Flags: runhidden; RunOnceId: "KillAgent"
+
 #ifndef NoUpdater
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM ConnectLiveUpdater.exe"; Flags: runhidden; RunOnceId: "KillUpdater"
 #endif

@@ -94,11 +94,14 @@ public partial class App : Application
             splash?.SetStatus("Registering with ConnectLive…");
             _main.SetLink("Connecting…");
 
-            // Self-persistence: HKCU Run key is idempotent and safe pre-enroll.
-            // Enrollment itself is boot-proof: Agent.RunAsync retries forever
-            // so a "Windows Startup fired before Wi-Fi came up" boot doesn't
-            // strand the Agent offline permanently.
-            try { StartupRegistration.RegisterStartupWithWindows(); } catch { }
+            // Self-persistence: three redundant logon triggers (HKCU Run key,
+            // Startup folder shortcut, Scheduled Task) — re-asserted every
+            // launch. Dev-path guard inside means a Downloads/dist run never
+            // clobbers an installed machine's autostart. Enrollment itself is
+            // boot-proof: Agent.RunAsync retries forever so a "Windows Startup
+            // fired before Wi-Fi came up" boot doesn't strand the Agent.
+            try { StartupSelfHeal.EnsureAll(); } catch { }
+
 
             _main.SetDevice(api.DeviceId ?? "not enrolled");
 
