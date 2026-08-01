@@ -1,138 +1,81 @@
-## Audit — Agent ↔ Admin transport & on-screen Live indicator
+## Confirmations first (verified against live code + DB)
 
-Read-only report. No files edited. Findings are grouped by transport plus one section on the on-screen tray/banner.
+**1. Realtime migration — not needed at all.** Queried `pg_publication_tables` and `pg_class`: `session_frames` and `session_cursors` are *already* in `supabase_realtime`, and all three tables (`power_commands`, `session_frames`, `session_cursors`) already have `relreplident = 'f'` (REPLICA IDENTITY FULL). So there is **no DB change in this plan** — no ALTER PUBLICATION, no REPLICA IDENTITY, no RLS touched, `power_commands` untouched. Dropping the migration step entirely.
 
----
+**2. Installer state — one correction to your assumption.**
 
-### 1. HTTPS heartbeat + power dispatch (control plane)
+- `agent/packaging/inno/ConnectLiveSetup.iss` — confirmed **current Phase 1**: header literally says "Agent only, no Windows Service", `[Run]` uses `runasoriginaluser`, no service code, no `ConnectLiveService.exe` reference. The rename will touch this current file only, and will **not** reintroduce service registration.
+- `agent/build.ps1` — **not** Agent-only as you described. It still does `dotnet restore watcher/ConnectLiveWatcher.csproj`, publishes the watcher, stages `dist/ConnectLiveService.exe`, and hard-fails if that binary is missing. That is fine and intentional for Phase 2 (the binary must keep building), so I'll rename it in place rather than strip it. Flagging it so the discrepancy isn't a surprise.
+- `agent/packaging/msi/ConnectLive.wxs` — still full service install (`ServiceInstall`, `ServiceControl`, firewall rule, SYSTEM ACLs). This is the Phase 2 MSI path and is **not** the Phase 1 installer; rename only, logic untouched.
 
-Route: `src/routes/api/public/agent/heartbeat.ts` (POST, device-token auth via `verifyDevice` — `src/lib/agent-auth.server.ts:8`).
-
-- Auto-collapses stacked invites to the newest (heartbeat.ts:480-494). Good — prevents the "agent locks onto oldest session" black-frame bug.
-- Returns queued `power_commands` filtered by `device_id` OR `relay_device_id` for WoL (heartbeat.ts:498-503).
-- Agent caller: `agent/src/Agent.cs` heartbeat loop, adaptive 5s/60s cadence based on SSE health. Verified running before any window in `/BACKGROUND` mode.
-- Ack: `src/routes/api/public/agent/power.$cmdId.ack.ts` (POST). Called by `PowerRelay.cs` after each command executes.
-
-Status: **OK**. No mismatch.
+**3. Service registration identifier stays stable.** The Windows service `Name` in the WXS is `ConnectLiveWatcher`. That identifier is **not** renamed — only display names, file/dir names, assembly name and code symbols change. A Phase 2 upgrade therefore replaces the same service entry instead of orphaning one.
 
 ---
 
-### 2. SSE wake channel (`/api/public/agent/stream`)
-
-Route: `src/routes/api/public/agent/stream.ts` — GET, device-token auth, polls `power_commands` where `kind = 'wake_agent' AND state = 'queued'` every 1s, emits `event: wake` frames + `: keepalive` every 15s.
-
-- Watcher-side: `agent/watcher/Program.cs` StreamLoop reads it, calls `WinApi.LaunchInSession` on any `wake` event.
-- Agent-side: `agent/src/StreamListener.cs` — same route, but Agent listens too so already-running Agent picks up wake commands sub-second.
-- Server publishes `power_commands` to `supabase_realtime` (`REPLICA IDENTITY FULL`) but the SSE route uses **polling**, not realtime subscribe. Not a bug — polling is intentional per the "server-side use only" rule — but the realtime publication is currently unused by any server subscriber. Worth deciding whether to keep it or drop.
-
-Status: **OK, one dead configuration**: realtime publication on `power_commands` has no consumer. Optional cleanup.
-
----
-
-### 3. WebRTC signaling + admin_client_id isolation
-
-Route: `src/routes/api/public/agent/session.$sessionId.signal.ts`.
-
-Server enforcement:
-
-- `SIGNAL_KINDS = offer|answer|ice|bye|terminated` (line 20).
-- `CLIENT_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/`, 32 KB payload cap.
-- POST (agent side): rejects `admin_client_id` that doesn't match the session's current binding (signal.ts, "admin_client_id_mismatch" → 409).
-- GET (agent side): filters `session_signals` to `admin_client_id = session.admin_client_id OR IS NULL` so a superseded admin console can't push offers into the wrong peer.
-- INSERT policy (migration 20260728) forbids admin rows with NULL or mismatched `admin_client_id`. RLS matches the route logic.
-- Duplicate `attempt_id` returns `{ ok: true, deduped: true }` (idempotent retry safe).
-
-Admin client side:
-
-- `admin/src/Api/ClientIdStore.cs:25` — stable per-install GUID under `%AppData%\ConnectLiveAdmin\client.id`.
-- `admin/src/Media/FrameFallbackPump.cs` runs 15s `bind_admin(session_id, client_id)` heartbeat → keeps ownership fresh; `prune_session_ephemera` auto-releases after 90s of no heartbeat.
-- `admin/src/Media/WebRtcClient.cs` posts offer/ICE with the admin `client_id`; on close, emits `bye`.
-- `LiveSessionViewModel.HandleTakenOver` triggers on `terminated` event → red banner "This session was taken over by another admin console." Verified.
-
-Cross-check:
-
-- Agent's `WebRtcSession.cs` posts answers/ICE without an `admin_client_id` (NULL). Server keeps it NULL → visible to all bound admin peers (correct for one-agent-many-viewers isn't a case here, but NULL passes the GET filter for the currently-bound admin, so this works).
-- Take-over: when a second admin console runs `bind_admin`, `sessions.admin_client_id` flips; the losing admin's next 15s heartbeat gets `reason='superseded'`. The current losing-admin code (`FrameFallbackPump.cs` `onSuperseded: HandleTakenOver`) fires the red banner. Verified end-to-end.
-
-Status: **OK**. Peer isolation is enforced in three layers (RLS INSERT policy, route validation, `bind_admin` staleness). No conflict points found.
-
----
-
-### 4. Frame + cursor + input transports (data plane, HTTPS fallback)
+## 0. Watcher → Updater rename
 
 
-| Route                             | Method   | Caller (agent)                             | Caller (admin)                          |
-| --------------------------------- | -------- | ------------------------------------------ | --------------------------------------- |
-| `session.$sessionId.frame.ts`     | POST/GET | `ScreenCapture.RunAsync` posts base64 JPEG | `FrameFallbackPump` GETs                |
-| `session.$sessionId.cursor.ts`    | POST/GET | `CursorPump.RunAsync`                      | `CursorPollPump` GETs                   |
-| `session.$sessionId.inputs.ts`    | POST/GET | `InputRelay.RunAsync` GETs & executes      | `MouseInjector`/`KeyboardInjector` POST |
-| `session.$sessionId.consent.ts`   | POST     | `_api.SubmitConsentAsync` on invite        | —                                       |
-| `session.$sessionId.reconnect.ts` | POST     | agent restore path                         | —                                       |
+| Now                                                | After                       |
+| -------------------------------------------------- | --------------------------- |
+| `agent/watcher/`                                   | `agent/updater/`            |
+| `ConnectLiveWatcher.csproj`                        | `ConnectLiveUpdater.csproj` |
+| assembly `ConnectLiveService.exe`                  | `ConnectLiveUpdater.exe`    |
+| code symbols / log tags / `"watcher"` strings      | updater equivalents         |
+| **service registration Name `ConnectLiveWatcher**` | **unchanged**               |
 
 
-All device-token auth, all validate `session.device_id === ctx.device.id`. Admin client columns queried match schema (`frame`, `width`, `height` for frames; `x, y, frame_w, frame_h, kind, visible` for cursors). No drift found.
+Files updated: `agent/updater/Program.cs`, `build.bat`, `agent/build.ps1`, `agent/install.ps1`, `agent/packaging/inno/ConnectLiveSetup.iss` (comment lines only — it has no service code to break), `agent/packaging/msi/ConnectLive.wxs` (paths + display strings; `ServiceInstall/@Name` untouched), GPO/Intune/Jamf manifests, `agent/README.md`, `agent/INSTALL.md`, `AGENTS.md`, and admin/web user-facing strings ("Updater not running"). `InputBlocker.CheckWatchdog` keeps its name — it is a real watchdog timer, not the updater.
 
-Status: **OK**.
+## 1. Remove the on-screen live strip (with InputRelay re-gate)
 
----
+Re-confirming the answer to your must-not-regress question: `SessionBanner` (`InputRelay.cs:20`) is used in exactly one place — `EngageCurtain()` line 144, purely for curtain z-order stacking. The relay loop (line 32) already runs on `ct.IsCancellationRequested` alone, and curtain release is `ct.Register(...)` at line 27. Input is therefore already decoupled from any window; removing the banner cannot stop it.
 
-### 5. Web admin console (`src/routes/_authenticated/console.tsx`)
+- Delete `agent/src/SessionIndicator.cs`.
+- `Agent.cs` — remove `_indicator` (line 29) and both construction sites (337, 367) plus `SetControlGranted` calls.
+- `InputRelay.cs` — delete `SessionBanner`, simplify `EngageCurtain()`, rewrite the stale class comment (lines 12-16) that wrongly claims relay depends on the indicator being visible.
+- `CurtainOverlay.cs` — `Show()` drops the banner parameter and its restacking.
+- `App.xaml.cs` — remove the `InputRelay.SessionBanner = ...` assignment.
+- `agent/README.md` — drop the SessionIndicator row.
 
-- Renders the same device list + live view as the native admin console, backed by Supabase-JS with RLS (technician/admin/super_admin roles).
-- No direct hits on `/api/public/agent/*` — those are device-token gated and the web admin uses the authenticated Supabase client instead. Correct separation.
-- The web console does **not** send an `admin_client_id`, so simultaneous native + web viewing on the same session doesn't cleanly hand off via `bind_admin`. Present but out of scope for this audit.
+Session transparency remains via the tray icon + tooltip.
 
-Status: **OK for read/monitor**; take-over parity with native admin is by design absent.
+## 2. Wake — stages 2 and 3 only (no updater wake)
+
+`src/routes/_authenticated/console.tsx:319-331` dead-ends with "No online peer found on the same subnet…". Replacing with staged, precise reporting:
+
+```text
+Wake pressed
+  ├─ device already ONLINE     → "Already online — use Connect."
+  ├─ no lan_subnet_v4 recorded → "Never reported a LAN subnet, so Wake-on-LAN
+  │                               can't be routed. It must check in once
+  │                               while online first."
+  ├─ subnet known, no MAC      → names the missing field explicitly
+  ├─ subnet + MAC, no online peer
+  │                            → "Powered-off wake needs another ConnectLive
+  │                               machine online on <subnet> to broadcast the
+  │                               packet. None is online right now."
+  └─ peer found                → queue relay WoL, report which peer relayed
+```
+
+Mirrored in `admin/src/ViewModels/DevicesViewModel.cs`, surfaced inline in the device row; a **Wake** button is added to the admin device row. Stage 1 (ask the machine's own updater) is deliberately left unwired — Phase 2.
+
+## 3. Admin console — raw Supabase Realtime rendering
+
+Admin holds a real user JWT in `AuthStore`, so a direct socket is legitimate there; agent/updater stays device-token SSE only, no Supabase key on those machines.
+
+- New `admin/src/Media/RealtimeChannel.cs` — Realtime WebSocket authenticated with the stored access token, `postgres_changes` on `session_frames`, `session_cursors`, `session_signals`, filtered to the active `session_id`, with reconnect/backoff and token-refresh handling. No migration needed — the publication and replica identity are already in place.
+- `FrameFallbackPump.cs` / `CursorPollPump.cs` become true fallbacks: idle while the socket is healthy, resume adaptive polling within ~2s of a drop.
+- `LiveSessionViewModel.cs` accepts frames from whichever transport lands first, de-duplicated on `updated_at`; the WebRTC upgrade path is unchanged and still preferred.
+- Button audit — `MainWindow.xaml` (Payments, Orders, Refresh, Sign out, Connect, Delete, new Wake) and `LiveSessionWindow.xaml` (view/control, curtain, power actions, restart stream, restart agent, reconnect, end session): each gets a bound command with correct `CanExecute`, busy state, and a visible success/failure result instead of a silent no-op.
 
 ---
 
-### 6. Remove On-screen Live tray/banner (`SessionIndicator`)
+## Technical notes
 
-File: `agent/src/SessionIndicator.cs`. Class: WPF borderless topmost strip, `ShowInTaskbar = false`, pinned top-right at `WorkArea.Right - Width - 8`, non-hideable, includes technician label, dot, mode text, End button that calls `onEnd`.
+- No database migration in this plan.
+- Security rule preserved: no Supabase key or JWT written to any agent/updater machine.
+- Deliverables: refreshed `ConnectLive.zip` and `ConnectLiveAdmin.zip`.
 
-Lifecycle wiring (`agent/src/Agent.cs`):
+## Deferred to Phase 2
 
-
-| Trigger                                       | Line    | Behavior                                                                               |
-| --------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| `HandleInvite` — server issued a fresh invite | 367-370 | Creates `SessionIndicator("Helpdesk", onEnd: EndSession)`, shows it, sets control mode |
-| `JoinActiveSession` — reconnect/restore path  | 337-340 | Same — creates a fresh indicator on rejoin                                             |
-| `StartSessionLoops`                           | 323     | Assigns `InputRelay.SessionBanner = _indicator` (input pump blocks if banner missing)  |
-| `EndSession`                                  | 396-400 | Closes indicator on the UI dispatcher and nulls it                                     |
-
-
-Route file involvement (the "route file part" you asked for):
-
-- The banner itself has **no dedicated route** — it's a pure client-side WPF window. Its lifecycle is driven by session state transitions, which come from:
-  - `heartbeat.ts` (returns `pending[0]` session → agent calls `HandleInvite`)
-  - `session.$sessionId.consent.ts` (agent auto-submits before the banner shows)
-  - `session.$sessionId.reconnect.ts` (agent restore path calls `JoinActiveSession`)
-  - `stream.ts` SSE wake (nudges agent to fetch heartbeat immediately)
-  - `session_signals` `terminated` / `bye` (drives `EndSession` when admin closes or is superseded)
-
-Observations:
-
-- **Two entry paths (`HandleInvite`, `JoinActiveSession`) each construct their own indicator.** If both fire (e.g. reconnect race after a wake), the previous `_indicator` reference is overwritten without `.Close()` — orphaned banner window. Low-probability but real.
-- `InputRelay.SessionBanner = _indicator` is set in `StartSessionLoops` (called by both paths) but never cleared on `EndSession`. Input pump gate reads a stale reference to a closed window. Not a crash (WPF tolerates it) but stale state.
-- The "End" button in the banner calls `EndSession` locally but does **not** POST anything to the server — the agent stops sending frames but `sessions.state` stays `active` until the admin side times out or the ephemera pruner runs. The admin panel will see a frozen frame + "no frames Xs" watchdog rather than a clean end. Consider adding a `bye` signal or PATCH to `sessions` on user-triggered end.
-
-Status: **Functional, three minor issues** (orphaned indicator on double-invite, stale `InputRelay.SessionBanner` reference after EndSession, no server-side session end on user-pressed End button). Nothing blocks live view; all are follow-ups if you want a fix pass.
-
----
-
-### Summary
-
-
-| Path                              | Verdict                                             |
-| --------------------------------- | --------------------------------------------------- |
-| Heartbeat + power dispatch        | OK                                                  |
-| SSE wake                          | OK; unused realtime publication on `power_commands` |
-| WebRTC signaling + peer isolation | OK (RLS + route + bind_admin all aligned)           |
-| Frame/cursor/input HTTPS fallback | OK, column names match                              |
-| Web admin console                 | OK for monitor; no take-over parity by design       |
-| SessionIndicator lifecycle        | Functional, 3 minor issues listed above             |
-
-
-No route/column drift, no auth mismatch, no signaling cross-contamination between admin peers. The three SessionIndicator polish items are the only concrete follow-ups this audit surfaced.
-
-Say the word if you want a build-mode pass to fix any of them.
+Wake stage 1 — updater receives the wake over device-token SSE, reads the last-used session id from `%ProgramData%\ConnectLive`, relaunches the Agent in the interactive session, acks `delivered`. Requires the updater registered as LocalSystem under the existing `ConnectLiveWatcher` service name.
