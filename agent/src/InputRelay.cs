@@ -140,7 +140,7 @@ public static class InputRelay
         {
             System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
-                CurtainOverlay.Show(SessionBanner);
+                CurtainOverlay.Show();
             });
         }
         else
