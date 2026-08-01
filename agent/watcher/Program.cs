@@ -634,10 +634,6 @@ internal static class WinApi
     [DllImport("userenv.dll", SetLastError = true)]
     private static extern bool UnloadUserProfile(IntPtr hToken, IntPtr hProfile);
 
-    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool GetTokenInformation(IntPtr TokenHandle, int TokenInformationClass,
-        IntPtr TokenInformation, int TokenInformationLength, out int ReturnLength);
-
     private const uint TOKEN_ALL_ACCESS = 0x000F01FF;
     private const int SecurityImpersonation = 2;
     private const int TokenPrimary = 1;
