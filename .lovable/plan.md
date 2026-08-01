@@ -1,35 +1,37 @@
-Yes — the web console changes in PR#1 leave the two native clients out of sync on cadence, transport labeling, and mouse-move coalescing. This pass brings both to parity without touching signal semantics (kinds, payload shapes, admin_client_id routing, curtain heartbeat contract, bind_admin cadence all preserved).
+## What's happening
 
-## agent/
+The stream is healthy (`WebRTC video` pill, real frame rate) — quality is the problem. Two concrete causes in the agent's capture path:
 
-**`agent/src/InputRelay.cs`** — already at 25–60ms adaptive from the previous pass. Add one sanitising guard only: when a `mousemove` arrives while a newer `mousemove` is already sitting in the same drained batch for the same session, drop the older one before enqueuing (batch-local coalescer). Buttons, wheel, keys, text, curtain_* always pass through in order. Keeps raw signal semantics; only removes redundant intermediate positions the admin's rAF couldn't collapse because they came from separate transports (DB fallback path).
+**1. Alpha blending dims every frame (the "darkened" look).**
+In `agent/src/ScreenCapture.cs` the capture buffer is `Format32bppArgb` and both draws use GDI+'s default `SourceOver` compositing:
+- `g.DrawImageUnscaled(dxFrame, 0, 0)` — the DXGI Desktop Duplication surface is `B8G8R8A8` and Windows leaves alpha meaningless (often 0) across large regions of composited windows. Blending that over a freshly allocated transparent bitmap pulls those pixels toward black — exactly the muted, hazy window graphics in your screenshot.
+- The downscale `g.DrawImage(rawBmp, 0, 0, w, h)` then blends a second time.
 
-**`agent/src/WebRtcSession.cs`** — no signal changes. Add a small ingress coalescer on the data-channel `onmessage` handler mirroring the same rule: consecutive `mousemove` frames collapse to the latest before hitting `InputRelayBridge.Apply`. Everything else applied immediately and in order.
+The JPEG fallback flattens alpha on save, which is why this reads worse on the WebRTC layer than it used to on frames.
 
-## admin/ (WPF native console)
+**2. The WebRTC tee only runs on changed frames.**
+`live.PushFrame(...)` sits inside the branch that runs only when the frame hash changed and the pipeline isn't idle. A mostly-static desktop starves the VP8 encoder, so the decoder holds a stale picture and window redraws land late or smeared.
 
-**`admin/src/Input/InputCoalescer.cs`** — today runs a fixed 16ms `Task.Delay` loop. Replace with a `CompositionTarget.Rendering` (per-frame) flush so moves ride the WPF render tick instead of a background timer — matches the web console's rAF cadence and removes the 0–16ms jitter floor. Buttons/wheel/keys keep going through `MouseInjector`/`KeyboardInjector` directly and unchanged.
+## Changes
 
-**`admin/src/Views/LiveSessionWindow.xaml.cs`** — before each `MouseDown`/`MouseUp`/`MouseWheel`/key event, call a new `_coalesce.FlushNow()` so the queued move lands before the ordered event (same guarantee the web `flushMoveNow()` gives). Pure ordering fix, no new signal kinds.
+**`agent/src/ScreenCapture.cs`**
+- Allocate `rawBmp` and `scaledBmp` as `PixelFormat.Format32bppRgb` (no alpha channel).
+- Set `CompositingMode.SourceCopy` on the DXGI blit and the downscale draw, plus `CompositingQuality.HighQuality`. Source pixels copied verbatim — no alpha math, no darkening.
+- Keep `HighQualityBicubic` + `PixelOffsetMode.HighQuality` for the downsample.
+- Force alpha opaque on the WebRTC tee buffer: after `Marshal.Copy`, write `0xFF` into every 4th byte before `PushFrame`, so BGRA→I420 can never read a zero alpha.
+- Move the tee out of the "changed" branch into a helper called every loop iteration with a valid `scaledBmp` — full rate when the screen changes, throttled to ~1 push/sec when idle so the encoder stays alive without burning CPU.
 
-**`admin/src/Media/FrameFallbackPump.cs`** — 200ms fast / 1000ms idle → **120ms fast / 600ms idle** to match the web console's tighter fallback cadence. Error backoff and bind_admin 15s heartbeat unchanged.
+**`agent/src/DxgiCapture.cs`**
+- Confirm the staging-texture copy returns a no-alpha bitmap format; if it returns `Format32bppArgb`, switch to `Format32bppRgb` so the blend can't re-enter through the back door.
 
-**`admin/src/Media/CursorPollPump.cs`** — 200ms/800ms → **100ms/500ms** while in control mode (parity with web). Idle detection unchanged.
+## Sharpness (separate, smaller lever)
 
-**`admin/src/ViewModels/LiveSessionViewModel.cs`** — expand the `Transport` string to the explicit labels the web console now surfaces so the native banner reads the same taxonomy: `WebRTC video`, `Realtime frames`, `Frame fallback`, `Reconnecting`, `Ended`. Values are set at the same call sites already there; no new state machine.
+The Normal profile caps the long edge at 1920px, so a 4K desktop is downsampled before VP8 ever sees it. I'd leave that cap alone this pass — removing the alpha blend is what restores contrast and window detail. If it still reads soft afterwards, the next step is a WebRTC-only tee at native resolution while the JPEG fallback stays at 1920px.
 
-## Docs
+## Not touched
 
-**`ENDPOINTS.md`** — no route changes, but add one line noting the browser + admin now share the same coalescer cadence (per-frame flush) and the same fallback labels, so the transport matrix stays a single source of truth across all three surfaces.
-
-## Not touched (kept raw and steady, as requested)
-
-- Signal kinds, payload shapes, `admin_client_id` routing, `attempt_id` idempotency.
-- Curtain 1s heartbeat contract and the 5s agent watchdog (RTC-first with DB fallback stays as PR#1 shipped it).
-- `bind_admin` 15s cadence, take-over sequence, `terminated`/`bye` handling.
-- WebRTC codec pinning (VP8), STUN config, ICE flow.
-- Enrollment, power commands, SSE wake, Telegram fan-out.
+Signal kinds and payloads, `admin_client_id` routing, curtain heartbeat, `bind_admin` cadence, input coalescers, transport taxonomy, admin/web console rendering, and all endpoints. Agent-side capture only.
 
 ## Deliverable
 
-After edits: `bun run scripts/verify-agent-routes.ts` for the endpoint smoke, then repack both source zips as `ConnectLive-RemoteAgent-src-v1.4-<date>.zip` and `ConnectLive-AdminConsole-src-v1.3-<date>.zip` under `/mnt/documents/` and `public/`.
+Repack the agent source as `ConnectLive-RemoteAgent-src-v1.5-<date>.zip` under `/mnt/documents/` and `public/`. The admin console is unchanged, so its zip stays at v1.3.
