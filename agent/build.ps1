@@ -49,7 +49,7 @@ Write-Host "==> Build version: $Version"
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAgent.csproj
-dotnet restore updater/ConnectLiveUpdater.csproj
+if (-not $SkipUpdater) { dotnet restore updater/ConnectLiveUpdater.csproj }
 
 # -- 2. Publish binaries -------------------------------------------------------
 
@@ -63,30 +63,50 @@ dotnet publish src/ConnectLiveAgent.csproj `
     -p:EnableCompressionInSingleFile=true `
     -o publish/agent
 
-Write-Host "==> Publishing Updater service (single-file, self-contained, win-x64)..."
-dotnet publish updater/ConnectLiveUpdater.csproj `
-    -c Release `
-    -r win-x64 `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true `
-    -o publish/updater
+if (-not $SkipUpdater) {
+    Write-Host "==> Publishing Updater service (single-file, self-contained, win-x64)..."
+    dotnet publish updater/ConnectLiveUpdater.csproj `
+        -c Release `
+        -r win-x64 `
+        --self-contained true `
+        -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:EnableCompressionInSingleFile=true `
+        -o publish/updater
+} else {
+    Write-Host "==> Skipping Updater (-SkipUpdater): Agent-only installer."
+}
 
 # -- 3. Stage binaries to dist\ ------------------------------------------------
 # Both packaging/inno/ConnectLiveSetup.iss and packaging/msi/ConnectLive.wxs
 # source their payload from dist\.
 
 New-Item -ItemType Directory -Force -Path dist | Out-Null
-Copy-Item publish/agent/ConnectLive.exe          dist/ -Force
-Copy-Item publish/updater/ConnectLiveUpdater.exe dist/ -Force
-Copy-Item assets/*                               dist/ -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item publish/agent/ConnectLive.exe dist/ -Force
 
-foreach ($required in @("dist/ConnectLive.exe", "dist/ConnectLiveUpdater.exe")) {
-    if (-not (Test-Path $required)) { throw "Publish did not produce $required" }
+$required = @("dist/ConnectLive.exe")
+if (-not $SkipUpdater) {
+    Copy-Item publish/updater/ConnectLiveUpdater.exe dist/ -Force
+    $required += "dist/ConnectLiveUpdater.exe"
+} elseif (Test-Path dist/ConnectLiveUpdater.exe) {
+    # A stale binary from a previous full build must not leak into an
+    # Agent-only installer.
+    Remove-Item dist/ConnectLiveUpdater.exe -Force
 }
-Write-Host "  Staged: dist\ConnectLive.exe"
-Write-Host "  Staged: dist\ConnectLiveUpdater.exe"
+
+foreach ($path in $required) {
+    if (-not (Test-Path $path)) { throw "Publish did not produce $path" }
+    Write-Host "  Staged: $($path -replace '/','\')"
+}
+
+# Setup icon: Inno's SetupIconFile points at agent\assets\icon.ico. Only the
+# .ico is staged -- logo.svg has no business in dist\.
+if (Test-Path assets/icon.ico) {
+    Copy-Item assets/icon.ico dist/ -Force
+    Write-Host "  Staged: dist\icon.ico"
+} else {
+    Write-Warning "assets\icon.ico not found - installers will use the default icon."
+}
 
 # -- 4. Build Inno Setup installer ---------------------------------------------
 
@@ -95,10 +115,16 @@ if (-not $SkipInno) {
     if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
         throw "iscc (Inno Setup 6) is not on PATH. Install it, or re-run with -SkipInno."
     }
-    & iscc packaging/inno/ConnectLiveSetup.iss
+    if (-not (Test-Path packaging/inno/ConnectLiveSetup.iss)) {
+        throw "Missing packaging\inno\ConnectLiveSetup.iss - cannot build the Inno installer."
+    }
+    $innoArgs = @("packaging/inno/ConnectLiveSetup.iss", "/DAppVer=$Version")
+    if ($SkipUpdater) { $innoArgs += "/DNoUpdater" }
+    & iscc @innoArgs
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed (exit $LASTEXITCODE)" }
     Write-Host "  Built: dist\ConnectLiveSetup.exe"
 }
+
 
 # -- 5. Build MSI (WiX v4) -----------------------------------------------------
 # packaging/msi/ConnectLive.wxs is the single source of truth. This script no
