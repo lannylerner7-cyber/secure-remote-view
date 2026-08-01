@@ -796,6 +796,21 @@ function AdminPage() {
           reconnecting: "Device reconnecting",
           paused: "Session paused",
         }[streamState];
+        const rtSinceLastPush = lastRealtimePushAtRef.current ? now - lastRealtimePushAtRef.current : Infinity;
+        const transport: "connecting" | "live" | "reconnecting" | "polling" =
+          realtimeStatus === "reconnecting" || realtimeStatus === "closed"
+            ? "reconnecting"
+            : realtimeStatus === "connecting"
+              ? "connecting"
+              : rtSinceLastPush < 5000
+                ? "live"
+                : "polling";
+        const transportTone = transport === "live"
+          ? "bg-emerald-400"
+          : transport === "polling" || transport === "connecting"
+            ? "bg-amber-400"
+            : "bg-rose-500";
+        const transportLabel = { connecting: "Connecting", live: "Realtime live", reconnecting: "Reconnecting", polling: "Fallback polling" }[transport];
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
             <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -806,6 +821,13 @@ function AdminPage() {
                     <div className="text-sm font-semibold">{dev?.display_name ?? "Waiting for agent…"}</div>
                     <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state} · {streamCopy}</div>
                   </div>
+                  <span
+                    title={`Supabase Realtime socket: ${realtimeStatus}. Last push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                    className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${transportTone} ${transport === "live" ? "animate-pulse" : ""}`} />
+                    {transportLabel}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   {s.device_id && role !== "viewer" && (
