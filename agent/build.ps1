@@ -1,7 +1,7 @@
 # ConnectLive Agent -- build script (Windows, .NET 8 SDK required)
 # Produces:
 #   dist/ConnectLive.exe           (raw agent binary - input to the installers)
-#   dist/ConnectLiveUpdater.exe    (raw service binary - input to the installers)
+#   dist/ConnectLiveUpdater.exe    (raw service binary - optional component)
 #   dist/ConnectLiveSetup.exe      (Inno Setup installer - interactive IT installs)
 #   dist/ConnectLiveAgent.msi      (MSI - Intune / GPO / silent)
 #   dist/ConnectLiveAgent.zip      (contains the installer(s) + README)
@@ -14,8 +14,9 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File build.ps1
-#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipMsi     # Inno only
-#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInno    # MSI only
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipMsi       # Inno only
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInno      # MSI only
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipUpdater   # agent-only installer
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.2.0.0
 #
 # A missing toolchain is a HARD FAILURE unless the matching -Skip switch is
