@@ -1,37 +1,22 @@
-## What's happening
-
-The stream is healthy (`WebRTC video` pill, real frame rate) — quality is the problem. Two concrete causes in the agent's capture path:
-
-**1. Alpha blending dims every frame (the "darkened" look).**
-In `agent/src/ScreenCapture.cs` the capture buffer is `Format32bppArgb` and both draws use GDI+'s default `SourceOver` compositing:
-- `g.DrawImageUnscaled(dxFrame, 0, 0)` — the DXGI Desktop Duplication surface is `B8G8R8A8` and Windows leaves alpha meaningless (often 0) across large regions of composited windows. Blending that over a freshly allocated transparent bitmap pulls those pixels toward black — exactly the muted, hazy window graphics in your screenshot.
-- The downscale `g.DrawImage(rawBmp, 0, 0, w, h)` then blends a second time.
-
-The JPEG fallback flattens alpha on save, which is why this reads worse on the WebRTC layer than it used to on frames.
-
-**2. The WebRTC tee only runs on changed frames.**
-`live.PushFrame(...)` sits inside the branch that runs only when the frame hash changed and the pipeline isn't idle. A mostly-static desktop starves the VP8 encoder, so the decoder holds a stale picture and window redraws land late or smeared.
+## Goal
+`/connectlive/admin` should be a technician-only sign-in. Payment admin sign-in moves to its own page at `/connectlive/payment`.
 
 ## Changes
 
-**`agent/src/ScreenCapture.cs`**
-- Allocate `rawBmp` and `scaledBmp` as `PixelFormat.Format32bppRgb` (no alpha channel).
-- Set `CompositingMode.SourceCopy` on the DXGI blit and the downscale draw, plus `CompositingQuality.HighQuality`. Source pixels copied verbatim — no alpha math, no darkening.
-- Keep `HighQualityBicubic` + `PixelOffsetMode.HighQuality` for the downsample.
-- Force alpha opaque on the WebRTC tee buffer: after `Marshal.Copy`, write `0xFF` into every 4th byte before `PushFrame`, so BGRA→I420 can never read a zero alpha.
-- Move the tee out of the "changed" branch into a helper called every loop iteration with a valid `scaledBmp` — full rate when the screen changes, throttled to ~1 push/sec when idle so the encoder stays alive without burning CPU.
+**1. `src/routes/connectlive.admin.tsx` (technician only)**
+- Remove the `mode` state and the two-button Technician / Payment admin toggle.
+- Fixed heading "Technician sign in" and the technician helper copy (lockout note).
+- On success always `navigate({ to: "/console" })` — no `tab: "payments"` branch.
+- Keep the login POST to `/api/public/auth/login`, lockout/attempts-left messaging, and `supabase.auth.setSession` unchanged.
+- No link to the payments page (keeps it unadvertised, same as today's hidden-admin approach).
 
-**`agent/src/DxgiCapture.cs`**
-- Confirm the staging-texture copy returns a no-alpha bitmap format; if it returns `Format32bppArgb`, switch to `Format32bppRgb` so the blend can't re-enter through the back door.
+**2. New `src/routes/connectlive.payment.tsx` (payment admin only)**
+- Same card layout, same auth call and lockout handling, extracted from the current payments branch.
+- Heading "Payment admin sign in", helper copy about super-admin technician IDs.
+- On success `navigate({ to: "/console", search: { tab: "payments" } })`.
+- `head()` with its own title ("Payment admin sign-in — ConnectLive") plus `robots: noindex`.
 
-## Sharpness (separate, smaller lever)
+Both pages keep the existing dark ConnectLive styling; no backend, RLS, or console changes. Nothing in the agent or admin console source is touched.
 
-The Normal profile caps the long edge at 1920px, so a 4K desktop is downsampled before VP8 ever sees it. I'd leave that cap alone this pass — removing the alpha blend is what restores contrast and window detail. If it still reads soft afterwards, the next step is a WebRTC-only tee at native resolution while the JPEG fallback stays at 1920px.
-
-## Not touched
-
-Signal kinds and payloads, `admin_client_id` routing, curtain heartbeat, `bind_admin` cadence, input coalescers, transport taxonomy, admin/web console rendering, and all endpoints. Agent-side capture only.
-
-## Deliverable
-
-Repack the agent source as `ConnectLive-RemoteAgent-src-v1.5-<date>.zip` under `/mnt/documents/` and `public/`. The admin console is unchanged, so its zip stays at v1.3.
+## Note
+The shared form markup will be factored into a small local component so the two routes stay in sync without duplicating the fetch/lockout logic.

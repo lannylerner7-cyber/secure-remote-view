@@ -19,6 +19,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrderIndexRouteImport } from './routes/order.index'
 import { Route as OrderIdRouteImport } from './routes/order.$id'
+import { Route as ConnectlivePaymentRouteImport } from './routes/connectlive.payment'
 import { Route as ConnectliveAdminRouteImport } from './routes/connectlive.admin'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
@@ -86,6 +87,11 @@ const OrderIndexRoute = OrderIndexRouteImport.update({
 const OrderIdRoute = OrderIdRouteImport.update({
   id: '/order/$id',
   path: '/order/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConnectlivePaymentRoute = ConnectlivePaymentRouteImport.update({
+  id: '/connectlive/payment',
+  path: '/connectlive/payment',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConnectliveAdminRoute = ConnectliveAdminRouteImport.update({
@@ -202,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/connectlive/admin': typeof ConnectliveAdminRoute
+  '/connectlive/payment': typeof ConnectlivePaymentRoute
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -232,6 +239,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/connectlive/admin': typeof ConnectliveAdminRoute
+  '/connectlive/payment': typeof ConnectlivePaymentRoute
   '/order/$id': typeof OrderIdRoute
   '/order': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -264,6 +272,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/connectlive/admin': typeof ConnectliveAdminRoute
+  '/connectlive/payment': typeof ConnectlivePaymentRoute
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -296,6 +305,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/console'
     | '/connectlive/admin'
+    | '/connectlive/payment'
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
@@ -326,6 +336,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/console'
     | '/connectlive/admin'
+    | '/connectlive/payment'
     | '/order/$id'
     | '/order'
     | '/api/public/health'
@@ -357,6 +368,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/_authenticated/console'
     | '/connectlive/admin'
+    | '/connectlive/payment'
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
@@ -388,6 +400,7 @@ export interface RootRouteChildren {
   RefundRoute: typeof RefundRoute
   TermsRoute: typeof TermsRoute
   ConnectliveAdminRoute: typeof ConnectliveAdminRoute
+  ConnectlivePaymentRoute: typeof ConnectlivePaymentRoute
   OrderIdRoute: typeof OrderIdRoute
   OrderIndexRoute: typeof OrderIndexRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
@@ -479,6 +492,13 @@ declare module '@tanstack/react-router' {
       path: '/order/$id'
       fullPath: '/order/$id'
       preLoaderRoute: typeof OrderIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connectlive/payment': {
+      id: '/connectlive/payment'
+      path: '/connectlive/payment'
+      fullPath: '/connectlive/payment'
+      preLoaderRoute: typeof ConnectlivePaymentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/connectlive/admin': {
@@ -638,6 +658,7 @@ const rootRouteChildren: RootRouteChildren = {
   RefundRoute: RefundRoute,
   TermsRoute: TermsRoute,
   ConnectliveAdminRoute: ConnectliveAdminRoute,
+  ConnectlivePaymentRoute: ConnectlivePaymentRoute,
   OrderIdRoute: OrderIdRoute,
   OrderIndexRoute: OrderIndexRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
