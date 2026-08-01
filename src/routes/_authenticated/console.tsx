@@ -973,43 +973,52 @@ function AdminPage() {
                   <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
                     Session has no device attached.
                   </div>
-                ) : liveFrame?.frame ? (
+                ) : (rtcVideoLive || liveFrame?.frame) ? (
                   <div
                     ref={liveSurfaceRef}
                     tabIndex={s.mode === "control" ? 0 : -1}
                     className={`absolute inset-0 outline-none ${s.mode === "control" ? "cursor-crosshair" : ""}`}
                     onMouseMove={s.mode === "control" ? (e) => {
-                      const nowMs = performance.now();
-                      // Skip throttle while a button is held so drag-select captures every point.
-                      if (!mouseButtonDownRef.current && nowMs - lastScreenMoveAtRef.current < 24) return;
-                      lastScreenMoveAtRef.current = nowMs;
-                      const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
+                      const point = getContainedPoint(e.currentTarget, e.clientX, e.clientY, activeSourceSize());
                       if (!point) return;
-                      void sendInput(s.id, "mousemove", point);
+                      queueMove(s.id, "mousemove", point);
                     } : undefined}
                     onMouseDown={s.mode === "control" ? (e) => {
-                      const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
+                      const point = getContainedPoint(e.currentTarget, e.clientX, e.clientY, activeSourceSize());
                       if (!point) return;
                       e.preventDefault();
                       focusLiveSurface();
                       mouseButtonDownRef.current = true;
+                      flushMoveNow();
                       void sendInput(s.id, "mousemove", point);
                       void sendInput(s.id, "mousedown", { button: e.button });
                     } : undefined}
-                    onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); mouseButtonDownRef.current = false; void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
+                    onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); mouseButtonDownRef.current = false; flushMoveNow(); void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
                     onMouseLeave={s.mode === "control" ? () => { mouseButtonDownRef.current = false; } : undefined}
                     onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
                     onWheel={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
                     onKeyDown={s.mode === "control" ? (e) => sendKeyboardDown(s.id, e) : undefined}
                     onKeyUp={s.mode === "control" ? (e) => sendKeyboardUp(s.id, e) : undefined}
                   >
-                    <img
-                      src={`data:image/jpeg;base64,${liveFrame.frame}`}
-                      alt="Live screen"
-                      className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:auto]"
-                      draggable={false}
-                      decoding="async"
+                    {/* Primary layer: the WebRTC video track (hardware-decoded,
+                        real frame rate). The element itself is created and owned
+                        by startWebRtcLive(); we only host it here. */}
+                    <div
+                      ref={videoHostRef}
+                      className={`pointer-events-none absolute inset-0 ${rtcVideoLive ? "" : "hidden"}`}
                     />
+                    {/* Fallback layer: base64 JPEG slideshow from session_frames.
+                        Same object-contain letterboxing so coordinate mapping is
+                        identical apart from the source dimensions. */}
+                    {!rtcVideoLive && liveFrame?.frame && (
+                      <img
+                        src={`data:image/jpeg;base64,${liveFrame.frame}`}
+                        alt="Live screen"
+                        className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:auto]"
+                        draggable={false}
+                        decoding="async"
+                      />
+                    )}
                   </div>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
@@ -1026,7 +1035,7 @@ function AdminPage() {
                     </div>
                   </div>
                 )}
-                {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
+                {s.device_id && (rtcVideoLive || liveFrame?.frame) && liveCursor && liveCursor.visible && (
                   <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
                 )}
                 <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
