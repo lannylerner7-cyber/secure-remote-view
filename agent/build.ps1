@@ -136,6 +136,9 @@ if (-not $SkipMsi) {
     if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
         throw "wix is not on PATH. Run: dotnet tool install --global wix, or re-run with -SkipMsi."
     }
+    if (-not (Test-Path packaging/msi/ConnectLive.wxs)) {
+        throw "Missing packaging\msi\ConnectLive.wxs - cannot build the MSI."
+    }
     Push-Location packaging/msi
     try {
         wix build ConnectLive.wxs `
@@ -171,7 +174,7 @@ Write-Host "=== Build complete (version $Version) ==="
 Write-Host ""
 Write-Host "  Raw binaries (input to installer - do NOT ship directly):"
 Write-Host "    dist\ConnectLive.exe"
-Write-Host "    dist\ConnectLiveUpdater.exe"
+if (Test-Path dist/ConnectLiveUpdater.exe) { Write-Host "    dist\ConnectLiveUpdater.exe  (optional installer component)" }
 Write-Host ""
 Write-Host "  Installers (ship ONE of these to IT staff):"
 if (Test-Path dist/ConnectLiveSetup.exe) { Write-Host "    dist\ConnectLiveSetup.exe   <- interactive install" }
