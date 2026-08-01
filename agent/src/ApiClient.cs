@@ -265,12 +265,11 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
     }
 
-    // ---- (Removed) Meeting-code pairing --------------------------------
-    // The old /api/public/agent/pair endpoint returns 410 Gone; auto-enroll
-    // + admin-initiated session creation replaces it end-to-end.
+    // Auto-enrollment + admin-initiated sessions replace the old meeting-code
+    // pairing flow end to end (see ENDPOINTS.md).
 
-    // Result type mirrors the /reconnect endpoint (the retired /pair route
-    // returns 410 Gone). Naming stays literal so error paths read cleanly.
+    // Result type for /api/public/agent/session/{id}/reconnect.
+
     public sealed record ReconnectResult(bool Ok, string? SessionId, string? Error);
     private sealed record ReconnectOk(bool ok, string sessionId, string mode, string state);
     private sealed record ReconnectErr(string error);
