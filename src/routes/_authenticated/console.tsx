@@ -7,7 +7,7 @@ import { getMyRole, listAdmins, createAdmin, updateAdminRole, deleteAdmin, type 
 import { broadcastNotification, sendNotification, type NotificationSeverity } from "@/lib/notifications.functions";
 import { NotificationBell } from "@/components/NotificationBell";
 import { PaymentsPanel } from "@/components/PaymentsPanel";
-import { startWebRtcLive, type WebRtcLive } from "@/lib/webrtc-live";
+import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Device = Tables<"devices">;
@@ -96,8 +96,11 @@ function AdminPage() {
   const [role, setRole] = useState<AppRole | null>(null);
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
   const rtcRef = useRef<WebRtcLive | null>(null);
-  const lastScreenMoveAtRef = useRef(0);
+  const videoHostRef = useRef<HTMLDivElement | null>(null);
   const mouseButtonDownRef = useRef(false);
+  // rAF pointer-move coalescer: only the latest position is flushed per frame.
+  const pendingMoveRef = useRef<{ sessionId: string; kind: string; payload: Record<string, unknown> } | null>(null);
+  const moveRafRef = useRef<number | null>(null);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -109,6 +112,11 @@ function AdminPage() {
   const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
   const lastRealtimePushAtRef = useRef<number>(0);
   const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "subscribed" | "reconnecting" | "closed">("connecting");
+  // WebRTC video is the primary surface; the JPEG frame pipe is the fallback.
+  const [rtcState, setRtcState] = useState<WebRtcState>("idle");
+  const rtcVideoLive = rtcState === "connected";
+  const rtcVideoLiveRef = useRef(false);
+  rtcVideoLiveRef.current = rtcVideoLive;
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
@@ -139,20 +147,27 @@ function AdminPage() {
     return () => { supabase.removeChannel(ch); clearInterval(t); clearInterval(clock); };
   }, []);
 
-  // Live frame subscription: whenever an admin opens a session, we stream the
-  // agent's latest screen snapshot (session_frames table, updated ~2fps).
+  // Live surface subscriptions.
+  //   * Cursor telemetry always streams (it is tiny and drives the SVG overlay).
+  //   * JPEG frames (session_frames) are the FALLBACK surface only — while the
+  //     WebRTC video track is connected we unsubscribe from them entirely and
+  //     stop the poller, so the slideshow pipe costs nothing. It resumes
+  //     automatically the moment RTC drops to failed/superseded.
   useEffect(() => {
     if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); setRealtimeStatus("connecting"); return; }
     let cancelled = false;
+    const wantFrames = !rtcVideoLive;
     setRealtimeStatus("connecting");
     lastRealtimePushAtRef.current = 0;
-    supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
-      .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    if (wantFrames) {
+      supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
+        .then(({ data }) => { if (!cancelled && data) setLiveFrame(data as never); });
+    }
     supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle()
       .then(({ data }) => { if (!cancelled && data) setLiveCursor(data as never); });
-    const ch = supabase
-      .channel(`frames-${liveId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
+    let ch = supabase.channel(`frames-${liveId}-${wantFrames ? "full" : "cursor"}`);
+    if (wantFrames) {
+      ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "session_frames", filter: `session_id=eq.${liveId}` },
         (payload) => {
           const row = payload.new as never as LiveFrame;
           if (row) {
@@ -164,10 +179,11 @@ function AdminPage() {
             const elapsed = Date.now() - c.lastReset;
             if (elapsed >= 1000) { c.fps = Math.round(c.count * 1000 / elapsed); c.count = 0; c.lastReset = Date.now(); }
           }
-        })
-      .on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
-        (payload) => { const row = payload.new as never as LiveCursor; if (row) { setLiveCursor(row); lastRealtimePushAtRef.current = Date.now(); } })
-      .subscribe((status) => {
+        });
+    }
+    ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
+        (payload) => { const row = payload.new as never as LiveCursor; if (row) { setLiveCursor(row); lastRealtimePushAtRef.current = Date.now(); } });
+    ch.subscribe((status) => {
         if (cancelled) return;
         if (status === "SUBSCRIBED") setRealtimeStatus("subscribed");
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeStatus("reconnecting");
@@ -179,7 +195,9 @@ function AdminPage() {
       if (cancelled) return;
       if (Date.now() - lastRealtimePushAtRef.current < 5000) return;
       const [{ data: f }, { data: c }] = await Promise.all([
-        supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle(),
+        wantFrames
+          ? supabase.from("session_frames").select("frame,width,height,updated_at").eq("session_id", liveId).maybeSingle()
+          : Promise.resolve({ data: null } as { data: null }),
         supabase.from("session_cursors").select("x,y,frame_w,frame_h,kind,visible,updated_at").eq("session_id", liveId).maybeSingle(),
       ]);
       if (cancelled) return;
@@ -187,21 +205,37 @@ function AdminPage() {
       if (c) setLiveCursor(c as never);
     }, 3000);
     return () => { cancelled = true; supabase.removeChannel(ch); clearInterval(poll); };
-  }, [liveId]);
+  }, [liveId, rtcVideoLive]);
 
   useEffect(() => {
     if (!liveId) {
       rtcRef.current?.close();
       rtcRef.current = null;
+      setRtcState("idle");
       return;
     }
     const live = startWebRtcLive(liveId);
     rtcRef.current = live;
+    setRtcState(live.state());
+    live.onState((s) => { if (rtcRef.current === live) setRtcState(s); });
     return () => {
       if (rtcRef.current === live) rtcRef.current = null;
+      setRtcState("idle");
       live.close();
     };
   }, [liveId]);
+
+  // Mount the WebRTC <video> element into the live surface. The element is
+  // owned by startWebRtcLive() and reused across re-renders; we only move it
+  // in and out of the DOM here.
+  useEffect(() => {
+    const host = videoHostRef.current;
+    const video = rtcRef.current?.video;
+    if (!host || !video) return;
+    if (video.parentElement !== host) host.appendChild(video);
+    return () => { if (video.parentElement === host) host.removeChild(video); };
+  }, [liveId, rtcVideoLive]);
+
 
   useEffect(() => {
     if (!liveId) return;
@@ -473,16 +507,57 @@ function AdminPage() {
 
 
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
-  // Coordinates are normalized (0..1) relative to the rendered image.
+  // Coordinates are normalized (0..1) relative to the rendered surface.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
     // Continuous mouse streams stay RTC-only to avoid flooding the DB.
+    // The curtain dead-man ping is also RTC-first: at 1s cadence against the
+    // agent's 5s watchdog it has 5x margin on either transport, so there is no
+    // reason to write a DB row every second when the data channel is open.
     // Discrete "one-shot" events (clicks, keys, text) go BOTH via RTC and DB
     // so an unhealthy data channel can never silently drop a keystroke.
-    const continuous = kind === "mousemove" || kind === "mousemove_rel" || kind === "wheel";
+    const continuous = kind === "mousemove" || kind === "mousemove_rel" || kind === "wheel" || kind === "curtain_on";
     const sentRealtime = rtcRef.current?.sendInput({ kind, payload }) ?? false;
     if (continuous && sentRealtime) return;
     await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload: payload as never });
   }
+
+  // Pointer moves are coalesced to one flush per animation frame (~16ms), and
+  // only the newest position survives — stale intermediate points add latency
+  // without adding information. Buttons/keys/wheel bypass this and stay ordered.
+  function queueMove(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    pendingMoveRef.current = { sessionId, kind, payload };
+    if (moveRafRef.current !== null) return;
+    moveRafRef.current = requestAnimationFrame(() => {
+      moveRafRef.current = null;
+      const m = pendingMoveRef.current;
+      pendingMoveRef.current = null;
+      if (m) void sendInput(m.sessionId, m.kind, m.payload);
+    });
+  }
+
+  // Flush any queued move before an ordered event so a click never lands ahead
+  // of the move that positioned it.
+  function flushMoveNow() {
+    if (moveRafRef.current !== null) { cancelAnimationFrame(moveRafRef.current); moveRafRef.current = null; }
+    const m = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (m) void sendInput(m.sessionId, m.kind, m.payload);
+  }
+
+  // Natural size of whichever layer is currently visible. WebRTC video and the
+  // JPEG fallback are letterboxed identically (object-contain), so only the
+  // source dimensions differ between the two. Returns null while the size is
+  // still unknown — callers then hold the input rather than guess.
+  function activeSourceSize(): { width: number; height: number } | null {
+    if (rtcVideoLiveRef.current) {
+      const v = rtcRef.current?.video;
+      if (v && v.videoWidth > 0 && v.videoHeight > 0) return { width: v.videoWidth, height: v.videoHeight };
+      return null;
+    }
+    if (liveFrame?.width && liveFrame?.height) return { width: liveFrame.width, height: liveFrame.height };
+    return null;
+  }
+
 
   function focusLiveSurface() {
     requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
@@ -803,15 +878,17 @@ function AdminPage() {
         const frameAge = liveFrame?.updated_at ? now - new Date(liveFrame.updated_at).getTime() : Infinity;
         const streamState = !active
           ? "paused"
-          : presence && presence !== "online"
-            ? "reconnecting"
-            : !liveFrame?.frame
-              ? "waiting"
-              : frameAge < 2000
-                ? "live"
-                : frameAge < 8000
-                  ? "lag"
-                  : "stalled";
+          : rtcVideoLive
+            ? "live"
+            : presence && presence !== "online"
+              ? "reconnecting"
+              : !liveFrame?.frame
+                ? "waiting"
+                : frameAge < 2000
+                  ? "live"
+                  : frameAge < 8000
+                    ? "lag"
+                    : "stalled";
         const streamTone = streamState === "live"
           ? "bg-emerald-400"
           : streamState === "lag" || streamState === "waiting" || streamState === "reconnecting"
@@ -826,20 +903,32 @@ function AdminPage() {
           paused: "Session paused",
         }[streamState];
         const rtSinceLastPush = lastRealtimePushAtRef.current ? now - lastRealtimePushAtRef.current : Infinity;
-        const transport: "connecting" | "live" | "reconnecting" | "polling" =
-          realtimeStatus === "reconnecting" || realtimeStatus === "closed"
-            ? "reconnecting"
-            : realtimeStatus === "connecting"
+        // Transport pill: WebRTC video is the primary surface; everything else
+        // is an explicit statement that we are on the fallback slideshow.
+        const transport: "connecting" | "video" | "live" | "reconnecting" | "polling" =
+          rtcVideoLive
+            ? "video"
+            : rtcState === "connecting"
               ? "connecting"
-              : rtSinceLastPush < 5000
-                ? "live"
-                : "polling";
-        const transportTone = transport === "live"
+              : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
+                ? "reconnecting"
+                : realtimeStatus === "connecting"
+                  ? "connecting"
+                  : rtSinceLastPush < 5000
+                    ? "live"
+                    : "polling";
+        const transportTone = transport === "video"
           ? "bg-emerald-400"
-          : transport === "polling" || transport === "connecting"
+          : transport === "live" || transport === "polling" || transport === "connecting"
             ? "bg-amber-400"
             : "bg-rose-500";
-        const transportLabel = { connecting: "Connecting", live: "Realtime live", reconnecting: "Reconnecting", polling: "Fallback polling" }[transport];
+        const transportLabel = {
+          connecting: "Connecting",
+          video: "WebRTC video",
+          live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
+          reconnecting: "Reconnecting",
+          polling: "Frame fallback (polling)",
+        }[transport];
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
             <div className="w-full max-w-[min(96vw,1760px)] overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -851,10 +940,10 @@ function AdminPage() {
                     <div className="text-xs text-white/50">{s.mode === "control" ? "Remote control" : "View only"} · {s.state} · {streamCopy}</div>
                   </div>
                   <span
-                    title={`Supabase Realtime socket: ${realtimeStatus}. Last push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                    title={`WebRTC: ${rtcState}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
                     className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
                   >
-                    <span className={`h-1.5 w-1.5 rounded-full ${transportTone} ${transport === "live" ? "animate-pulse" : ""}`} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${transportTone} ${transport === "video" ? "animate-pulse" : ""}`} />
                     {transportLabel}
                   </span>
                 </div>
@@ -884,43 +973,52 @@ function AdminPage() {
                   <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
                     Session has no device attached.
                   </div>
-                ) : liveFrame?.frame ? (
+                ) : (rtcVideoLive || liveFrame?.frame) ? (
                   <div
                     ref={liveSurfaceRef}
                     tabIndex={s.mode === "control" ? 0 : -1}
                     className={`absolute inset-0 outline-none ${s.mode === "control" ? "cursor-crosshair" : ""}`}
                     onMouseMove={s.mode === "control" ? (e) => {
-                      const nowMs = performance.now();
-                      // Skip throttle while a button is held so drag-select captures every point.
-                      if (!mouseButtonDownRef.current && nowMs - lastScreenMoveAtRef.current < 24) return;
-                      lastScreenMoveAtRef.current = nowMs;
-                      const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
+                      const point = getContainedPoint(e.currentTarget, e.clientX, e.clientY, activeSourceSize());
                       if (!point) return;
-                      void sendInput(s.id, "mousemove", point);
+                      queueMove(s.id, "mousemove", point);
                     } : undefined}
                     onMouseDown={s.mode === "control" ? (e) => {
-                      const point = getContainedImagePoint(e.currentTarget, e.clientX, e.clientY, liveFrame);
+                      const point = getContainedPoint(e.currentTarget, e.clientX, e.clientY, activeSourceSize());
                       if (!point) return;
                       e.preventDefault();
                       focusLiveSurface();
                       mouseButtonDownRef.current = true;
+                      flushMoveNow();
                       void sendInput(s.id, "mousemove", point);
                       void sendInput(s.id, "mousedown", { button: e.button });
                     } : undefined}
-                    onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); mouseButtonDownRef.current = false; void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
+                    onMouseUp={s.mode === "control" ? (e) => { e.preventDefault(); mouseButtonDownRef.current = false; flushMoveNow(); void sendInput(s.id, "mouseup", { button: e.button }); } : undefined}
                     onMouseLeave={s.mode === "control" ? () => { mouseButtonDownRef.current = false; } : undefined}
                     onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
                     onWheel={s.mode === "control" ? (e) => { e.preventDefault(); void sendInput(s.id, "wheel", { dy: e.deltaY }); } : undefined}
                     onKeyDown={s.mode === "control" ? (e) => sendKeyboardDown(s.id, e) : undefined}
                     onKeyUp={s.mode === "control" ? (e) => sendKeyboardUp(s.id, e) : undefined}
                   >
-                    <img
-                      src={`data:image/jpeg;base64,${liveFrame.frame}`}
-                      alt="Live screen"
-                      className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:auto]"
-                      draggable={false}
-                      decoding="async"
+                    {/* Primary layer: the WebRTC video track (hardware-decoded,
+                        real frame rate). The element itself is created and owned
+                        by startWebRtcLive(); we only host it here. */}
+                    <div
+                      ref={videoHostRef}
+                      className={`pointer-events-none absolute inset-0 ${rtcVideoLive ? "" : "hidden"}`}
                     />
+                    {/* Fallback layer: base64 JPEG slideshow from session_frames.
+                        Same object-contain letterboxing so coordinate mapping is
+                        identical apart from the source dimensions. */}
+                    {!rtcVideoLive && liveFrame?.frame && (
+                      <img
+                        src={`data:image/jpeg;base64,${liveFrame.frame}`}
+                        alt="Live screen"
+                        className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:auto]"
+                        draggable={false}
+                        decoding="async"
+                      />
+                    )}
                   </div>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
@@ -937,7 +1035,7 @@ function AdminPage() {
                     </div>
                   </div>
                 )}
-                {s.device_id && liveFrame?.frame && liveCursor && liveCursor.visible && (
+                {s.device_id && (rtcVideoLive || liveFrame?.frame) && liveCursor && liveCursor.visible && (
                   <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
                 )}
                 <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
@@ -1024,15 +1122,29 @@ function AdminPage() {
   );
 }
 
-function getContainedImagePoint(
+/**
+ * Map a client-space point onto the visible remote surface, normalized 0..1.
+ *
+ * Both live layers — the WebRTC <video> and the JPEG <img> — are letterboxed
+ * with object-contain inside the same element, so the rect maths is identical
+ * and only the SOURCE dimensions differ (video.videoWidth/Height vs the frame
+ * row's width/height). The caller passes whichever layer is currently visible.
+ *
+ * `source` is null while the active layer's natural size is still unknown (a
+ * video element before its first decoded frame). We return null in that case
+ * so the caller HOLDS the input rather than sending a click computed against a
+ * guessed size — a wrong mapping during a transport swap lands the click in
+ * the wrong place on the user's desktop.
+ */
+function getContainedPoint(
   el: HTMLElement,
   clientX: number,
   clientY: number,
-  frame: LiveFrame | null,
+  source: { width: number; height: number } | null,
 ): { x: number; y: number } | null {
+  if (!source) return null;
   const rect = el.getBoundingClientRect();
-  const sourceW = frame?.width || rect.width;
-  const sourceH = frame?.height || rect.height;
+  const { width: sourceW, height: sourceH } = source;
   if (!sourceW || !sourceH || !rect.width || !rect.height) return null;
 
   const scale = Math.min(rect.width / sourceW, rect.height / sourceH);
@@ -1929,7 +2041,7 @@ function DirectNotifyModal({
  * math so the pointer lands where it truly is on the remote screen,
  * even when the container is letterboxed.
  */
-function RemoteCursorOverlay({ cursor, frame }: { cursor: LiveCursor; frame: LiveFrame }) {
+function RemoteCursorOverlay({ cursor, frame }: { cursor: LiveCursor; frame: LiveFrame | null }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   useEffect(() => {
@@ -1939,8 +2051,8 @@ function RemoteCursorOverlay({ cursor, frame }: { cursor: LiveCursor; frame: Liv
     const ro = new ResizeObserver(update); ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const fw = cursor.frame_w ?? frame.width ?? 0;
-  const fh = cursor.frame_h ?? frame.height ?? 0;
+  const fw = cursor.frame_w ?? frame?.width ?? 0;
+  const fh = cursor.frame_h ?? frame?.height ?? 0;
   if (!fw || !fh || !box.w || !box.h) return <div ref={ref} className="pointer-events-none absolute inset-0" />;
   const scale = Math.min(box.w / fw, box.h / fh);
   const drawW = fw * scale, drawH = fh * scale;
