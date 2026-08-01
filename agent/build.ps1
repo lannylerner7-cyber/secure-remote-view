@@ -24,6 +24,7 @@
 param(
     [switch]$SkipInno,
     [switch]$SkipMsi,
+    [switch]$SkipUpdater,   # Agent-only build: no Updater binary, no Updater component
     [string]$Version
 )
 
