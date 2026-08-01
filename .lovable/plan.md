@@ -1,35 +1,50 @@
-## What I found
+Adopting your split and carve-out. Three deployments, performance first.
 
-- **Telegram**: `src/lib/notify.functions.ts` is wired and RLS-scoped to the signed-in admin, with settings in `admin_settings`. Console fires `session_start`, `session_end`, `control_taken` and a test message — but **`device_offline` is never fired anywhere**, even though the toggle exists in the UI. Also failures are silent (no toast when the bot token is wrong/muted).
-- **Endpoints**: every URL the C# clients call resolves to a real route file (enroll, hello, heartbeat, power ack, session consent/reconnect/frame/cursor/inputs/signal, auth/login, stream). One stale reference: `ApiClient.cs` still mentions the retired `api/public/agent/pair`.
-- **Icons**: **`assets/icon.ico` does not exist anywhere in the repo.** Both csproj files, `AppIcon.cs`, both `build.ps1`, and the Inno `SetupIconFile` all reference it conditionally, so builds silently fall back to the default .NET icon. Only `agent/assets/logo.svg` exists.
-- **Zips**: `public/` currently holds v1.1 admin and v1.2 agent source zips.
+## PR #1 — Live view + input latency (ship and verify first)
 
-## Plan
+### 1. Mount the WebRTC video (the actual fix)
 
-**1. Ship a real icon.ico**
-- Generate a multi-size (16/32/48/64/128/256) `icon.ico` from the ConnectLive brand mark and commit it to `agent/assets/icon.ico` and `admin/assets/icon.ico`.
-- Verify the existing wiring now activates: agent `<ApplicationIcon>`, admin `<ApplicationIcon>` + `<Resource>` (taskbar/window via `AppIcon.Apply`), Inno `SetupIconFile` + `UninstallDisplayIcon`, and both `build.ps1` staging steps. No warning paths should trigger anymore.
-- Also emit a matching `public/favicon.ico` so the web console matches the desktop apps.
+`console.tsx` calls `startWebRtcLive()` but never puts `live.video` in the DOM — only `sendInput` is used, so the visible surface is always the base64 JPEG from `session_frames`. Fix:
 
-**2. Telegram verification pass**
-- Wire the missing **`device_offline`** notification: fire once per device when the console's device poll flips a device from online to offline (dedupe so it doesn't spam every poll tick).
-- Surface send results: the "Send test" action already reports; make the background sends log the `not_configured` / `muted` / `provider_error` reason to console so a misconfigured bot is diagnosable.
-- Keep everything on the caller's own bot token — no shared secret.
+- Render `live.video` as the primary layer inside the live surface; keep the JPEG `<img>` as a second layer that is only visible while RTC state is not `connected`.
+- Suspend the `session_frames` realtime subscription and the 3s poll while RTC video is connected; resume automatically on `failed` / `superseded`.
+- Cursor SVG overlay sits above both, scaled to the active layer.
+- Health pill gains explicit transport labels: `WebRTC video`, `Frame fallback (n fps)`, `Reconnecting`.
 
-**3. Endpoint audit deliverable**
-- Add `ENDPOINTS.md` at the repo root: one row per `api/public/*` route with method, auth model, caller (agent / admin / web / external), and status verified.
-- Delete the stale `agent/pair` comment in `ApiClient.cs`.
+**Pixel accuracy across the swap (your condition).** One shared mapping function takes the *active layer's* natural size — `video.videoWidth/videoHeight` when RTC is visible, `liveFrame.width/height` when the JPEG is visible — plus the layer's rendered client rect, and returns normalized 0–1 coordinates. Both layers use identical `object-contain` letterboxing so the rect maths is the same; only the source dimensions differ. Verified in both directions with a Playwright run: click a known target with RTC up, force the RTC socket to fail, click the same target on the JPEG layer, and assert both produce the same normalized coordinates within a 1px tolerance. If the natural size of the active layer is not yet known (video before first frame), input is held rather than sent against a guessed size.
 
-**4. Live view display clean-up (console + native admin)**
-- Remove leftover consent/tray-era chrome from the live view header, keep curtain + live indicator only.
-- Letterbox the frame correctly (`object-contain`, no stretch) and render at the frame's native resolution so the 1920px-edge capture isn't downscaled twice; keep the cursor SVG overlay aligned to the same scale factor.
-- Keep the transport health pill.
+### 2. Input latency
 
-**5. Repack**
-- Rebuild both source zips with new version stamps: `ConnectLive-RemoteAgent-src-v1.3-<date>.zip` and `ConnectLive-AdminConsole-src-v1.2-<date>.zip`, mirrored to `public/` and `/mnt/documents/`, with the download links on the public page updated to the new filenames.
+- Browser-side coalescer: one pointer-move flush per animation frame (~16ms, latest position only); buttons, wheel and keys sent immediately and in order. Replaces the fixed 24ms throttle.
+- DB fallback path batches events into one insert per ~50ms window instead of a row per event.
+- `agent/src/InputRelay.cs`: 90ms fixed poll → adaptive 25–60ms in control mode, 250ms in view mode.
 
-## Technical notes
+**Curtain dead-man ping — revised after checking the numbers.** Verified today: the console pings `curtain_on` every **1s** (`console.tsx:526`) and the agent releases the block when no ping has arrived for **5s** (`InputRelay.cs:106`, `InputBlocker.CheckWatchdog`). The `bind_admin` heartbeat runs at **15s** (`webrtc-live.ts:31`) — that is three times *longer* than the watchdog, so moving the ping onto `admin_bound_at` as originally proposed would make the curtain lift while the admin is still present. Dropping that idea. Instead:
 
-- The icon is a real binary committed to the repo (not a Lovable asset pointer) because MSBuild `<ApplicationIcon>` and Inno `SetupIconFile` need a file on disk at build time.
-- `device_offline` detection stays client-side in the console poll loop; no new table or trigger, so no migration is needed.
+- Curtain heartbeat moves onto the **WebRTC data channel** at the same 1s cadence — no DB write at all, 5x margin against the unchanged 5s watchdog.
+- When the data channel is down, it falls back to the existing 1s `curtain_on` insert, exactly as today.
+- Watchdog timeout stays 5s; refresh interval stays 1s. Margin: 5x on the fast path, 5x on the fallback path. Neither sticking nor early-lift changes behaviour.
+
+### 3. Native admin console parity
+
+- `FrameFallbackPump` 200ms → 120ms fast / 600ms idle; `CursorPollPump` 100ms while in control.
+- Surface the WebRTC failure reason in the existing banner so a 5fps fallback session is visibly a fallback.
+
+### 4. Pipeline audit
+
+- `ENDPOINTS.md` gains a **Transport / fallback** column per route: primary, fallback, retry policy, failure mode. Covers frames (RTC video → JPEG, new), inputs, signals, cursor, power, wake.
+- Explicit note in `ENDPOINTS.md` that ERC-20 confirmation is **webhook-only** today, with no chain polling, per your carve-out.
+- `scripts/verify-agent-routes.ts` gains latency assertions.
+
+**Verification before PR #2 starts:** Playwright run against the live console proving RTC video renders, the swap keeps clicks accurate both directions, and the fallback still works when RTC is blocked.
+
+## PR #2 — Payments (only after #1 is live and verified)
+
+- New `/connectlive/payment` route: own sign-in + `PaymentsPanel`, server-side gated to `admin` / `super_admin`.
+- Remove the Payments nav entry and tab render from `/console`; remove the "Payment admin" toggle from `/connectlive/admin`, replaced by a discreet link. `?tab=payments` redirects to the new route.
+- Realtime on `orders` + `payment_events` for the order page and the panel; existing 10s / 60s polls stay as fallback when the socket is unhealthy. Needs a small migration adding both tables to the `supabase_realtime` publication.
+- CDP health line: config validity, webhook secret present, last webhook received, last reconcile run.
+
+## PR #3 — ERC-20 (isolated, later)
+
+Not touched in #1 or #2. Chain polling for USDT/USDC in `fetchInboundTxs` plus the external API key ships alone, on its own release.
