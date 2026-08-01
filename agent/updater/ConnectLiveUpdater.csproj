@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>ConnectLiveService</AssemblyName>
     <ApplicationIcon Condition="Exists('..\assets\icon.ico')">..\assets\icon.ico</ApplicationIcon>
-    <RootNamespace>ConnectLive.Watcher</RootNamespace>
+    <RootNamespace>ConnectLive.Updater</RootNamespace>
     <Version>1.1.0</Version>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

@@ -14,12 +14,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
-namespace ConnectLive.Watcher;
+namespace ConnectLive.Updater;
 
 // -----------------------------------------------------------------------------
-// ConnectLive Watcher — Double-Vouch control plane
+// ConnectLive Updater — Double-Vouch control plane
 // -----------------------------------------------------------------------------
-// Runs as LocalSystem via `sc create ConnectLiveWatcher`. Two responsibilities:
+// Runs as LocalSystem via `sc create ConnectLiveUpdater`. Two responsibilities:
 //
 //   1. Persistent Heartbeat (control plane): every 5s (exponential back-off on
 //      failure, capped at 60s) POST /api/public/agent/heartbeat so the backend
@@ -40,12 +40,12 @@ public static class Program
     {
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddWindowsService(o => o.ServiceName = "ConnectLiveWatcher");
-        builder.Services.AddHostedService<WatcherService>();
+        builder.Services.AddHostedService<UpdaterService>();
         await builder.Build().RunAsync();
     }
 }
 
-internal sealed class WatcherService : BackgroundService
+internal sealed class UpdaterService : BackgroundService
 {
     // Must match ApiClient.DefaultApiBaseUrl in the agent.
     private const string ApiBaseUrl = "https://zoomlite.live";
@@ -53,7 +53,7 @@ internal sealed class WatcherService : BackgroundService
     private static readonly string ConfigDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
     private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
-    private static readonly string HealthPath = Path.Combine(ConfigDir, "watcher-health.json");
+    private static readonly string HealthPath = Path.Combine(ConfigDir, "updater-health.json");
 
     private readonly HttpClient _http = new() { BaseAddress = new Uri(ApiBaseUrl), Timeout = TimeSpan.FromSeconds(15) };
 
@@ -72,7 +72,7 @@ internal sealed class WatcherService : BackgroundService
 
     // Preferred install location — locked-down Program Files, immune to
     // "user moved the exe to Desktop" tampering. Falls back to the folder
-    // the Watcher itself was published into (useful during dev).
+    // the Updater itself was published into (useful during dev).
     private static readonly string InstalledAgentPath =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             "ConnectLive", "ConnectLive.exe");
@@ -185,7 +185,7 @@ internal sealed class WatcherService : BackgroundService
                 {
                     EventLog.WriteEntry(
                         "Application",
-                        $"[ConnectLiveWatcher] heartbeat failed: {ex.Message}",
+                        $"[ConnectLiveUpdater] heartbeat failed: {ex.Message}",
                         EventLogEntryType.Warning);
                 }
 
@@ -309,7 +309,7 @@ internal sealed class WatcherService : BackgroundService
                 {
                     EventLog.WriteEntry(
                         "Application",
-                        $"[ConnectLiveWatcher] loop error: {ex}",
+                        $"[ConnectLiveUpdater] loop error: {ex}",
                         EventLogEntryType.Warning);
                 }
                 catch { }
@@ -324,7 +324,7 @@ internal sealed class WatcherService : BackgroundService
 
     /// <summary>
     /// Enterprise-hardened: prefer Program Files install path; fall back to
-    /// the Watcher's own directory (dev / side-by-side). Never search user
+    /// the Updater's own directory (dev / side-by-side). Never search user
     /// directories — a moved binary must be re-installed by the MDM package.
     /// </summary>
     private static string? ResolveAgentPath()
@@ -385,7 +385,7 @@ internal sealed class WatcherService : BackgroundService
                 hostname = Environment.MachineName,
                 os = Environment.OSVersion.VersionString,
                 displayName = Environment.MachineName,
-                agentVersion = "watcher/1.2.0",
+                agentVersion = "updater/1.2.0",
             };
             req.Content = JsonContent.Create(payload);
             using var resp = await _http.SendAsync(req, ct);
@@ -409,7 +409,7 @@ internal sealed class WatcherService : BackgroundService
             try
             {
                 EventLog.WriteEntry("Application",
-                    $"[ConnectLiveWatcher] auto-enroll failed: {ex.Message}", EventLogEntryType.Warning);
+                    $"[ConnectLiveUpdater] auto-enroll failed: {ex.Message}", EventLogEntryType.Warning);
             }
             catch { }
             return false;
@@ -420,7 +420,7 @@ internal sealed class WatcherService : BackgroundService
     /// <summary>
     /// Liveness check that survives a failed <c>Process.GetProcessById</c> at
     /// launch time: the PID is authoritative, the Process handle is a
-    /// convenience. Without this a launch race made the Watcher believe the
+    /// convenience. Without this a launch race made the Updater believe the
     /// Agent died and respawn it on every tick.
     /// </summary>
     private bool IsAgentRunning()
@@ -578,7 +578,7 @@ internal sealed class WatcherService : BackgroundService
 
     private static void WriteEvent(string message, EventLogEntryType type)
     {
-        try { EventLog.WriteEntry("Application", $"[ConnectLiveWatcher] {message}", type); } catch { }
+        try { EventLog.WriteEntry("Application", $"[ConnectLiveUpdater] {message}", type); } catch { }
     }
 
     private void KillWorker()
@@ -656,7 +656,7 @@ internal static class WinApi
 
     private static void Warn(string message)
     {
-        try { EventLog.WriteEntry("Application", $"[ConnectLiveWatcher] {message}", EventLogEntryType.Warning); }
+        try { EventLog.WriteEntry("Application", $"[ConnectLiveUpdater] {message}", EventLogEntryType.Warning); }
         catch { }
     }
 

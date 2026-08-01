@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
 
 /**
- * Called every ~15s by the agent, and every 5-60s by the SYSTEM watcher.
- * Returns pending session invites + is_session_active so the watcher can
+ * Called every ~15s by the agent, and every 5-60s by the SYSTEM updater.
+ * Returns pending session invites + is_session_active so the updater can
  * revive ConnectLive.exe if it crashed or the user closed it.
  *
  * Reconnect detection uses a timestamp delta: any gap > 60s (or a non-

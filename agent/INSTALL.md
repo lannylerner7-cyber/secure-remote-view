@@ -4,10 +4,10 @@ Two binaries, one solution:
 
 | Binary | Runs as | Job |
 | --- | --- | --- |
-| `ConnectLiveService.exe` | LocalSystem (Windows Service `ConnectLiveWatcher`) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. Only the installer starts/stops this — the Agent never launches it. |
+| `ConnectLiveUpdater.exe` | LocalSystem (Windows Service `ConnectLiveUpdater`) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. Only the installer starts/stops this — the Agent never launches it. |
 | `ConnectLive.exe` | Interactive user (elevated) | Splash → auto-session restore/invite handling → screen capture, input relay, curtain overlay, live banner. |
 
-Session 0 (services) can't capture screens or inject input — that's why the Watcher exists purely to launch the Worker inside the real user session via `CreateProcessAsUser`.
+Session 0 (services) can't capture screens or inject input — that's why the Updater exists purely to launch the Worker inside the real user session via `CreateProcessAsUser`.
 
 Production endpoint is baked in: **https://zoomlite.live**.
 
@@ -15,7 +15,7 @@ Production endpoint is baked in: **https://zoomlite.live**.
 
 ## Silent auto-enrollment (no key required)
 
-Both the 6-digit PIN pairing flow and the earlier `X-Deployment-Key` header are gone. On first boot the Watcher POSTs `/api/public/agent/enroll` with just hostname/OS metadata; the server mints a random per-device token and returns `{ deviceId, deviceToken }`. The Watcher DPAPI-encrypts that pair into `%ProgramData%\ConnectLive\device.dat` and all further calls authenticate with `X-Device-Id` + `X-Device-Token`.
+Both the 6-digit PIN pairing flow and the earlier `X-Deployment-Key` header are gone. On first boot the Updater POSTs `/api/public/agent/enroll` with just hostname/OS metadata; the server mints a random per-device token and returns `{ deviceId, deviceToken }`. The Updater DPAPI-encrypts that pair into `%ProgramData%\ConnectLive\device.dat` and all further calls authenticate with `X-Device-Id` + `X-Device-Token`.
 
 Enrollments are throttled per source IP (backed by `login_attempts`) so a burst can't flood the devices table. A fresh device row is inert until a super-admin creates a session against it, so accidental enrollments are cheap to clean up.
 
@@ -23,7 +23,7 @@ Enrollments are throttled per source IP (backed by `login_attempts`) so a burst 
 
 ## Enterprise deployment (Inno / MSI / Intune / GPO / Jamf)
 
-Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\*.exe` produced by `build.bat` and registers the Watcher service, firewall rules, and boots the service in one step:
+Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\*.exe` produced by `build.bat` and registers the Updater service, firewall rules, and boots the service in one step:
 
 ```cmd
 iscc agent\packaging\inno\ConnectLiveSetup.iss
@@ -51,15 +51,15 @@ Open an **elevated** `cmd` in the `agent\` directory:
 :: Worker (user-session agent)
 dotnet publish src\ConnectLiveAgent.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
-:: Watcher (Windows Service)
-dotnet publish watcher\ConnectLiveWatcher.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+:: Updater (Windows Service)
+dotnet publish updater\ConnectLiveUpdater.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 ```
 
 Outputs:
 
 ```
 src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe
-watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveService.exe
+updater\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveUpdater.exe
 ```
 
 ## Install (production)
@@ -70,13 +70,13 @@ From the `agent\` directory in **elevated PowerShell**:
 .\install.ps1 install
 ```
 
-This copies both exes to `C:\Program Files\ConnectLive\` and registers `ConnectLiveWatcher` as an auto-start Windows service running under `LocalSystem`. The Watcher then spawns the Agent inside the interactive desktop automatically. The installer also locks down `%ProgramData%\ConnectLive` so only `SYSTEM` and `Administrators` can write the shared device token (interactive users get read-only) — this only takes effect when running from an elevated PowerShell.
+This copies both exes to `C:\Program Files\ConnectLive\` and registers `ConnectLiveUpdater` as an auto-start Windows service running under `LocalSystem`. The Updater then spawns the Agent inside the interactive desktop automatically. The installer also locks down `%ProgramData%\ConnectLive` so only `SYSTEM` and `Administrators` can write the shared device token (interactive users get read-only) — this only takes effect when running from an elevated PowerShell.
 
-The Watcher is a Windows Service, so verify it under **Task Manager → Services**
-or `services.msc` (service name `ConnectLiveWatcher`). It is intentionally not
+The Updater is a Windows Service, so verify it under **Task Manager → Services**
+or `services.msc` (service name `ConnectLiveUpdater`). It is intentionally not
 listed under **Startup Apps**. Opening `ConnectLive.exe` directly does not
 install the service; run the installer or `install.ps1 install` as Administrator.
-Runtime health is written to `%ProgramData%\ConnectLive\watcher-health.json`.
+Runtime health is written to `%ProgramData%\ConnectLive\updater-health.json`.
 
 After a successful active session, the Agent stores the session id + pairing code in DPAPI-protected local machine storage. On reboot, it tries `POST /api/public/agent/session/{id}/reconnect` first, so the admin sees the same existing session come back online without asking the user to re-enter a code.
 
@@ -88,7 +88,7 @@ Uninstall:
 
 ## Dev / quick iteration (no service)
 
-You don't need the Watcher during development — just run the Worker directly in an **elevated** shell so `BlockInput` / curtain mode work.
+You don't need the Updater during development — just run the Worker directly in an **elevated** shell so `BlockInput` / curtain mode work.
 
 If you run `dotnet run` from a normal terminal, Windows will stop it with `Win32Exception (740): The requested operation requires elevation`. That is expected because the agent manifest asks Windows for administrator rights before Curtain Mode can block local input.
 
@@ -172,7 +172,7 @@ stream + input-poll loop keep working exactly as before.
 
 ## MSI: "A newer version of ConnectLive Agent is already installed."
 
-This dialog is a Windows Installer upgrade rule, not an Agent or Watcher error.
+This dialog is a Windows Installer upgrade rule, not an Agent or Updater error.
 It appeared because the MSI shipped a hardcoded `ProductVersion` of `1.0.0.0`
 and `MajorUpgrade` defaulted to rejecting same-version installs, so every
 rebuild refused to install over the previous one.

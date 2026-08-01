@@ -388,7 +388,7 @@ function AdminPage() {
       .update({ state: "active", mode: "view", updated_at: new Date().toISOString() })
       .eq("id", s.id);
     if (error) return alert(error.message);
-    // Explicit wake: the SYSTEM watcher picks this up on its next heartbeat
+    // Explicit wake: the SYSTEM updater picks this up on its next heartbeat
     // and relaunches the agent even if the user closed it manually.
     const wakeQueued = await queueWakeAgent(s.device_id, s.id);
     if (!wakeQueued) return;
@@ -398,7 +398,7 @@ function AdminPage() {
     void refresh();
   }
 
-  // Queue a `wake_agent` power command so the SYSTEM watcher respawns the
+  // Queue a `wake_agent` power command so the SYSTEM updater respawns the
   // agent in the interactive desktop session. Best-effort: a failure here
   // never blocks the session flow.
   async function queueWakeAgent(deviceRowId: string, sessionId?: string) {

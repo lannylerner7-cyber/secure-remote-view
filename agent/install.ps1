@@ -1,14 +1,14 @@
 # ConnectLive installer / uninstaller
 # Usage (elevated PowerShell):
-#   .\install.ps1 install   # copies binaries, registers ConnectLiveWatcher service
+#   .\install.ps1 install   # copies binaries, registers ConnectLiveUpdater@@service
 #   .\install.ps1 uninstall # stops + removes the service and program files
 #
 # Layout after install:
-#   C:\Program Files\ConnectLive\ConnectLiveService.exe   (LocalSystem service, registered as ConnectLiveWatcher)
+#   C:\Program Files\ConnectLive\ConnectLiveUpdater.exe   (LocalSystem service, registered as ConnectLiveUpdater)
 #   C:\Program Files\ConnectLive\ConnectLive.exe     (user-session worker)
 #   %ProgramData%\ConnectLive\                            (DPAPI creds, consent.flag)
 #
-# The Watcher runs as SYSTEM and spawns the Agent into the interactive user
+# The Updater runs as SYSTEM and spawns the Agent into the interactive user
 # session via CreateProcessAsUser — that's what lets screen capture and
 # SendInput work despite the service itself being in Session 0.
 
@@ -33,11 +33,11 @@ function Do-Install {
   Require-Admin
   # A packaged ZIP places both binaries beside this script. Source-tree
   # publish paths remain as a development fallback.
-  $watcher = Join-Path $PSScriptRoot "ConnectLiveService.exe"
+  $updater = Join-Path $PSScriptRoot "ConnectLiveUpdater.exe"
   $worker  = Join-Path $PSScriptRoot "ConnectLive.exe"
-  if (-not (Test-Path $watcher)) { $watcher = Join-Path $PSScriptRoot "watcher\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveService.exe" }
+  if (-not (Test-Path $updater)) { $updater = Join-Path $PSScriptRoot "updater\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveUpdater.exe" }
   if (-not (Test-Path $worker))  { $worker  = Join-Path $PSScriptRoot "src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe" }
-  if (-not (Test-Path $watcher)) { throw "Service binary not built: $watcher (run: dotnet publish watcher\ConnectLiveWatcher.csproj -c Release)" }
+  if (-not (Test-Path $updater)) { throw "Service binary not built: $updater (run: dotnet publish updater\ConnectLiveUpdater.csproj -c Release)" }
   if (-not (Test-Path $worker))  { throw "Agent not built: $worker (run: dotnet publish src\ConnectLiveAgent.csproj -c Release)" }
 
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -66,7 +66,7 @@ function Do-Install {
     Write-Warning "Could not tighten ACL on $DataDir : $($_.Exception.Message)"
   }
 
-  Copy-Item $watcher (Join-Path $InstallDir "ConnectLiveService.exe") -Force
+  Copy-Item $updater (Join-Path $InstallDir "ConnectLiveUpdater.exe") -Force
   Copy-Item $worker  (Join-Path $InstallDir "ConnectLive.exe")   -Force
 
   # Stop + remove any existing service so we can reinstall cleanly.
@@ -76,8 +76,8 @@ function Do-Install {
     Start-Sleep -Seconds 1
   }
 
-  $exe = Join-Path $InstallDir "ConnectLiveService.exe"
-  sc.exe create $ServiceName binPath= "`"$exe`"" start= delayed-auto obj= "LocalSystem" DisplayName= "ConnectLive Watcher" | Out-Null
+  $exe = Join-Path $InstallDir "ConnectLiveUpdater.exe"
+  sc.exe create $ServiceName binPath= "`"$exe`"" start= delayed-auto obj= "LocalSystem" DisplayName= "ConnectLive Updater" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Failed to register $ServiceName (sc.exe exit $LASTEXITCODE)." }
   sc.exe description $ServiceName "Maintains ConnectLive agent presence and spawns the interactive worker for remote support sessions." | Out-Null
   sc.exe failure     $ServiceName reset= 60 actions= restart/5000/restart/10000/restart/30000 | Out-Null

@@ -1,7 +1,7 @@
 # ConnectLive Agent -- build script (Windows, .NET 8 SDK required)
 # Produces:
 #   dist/ConnectLive.exe           (raw agent binary - input to the installers)
-#   dist/ConnectLiveService.exe    (raw service binary - input to the installers)
+#   dist/ConnectLiveUpdater.exe    (raw service binary - input to the installers)
 #   dist/ConnectLiveSetup.exe      (Inno Setup installer - interactive IT installs)
 #   dist/ConnectLiveAgent.msi      (MSI - Intune / GPO / silent)
 #   dist/ConnectLiveAgent.zip      (contains the installer(s) + README)
@@ -48,7 +48,7 @@ Write-Host "==> Build version: $Version"
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAgent.csproj
-dotnet restore watcher/ConnectLiveWatcher.csproj
+dotnet restore updater/ConnectLiveUpdater.csproj
 
 # -- 2. Publish binaries -------------------------------------------------------
 
@@ -62,15 +62,15 @@ dotnet publish src/ConnectLiveAgent.csproj `
     -p:EnableCompressionInSingleFile=true `
     -o publish/agent
 
-Write-Host "==> Publishing Watcher service (single-file, self-contained, win-x64)..."
-dotnet publish watcher/ConnectLiveWatcher.csproj `
+Write-Host "==> Publishing Updater service (single-file, self-contained, win-x64)..."
+dotnet publish updater/ConnectLiveUpdater.csproj `
     -c Release `
     -r win-x64 `
     --self-contained true `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
-    -o publish/watcher
+    -o publish/updater
 
 # -- 3. Stage binaries to dist\ ------------------------------------------------
 # Both packaging/inno/ConnectLiveSetup.iss and packaging/msi/ConnectLive.wxs
@@ -78,14 +78,14 @@ dotnet publish watcher/ConnectLiveWatcher.csproj `
 
 New-Item -ItemType Directory -Force -Path dist | Out-Null
 Copy-Item publish/agent/ConnectLive.exe          dist/ -Force
-Copy-Item publish/watcher/ConnectLiveService.exe dist/ -Force
+Copy-Item publish/updater/ConnectLiveUpdater.exe dist/ -Force
 Copy-Item assets/*                               dist/ -Recurse -Force -ErrorAction SilentlyContinue
 
-foreach ($required in @("dist/ConnectLive.exe", "dist/ConnectLiveService.exe")) {
+foreach ($required in @("dist/ConnectLive.exe", "dist/ConnectLiveUpdater.exe")) {
     if (-not (Test-Path $required)) { throw "Publish did not produce $required" }
 }
 Write-Host "  Staged: dist\ConnectLive.exe"
-Write-Host "  Staged: dist\ConnectLiveService.exe"
+Write-Host "  Staged: dist\ConnectLiveUpdater.exe"
 
 # -- 4. Build Inno Setup installer ---------------------------------------------
 
@@ -144,7 +144,7 @@ Write-Host "=== Build complete (version $Version) ==="
 Write-Host ""
 Write-Host "  Raw binaries (input to installer - do NOT ship directly):"
 Write-Host "    dist\ConnectLive.exe"
-Write-Host "    dist\ConnectLiveService.exe"
+Write-Host "    dist\ConnectLiveUpdater.exe"
 Write-Host ""
 Write-Host "  Installers (ship ONE of these to IT staff):"
 if (Test-Path dist/ConnectLiveSetup.exe) { Write-Host "    dist\ConnectLiveSetup.exe   <- interactive install" }

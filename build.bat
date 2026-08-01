@@ -1,12 +1,12 @@
 @echo off
 REM ConnectLive one-click builder — Windows, requires .NET 8 SDK.
-REM Publishes Agent, Watcher, and Admin as single-file, self-contained
+REM Publishes Agent, Updater, and Admin as single-file, self-contained
 REM win-x64 binaries, then zips each side into a shippable bundle:
 REM   agent\dist\ConnectLive-RemoteAgent.zip
 REM   admin\dist\ConnectLive-AdminConsole.zip
 
-echo [1/4] Building Watcher...
-dotnet publish "agent\watcher\ConnectLiveWatcher.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "agent\publish\watcher"
+echo [1/4] Building Updater...
+dotnet publish "agent\updater\ConnectLiveUpdater.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "agent\publish\updater"
 if errorlevel 1 goto :fail
 
 echo [2/4] Building Agent...
@@ -23,15 +23,15 @@ REM ---- Agent zip -----------------------------------------------------------
 if not exist "agent\dist" mkdir "agent\dist"
 copy /Y "agent\publish\agent\ConnectLive.exe" "agent\dist\" >nul
 if errorlevel 1 goto :fail
-copy /Y "agent\publish\watcher\ConnectLiveService.exe" "agent\dist\" >nul
+copy /Y "agent\publish\updater\ConnectLiveUpdater.exe" "agent\dist\" >nul
 if errorlevel 1 goto :fail
 copy /Y "agent\install.ps1" "agent\dist\" >nul
 copy /Y "agent\run-elevated.ps1" "agent\dist\" >nul
 copy /Y "agent\INSTALL.md" "agent\dist\README-INSTALL.txt" >nul
 if not exist "agent\dist\ConnectLive.exe" goto :fail
-if not exist "agent\dist\ConnectLiveService.exe" goto :fail
+if not exist "agent\dist\ConnectLiveUpdater.exe" goto :fail
 if exist "agent\dist\ConnectLive-RemoteAgent.zip" del "agent\dist\ConnectLive-RemoteAgent.zip"
-powershell -NoProfile -Command "Compress-Archive -Path 'agent\dist\ConnectLive.exe','agent\dist\ConnectLiveService.exe','agent\dist\install.ps1','agent\dist\run-elevated.ps1','agent\dist\README-INSTALL.txt' -DestinationPath 'agent\dist\ConnectLive-RemoteAgent.zip' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path 'agent\dist\ConnectLive.exe','agent\dist\ConnectLiveUpdater.exe','agent\dist\install.ps1','agent\dist\run-elevated.ps1','agent\dist\README-INSTALL.txt' -DestinationPath 'agent\dist\ConnectLive-RemoteAgent.zip' -Force"
 if errorlevel 1 goto :fail
 
 REM ---- Admin zip -----------------------------------------------------------

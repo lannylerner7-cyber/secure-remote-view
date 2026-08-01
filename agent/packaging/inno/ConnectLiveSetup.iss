@@ -5,7 +5,7 @@
 ;   2. Creates ProgramData\ConnectLive\ with correct permissions
 ;   3. Adds outbound firewall rule for the Agent
 ;   4. Does NOT register any Windows Service
-;   5. Does NOT reference ConnectLiveService.exe or ConnectLiveWatcher
+;   5. Does NOT reference ConnectLiveUpdater.exe or ConnectLiveUpdater
 ;
 ; Startup persistence is handled by the Agent itself via HKCU Run key
 ; written after successful first enrollment — not by the installer.
@@ -44,7 +44,7 @@ Name: "{app}"; Permissions: admins-full system-full users-readexec
 Name: "{commonappdata}\ConnectLive"; Permissions: authusers-modify admins-full system-full
 
 [Files]
-; Agent only. No ConnectLiveService.exe. No service subfolder.
+; Agent only. No ConnectLiveUpdater.exe. No service subfolder.
 Source: "..\..\dist\ConnectLive.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]

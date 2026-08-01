@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
 
 // -----------------------------------------------------------------------------
-// Server-Sent Events channel: sub-second wake dispatch to the Watcher.
+// Server-Sent Events channel: sub-second wake dispatch to the Updater.
 //
-// The Watcher opens ONE long-lived GET against this route (device-token gated).
+// The Updater opens ONE long-lived GET against this route (device-token gated).
 // The server polls power_commands for queued `wake_agent` rows targeted at
 // this device every 1s and pushes them as `data:` frames. A keepalive comment
 // every 15s prevents idle connection drops.
 //
-// The Watcher still runs its REST heartbeat (relaxed to 60s when SSE is
+// The Updater still runs its REST heartbeat (relaxed to 60s when SSE is
 // healthy), so a stream failure never blocks command delivery — SSE is a
 // latency accelerator, not the source of truth.
 // -----------------------------------------------------------------------------
