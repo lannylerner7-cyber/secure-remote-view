@@ -107,7 +107,9 @@ function AdminPage() {
   const [liveId, setLiveId] = useState<string | null>(null);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
   const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
-  const [liveCursor, setLiveCursor] = useState<LiveCursor | null
+  const lastRealtimePushAtRef = useRef<number>(0);
+  const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "subscribed" | "reconnecting" | "closed">("connecting");
+  const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const search = Route.useSearch();
