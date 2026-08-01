@@ -507,16 +507,57 @@ function AdminPage() {
 
 
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
-  // Coordinates are normalized (0..1) relative to the rendered image.
+  // Coordinates are normalized (0..1) relative to the rendered surface.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
     // Continuous mouse streams stay RTC-only to avoid flooding the DB.
+    // The curtain dead-man ping is also RTC-first: at 1s cadence against the
+    // agent's 5s watchdog it has 5x margin on either transport, so there is no
+    // reason to write a DB row every second when the data channel is open.
     // Discrete "one-shot" events (clicks, keys, text) go BOTH via RTC and DB
     // so an unhealthy data channel can never silently drop a keystroke.
-    const continuous = kind === "mousemove" || kind === "mousemove_rel" || kind === "wheel";
+    const continuous = kind === "mousemove" || kind === "mousemove_rel" || kind === "wheel" || kind === "curtain_on";
     const sentRealtime = rtcRef.current?.sendInput({ kind, payload }) ?? false;
     if (continuous && sentRealtime) return;
     await supabase.from("session_inputs").insert({ session_id: sessionId, kind, payload: payload as never });
   }
+
+  // Pointer moves are coalesced to one flush per animation frame (~16ms), and
+  // only the newest position survives — stale intermediate points add latency
+  // without adding information. Buttons/keys/wheel bypass this and stay ordered.
+  function queueMove(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    pendingMoveRef.current = { sessionId, kind, payload };
+    if (moveRafRef.current !== null) return;
+    moveRafRef.current = requestAnimationFrame(() => {
+      moveRafRef.current = null;
+      const m = pendingMoveRef.current;
+      pendingMoveRef.current = null;
+      if (m) void sendInput(m.sessionId, m.kind, m.payload);
+    });
+  }
+
+  // Flush any queued move before an ordered event so a click never lands ahead
+  // of the move that positioned it.
+  function flushMoveNow() {
+    if (moveRafRef.current !== null) { cancelAnimationFrame(moveRafRef.current); moveRafRef.current = null; }
+    const m = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (m) void sendInput(m.sessionId, m.kind, m.payload);
+  }
+
+  // Natural size of whichever layer is currently visible. WebRTC video and the
+  // JPEG fallback are letterboxed identically (object-contain), so only the
+  // source dimensions differ between the two. Returns null while the size is
+  // still unknown — callers then hold the input rather than guess.
+  function activeSourceSize(): { width: number; height: number } | null {
+    if (rtcVideoLiveRef.current) {
+      const v = rtcRef.current?.video;
+      if (v && v.videoWidth > 0 && v.videoHeight > 0) return { width: v.videoWidth, height: v.videoHeight };
+      return null;
+    }
+    if (liveFrame?.width && liveFrame?.height) return { width: liveFrame.width, height: liveFrame.height };
+    return null;
+  }
+
 
   function focusLiveSurface() {
     requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
