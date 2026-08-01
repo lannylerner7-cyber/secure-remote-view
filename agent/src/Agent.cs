@@ -76,12 +76,8 @@ public sealed class Agent
         PowerRelay.OnRestartAgent = SoftRestartAsync;
     }
 
-    /// <summary>
-    /// External hook: SSE listener owned by App. When set, the heartbeat loop
-    /// relaxes its cadence to 60s while the stream is healthy and snaps back
-    /// to 5s when it drops.
-    /// </summary>
-    public StreamListener? Stream { get; set; }
+    // Standalone Agent: no SSE listener, no helper service. Heartbeat cadence
+    // is decided purely by session activity (see fastDelay / slowDelay below).
 
     /// <summary>Rebuild the WebRTC peer + capture pipeline for the current session without exiting.</summary>
     public Task RestartStreamAsync()
