@@ -47,12 +47,17 @@
                 <DataGridTextColumn Header="OS" Binding="{Binding Os}" Width="180" />
                 <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80" />
                 <DataGridTextColumn Header="Last seen" Binding="{Binding LastSeen}" Width="100" />
-                <DataGridTemplateColumn Header="" Width="200">
+                <DataGridTemplateColumn Header="" Width="280">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal">
                                 <Button Content="Connect"
                                         Command="{Binding DataContext.ConnectCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}" />
+                                <Button Content="Wake" Background="#334155" Margin="6,0,0,0"
+                                        ToolTip="Route a Wake-on-LAN magic packet through an online peer on the same subnet."
+                                        Visibility="{Binding IsOffline, Converter={StaticResource BoolToVis}}"
+                                        Command="{Binding DataContext.WakeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding}" />
                                 <Button Content="Delete" Background="#7F1D1D" Margin="6,0,0,0"
                                         Command="{Binding DataContext.DeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
