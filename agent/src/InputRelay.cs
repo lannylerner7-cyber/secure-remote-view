@@ -10,14 +10,13 @@ namespace ConnectLive.Agent;
 
 /// <summary>
 /// Polls the gateway for queued admin input events and replays them on the
-/// local machine via Win32 SendInput. Only runs while the session is
-/// active AND the SessionIndicator is visible — the on-screen banner is
-/// the user's kill-switch: closing it cancels the token and stops relay.
+/// local machine via Win32 SendInput. The loop lives entirely on the session
+/// cancellation token: when the session ends (or the user quits from the tray
+/// / stop.flag), the token cancels and the relay + curtain release together.
+/// There is no on-screen banner — the tray icon carries session transparency.
 /// </summary>
 public static class InputRelay
 {
-    // Set by App.xaml.cs so the curtain can force the banner above its overlays.
-    public static System.Windows.Window? SessionBanner { get; set; }
 
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
@@ -141,7 +140,7 @@ public static class InputRelay
         {
             System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
-                CurtainOverlay.Show(SessionBanner);
+                CurtainOverlay.Show();
             });
         }
         else

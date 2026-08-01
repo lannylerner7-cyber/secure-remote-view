@@ -38,7 +38,7 @@ public sealed class CurtainOverlay
 
     public static bool IsShown => _active;
 
-    public static void Show(Window? bannerToKeepOnTop = null)
+    public static void Show()
     {
         if (_active) return;
         _active = true;
@@ -52,15 +52,6 @@ public sealed class CurtainOverlay
             ApplyGhostStyles(hwnd);
             // Hide from screen capture so admin sees the desktop, not the curtain.
             SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-        }
-
-        // Force the session banner above the curtain windows so the user can
-        // always see they're in a session and drag it around.
-        if (bannerToKeepOnTop != null)
-        {
-            var bhwnd = new WindowInteropHelper(bannerToKeepOnTop).Handle;
-            if (bhwnd != IntPtr.Zero)
-                SetWindowPos(bhwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
     }
 

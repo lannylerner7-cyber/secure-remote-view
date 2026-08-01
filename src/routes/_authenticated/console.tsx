@@ -317,18 +317,31 @@ function AdminPage() {
     let relayId: string | null = null;
     let mac: string | null = null;
     if (kind === "wake") {
+      // Staged reporting so the operator knows exactly why a wake can or can't route.
+      if (presenceOf(d) === "online") {
+        alert("This device is already online — use Connect instead.");
+        return;
+      }
       const meta = (d.metadata ?? {}) as Record<string, unknown>;
       mac = (meta.mac as string | undefined) ?? null;
       const subnet = (meta.lan_subnet_v4 as string | undefined) ?? null;
-      if (!mac) { alert("No MAC address recorded for this device — Wake-on-LAN needs at least one heartbeat with a LAN fingerprint."); return; }
-      if (!subnet) { alert("No LAN subnet recorded — cannot pick a peer."); return; }
-      // Find any other online device on the same /24 subnet to broadcast the packet.
+      if (!subnet) {
+        alert("This device has never reported a LAN subnet, so Wake-on-LAN can't be routed. It must check in once while online first.");
+        return;
+      }
+      if (!mac) {
+        alert(`Subnet ${subnet} is known but no MAC address has been recorded yet — WoL needs both. Let the agent check in once more while online.`);
+        return;
+      }
       const peer = devices.find((p) =>
         p.id !== d.id &&
         presenceOf(p) === "online" &&
         ((p.metadata ?? {}) as Record<string, unknown>).lan_subnet_v4 === subnet,
       );
-      if (!peer) { alert("No online peer found on the same subnet to relay the magic packet. Wake at least one machine on that LAN first."); return; }
+      if (!peer) {
+        alert(`Powered-off wake needs another ConnectLive machine online on ${subnet} to broadcast the magic packet. None is online right now.`);
+        return;
+      }
       relayId = peer.id;
     }
 
