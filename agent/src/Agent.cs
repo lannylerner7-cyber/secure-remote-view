@@ -248,7 +248,15 @@ public sealed class Agent
             {
                 await HandleInvite(s.id, s.mode, ct);
             }
-            else if (s.state == "active")
+            else if (s.state == "paused")
+            {
+                // G4: pause means STOP THE PIXELS, keep the session. Nothing
+                // leaves the machine while the user works on their own window.
+                _acceptedSessions.Add(s.id);
+                _currentSessionId = s.id;
+                PauseSessionLoops(s.id);
+            }
+            else if (s.state == "active" || s.state == "consented")
             {
                 if (!_acceptedSessions.Contains(s.id) || _currentSessionId != s.id)
                 {
@@ -261,9 +269,12 @@ public sealed class Agent
                 }
                 else
                 {
+                    // Also the resume path: a paused session cancelled its loops,
+                    // so the health check fails here and they restart cleanly.
                     EnsureSessionLoops(s.id, s.mode);
                 }
             }
+
         }
 
         // Session ended on the server side: tear down local session state.
