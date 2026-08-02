@@ -103,6 +103,11 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   let selectedCandidateType: string | null = null;
   const connectTimeoutMs = CONNECT_TIMEOUT_MS;
   let watchdog: number | null = null;
+  let mediaWatchdog: number | null = null;
+  let connectedAt = 0;
+  let lastDecodedFrames = 0;
+  let lastMediaProgressAt = 0;
+  let mediaRecoveryAttempted = false;
 
   const clearWatchdog = () => {
     if (watchdog !== null) { window.clearTimeout(watchdog); watchdog = null; }
@@ -171,6 +176,8 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     }
     if (s === "connected" || s === "completed") {
       clearWatchdog();
+      connectedAt = Date.now();
+      lastMediaProgressAt = connectedAt;
       setState("connected");
       void reportCandidatePair();
       return;
@@ -240,6 +247,49 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   }
 
   pc.onicecandidate = (ev) => { if (ev.candidate) enqueue("ice", ev.candidate.toJSON()); };
+
+  // ICE connectivity only proves packets can cross the network. Confirm that
+  // the video decoder itself keeps making progress; otherwise return the UI to
+  // its JPEG fallback and attempt one clean ICE/media renegotiation.
+  mediaWatchdog = window.setInterval(() => {
+    if (closed || state !== "connected") return;
+    void pc.getStats().then(async (stats) => {
+      let decoded = 0;
+      let hasInboundVideo = false;
+      stats.forEach((r: Record<string, unknown>) => {
+        if (r["type"] === "inbound-rtp" && (r["kind"] === "video" || r["mediaType"] === "video")) {
+          hasInboundVideo = true;
+          decoded = Math.max(decoded, Number(r["framesDecoded"] ?? 0));
+        }
+      });
+      const now = Date.now();
+      if (decoded > lastDecodedFrames) {
+        lastDecodedFrames = decoded;
+        lastMediaProgressAt = now;
+        return;
+      }
+      if (!hasInboundVideo && now - connectedAt < 8_000) return;
+      if (now - lastMediaProgressAt < 8_000) return;
+
+      if (!mediaRecoveryAttempted) {
+        mediaRecoveryAttempted = true;
+        lastMediaProgressAt = now;
+        console.warn("[webrtc] decoded video stalled; requesting one clean renegotiation");
+        try {
+          const offer = await pc.createOffer({ iceRestart: true });
+          await pc.setLocalDescription(offer);
+          enqueue("offer", { type: offer.type, sdp: offer.sdp });
+          return;
+        } catch (err) {
+          console.warn("[webrtc] media recovery offer failed", err);
+        }
+      }
+
+      console.warn("[webrtc] decoded video remained stalled; activating frame fallback");
+      setState("failed");
+      try { pc.close(); } catch {}
+    }).catch((err) => console.warn("[webrtc] media watchdog stats failed", err));
+  }, 3_000);
 
   // ---- Inbound signals (postgres_changes; broadcast-tier can be added later)
   let lastSeen = loadCursor(sessionId);
@@ -332,15 +382,22 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       return false;
     },
     close: () => {
+      if (closed) return;
       closed = true;
       clearWatchdog();
-
-
-
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
-      enqueue("bye", {});
-      // Fire-and-forget final drain, then tear down.
-      void drainQueue().finally(() => {
+      if (mediaWatchdog !== null) window.clearInterval(mediaWatchdog);
+      // Send the final signal directly: the normal queue stops accepting work
+      // once close begins, and a queued bye could otherwise be stranded.
+      void postAdminSignal({
+        data: {
+          sessionId,
+          clientId: webClientId,
+          kind: "bye",
+          payload: {},
+          attemptId: newAttemptId(),
+        },
+      }).catch(() => undefined).finally(() => {
         try { dc?.close(); } catch {}
         try { pc.close(); } catch {}
         try { supabase.removeChannel(channel); } catch {}

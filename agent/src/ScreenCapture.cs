@@ -141,8 +141,10 @@ public static class ScreenCapture
 
                 int maxEdge = _maxEdge;
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(rawBmp.Width, rawBmp.Height));
-                int w = Math.Max(1, (int)(rawBmp.Width * scale));
-                int h = Math.Max(1, (int)(rawBmp.Height * scale));
+                // VP8 uses I420 2x2 chroma blocks. Keep both dimensions even;
+                // odd scaled heights (for example 539) shift the chroma planes.
+                int w = Math.Max(2, (int)(rawBmp.Width * scale) & ~1);
+                int h = Math.Max(2, (int)(rawBmp.Height * scale) & ~1);
 
                 // Reallocate scaled bitmap only when target size changes.
                 if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
@@ -263,10 +265,10 @@ public static class ScreenCapture
             var data = scaled.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
             try
             {
-                // Pack tightly (width*4 per row, no stride padding) so the encoder
-                // never sees the GDI alignment slack — that padding is what shears
-                // frames on non-multiple-of-4 widths (e.g. 960px low-BW profile
-                // after downscale rounding).
+                // Pack tightly (width*4 per row, no stride padding). Encoder
+                // package 8.0.7 routes VideoPixelFormatsEnum.Bgra through its
+                // RGBA-to-I420 converter, so convert GDI's B,G,R,X bytes to
+                // R,G,B,A here. Passing BGRA verbatim caused striped chroma.
                 int rowBytes = w * 4;
                 var buf = new byte[rowBytes * h];
                 IntPtr src = data.Scan0;
@@ -280,12 +282,13 @@ public static class ScreenCapture
                         {
                             byte* srow = sp + y * data.Stride;
                             byte* drow = dp + y * rowBytes;
-                            // GDI Format32bppRgb memory order is B,G,R,X — exactly
-                            // what VideoPixelFormatsEnum.Bgra expects, and exactly
-                            // what the JPEG encoder reads. Copy verbatim; the only
-                            // fix-up is forcing the undefined 4th byte opaque.
-                            Buffer.MemoryCopy(srow, drow, rowBytes, rowBytes);
-                            for (int x = 3; x < rowBytes; x += 4) drow[x] = 0xFF;
+                            for (int x = 0; x < rowBytes; x += 4)
+                            {
+                                drow[x] = srow[x + 2];
+                                drow[x + 1] = srow[x + 1];
+                                drow[x + 2] = srow[x];
+                                drow[x + 3] = 0xFF;
+                            }
                         }
                     }
                 }

@@ -164,12 +164,17 @@ public sealed class DxgiCapture : IDisposable
                 {
                     int srcStride = (int)map.RowPitch;
                     int dstStride = bmpData.Stride;
-                    int copyBytes = Math.Min(srcStride, dstStride);
+                    // RowPitch can include driver padding. Copy only visible
+                    // pixels while advancing source and destination separately.
+                    int visibleRowBytes = checked(_width * 4);
+                    if (srcStride < visibleRowBytes || Math.Abs(dstStride) < visibleRowBytes)
+                        throw new InvalidOperationException(
+                            $"DXGI row pitch too small (src={srcStride}, dst={dstStride}, visible={visibleRowBytes})");
                     for (int y = 0; y < _height; y++)
                     {
                         var src = IntPtr.Add(map.DataPointer, y * srcStride);
                         var dst = IntPtr.Add(bmpData.Scan0, y * dstStride);
-                        Buffer.MemoryCopy((void*)src, (void*)dst, dstStride, copyBytes);
+                        Buffer.MemoryCopy((void*)src, (void*)dst, Math.Abs(dstStride), visibleRowBytes);
                     }
                 }
                 finally { bmp.UnlockBits(bmpData); }

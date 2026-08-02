@@ -124,12 +124,28 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           return errJson("not_found", 404);
         }
 
+        // A restarted agent begins at cursor 0. Anchor its first page at the
+        // newest offer so stale negotiations cannot consume the 100-row limit.
+        let effectiveSince = since;
+        if (since === 0) {
+          const { data: latestOffer } = await ctx.admin
+            .from("session_signals")
+            .select("id")
+            .eq("session_id", session.id)
+            .eq("from_side", "admin")
+            .eq("kind", "offer")
+            .order("id", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (latestOffer) effectiveSince = Number(latestOffer.id) - 1;
+        }
+
         let q = ctx.admin
           .from("session_signals")
           .select("id, from_side, kind, payload, admin_client_id")
           .eq("session_id", session.id)
           .eq("from_side", "admin")
-          .gt("id", since)
+          .gt("id", effectiveSince)
           .order("id", { ascending: true })
           .limit(100);
 
