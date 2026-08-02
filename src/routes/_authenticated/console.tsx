@@ -224,7 +224,7 @@ function AdminPage() {
       if (c) setLiveCursor(c as never);
     }, 3000);
     return () => { cancelled = true; supabase.removeChannel(ch); clearInterval(poll); };
-  }, [liveId, rtcVideoLive]);
+  }, [liveId, videoDecoding]);
 
   useEffect(() => {
     if (!liveId) {
@@ -259,7 +259,12 @@ function AdminPage() {
   // presented frame, so this is the true stream cadence — the old HUD only ever
   // counted JPEG arrivals and therefore read "1 fps" during healthy video.
   useEffect(() => {
-    if (!rtcVideoLive) { setVideoFps(0); videoFpsRef.current = { last: 0, frames: 0, fps: 0 }; return; }
+    if (!rtcVideoLive) {
+      setVideoFps(0);
+      setVideoDecoding(false);
+      videoFpsRef.current = { last: 0, frames: 0, fps: 0 };
+      return;
+    }
     const video = rtcRef.current?.video as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (id: number) => void }) | undefined;
     if (!video) return;
     let stop = false;
@@ -269,6 +274,7 @@ function AdminPage() {
       const st = videoFpsRef.current;
       const t = performance.now();
       st.frames += 1;
+      setVideoDecoding(true);
       if (!st.last) st.last = t;
       else if (t - st.last >= 1000) {
         st.fps = Math.round((st.frames * 1000) / (t - st.last));
@@ -278,6 +284,25 @@ function AdminPage() {
       }
       if (video.requestVideoFrameCallback) handle = video.requestVideoFrameCallback(tick);
     };
+    // Diagnostic: 3 s after the peer reports connected, say whether media is
+    // actually arriving. No bytes = transport problem; bytes but no decoded
+    // frames = codec/format problem on the sender.
+    const probe = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const pc = (rtcRef.current as unknown as { pc?: RTCPeerConnection })?.pc;
+          const stats = await (pc?.getStats?.() ?? Promise.resolve(null));
+          if (!stats) return;
+          stats.forEach((r: Record<string, unknown>) => {
+            if (r["type"] === "inbound-rtp" && r["kind"] === "video") {
+              console.info(
+                `[webrtc] inbound-rtp bytes=${r["bytesReceived"]} packets=${r["packetsReceived"]} framesDecoded=${r["framesDecoded"]}`,
+              );
+            }
+          });
+        } catch { /* diagnostics only */ }
+      })();
+    }, 3000);
     if (video.requestVideoFrameCallback) {
       handle = video.requestVideoFrameCallback(tick);
     } else {
@@ -286,14 +311,16 @@ function AdminPage() {
         const q = (video as unknown as { getVideoPlaybackQuality?: () => { totalVideoFrames: number } }).getVideoPlaybackQuality?.();
         if (!q) return;
         const st = videoFpsRef.current;
+        if (q.totalVideoFrames > 0) setVideoDecoding(true);
         if (st.last) setVideoFps(Math.max(0, q.totalVideoFrames - st.frames));
         st.frames = q.totalVideoFrames;
         st.last = 1;
       }, 1000);
-      return () => clearInterval(iv);
+      return () => { clearInterval(iv); window.clearTimeout(probe); };
     }
     return () => {
       stop = true;
+      window.clearTimeout(probe);
       if (handle && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(handle);
     };
   }, [liveId, rtcVideoLive]);
