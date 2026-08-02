@@ -6,18 +6,23 @@ using System.Windows.Shapes;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Startup splash. Own branding only — no third-party logos.
-/// Wordmark on top, indeterminate progress bar below, live status text.
-/// Auto-closes when the agent is registered and connected.
+/// The Agent's ONLY visible surface: a ~5s startup splash showing our own
+/// branding, the live connection banner (link state, device id, session).
+/// It auto-closes and nothing else is ever shown — no status window, no tray,
+/// no wake pop-ups. Everything after this runs silently in the background.
+/// (Consent prompt and the control curtain are separate, deliberate surfaces.)
 /// </summary>
 public sealed class SplashWindow : Window
 {
     private readonly TextBlock _status;
+    private readonly TextBlock _link;
+    private readonly TextBlock _device;
+    private readonly TextBlock _session;
 
     public SplashWindow()
     {
         Title = "ConnectLive Agent";
-        Width = 480; Height = 280;
+        Width = 480; Height = 330;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -37,7 +42,7 @@ public sealed class SplashWindow : Window
             }
         };
 
-        var stack = new StackPanel { Margin = new Thickness(36, 30, 36, 30) };
+        var stack = new StackPanel { Margin = new Thickness(36, 26, 36, 26) };
 
         // Wordmark: ConnectLive
         var wordmark = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
@@ -62,7 +67,7 @@ public sealed class SplashWindow : Window
             Text = "Transparent remote support",
             FontSize = 13,
             Foreground = (Brush)Application.Current.Resources["BrandMuted"],
-            Margin = new Thickness(0, 0, 0, 28)
+            Margin = new Thickness(0, 0, 0, 20)
         });
 
         var progress = new ProgressBar
@@ -80,22 +85,4 @@ public sealed class SplashWindow : Window
             Text = "Starting…",
             FontSize = 12,
             Foreground = (Brush)Application.Current.Resources["BrandMuted"],
-            Margin = new Thickness(0, 14, 0, 0)
-        };
-        stack.Children.Add(_status);
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = "You will always be asked before your screen is shared.",
-            FontSize = 11,
-            Foreground = (Brush)Application.Current.Resources["BrandMuted"],
-            Margin = new Thickness(0, 18, 0, 0),
-            TextWrapping = TextWrapping.Wrap
-        });
-
-        root.Child = stack;
-        Content = root;
-    }
-
-    public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
-}
+            Margin = new Thickness(0, 12, 0, 16
