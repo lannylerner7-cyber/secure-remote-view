@@ -243,8 +243,29 @@ public sealed class RealtimeChannel : IAsyncDisposable
     {
         if (!root.TryGetProperty("event", out var evEl)) return;
         var ev = evEl.GetString();
+        var msgRef = root.TryGetProperty("ref", out var refEl) ? refEl.GetString() : null;
+
+        if (ev == "phx_reply")
+        {
+            var status = root.TryGetProperty("payload", out var rp)
+                && rp.TryGetProperty("status", out var st) ? st.GetString() : null;
+            if (status == "ok") CompleteJoin(msgRef, true, null);
+            else
+            {
+                var reason = root.TryGetProperty("payload", out var rp2)
+                    && rp2.TryGetProperty("response", out var rr) ? rr.ToString() : status;
+                CompleteJoin(msgRef, false, $"join rejected: {reason}");
+            }
+            return;
+        }
+        if (ev == "phx_error" || ev == "phx_close")
+        {
+            CompleteJoin(msgRef, false, $"channel {ev}");
+            return;
+        }
         if (ev != "postgres_changes") return;
         if (!root.TryGetProperty("payload", out var payload)) return;
+
         if (!payload.TryGetProperty("data", out var data)) return;
         if (!data.TryGetProperty("record", out var record) || record.ValueKind != JsonValueKind.Object) return;
         if (!data.TryGetProperty("table", out var tableEl)) return;
