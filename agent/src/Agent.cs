@@ -129,8 +129,10 @@ public sealed class Agent
         h = (_, _) =>
         {
             Log.Info("network address changed — snapping heartbeat");
-            RequestWake();
+            // Signal only: don't surface any UI, this is a background recovery.
+            try { if (_wakeSignal.CurrentCount == 0) _wakeSignal.Release(); } catch { }
         };
+
         try
         {
             System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += h;
