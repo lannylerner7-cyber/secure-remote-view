@@ -118,11 +118,12 @@ public sealed class RealtimeChannel : IAsyncDisposable
                 var ack = _joinsDone!.Task;
                 var settled = await Task.WhenAny(ack, receive, Task.Delay(10_000, ct))
                     .ConfigureAwait(false);
-                if (settled != ack)
+                if (settled != ack || !await ack.ConfigureAwait(false))
                 {
                     hbCts.Cancel();
                     throw new InvalidOperationException(_joinError ?? "join timed out (no phx_reply)");
                 }
+
 
                 _onHealth?.Invoke(true);
                 backoffMs = 1000;
