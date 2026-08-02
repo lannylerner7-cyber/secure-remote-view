@@ -139,6 +139,20 @@ public sealed class DxgiCapture : IDisposable
                     _lastFrameChanged = false;
                     return null;
                 }
+                // ACCESS_LOST / DEVICE_REMOVED / DEVICE_RESET are what a
+                // resolution change, a GPU driver reset, a UAC secure-desktop
+                // switch or a monitor hot-plug look like from here. Before this
+                // we just logged and returned null on every subsequent call —
+                // the session froze on its last good frame until the agent was
+                // restarted. Rebuild the duplication instead.
+                if (acquire.Code == unchecked((int)0x887A0026) /* ACCESS_LOST */ ||
+                    acquire.Code == unchecked((int)0x887A0005) /* DEVICE_REMOVED */ ||
+                    acquire.Code == unchecked((int)0x887A0007) /* DEVICE_RESET */ ||
+                    acquire.Code == unchecked((int)0x887A0004) /* UNSUPPORTED */)
+                {
+                    TryReinitialize($"AcquireNextFrame 0x{acquire.Code:X8}");
+                    return null;
+                }
                 Log.Warn($"DXGI: AcquireNextFrame 0x{acquire.Code:X8}");
                 return null;
             }
@@ -152,7 +166,19 @@ public sealed class DxgiCapture : IDisposable
             }
 
             desktopTexture = desktopResource!.QueryInterface<ID3D11Texture2D>();
+
+            // A mid-session resolution change can also arrive silently: the
+            // duplication survives but hands back a differently sized texture.
+            // CopyResource would then fail (or tear) — resize in place.
+            var srcDesc = desktopTexture.Description;
+            if ((int)srcDesc.Width != _width || (int)srcDesc.Height != _height)
+            {
+                Log.Info($"DXGI: source resized {_width}x{_height} -> {srcDesc.Width}x{srcDesc.Height}");
+                if (!ResizeStaging((int)srcDesc.Width, (int)srcDesc.Height)) return null;
+            }
+
             _context.CopyResource(_staging, desktopTexture);
+
 
             var map = _context.Map(_staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
             try
