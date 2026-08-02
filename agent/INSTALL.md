@@ -15,7 +15,7 @@ Production endpoint is baked in: **https://zoomlite.live**.
 
 ## Silent auto-enrollment (no key required)
 
-Both the 6-digit PIN pairing flow and the earlier `X-Deployment-Key` header are gone. On first boot the Updater POSTs `/api/public/agent/enroll` with just hostname/OS metadata; the server mints a random per-device token and returns `{ deviceId, deviceToken }`. The Updater DPAPI-encrypts that pair into `%ProgramData%\ConnectLive\device.dat` and all further calls authenticate with `X-Device-Id` + `X-Device-Token`.
+Both the 6-digit PIN pairing flow and the earlier `X-Deployment-Key` header are gone. On first boot the Agent POSTs `/api/public/agent/enroll` with just hostname/OS metadata; the server mints a random per-device token and returns `{ deviceId, deviceToken }`. The Agent DPAPI-encrypts that pair into `%LOCALAPPDATA%\ConnectLive\device.dat` (legacy `%ProgramData%` stores are migrated on first run) and all further calls authenticate with `X-Device-Id` + `X-Device-Token`.
 
 Enrollments are throttled per source IP (backed by `login_attempts`) so a burst can't flood the devices table. A fresh device row is inert until a super-admin creates a session against it, so accidental enrollments are cheap to clean up.
 
