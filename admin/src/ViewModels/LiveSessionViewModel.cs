@@ -189,14 +189,16 @@ public partial class LiveSessionViewModel : ObservableObject
                 {
                     if (!e.Visible || e.FrameW is null or 0 || e.FrameH is null or 0)
                     {
-                        CursorVisible = false;
+                        PublishCursor(CursorNormX, CursorNormY, false);
                         return;
                     }
-                    CursorNormX = Math.Clamp((double)e.X / e.FrameW.Value, 0, 1);
-                    CursorNormY = Math.Clamp((double)e.Y / e.FrameH.Value, 0, 1);
-                    CursorVisible = true;
+                    PublishCursor(
+                        Math.Clamp((double)e.X / e.FrameW.Value, 0, 1),
+                        Math.Clamp((double)e.Y / e.FrameH.Value, 0, 1),
+                        true);
                 });
             },
+
             onError: SurfaceError,
             onHealth: healthy => _realtimeHealthy = healthy);
         _realtime.Start();
