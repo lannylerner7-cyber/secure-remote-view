@@ -150,9 +150,11 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 
 ## 6. Backlog — next attention, in priority order
 
-Items 1–6 of the previous backlog are **closed** in pass 2 above, and the
-predictive cursor is **closed** in turn 1 above. What remains is the rest of
-the "unmatched feel" work, ordered by feel-per-unit-of-effort:
+Items 1–6 of the previous backlog are **closed** in pass 2 above, the
+predictive cursor is **closed** in turn 1, and the multi-monitor picker is
+**closed** in turn 2. What remains is the rest of the "unmatched feel" work,
+ordered by feel-per-unit-of-effort:
+
 
 1. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3)*,
    driven off the RTCP RR loss/jitter figures the `OnReceiveReport` handler
