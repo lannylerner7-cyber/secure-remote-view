@@ -293,21 +293,3 @@ public sealed class DxgiCapture : IDisposable
         if (TryInitialize()) Log.Info("DXGI: duplication rebuilt");
     }
 }
-
-    }
-
-    public void Dispose()
-    {
-        try { _duplication?.Dispose(); } catch { }
-        try { _staging?.Dispose(); } catch { }
-        try { _context?.Dispose(); } catch { }
-        try { _device?.Dispose(); } catch { }
-        _duplication = null;
-        _staging = null;
-        _context = null;
-        _device = null;
-        _initialized = false;
-    }
-
-}
-
