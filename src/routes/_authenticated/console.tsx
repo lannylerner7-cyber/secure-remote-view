@@ -639,7 +639,7 @@ function AdminPage() {
   // source dimensions differ between the two. Returns null while the size is
   // still unknown — callers then hold the input rather than guess.
   function activeSourceSize(): { width: number; height: number } | null {
-    if (rtcVideoLiveRef.current) {
+    if (videoDecodingRef.current) {
       const v = rtcRef.current?.video;
       if (v && v.videoWidth > 0 && v.videoHeight > 0) return { width: v.videoWidth, height: v.videoHeight };
       return null;
@@ -970,10 +970,10 @@ function AdminPage() {
         // resubscribe and wait for the agent's next push, so a stale frame in
         // that window means "handing over", not "dead".
         const sinceRtcDrop = rtcDroppedAtRef.current ? now - rtcDroppedAtRef.current : Infinity;
-        const handingOver = !rtcVideoLive && sinceRtcDrop < 8000;
+        const handingOver = !videoDecoding && sinceRtcDrop < 8000;
         const streamState = !active
           ? "paused"
-          : rtcVideoLive
+          : videoDecoding
             ? "live"
             : presence && presence !== "online"
               ? "reconnecting"
