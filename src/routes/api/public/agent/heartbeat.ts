@@ -23,6 +23,18 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // Optional LAN fingerprint (best-effort) used for Wake-on-LAN peer selection.
         const body = (await request.json().catch(() => ({}))) as {
           lan?: { subnet_v4?: string; mac?: string; ipv4?: string };
+          // SCOPE:CAPTURE — attached-display inventory for the admin monitor picker.
+          monitors?: Array<{
+            index?: number;
+            device_name?: string;
+            label?: string;
+            width?: number;
+            height?: number;
+            x?: number;
+            y?: number;
+            primary?: boolean;
+          }>;
+          selected_monitor?: string;
         };
 
         const nowIso = new Date().toISOString();
@@ -31,10 +43,12 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         const gap = Date.now() - prevSeen;
         const wasOffline = prevStatus !== "online" || gap > RECONNECT_GAP_MS;
 
-        // Merge LAN fingerprint into metadata without clobbering existing keys.
+        // Merge LAN fingerprint + monitor inventory into metadata without
+        // clobbering existing keys. Both are best-effort telemetry: a heartbeat
+        // that omits them must never erase what we already know.
         let mergedMetadata: Record<string, unknown> | undefined;
+        const prevMeta = (ctx.device.metadata ?? {}) as Record<string, unknown>;
         if (body.lan && (body.lan.subnet_v4 || body.lan.mac || body.lan.ipv4)) {
-          const prevMeta = (ctx.device.metadata ?? {}) as Record<string, unknown>;
           mergedMetadata = {
             ...prevMeta,
             lan_subnet_v4: body.lan.subnet_v4 ?? prevMeta.lan_subnet_v4 ?? null,
@@ -43,6 +57,29 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             lan_updated_at: nowIso,
           };
         }
+        if (Array.isArray(body.monitors) && body.monitors.length > 0) {
+          // Cap + normalise so a malformed agent payload can't bloat the row.
+          const monitors = body.monitors.slice(0, 8).map((m, i) => ({
+            index: typeof m.index === "number" ? m.index : i,
+            device_name: String(m.device_name ?? `\\\\.\\DISPLAY${i + 1}`).slice(0, 64),
+            label: String(m.label ?? `Display ${i + 1}`).slice(0, 96),
+            width: typeof m.width === "number" ? m.width : 0,
+            height: typeof m.height === "number" ? m.height : 0,
+            x: typeof m.x === "number" ? m.x : 0,
+            y: typeof m.y === "number" ? m.y : 0,
+            primary: m.primary === true,
+          }));
+          mergedMetadata = {
+            ...(mergedMetadata ?? prevMeta),
+            monitors,
+            selected_monitor:
+              typeof body.selected_monitor === "string" && body.selected_monitor.length > 0
+                ? body.selected_monitor.slice(0, 64)
+                : (monitors.find((m) => m.primary)?.device_name ?? monitors[0]!.device_name),
+            monitors_updated_at: nowIso,
+          };
+        }
+
 
         await ctx.admin
           .from("devices")

@@ -140,6 +140,12 @@ public partial class LiveSessionViewModel : ObservableObject
         _framePump.Start(_cts.Token);
         Transport = "Frame fallback";
 
+        // SCOPE:CAPTURE — keep the monitor picker in step with hot-plug /
+        // undock events reported by the agent heartbeat.
+        SeedMonitors(Device.Monitors, Device.SelectedMonitor);
+        StartMonitorPolling(_cts.Token);
+
+
 
         _cursorPump = new CursorPollPump(SessionId, sample =>
         {
@@ -501,6 +507,116 @@ public partial class LiveSessionViewModel : ObservableObject
     // every input on which it depends must republish it.
     partial void OnCurtainOnChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
     partial void OnTakenOverChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
+
+    // ---------------------------------------------------------------------
+    // SCOPE:CAPTURE — multi-monitor picker
+    //
+    // The agent publishes its attached-display inventory on every heartbeat
+    // (devices.metadata.monitors) and MonitorSelector on the agent is the one
+    // authority for "which display are we capturing". So the picker is a pure
+    // mirror: we render what the agent reported, and a user pick enqueues a
+    // `switch_monitor` power command. We do NOT optimistically rewrite the
+    // selection — the next heartbeat is what confirms it, exactly like the
+    // curtain state. That's why _applyingRemote guards the setter: without it
+    // the incoming confirmation would re-fire the command in a loop.
+    // ---------------------------------------------------------------------
+
+    public System.Collections.ObjectModel.ObservableCollection<MonitorOption> Monitors { get; } = new();
+
+    [ObservableProperty] private MonitorOption? selectedMonitor;
+
+    /// <summary>Picker only earns screen space when there's a real choice.</summary>
+    public bool HasMultipleMonitors => Monitors.Count > 1;
+
+    private bool _applyingRemote;
+
+    private void SeedMonitors(System.Collections.Generic.IReadOnlyList<MonitorOption> monitors, string? selected)
+    {
+        _applyingRemote = true;
+        try
+        {
+            // Rebuild only when the inventory actually changed; ComboBox loses
+            // an open drop-down on every Clear().
+            bool same = Monitors.Count == monitors.Count;
+            if (same)
+            {
+                for (int i = 0; i < monitors.Count; i++)
+                {
+                    if (!string.Equals(Monitors[i].DeviceName, monitors[i].DeviceName, StringComparison.OrdinalIgnoreCase))
+                    { same = false; break; }
+                }
+            }
+            if (!same)
+            {
+                Monitors.Clear();
+                foreach (var m in monitors) Monitors.Add(m);
+                OnPropertyChanged(nameof(HasMultipleMonitors));
+            }
+
+            MonitorOption? match = null;
+            foreach (var m in Monitors)
+            {
+                if (!string.IsNullOrEmpty(selected) &&
+                    string.Equals(m.DeviceName, selected, StringComparison.OrdinalIgnoreCase))
+                { match = m; break; }
+                if (match == null && m.IsPrimary) match = m;
+            }
+            if (match == null && Monitors.Count > 0) match = Monitors[0];
+            if (!ReferenceEquals(match, SelectedMonitor)) SelectedMonitor = match;
+        }
+        finally { _applyingRemote = false; }
+    }
+
+    private void StartMonitorPolling(CancellationToken ct)
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false); }
+                catch { return; }
+                try
+                {
+                    var row = await App.Api.GetDeviceAsync(Device.RowId, ct).ConfigureAwait(false);
+                    if (row == null) continue;
+                    var (monitors, selected) = MonitorMetadata.Parse(row.Metadata);
+                    if (monitors.Count == 0) continue;
+                    Application.Current?.Dispatcher.Invoke(() => SeedMonitors(monitors, selected));
+                }
+                catch (OperationCanceledException) { return; }
+                catch { /* transient: next tick retries */ }
+            }
+        }, ct);
+    }
+
+    partial void OnSelectedMonitorChanged(MonitorOption? value)
+    {
+        if (_applyingRemote || value == null) return;
+        _ = SwitchMonitorAsync(value);
+    }
+
+    private async Task SwitchMonitorAsync(MonitorOption target)
+    {
+        try
+        {
+            await App.Api.EnqueuePowerCommandAsync(
+                Device.RowId, "switch_monitor",
+                new { device_name = target.DeviceName, index = target.Index },
+                CancellationToken.None);
+            StatusMessage = $"Switching capture to {target.Label}…";
+            // A monitor change invalidates every buffered frame and the encoder's
+            // reference chain, so force a fresh stream rather than showing torn
+            // pixels from the previous display's resolution.
+            try
+            {
+                await App.Api.EnqueuePowerCommandAsync(
+                    Device.RowId, "restart_stream", new { }, CancellationToken.None);
+            }
+            catch { /* best-effort; the agent also rebuilds on SelectionChanged */ }
+        }
+        catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
+        catch (Exception ex) { SurfaceError(ex.Message); }
+    }
 }
 
 

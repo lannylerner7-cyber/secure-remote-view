@@ -95,7 +95,21 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 
 ## 5. Change log (rolling — newest first)
 
+### 2026 — Feel work, turn 2: multi-monitor picker (`SCOPE:CAPTURE`)
+
+| Scope | File | Change |
+| --- | --- | --- |
+| `SCOPE:DATA` | migration | `power_commands_kind_check` extended with `switch_monitor`. |
+| `SCOPE:CAPTURE` | `agent/src/ApiClient.cs` | Heartbeat payload now carries `monitors[]` (index, device_name, label, bounds, primary) from `MonitorSelector.Outputs()` plus `selected_monitor`. Re-read every beat, so hot-plug/undock shows up in the console within one heartbeat. Wrapped in try/catch — a display-enumeration failure must never cost us the heartbeat itself. |
+| `SCOPE:WEB` | `src/routes/api/public/agent/heartbeat.ts` | Merges `monitors` + `selected_monitor` into `devices.metadata` alongside the LAN fingerprint, capped at 8 displays with each field normalised/length-clamped. Omitting the field never erases what's already stored. |
+| `SCOPE:CAPTURE` | `agent/src/PowerRelay.cs` | New `switch_monitor` branch: resolves `device_name` (preferred) or `index` through `MonitorSelector.Select`/`SelectByIndex`. Everything downstream — DXGI duplication, GDI fallback, cursor telemetry, input mapping — already reads `MonitorSelector`, so the selection flip is the whole change. |
+| `SCOPE:CAPTURE` | `admin/src/ViewModels/DevicesViewModel.cs` | Added `MonitorOption` and a `MonitorMetadata.Parse` helper; `DeviceItem` now carries `Monitors` + `SelectedMonitor` off the device row. |
+| `SCOPE:CAPTURE` | `admin/src/Api/ApiClient.cs` | `GetDeviceAsync` — single-row device fetch so the live window can track displays without pulling the whole grid. |
+| `SCOPE:CAPTURE` | `admin/src/ViewModels/LiveSessionViewModel.cs` | `Monitors` / `SelectedMonitor` / `HasMultipleMonitors`, seeded from the device row and refreshed on a 10 s poll. The picker is a **mirror**, not a source of truth: a pick enqueues `switch_monitor` and the next heartbeat confirms it. `_applyingRemote` guards the setter so the confirmation can't re-fire the command in a loop, and the inventory is only rebuilt when it genuinely changed (a blind `Clear()` closes an open drop-down). A switch also enqueues `restart_stream`, because the new display invalidates the encoder's reference chain and the old resolution's buffered frames. |
+| `SCOPE:CAPTURE` | `admin/src/Views/LiveSessionWindow.xaml` | "Display" combo in the status bar, collapsed unless `HasMultipleMonitors`. |
+
 ### 2026 — Feel work, turn 1: predictive cursor (`SCOPE:RENDER`)
+
 
 | Scope | File | Change |
 | --- | --- | --- |
@@ -140,18 +154,15 @@ Items 1–6 of the previous backlog are **closed** in pass 2 above, and the
 predictive cursor is **closed** in turn 1 above. What remains is the rest of
 the "unmatched feel" work, ordered by feel-per-unit-of-effort:
 
-1. `SCOPE:INPUT` — **Multi-monitor picker** in the console *(turn 2)*. Nearly
-   free now: `MonitorSelector.Outputs()` already returns the list and
-   `Select()` already rebuilds the DXGI duplication. Needs a `monitors` field
-   on the heartbeat response, a `set_monitor` command, and a dropdown in
-   `LiveSessionWindow`.
-2. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3)*,
+1. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3)*,
    driven off the RTCP RR loss/jitter figures the `OnReceiveReport` handler
    already sees.
-3. `SCOPE:INPUT` / `SCOPE:CAPTURE` — **Relative-motion pointer mode** for
+2. `SCOPE:INPUT` / `SCOPE:CAPTURE` — **Relative-motion pointer mode** for
    games/CAD, plus **hardware H.264 (NVENC/QSV/AMF)** with VP8 fallback
    *(turn 4)*. Largest job: touches encode on the agent and decode in
    `admin/src/Media/VideoPipeline.cs`.
+3. `SCOPE:WEB` — mirror the monitor picker in the browser console
+   (`/console`); the native console has it as of turn 2, the web one does not.
 
 ---
 

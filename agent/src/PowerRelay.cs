@@ -73,6 +73,29 @@ public static class PowerRelay
             {
                 RunHidden("shutdown.exe", "/s /t 5 /c \"ConnectLive: shutdown in 5s. Run 'shutdown /a' to cancel.\"");
             }
+            else if (kind == "switch_monitor")
+            {
+                // SCOPE:CAPTURE — admin picked a different display. The whole
+                // pipeline (DXGI capture, GDI fallback, cursor telemetry,
+                // input mapping) reads MonitorSelector, so flipping the
+                // selection here is enough; SelectionChanged rebuilds capture.
+                string? name = null;
+                int? index = null;
+                if (payload.ValueKind == JsonValueKind.Object)
+                {
+                    if (payload.TryGetProperty("device_name", out var dn) && dn.ValueKind == JsonValueKind.String)
+                        name = dn.GetString();
+                    if (payload.TryGetProperty("index", out var ix) && ix.ValueKind == JsonValueKind.Number)
+                        index = ix.GetInt32();
+                }
+
+                bool applied;
+                if (!string.IsNullOrWhiteSpace(name)) applied = MonitorSelector.Select(name);
+                else if (index.HasValue) applied = MonitorSelector.SelectByIndex(index.Value);
+                else throw new InvalidOperationException("switch_monitor: missing device_name/index");
+
+                Log.Info($"power/switch_monitor -> {MonitorSelector.SelectedDeviceName} (changed={applied}, cmd {id})");
+            }
             else if (kind == "wake_agent")
             {
                 // We're already running, so "wake" simply means: surface the
