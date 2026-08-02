@@ -279,7 +279,11 @@ public sealed class Agent
         {
             if (s.state == "invited" && !_acceptedSessions.Contains(s.id))
             {
-                await HandleInvite(s.id, s.mode, ct);
+                // Fire-and-forget: the consent dialog can sit on screen for up
+                // to 90s and the heartbeat loop must keep reporting presence
+                // (and must keep noticing an admin-cancelled invite) while the
+                // user decides. HandleInvite is self-guarded against reentry.
+                _ = HandleInvite(s.id, s.mode, ct);
             }
             else if (s.state == "paused")
             {
@@ -289,7 +293,11 @@ public sealed class Agent
                 _currentSessionId = s.id;
                 PauseSessionLoops(s.id);
             }
-            else if (s.state == "active" || s.state == "consented")
+            // `consented` never occurs: the server's consent route transitions
+            // invited -> active | declined directly. Branching on it was dead
+            // code that hid the real state machine.
+            else if (s.state == "active")
+
             {
                 if (!_acceptedSessions.Contains(s.id) || _currentSessionId != s.id)
                 {
