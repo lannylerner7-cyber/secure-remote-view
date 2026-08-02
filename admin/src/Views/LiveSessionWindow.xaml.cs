@@ -174,6 +174,7 @@ public partial class LiveSessionWindow : Window
         Keyboard.Focus(this);
         if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
+        _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Left, x, y);
     }
@@ -182,6 +183,7 @@ public partial class LiveSessionWindow : Window
     {
         if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
+        _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Left, x, y);
     }
@@ -190,6 +192,7 @@ public partial class LiveSessionWindow : Window
     {
         if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
+        _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Right, x, y);
     }
@@ -198,6 +201,7 @@ public partial class LiveSessionWindow : Window
     {
         if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
+        _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Right, x, y);
     }
@@ -208,10 +212,12 @@ public partial class LiveSessionWindow : Window
         // Park the pointer at the wheel position first so the remote machine
         // scrolls the control under the cursor, not whatever had focus.
         var (x, y) = ToAbs(e);
+        _predict.Predict(x, y);
         _coalesce.Update(x, y);
         _coalesce.FlushNow();
         await _mouse.WheelAsync(e.Delta);
     }
+
 
 
     // Alt-combos arrive as Key.System with the real key in SystemKey.
