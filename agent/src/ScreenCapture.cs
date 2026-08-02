@@ -28,6 +28,7 @@ public static class ScreenCapture
     /// <summary>Switch between Normal (1920/q70-85) and Performance (960/q40-55).</summary>
     public static void SetQualityMode(bool performance)
     {
+        int prevEdge = _maxEdge;
         PerformanceMode = performance;
         if (performance)
         {
@@ -41,7 +42,17 @@ public static class ScreenCapture
             _motionQuality = 70L;
             _idleQuality = 85L;
         }
+        if (prevEdge != _maxEdge)
+        {
+            // Step 1 diagnostics: correlate stripe onset with a mid-stream
+            // encoder-resolution change. Uses the same monotonic clock as the
+            // WebRTC pipe log so both lines line up.
+            Log.Info($"[t={WebRtcSession.MonoClock.ElapsedMilliseconds}] capture SetQualityMode " +
+                     $"performance={performance} maxEdge {prevEdge} -> {_maxEdge}");
+            _logNextTee = true;
+        }
     }
+
 
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
@@ -240,13 +251,19 @@ public static class ScreenCapture
     // smears); changed frames always go through at full capture rate.
     private const int IdleTeeIntervalMs = 200;
     private static DateTime _lastTeeUtc = DateTime.MinValue;
+    /// <summary>Step 1 diagnostics: log the first tee after a resolution/profile change.</summary>
+    private static bool _logNextTee = false;
 
     /// <summary>
     /// Clears the idle-throttle clock so a freshly-built (or freshly-started)
     /// peer receives the very next captured frame instead of waiting out the
     /// remainder of the keepalive window.
     /// </summary>
-    public static void ResetWebRtcTee() => _lastTeeUtc = DateTime.MinValue;
+    public static void ResetWebRtcTee()
+    {
+        _lastTeeUtc = DateTime.MinValue;
+        _logNextTee = true;
+    }
 
 
 
@@ -261,6 +278,12 @@ public static class ScreenCapture
             _lastTeeUtc = now;
 
             int w = scaled.Width, h = scaled.Height;
+            if (_logNextTee)
+            {
+                _logNextTee = false;
+                Log.Info($"[t={WebRtcSession.MonoClock.ElapsedMilliseconds}] capture tee first-frame " +
+                         $"{w}x{h} throttled={throttled} performanceMode={PerformanceMode}");
+            }
             var rect = new Rectangle(0, 0, w, h);
             var data = scaled.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
             try
