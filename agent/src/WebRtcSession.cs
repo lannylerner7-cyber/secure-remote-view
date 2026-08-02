@@ -229,7 +229,7 @@ public sealed class WebRtcSession : IDisposable
     /// has been handed to the encoder. Both conditions are counted so a
     /// starving pipeline shows up in the log instead of failing invisibly.
     /// </summary>
-    public void PushFrame(byte[] rgba, int width, int height)
+    public void PushFrame(byte[] bgra, int width, int height)
     {
         var pc = _pc;
         var enc = _videoEnd;
@@ -245,7 +245,8 @@ public sealed class WebRtcSession : IDisposable
         {
             Interlocked.Increment(ref _pushed);
             enc.ExternalVideoSourceRawSample(
-                33, width, height, rgba, VideoPixelFormatsEnum.Bgra);
+                33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
+
         }
         catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }
         MaybeLogStats();
