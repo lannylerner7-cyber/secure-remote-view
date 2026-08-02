@@ -239,6 +239,15 @@ public static class ScreenCapture
     // before hand-off: the BGRA→I420 conversion must never read a stale 0.
     private static DateTime _lastTeeUtc = DateTime.MinValue;
 
+    /// <summary>
+    /// Clears the idle-throttle clock so a freshly-built (or freshly-started)
+    /// peer receives the very next captured frame instead of waiting out the
+    /// remainder of the 500 ms window.
+    /// </summary>
+    public static void ResetWebRtcTee() => _lastTeeUtc = DateTime.MinValue;
+
+
+
     private static void TeeToWebRtc(Bitmap scaled, bool throttled)
     {
         try
