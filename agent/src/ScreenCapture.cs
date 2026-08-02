@@ -122,7 +122,7 @@ public static class ScreenCapture
                     else if (!dxgi.LastFrameHadContentChange)
                     {
                         // Nothing changed on screen — hold last frame, back off.
-                        // Still keep the VP8 encoder fed (throttled) so a static
+                        // Still keep the VP8 encoder fed (keepalive) so a static
                         // desktop never freezes the admin's decoded picture.
                         framesSinceKeyframe++;
                         if (scaledBmp != null) TeeToWebRtc(scaledBmp, throttled: true);
@@ -179,7 +179,7 @@ public static class ScreenCapture
                 {
                     idleCount++;
                     delayMs = idleCount >= 3 ? 100 : 33;
-                    // Keep the video track alive at ~1 fps while idle.
+                    // Keepalive push while idle (throttled to IdleTeeIntervalMs).
                     TeeToWebRtc(scaledBmp, throttled: true);
                 }
                 else
