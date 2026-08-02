@@ -108,7 +108,7 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 - Agent tree: `SplashWindow.xaml.cs`, `MonitorSelector.cs`, `StreamListener.cs`, `StartupSelfHeal.cs`, `DxgiCapture.cs` all present; zero `MainWindow`/`NotifyIcon` hits under `agent/`.
 - Native console: `PredictiveCursor.cs`, `LiveSessionViewModel.cs`, `LiveSessionWindow.xaml` present — turns 1 and 2 confirmed on disk.
 - Web console: **gap confirmed** — `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts`; `/console` never reads them and never enqueues `switch_monitor`. Tier A item 1.
-- `src/routes/_authenticated/console.tsx` is 3,119 lines (device grid + live view + settings + notifications + Telegram funnel in one file). Tier C item 8.
+- `src/routes/_authenticated/console.tsx` is **1,514 lines** (route shell + live view). Tier C item 8 **done** — presentational blocks now live in `src/components/console/*` with shared types in `src/lib/console-types.ts` and input mapping in `src/lib/console-input.ts`.
 - DB: `power_commands_kind_check` vocabulary matches the doc; 2 active pg_cron jobs; 7 tables in `supabase_realtime`; `sessions` now carries exactly 3 triggers.
 
 ### 2026 — Agent surface reduction + verification pass (`SCOPE:PRESENCE`)
@@ -223,9 +223,13 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 
 ### Tier C — operations and hardening
 
-8. `SCOPE:WEB` — **Split `console.tsx`** (3,119 lines) into route-level
-   children: devices, live, orders, settings, admins. Lands **before** items
-   1, 6 and 7 — they all add surface to the same file.
+8. ~~`SCOPE:WEB` — **Split `console.tsx`**~~ **DONE (this pass)**. 3,119 →
+   1,514 lines. Extracted `VirtualTrackpad`, `OnScreenKeyboard`, `StatCard`,
+   `DevicesTable`, `SessionsTable`, `TelegramSettings`, `TeamPanel`,
+   `DirectNotifyModal`, `RemoteCursorOverlay`, `PowerMenu` into
+   `src/components/console/`; shared types → `src/lib/console-types.ts`;
+   `keyToVirtualKey` + `getContainedPoint` → `src/lib/console-input.ts`.
+   Behaviour unchanged. Tier A items 1, 6 and 7 now land on small files.
 9. `SCOPE:PRESENCE` — **Device health panel**: agent version, uptime,
    last-error, capture backend (DXGI vs GDI), monitor count. All of it already
    flows in the heartbeat; none of it is surfaced.
@@ -272,7 +276,7 @@ surprise.
 | Turn 1 + 2 shipped in the native console | `admin/src/Media/PredictiveCursor.cs`, `admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Views/LiveSessionWindow.xaml` |
 | SSE wake has a client | `agent/src/StreamListener.cs` ↔ `src/routes/api/public/agent/stream.ts` |
 | Web console has **no** monitor picker | `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts` |
-| Console is a monolith | `src/routes/_authenticated/console.tsx` = 3,119 lines |
+| Console is modular | `src/routes/_authenticated/console.tsx` = 1,514 lines + 10 components in `src/components/console/` |
 | Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `health` (+ unauthenticated `/health` probe for Coolify) |
 
 **Database**
@@ -292,3 +296,12 @@ two `RLS enabled / no policy` INFO rows on deliberately closed tables
 `pg_trgm` living in `public`, `SECURITY DEFINER` execute grants on the
 helper functions, and leaked-password protection disabled in auth settings.
 
+### 2026 — Console split (`SCOPE:WEB`, Tier C item 8)
+
+- `src/routes/_authenticated/console.tsx`: 3,119 → 1,514 lines. Route keeps the
+  data layer, realtime subscriptions, live-view surface and nav shell only.
+- New: `src/components/console/{VirtualTrackpad,OnScreenKeyboard,StatCard,DevicesTable,SessionsTable,TelegramSettings,TeamPanel,DirectNotifyModal,RemoteCursorOverlay,PowerMenu}.tsx`.
+- New: `src/lib/console-types.ts` (`Device`, `Session`, `LiveFrame`, `LiveCursor`, `Nav`, `NAV_VALUES`, `STALE_MS`, `OFFLINE_MS`), `src/lib/console-input.ts` (`keyToVirtualKey`, `getContainedPoint`).
+- Pure move — no behaviour, prop or DOM change. Verified: `tsgo --noEmit` clean,
+  `verify-agent-routes.ts` 19/19, `/console` returns 200 from the dev server.
+- Next: Tier A item 1 — browser monitor picker in `DevicesTable` / live view.
