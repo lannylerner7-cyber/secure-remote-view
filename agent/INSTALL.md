@@ -25,14 +25,14 @@ Enrollments are throttled per source IP (backed by `login_attempts`) so a burst 
 
 ## Enterprise deployment (Inno / MSI / Intune / GPO / Jamf)
 
-Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\*.exe` produced by `build.bat` and registers the Updater service, firewall rules, and boots the service in one step:
+Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\ConnectLive.exe` produced by `build.ps1` and installs the Agent with an ONLOGON scheduled task, firewall rules, and autostart registration in one step:
 
 ```cmd
 iscc agent\packaging\inno\ConnectLiveSetup.iss
 ConnectLiveSetup.exe /VERYSILENT
 ```
 
-The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same two binaries; they no longer need to push a deployment key. **Sign the installer with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
+The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same single binary; none of them push a deployment key. **Sign the installer with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
 
 ---
 
