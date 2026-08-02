@@ -72,7 +72,12 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/recon
         ]);
 
         return new Response(
-          JSON.stringify({ ok: true, sessionId: updated.id, mode: updated.mode, state: updated.state }),
+          JSON.stringify({
+            ok: true,
+            sessionId: updated.id,
+            mode: updated.mode,
+            state: updated.state,
+          }),
           { headers: { "content-type": "application/json" } },
         );
       },

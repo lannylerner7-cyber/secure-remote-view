@@ -56,7 +56,10 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
 
         let adminClientId: string | null = null;
         if (body.admin_client_id !== undefined && body.admin_client_id !== null) {
-          if (typeof body.admin_client_id !== "string" || !CLIENT_ID_RE.test(body.admin_client_id)) {
+          if (
+            typeof body.admin_client_id !== "string" ||
+            !CLIENT_ID_RE.test(body.admin_client_id)
+          ) {
             return errJson("invalid_admin_client_id", 400);
           }
           adminClientId = body.admin_client_id;
@@ -64,7 +67,11 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
 
         let attemptId: string | null = null;
         if (body.attempt_id !== undefined && body.attempt_id !== null) {
-          if (typeof body.attempt_id !== "string" || body.attempt_id.length < 4 || body.attempt_id.length > 80) {
+          if (
+            typeof body.attempt_id !== "string" ||
+            body.attempt_id.length < 4 ||
+            body.attempt_id.length > 80
+          ) {
             return errJson("invalid_attempt_id", 400);
           }
           attemptId = body.attempt_id;
@@ -81,11 +88,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         if (session.state !== "active") {
           return errJson("not_active", 409);
         }
-        if (
-          adminClientId &&
-          session.admin_client_id &&
-          adminClientId !== session.admin_client_id
-        ) {
+        if (adminClientId && session.admin_client_id && adminClientId !== session.admin_client_id) {
           return errJson("admin_client_id_mismatch", 409);
         }
 
@@ -101,7 +104,9 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           // Idempotent retry — the agent's queue will re-post the same
           // attempt_id on transient failures; a duplicate is success.
           if ((error as { code?: string }).code === "23505") {
-            return new Response(JSON.stringify({ ok: true, deduped: true }), { headers: JSON_HEADERS });
+            return new Response(JSON.stringify({ ok: true, deduped: true }), {
+              headers: JSON_HEADERS,
+            });
           }
           return errJson("insert_failed", 500);
         }
@@ -153,9 +158,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         // different peer. Untargeted (NULL) broadcasts always pass so the
         // agent can still receive terminate/bye during handoff races.
         if (session.admin_client_id) {
-          q = q.or(
-            `admin_client_id.eq.${session.admin_client_id},admin_client_id.is.null`,
-          );
+          q = q.or(`admin_client_id.eq.${session.admin_client_id},admin_client_id.is.null`);
         }
 
         const { data, error } = await q;

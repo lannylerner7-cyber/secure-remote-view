@@ -275,12 +275,20 @@ function Home() {
                     }`}
                   >
                     {s.done && (
-                      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                      <svg
+                        className="h-2.5 w-2.5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="3"
+                      >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
                     )}
                   </div>
-                  <span className={`text-[11px] font-semibold ${s.done || s.active ? "text-white" : "text-white/40"}`}>
+                  <span
+                    className={`text-[11px] font-semibold ${s.done || s.active ? "text-white" : "text-white/40"}`}
+                  >
                     {s.label}
                   </span>
                 </div>
@@ -419,7 +427,10 @@ function PlanCardView({ plan, index }: { plan: PlanCard; index: number }) {
           : "border-white/10 bg-white/[0.04] hover:border-white/25"
       }`}
     >
-      <div aria-hidden className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 opacity-40 transition group-hover:opacity-60">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 opacity-40 transition group-hover:opacity-60"
+      >
         <img src={art} alt="" className="h-full w-full object-contain" />
       </div>
 

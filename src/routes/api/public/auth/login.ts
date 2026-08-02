@@ -111,7 +111,13 @@ export const Route = createFileRoute("/api/public/auth/login")({
         await supabaseAdmin
           .from("login_attempts")
           .upsert(
-            { identifier: key, failures: 0, locked_until: null, last_ip: ip, updated_at: new Date().toISOString() },
+            {
+              identifier: key,
+              failures: 0,
+              locked_until: null,
+              last_ip: ip,
+              updated_at: new Date().toISOString(),
+            },
             { onConflict: "identifier" },
           );
 

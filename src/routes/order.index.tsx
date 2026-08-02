@@ -16,9 +16,15 @@ export const Route = createFileRoute("/order/")({
   head: () => ({
     meta: [
       { title: "Order a ConnectLive license" },
-      { name: "description", content: "Buy a ConnectLive remote-support license with Bitcoin, USDT, or USDC." },
+      {
+        name: "description",
+        content: "Buy a ConnectLive remote-support license with Bitcoin, USDT, or USDC.",
+      },
       { property: "og:title", content: "Order a ConnectLive license" },
-      { property: "og:description", content: "Pay in BTC, USDT, or USDC. Instant invoice, live payment tracking." },
+      {
+        property: "og:description",
+        content: "Pay in BTC, USDT, or USDC. Instant invoice, live payment tracking.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -42,11 +48,13 @@ function OrderPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    loadPlans().then((rows) => {
-      const list = (rows as Plan[]) ?? [];
-      setPlans(list);
-      if (list[0]) setForm((f) => ({ ...f, plan_code: list[0].code }));
-    }).catch(() => setPlans([]));
+    loadPlans()
+      .then((rows) => {
+        const list = (rows as Plan[]) ?? [];
+        setPlans(list);
+        if (list[0]) setForm((f) => ({ ...f, plan_code: list[0].code }));
+      })
+      .catch(() => setPlans([]));
   }, [loadPlans]);
 
   const submit = async (e: React.FormEvent) => {
@@ -83,7 +91,8 @@ function OrderPage() {
       <main className="mx-auto max-w-3xl px-4 py-12">
         <h1 className="text-3xl font-semibold">Buy a ConnectLive license</h1>
         <p className="mt-2 text-sm text-white/60">
-          Pick a plan and pay in Bitcoin, USDT, or USDC. You'll get an invoice with a live payment tracker.
+          Pick a plan and pay in Bitcoin, USDT, or USDC. You'll get an invoice with a live payment
+          tracker.
         </p>
 
         <form onSubmit={submit} className="mt-8 grid gap-6 md:grid-cols-2">
@@ -101,7 +110,9 @@ function OrderPage() {
                 >
                   <div>
                     <div className="font-medium">{p.name}</div>
-                    {p.description && <div className="mt-0.5 text-xs text-white/50">{p.description}</div>}
+                    {p.description && (
+                      <div className="mt-0.5 text-xs text-white/50">{p.description}</div>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="font-mono text-base">${Number(p.amount_usd).toFixed(2)}</div>
@@ -135,11 +146,29 @@ function OrderPage() {
             </div>
           </label>
 
-
-          <Field label="Full name" required value={form.full_name} onChange={(v) => setForm({ ...form, full_name: v })} />
-          <Field label="Email" required type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
-          <Field label="Phone (optional)" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
-          <Field label="Company (optional)" value={form.company} onChange={(v) => setForm({ ...form, company: v })} />
+          <Field
+            label="Full name"
+            required
+            value={form.full_name}
+            onChange={(v) => setForm({ ...form, full_name: v })}
+          />
+          <Field
+            label="Email"
+            required
+            type="email"
+            value={form.email}
+            onChange={(v) => setForm({ ...form, email: v })}
+          />
+          <Field
+            label="Phone (optional)"
+            value={form.phone}
+            onChange={(v) => setForm({ ...form, phone: v })}
+          />
+          <Field
+            label="Company (optional)"
+            value={form.company}
+            onChange={(v) => setForm({ ...form, company: v })}
+          />
 
           <label className="md:col-span-2">
             <div className="mb-1 text-xs uppercase tracking-wider text-white/50">Pay with</div>

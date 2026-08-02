@@ -78,15 +78,35 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "ConnectLive — Transparent Remote Support" },
-      { name: "description", content: "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail." },
+      {
+        name: "description",
+        content:
+          "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail.",
+      },
       { property: "og:title", content: "ConnectLive — Transparent Remote Support" },
-      { property: "og:description", content: "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail." },
+      {
+        property: "og:description",
+        content:
+          "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "ConnectLive — Transparent Remote Support" },
-      { name: "twitter:description", content: "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail." },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/fFBzYFYPzWNZOLqC9SQzRBxtDyB2/social-images/social-1784591304444-image-removebg-preview.webp" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/fFBzYFYPzWNZOLqC9SQzRBxtDyB2/social-images/social-1784591304444-image-removebg-preview.webp" },
+      {
+        name: "twitter:description",
+        content:
+          "Consent-based helpdesk remote support with a persistent on-screen indicator and full audit trail.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/fFBzYFYPzWNZOLqC9SQzRBxtDyB2/social-images/social-1784591304444-image-removebg-preview.webp",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/fFBzYFYPzWNZOLqC9SQzRBxtDyB2/social-images/social-1784591304444-image-removebg-preview.webp",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },

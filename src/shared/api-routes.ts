@@ -16,8 +16,9 @@ export const API_ROUTES = {
   agentEnroll: "/api/public/agent/enroll",
   agentHello: "/api/public/agent/hello",
   agentHeartbeat: "/api/public/agent/heartbeat",
-  /** SSE wake channel. Served, but no shipping client subscribes today
-   *  (StreamListener was removed with the standalone agent) — reserved. */
+  /** SSE wake channel. Consumed by agent/src/StreamListener.cs, which nudges
+   *  the heartbeat loop on `event: wake` so revival is sub-second instead of
+   *  waiting a full heartbeat tick. Heartbeat stays the source of truth. */
   agentStream: "/api/public/agent/stream",
 
   agentReconnect: (sessionId: string) => `/api/public/agent/session/${sessionId}/reconnect`,

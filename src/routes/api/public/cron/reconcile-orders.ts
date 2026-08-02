@@ -30,7 +30,9 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
 
         const { data: orders, error } = await supabaseAdmin
           .from("orders")
-          .select("id, coin, amount_coin, receive_address, status, price_expires_at, tx_hash, confirmations")
+          .select(
+            "id, coin, amount_coin, receive_address, status, price_expires_at, tx_hash, confirmations",
+          )
           .in("status", ["pending", "detected"])
           .not("receive_address", "is", null)
           .limit(200);
@@ -41,11 +43,16 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
           const coin = o.coin as CoinKey;
           const txs = await fetchInboundTxs(coin, o.receive_address!);
           const match = txs.find(
-            (t) => Math.abs(t.amountCoin - Number(o.amount_coin)) <= AMOUNT_EPSILON * Number(o.amount_coin) + AMOUNT_EPSILON,
+            (t) =>
+              Math.abs(t.amountCoin - Number(o.amount_coin)) <=
+              AMOUNT_EPSILON * Number(o.amount_coin) + AMOUNT_EPSILON,
           );
 
           if (!match) {
-            if (o.status === "pending" && new Date(o.price_expires_at).getTime() < Date.now() - 60_000) {
+            if (
+              o.status === "pending" &&
+              new Date(o.price_expires_at).getTime() < Date.now() - 60_000
+            ) {
               await supabaseAdmin.from("orders").update({ status: "expired" }).eq("id", o.id);
             }
             continue;
@@ -62,19 +69,17 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
             })
             .eq("id", o.id);
 
-          await supabaseAdmin
-            .from("payment_events")
-            .upsert(
-              {
-                order_id: o.id,
-                source: "poller",
-                event_type: nextStatus,
-                tx_hash: match.txHash,
-                confirmations: match.confirmations,
-                raw: { amount_coin: match.amountCoin },
-              },
-              { onConflict: "order_id,tx_hash,event_type", ignoreDuplicates: true },
-            );
+          await supabaseAdmin.from("payment_events").upsert(
+            {
+              order_id: o.id,
+              source: "poller",
+              event_type: nextStatus,
+              tx_hash: match.txHash,
+              confirmations: match.confirmations,
+              raw: { amount_coin: match.amountCoin },
+            },
+            { onConflict: "order_id,tx_hash,event_type", ignoreDuplicates: true },
+          );
 
           processed += 1;
         }

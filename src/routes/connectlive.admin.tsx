@@ -4,10 +4,7 @@ import { AdminLoginCard } from "@/components/AdminLoginCard";
 export const Route = createFileRoute("/connectlive/admin")({
   component: LoginPage,
   head: () => ({
-    meta: [
-      { title: "Technician sign-in — ConnectLive" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Technician sign-in — ConnectLive" }, { name: "robots", content: "noindex" }],
   }),
 });
 

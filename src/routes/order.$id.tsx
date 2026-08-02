@@ -74,8 +74,18 @@ function InvoicePage() {
     };
   }, [id, loadOrder]);
 
-  if (err) return <Shell><p className="text-red-300">{err}</p></Shell>;
-  if (!inv) return <Shell><p className="text-white/60">Loading invoice…</p></Shell>;
+  if (err)
+    return (
+      <Shell>
+        <p className="text-red-300">{err}</p>
+      </Shell>
+    );
+  if (!inv)
+    return (
+      <Shell>
+        <p className="text-white/60">Loading invoice…</p>
+      </Shell>
+    );
 
   const paid = inv.status === "paid";
   const detected = inv.status === "detected";
@@ -102,15 +112,27 @@ function InvoicePage() {
       <div className="grid gap-6 md:grid-cols-2">
         <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
           <div className="text-xs uppercase tracking-wider text-white/50">Amount due</div>
-          <div className="mt-1 font-mono text-3xl">{inv.amount_coin} <span className="text-base text-white/60">{inv.coin.split("_")[0]}</span></div>
-          <div className="mt-1 text-xs text-white/50">≈ ${Number(inv.amount_usd).toFixed(2)} USD · {COIN_LABEL[inv.coin]}</div>
+          <div className="mt-1 font-mono text-3xl">
+            {inv.amount_coin}{" "}
+            <span className="text-base text-white/60">{inv.coin.split("_")[0]}</span>
+          </div>
+          <div className="mt-1 text-xs text-white/50">
+            ≈ ${Number(inv.amount_usd).toFixed(2)} USD · {COIN_LABEL[inv.coin]}
+          </div>
 
           <div className="mt-6">
-            <div className="text-xs uppercase tracking-wider text-white/50">Send to this address</div>
+            <div className="text-xs uppercase tracking-wider text-white/50">
+              Send to this address
+            </div>
             {inv.receive_address ? (
               <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 break-all rounded bg-black/40 p-2 font-mono text-xs">{inv.receive_address}</code>
-                <button onClick={copyAddr} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">
+                <code className="flex-1 break-all rounded bg-black/40 p-2 font-mono text-xs">
+                  {inv.receive_address}
+                </code>
+                <button
+                  onClick={copyAddr}
+                  className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+                >
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>
@@ -119,7 +141,9 @@ function InvoicePage() {
                 Payment address is being provisioned. Refresh in a moment or contact support.
               </div>
             )}
-            {qrSrc && <img src={qrSrc} alt="Payment QR" className="mx-auto mt-4 rounded-lg bg-white p-2" />}
+            {qrSrc && (
+              <img src={qrSrc} alt="Payment QR" className="mx-auto mt-4 rounded-lg bg-white p-2" />
+            )}
           </div>
 
           {!paid && !detected && (
@@ -134,20 +158,33 @@ function InvoicePage() {
         <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
           <div className="text-xs uppercase tracking-wider text-white/50">Status</div>
           <div className="mt-2 flex items-center gap-2">
-            <span className={`inline-block h-2.5 w-2.5 rounded-full ${
-              paid ? "bg-green-400" : detected ? "bg-amber-400 animate-pulse" : expired ? "bg-red-400" : "bg-white/40"
-            }`} />
+            <span
+              className={`inline-block h-2.5 w-2.5 rounded-full ${
+                paid
+                  ? "bg-green-400"
+                  : detected
+                    ? "bg-amber-400 animate-pulse"
+                    : expired
+                      ? "bg-red-400"
+                      : "bg-white/40"
+              }`}
+            />
             <span className="text-lg font-medium capitalize">{inv.status}</span>
           </div>
 
           {(detected || paid) && (
             <div className="mt-4">
               <div className="mb-1 flex items-center justify-between text-xs text-white/60">
-                <span>{inv.confirmations} / {target} confirmations</span>
+                <span>
+                  {inv.confirmations} / {target} confirmations
+                </span>
                 <span>{confPct}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full bg-[#4F7CFF] transition-all" style={{ width: `${confPct}%` }} />
+                <div
+                  className="h-full bg-[#4F7CFF] transition-all"
+                  style={{ width: `${confPct}%` }}
+                />
               </div>
               {inv.tx_hash && (
                 <div className="mt-2 break-all text-[11px] text-white/50">
@@ -176,16 +213,26 @@ function InvoicePage() {
           )}
 
           <div className="mt-6 space-y-1 text-xs text-white/60">
-            <div><span className="text-white/40">Order ID:</span> <code>{inv.id}</code></div>
-            <div><span className="text-white/40">Name:</span> {inv.full_name}</div>
-            <div><span className="text-white/40">Email:</span> {inv.email}</div>
-            <div><span className="text-white/40">Plan:</span> {inv.plan_code}</div>
+            <div>
+              <span className="text-white/40">Order ID:</span> <code>{inv.id}</code>
+            </div>
+            <div>
+              <span className="text-white/40">Name:</span> {inv.full_name}
+            </div>
+            <div>
+              <span className="text-white/40">Email:</span> {inv.email}
+            </div>
+            <div>
+              <span className="text-white/40">Plan:</span> {inv.plan_code}
+            </div>
           </div>
         </section>
       </div>
 
       <div className="mt-8 text-center text-xs text-white/50">
-        <Link to="/" className="hover:text-white">← Back to ConnectLive</Link>
+        <Link to="/" className="hover:text-white">
+          ← Back to ConnectLive
+        </Link>
       </div>
     </Shell>
   );

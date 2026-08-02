@@ -180,6 +180,16 @@ public sealed class Agent
         if (_currentSessionId != null)
             JoinActiveSession(_currentSessionId, "view");
 
+        // SCOPE:WAKE — the SSE listener runs alongside the heartbeat. It
+        // nudges _wakeSignal on incoming wake events so the heartbeat loop
+        // cuts its sleep short and pulls the actual power_command row (source
+        // of truth). A stream failure just relaxes to heartbeat-only.
+        var stream = new StreamListener(_api, () =>
+        {
+            try { if (_wakeSignal.CurrentCount == 0) _wakeSignal.Release(); } catch { }
+        });
+        _ = Task.Run(() => stream.RunAsync(ct), ct);
+
         _splashStatus("Waiting for helpdesk…");
         await HeartbeatLoop(ct);
     }
@@ -192,9 +202,11 @@ public sealed class Agent
     private async Task HeartbeatLoop(CancellationToken ct)
     {
         var fastDelay = TimeSpan.FromSeconds(5);
-        // Standalone mode has no helper/SSE process. Keep idle command pickup
-        // responsive instead of leaving wake/restart queued for up to a minute.
-        var slowDelay = TimeSpan.FromSeconds(10);
+        // With SSE healthy the stream carries wake latency, so heartbeat only
+        // needs to be a health signal and command safety net — 60 s. Without
+        // SSE the heartbeat IS the wake path, so 10 s is the ceiling.
+        var slowDelayFast = TimeSpan.FromSeconds(10);
+        var slowDelaySse  = TimeSpan.FromSeconds(60);
         var errDelay = TimeSpan.FromSeconds(1);
 
         int fails = 0;
@@ -214,7 +226,8 @@ public sealed class Agent
 
                 // Interruptible sleep: a wake nudge (wake_agent power command)
                 // cuts it short. Cadence is fast while a session is active.
-                var delay = string.IsNullOrEmpty(_currentSessionId) ? slowDelay : fastDelay;
+                var idleDelay = StreamListener.Healthy ? slowDelaySse : slowDelayFast;
+                var delay = string.IsNullOrEmpty(_currentSessionId) ? idleDelay : fastDelay;
                 try { await _wakeSignal.WaitAsync(delay, ct); } catch { }
 
             }
