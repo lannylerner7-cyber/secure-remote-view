@@ -42,7 +42,20 @@ function stunOnly(): IceConfigDto {
   return { iceServers: [...PUBLIC_STUN], hasTurn: false, connectTimeoutMs: 10_000 };
 }
 
-async function fetchMetered(app: string, key: string): Promise<IceConfigDto> {
+/**
+ * The app name may be saved as "zoomlite", "zoomlite.metered.live", or even a
+ * full URL. Normalise all three to the bare subdomain so we never build
+ * "zoomlite.metered.live.metered.live" (which fails TLS on Metered's CDN).
+ */
+function normalizeApp(raw: string): string {
+  let app = raw.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  app = app.replace(/\.metered\.live$/i, "");
+  return app;
+}
+
+async function fetchMetered(rawApp: string, key: string): Promise<IceConfigDto> {
+  const app = normalizeApp(rawApp);
+  if (!app) return stunOnly();
   const url = `https://${app}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(key)}`;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
