@@ -222,10 +222,14 @@ public sealed class WebRtcClient : IDisposable
         var now = DateTime.UtcNow;
         lock (_restartGate)
         {
+            // Once we've surrendered to the fallback there is nobody to answer
+            // a PLI — stop the storm instead of pinging a dead path forever.
+            if (_surrendered) return;
             if ((now - _lastPliUtc).TotalMilliseconds < 750) return;
             _lastPliUtc = now;
             _pliBurst++;
         }
+
 
         var pc = _pc;
         if (pc == null) return;
