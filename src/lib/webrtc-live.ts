@@ -24,12 +24,17 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
+import { getIceServers } from "@/lib/ice.functions";
 
-const STUN_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+/** Local last-resort only — the real list comes from the server (TURN included). */
+const FALLBACK_STUN: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 const WEB_CLIENT_KEY = "connectlive.web_client_id";
 const CURSOR_KEY = (sessionId: string) => `connectlive.sig_cursor.${sessionId}`;
 const HEARTBEAT_MS = 15_000;
-const WATCHDOG_MS = 10_000;
+/** Ceiling used only while ICE never leaves new/gathering; server may raise it for TURN. */
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+/** A relayed path flaps through `disconnected` on rebinding — grace before failing. */
+const DISCONNECT_GRACE_MS = 5_000;
 const MAX_ATTEMPTS = 6;
 
 export type WebRtcState = "idle" | "connecting" | "connected" | "failed" | "superseded";
@@ -37,9 +42,12 @@ export interface WebRtcLive {
   video: HTMLVideoElement;
   state: () => WebRtcState;
   onState: (cb: (s: WebRtcState) => void) => void;
+  /** "host" | "srflx" | "prflx" | "relay" once ICE settles, else null. */
+  candidateType: () => string | null;
   sendInput: (payload: unknown) => boolean;
   close: () => void;
 }
+
 
 function getWebClientId(): string {
   try {
