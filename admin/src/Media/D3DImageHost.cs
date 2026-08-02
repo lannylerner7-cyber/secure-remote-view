@@ -245,6 +245,17 @@ public sealed class D3DImageHost : IDisposable
         lock (_gate) { ReleaseSurface(); }
     }
 
+    /// <summary>
+    /// Gate C evidence hook: drop the device exactly the way a real
+    /// device-lost drops it, so the spike can prove recovery. Harmless in
+    /// production (the next PushBgra rebuilds), but only the spike calls it.
+    /// </summary>
+    public void SimulateDeviceLossForTest()
+    {
+        lock (_gate) { RecreateDevice(); }
+    }
+
+
     private void Fail(string why)
     {
         _failed = true;
