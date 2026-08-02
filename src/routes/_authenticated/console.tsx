@@ -126,6 +126,14 @@ function AdminPage() {
   // reports the stream's actual cadence rather than the JPEG fallback's.
   const videoFpsRef = useRef({ last: 0, frames: 0, fps: 0 });
   const [videoFps, setVideoFps] = useState(0);
+  // "Connected" is not the same as "showing pixels": a peer can complete ICE
+  // while the sender's encoder emits nothing. Only a decoded frame proves the
+  // video surface is real — until then we keep the JPEG fallback alive and
+  // label the transport honestly.
+  const [videoDecoding, setVideoDecoding] = useState(false);
+  const videoDecodingRef = useRef(false);
+  videoDecodingRef.current = videoDecoding;
+
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
@@ -165,7 +173,9 @@ function AdminPage() {
   useEffect(() => {
     if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); setRealtimeStatus("connecting"); return; }
     let cancelled = false;
-    const wantFrames = !rtcVideoLive;
+    // Only stand down the JPEG pipe once video is genuinely decoding.
+    const wantFrames = !videoDecoding;
+
     setRealtimeStatus("connecting");
     lastRealtimePushAtRef.current = 0;
     if (wantFrames) {
@@ -214,7 +224,7 @@ function AdminPage() {
       if (c) setLiveCursor(c as never);
     }, 3000);
     return () => { cancelled = true; supabase.removeChannel(ch); clearInterval(poll); };
-  }, [liveId, rtcVideoLive]);
+  }, [liveId, videoDecoding]);
 
   useEffect(() => {
     if (!liveId) {
@@ -249,7 +259,12 @@ function AdminPage() {
   // presented frame, so this is the true stream cadence — the old HUD only ever
   // counted JPEG arrivals and therefore read "1 fps" during healthy video.
   useEffect(() => {
-    if (!rtcVideoLive) { setVideoFps(0); videoFpsRef.current = { last: 0, frames: 0, fps: 0 }; return; }
+    if (!rtcVideoLive) {
+      setVideoFps(0);
+      setVideoDecoding(false);
+      videoFpsRef.current = { last: 0, frames: 0, fps: 0 };
+      return;
+    }
     const video = rtcRef.current?.video as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (id: number) => void }) | undefined;
     if (!video) return;
     let stop = false;
@@ -259,6 +274,7 @@ function AdminPage() {
       const st = videoFpsRef.current;
       const t = performance.now();
       st.frames += 1;
+      setVideoDecoding(true);
       if (!st.last) st.last = t;
       else if (t - st.last >= 1000) {
         st.fps = Math.round((st.frames * 1000) / (t - st.last));
@@ -268,6 +284,24 @@ function AdminPage() {
       }
       if (video.requestVideoFrameCallback) handle = video.requestVideoFrameCallback(tick);
     };
+    // Diagnostic: 3 s after the peer reports connected, say whether media is
+    // actually arriving. No bytes = transport problem; bytes but no decoded
+    // frames = codec/format problem on the sender.
+    const probe = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const stats = await (rtcRef.current?.stats?.() ?? Promise.resolve(null));
+          if (!stats) return;
+          stats.forEach((r: Record<string, unknown>) => {
+            if (r["type"] === "inbound-rtp" && r["kind"] === "video") {
+              console.info(
+                `[webrtc] inbound-rtp bytes=${r["bytesReceived"]} packets=${r["packetsReceived"]} framesDecoded=${r["framesDecoded"]}`,
+              );
+            }
+          });
+        } catch { /* diagnostics only */ }
+      })();
+    }, 3000);
     if (video.requestVideoFrameCallback) {
       handle = video.requestVideoFrameCallback(tick);
     } else {
@@ -276,14 +310,16 @@ function AdminPage() {
         const q = (video as unknown as { getVideoPlaybackQuality?: () => { totalVideoFrames: number } }).getVideoPlaybackQuality?.();
         if (!q) return;
         const st = videoFpsRef.current;
+        if (q.totalVideoFrames > 0) setVideoDecoding(true);
         if (st.last) setVideoFps(Math.max(0, q.totalVideoFrames - st.frames));
         st.frames = q.totalVideoFrames;
         st.last = 1;
       }, 1000);
-      return () => clearInterval(iv);
+      return () => { clearInterval(iv); window.clearTimeout(probe); };
     }
     return () => {
       stop = true;
+      window.clearTimeout(probe);
       if (handle && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(handle);
     };
   }, [liveId, rtcVideoLive]);
@@ -603,7 +639,7 @@ function AdminPage() {
   // source dimensions differ between the two. Returns null while the size is
   // still unknown — callers then hold the input rather than guess.
   function activeSourceSize(): { width: number; height: number } | null {
-    if (rtcVideoLiveRef.current) {
+    if (videoDecodingRef.current) {
       const v = rtcRef.current?.video;
       if (v && v.videoWidth > 0 && v.videoHeight > 0) return { width: v.videoWidth, height: v.videoHeight };
       return null;
@@ -934,10 +970,10 @@ function AdminPage() {
         // resubscribe and wait for the agent's next push, so a stale frame in
         // that window means "handing over", not "dead".
         const sinceRtcDrop = rtcDroppedAtRef.current ? now - rtcDroppedAtRef.current : Infinity;
-        const handingOver = !rtcVideoLive && sinceRtcDrop < 8000;
+        const handingOver = !videoDecoding && sinceRtcDrop < 8000;
         const streamState = !active
           ? "paused"
-          : rtcVideoLive
+          : videoDecoding
             ? "live"
             : presence && presence !== "online"
               ? "reconnecting"
@@ -964,25 +1000,28 @@ function AdminPage() {
           paused: "Session paused",
         }[streamState];
         const rtSinceLastPush = lastRealtimePushAtRef.current ? now - lastRealtimePushAtRef.current : Infinity;
-        // Transport pill: WebRTC video is the primary surface; everything else
-        // is an explicit statement that we are on the fallback slideshow.
-        const transport: "connecting" | "video" | "live" | "reconnecting" | "polling" =
-          rtcVideoLive
+        // Transport pill: only a decoded frame earns the "WebRTC video" label.
+        // A peer that completed ICE but never delivers pixels reads
+        // "WebRTC negotiating" so this exact failure is visible at a glance.
+        const transport: "connecting" | "video" | "negotiating" | "live" | "reconnecting" | "polling" =
+          videoDecoding
             ? "video"
-            : rtcState === "connecting" || handingOver
-              ? "connecting"
-              : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
-                ? "reconnecting"
-                : realtimeStatus === "connecting"
-                  ? "connecting"
-                  : rtSinceLastPush < 5000
-                    ? "live"
-                    : "polling";
+            : rtcVideoLive
+              ? "negotiating"
+              : rtcState === "connecting" || handingOver
+                ? "connecting"
+                : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
+                  ? "reconnecting"
+                  : realtimeStatus === "connecting"
+                    ? "connecting"
+                    : rtSinceLastPush < 5000
+                      ? "live"
+                      : "polling";
         const transportTone = transport === "video"
           ? "bg-emerald-400"
-          : transport === "live" || transport === "polling" || transport === "connecting"
-            ? "bg-amber-400"
-            : "bg-rose-500";
+          : transport === "reconnecting"
+            ? "bg-rose-500"
+            : "bg-amber-400";
         // Candidate type turns the LAN-vs-cross-network test into a direct
         // read: host/srflx = direct path, relay = TURN is carrying the media.
         const iceKind = rtcRef.current?.candidateType?.() ?? null;
@@ -990,10 +1029,12 @@ function AdminPage() {
         const transportLabel = {
           connecting: "Connecting",
           video: videoLabel,
+          negotiating: `WebRTC negotiating${iceKind ? ` · ${iceKind}` : ""} · no frames yet`,
           live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
           reconnecting: "Reconnecting",
           polling: "Frame fallback (polling)",
         }[transport];
+
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
@@ -1039,7 +1080,7 @@ function AdminPage() {
                   <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
                     Session has no device attached.
                   </div>
-                ) : (rtcVideoLive || liveFrame?.frame) ? (
+                ) : (videoDecoding || liveFrame?.frame) ? (
                   <div
                     ref={liveSurfaceRef}
                     tabIndex={s.mode === "control" ? 0 : -1}
@@ -1071,12 +1112,12 @@ function AdminPage() {
                         by startWebRtcLive(); we only host it here. */}
                     <div
                       ref={videoHostRef}
-                      className={`pointer-events-none absolute inset-0 ${rtcVideoLive ? "" : "hidden"}`}
+                      className={`pointer-events-none absolute inset-0 ${videoDecoding ? "" : "hidden"}`}
                     />
                     {/* Fallback layer: base64 JPEG slideshow from session_frames.
                         Same object-contain letterboxing so coordinate mapping is
                         identical apart from the source dimensions. */}
-                    {!rtcVideoLive && liveFrame?.frame && (
+                    {!videoDecoding && liveFrame?.frame && (
                       <img
                         src={`data:image/jpeg;base64,${liveFrame.frame}`}
                         alt="Live screen"
@@ -1101,7 +1142,7 @@ function AdminPage() {
                     </div>
                   </div>
                 )}
-                {s.device_id && (rtcVideoLive || liveFrame?.frame) && liveCursor && liveCursor.visible && (
+                {s.device_id && (videoDecoding || liveFrame?.frame) && liveCursor && liveCursor.visible && (
                   <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
                 )}
                 <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
@@ -1117,8 +1158,8 @@ function AdminPage() {
                     );
                   })()}
                   <span>session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}</span>
-                  <span>· {rtcVideoLive ? `${videoFps} fps video` : `${fpsCounterRef.current.fps} fps frames`}</span>
-                  {!rtcVideoLive && liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
+                  <span>· {videoDecoding ? `${videoFps} fps video` : `${fpsCounterRef.current.fps} fps frames`}</span>
+                  {!videoDecoding && liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
                 </div>
 
                 {s.mode === "control" && s.device_id && (

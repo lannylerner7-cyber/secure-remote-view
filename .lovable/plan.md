@@ -1,52 +1,45 @@
-## Goal
+## What's wrong
 
-Do a final correctness pass over the two Windows clients, remove the pile of duplicate/stale zip archives, and cut one clean pair of source bundles.
+The signaling path is fine — the admin/web console offers, the agent answers, ICE has TURN. The break is one level deeper: **the agent's video encoder is never told which format was negotiated, and is never started.**
 
-## 1. Client-side verification (read-only)
+In `agent/src/WebRtcSession.cs` the peer is built with a `VideoEncoderEndPoint`, its `OnVideoSourceEncodedSample` is wired to `SendVideo`, and `ScreenCapture.TeeToWebRtc` pushes tightly-packed RGBA into `PushFrame`. But nowhere in `agent/src` is there:
 
-**Agent (`agent/src/`)**
-- `ScreenCapture.cs` — confirm the tee packs tightly (`width*4` per row), swaps R/B, forces alpha `0xFF`, keeps the JPEG path on the untouched bitmap, and that the 500 ms idle keep-alive is in place.
-- `WebRtcSession.cs` — `PushFrame` has no stride argument and no caller passes a strided buffer.
-- `DxgiCapture.cs` — `Format32bppRgb` + `SourceCopy` still intact (the darkening fix).
-- `ApiClient.cs` — every endpoint it calls exists under `src/routes/api/public/**`; no dead `X-Deployment-Key`; ICE + power-ack routes present.
-- `StartupSelfHeal.cs` / `StartupRegistration.cs` — three autostart triggers, `/background` lowercase, dev-path guard.
-- Project file: `AllowUnsafeBlocks`, `ApplicationIcon`, assembly name `ConnectLive`; no leftover updater/watcher references anywhere in `agent/`.
+- `_pc.OnVideoFormatsNegotiated += formats => _videoEnd.SetVideoSourceFormat(formats[0])`
+- `_videoEnd.StartVideo()` once the connection reaches `connected`
 
-**Admin (`admin/src/`)**
-- `Api/ApiClient.cs` — endpoints and column names match the live schema; ICE fetch present.
-- `Media/WebRtcClient.cs`, `RealtimeChannel.cs`, `FrameFallbackPump.cs`, `CursorPollPump.cs` — cadences and fallback ordering as designed.
-- `ViewModels/LiveSessionViewModel.cs` — transport taxonomy and watchdog wording match the web console.
-- `Input/InputCoalescer.cs` — moves flushed before discrete clicks/keys.
-- `Ui/AppIcon.cs` + `assets/icon.ico` present and wired.
+Without the negotiated format, SIPSorcery's `ExternalVideoSourceRawSample` drops every sample silently (no exception, no log). The peer connects, the console shows a WebRTC pill briefly, no decoded frame ever arrives, `requestVideoFrameCallback` never fires, and the UI settles back onto the 2 fps JPEG pipe. That matches exactly what you're seeing: "video didn't start, just frame fallback".
 
-Anything broken and unambiguous gets fixed in this pass; anything ambiguous is reported, not silently changed.
+Secondary gaps found in the same file:
+- No keyframe is forced when a new peer connects, so a late subscriber can sit on grey until the encoder happens to emit one.
+- `PushFrame` returns silently when the peer isn't `connected`; there's no counter, so we have no signal telling us whether the tee is starving or the encoder is dropping.
+- `TeeToWebRtc`'s throttle clock (`_lastTeeUtc`) is static and never reset when a new peer attaches.
 
-## 2. Zip cleanup
+## Plan
 
-Current state is messy — 16 archives in `/mnt/documents` plus 7 duplicated copies in `public/`:
+### 1. Agent — make the VP8 track actually emit (`agent/src/WebRtcSession.cs`)
+- In `BuildPeer()`, subscribe to `OnVideoFormatsNegotiated` and call `_videoEnd.SetVideoSourceFormat(...)` with the negotiated VP8 format; log the chosen format.
+- On `onconnectionstatechange == connected`, `await _videoEnd.StartVideo()` and force one keyframe so the first pushed frame is decodable.
+- Track a `_formatReady` flag; `PushFrame` no-ops until both `connected` and format-ready, and logs once per state transition instead of silently.
+- Add a lightweight counter (frames pushed / frames encoded, logged every ~5 s at Info) so a starving pipeline is visible in the agent log instead of invisible.
+- Reset the tee throttle when a peer is built so a fresh admin gets an immediate frame rather than waiting up to 500 ms.
 
-```text
-/mnt/documents  v1.1 … v1.6 agent, v1.1 … v1.4 admin,
-                plus unversioned ConnectLive-*-src.zip,
-                ConnectLive-RemoteAgent.zip, ConnectLiveAgent.zip,
-                ConnectLiveAdmin.zip, agent-src-package/
-public/         7 stale copies (nothing in src/ links to them)
-```
+### 2. Agent — teardown correctness
+- Pause/close the encoder in `TearDownPeer()` before nulling it, and clear `_formatReady`, so a take-over rebuild renegotiates cleanly instead of inheriting a dead encoder.
 
-Action:
-- Delete every `public/*.zip` — no route, component, or page references them, so they only bloat the deploy.
-- Delete all superseded archives in `/mnt/documents`, keeping only the two new bundles.
-- Remove the empty `agent-src-package/` scratch dir and the now-pointless `public/ConnectLiveAgent.zip` line in `.dockerignore`.
+### 3. Native admin console (`admin/src/Media/WebRtcClient.cs`)
+- Mirror the receive-side check: log when the first RTP video packet arrives so "connected but no picture" is distinguishable from "never connected". No behaviour change beyond diagnostics.
 
-## 3. Repackage
+### 4. Web console diagnostics (`src/routes/_authenticated/console.tsx`, `src/lib/webrtc-live.ts`)
+- Keep the existing pill, but stop calling the transport "WebRTC video" until at least one decoded frame has landed; until then show "WebRTC negotiating". This removes the misleading green pill during exactly this failure and makes future regressions obvious at a glance.
+- Log `inbound-rtp` framesDecoded/bytesReceived once at 3 s after connect so the browser console names the culprit (no bytes = transport; bytes but no frames = decode/format).
 
-Build from the live source tree (source-only: no `bin/`, `obj/`, `publish/`, `dist/`):
-- `ConnectLive-RemoteAgent-src-v1.7-20260802.zip` — `agent/src`, `agent/assets`, `agent/packaging`, `build.ps1`, `INSTALL.md`, `README.md`
-- `ConnectLive-AdminConsole-src-v1.5-20260802.zip` — `admin/src`, `admin/assets`, `build.ps1`, `INSTALL.md`, `README.md`
+### 5. Repackage
+- Bump `agent/src/ConnectLiveAgent.csproj` to 1.8.0, republish `ConnectLive-RemoteAgent-src-v1.8` and `ConnectLive-AdminConsole-src-v1.6` zips.
 
-Then list each archive's contents and confirm `icon.ico`, the fixed `ScreenCapture.cs`, and the current `ApiClient.cs` are actually inside before handing them over.
+## Verification
 
-## Technical notes
+Code-level: `tsgo` clean, `scripts/verify-agent-routes.ts` and `verify-payment-routes.ts` still green. The decisive check has to happen on a Windows build — after this fix the agent log must show `webrtc format negotiated: VP8` followed by a rising encoded-sample counter, and the console pill must read `WebRTC video · relay|srflx · N fps` with N > 0.
 
-- No database, RLS, or ICE/TURN changes — that work stays as is.
-- The colour fix can't be validated from here (needs a Windows build against a real desktop); verification is code-level. The visual check stays yours: the desert must render orange under the "WebRTC video" pill.
+## Note
+
+I have not been able to run the live pipeline from here, so the diagnosis rests on the source: the missing `OnVideoFormatsNegotiated` / `StartVideo` wiring is confirmed absent by search across `agent/src`, and it is sufficient on its own to produce a connected-but-black track. If after the fix the log shows encoded samples flowing but the browser still decodes nothing, the next suspect is the codec pinning between the two sides, and I'll chase that with the new counters rather than guessing.

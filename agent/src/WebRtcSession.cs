@@ -44,6 +44,17 @@ public sealed class WebRtcSession : IDisposable
     private long _sinceSignal = 0;
     private bool _closed = false;
 
+    // The encoder only accepts raw samples once SDP negotiation has told us
+    // which video format won. Until then ExternalVideoSourceRawSample() drops
+    // every frame silently, which looks exactly like "connected but black".
+    private volatile bool _formatReady = false;
+    private volatile bool _videoStarted = false;
+    private long _pushed = 0;
+    private long _encoded = 0;
+    private long _dropped = 0;
+    private DateTime _lastStatsUtc = DateTime.MinValue;
+
+
     // Identity of the admin machine that owns the current peer. Null until
     // the first offer arrives. Used to detect take-over and to tag outgoing
     // answer/ICE so the admin poller's `admin_client_id` filter routes them.
@@ -108,6 +119,12 @@ public sealed class WebRtcSession : IDisposable
             iceServers = ResolveIceServers(),
         };
         _pc = new RTCPeerConnection(cfg);
+        _formatReady = false;
+        _videoStarted = false;
+        _pushed = _encoded = _dropped = 0;
+        _lastStatsUtc = DateTime.UtcNow;
+        // A fresh peer must get a frame immediately, not up to 500 ms later.
+        ScreenCapture.ResetWebRtcTee();
 
         _videoEnd = new VideoEncoderEndPoint();
         // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
@@ -117,8 +134,26 @@ public sealed class WebRtcSession : IDisposable
 
         _videoEnd.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
         {
+            System.Threading.Interlocked.Increment(ref _encoded);
             _pc?.SendVideo(durationRtpUnits, sample);
         };
+
+        // WITHOUT this the encoder has no negotiated format and silently drops
+        // every raw sample — the peer connects, ICE succeeds, and the admin
+        // still sees nothing but the JPEG fallback. Do not remove.
+        _pc.OnVideoFormatsNegotiated += (formats) =>
+        {
+            if (formats == null || formats.Count == 0) return;
+            try
+            {
+                var fmt = formats[0];
+                _videoEnd?.SetVideoSourceFormat(fmt);
+                _formatReady = true;
+                Log.Info($"webrtc video format negotiated: {fmt.Codec} pt={fmt.FormatID}");
+            }
+            catch (Exception ex) { Log.Warn($"webrtc set format: {ex.Message}"); }
+        };
+
 
         _pc.ondatachannel += (dc) =>
         {
@@ -170,9 +205,26 @@ public sealed class WebRtcSession : IDisposable
             catch (Exception ex) { Log.Warn($"webrtc ice post: {ex.Message}"); }
         };
 
-        _pc.onconnectionstatechange += (s) =>
+        _pc.onconnectionstatechange += async (s) =>
         {
             Log.Info($"webrtc pc state: {s}");
+            if (s == RTCPeerConnectionState.connected)
+            {
+                // The encoder is a source: it stays paused until StartVideo().
+                try
+                {
+                    if (_videoEnd != null && !_videoStarted)
+                    {
+                        await _videoEnd.StartVideo();
+                        _videoStarted = true;
+                        try { _videoEnd.ForceKeyFrame(); } catch { }
+                        ScreenCapture.ResetWebRtcTee();
+                        Log.Info("webrtc video source started (keyframe forced)");
+                    }
+                }
+                catch (Exception ex) { Log.Warn($"webrtc start video: {ex.Message}"); }
+                return;
+            }
             if (s == RTCPeerConnectionState.failed || s == RTCPeerConnectionState.closed || s == RTCPeerConnectionState.disconnected)
             {
                 // Only the peer is torn down here; a follow-up offer (same or
@@ -184,30 +236,58 @@ public sealed class WebRtcSession : IDisposable
 
     private void TearDownPeer()
     {
+        try { _videoEnd?.PauseVideo(); } catch { }
         try { _videoEnd?.CloseVideo(); } catch { }
         try { _pc?.close(); } catch { }
         _videoEnd = null;
         _pc = null;
+        _formatReady = false;
+        _videoStarted = false;
     }
 
     /// <summary>
     /// Called from ScreenCapture: encode this frame into the WebRTC video track.
     /// Buffer MUST be tightly packed (width*4 bytes per row) in RGBA memory
     /// order — SIPSorcery's Bgra converter reads bytes as R,G,B,A, so passing
-    /// GDI BGRA verbatim renders the picture with R/B swapped. Silently no-ops
-    /// when the peer isn't connected yet — admin sees the HTTPS stream then.
+    /// GDI BGRA verbatim renders the picture with R/B swapped.
+    ///
+    /// No-ops until the peer is connected AND the SDP-negotiated video format
+    /// has been handed to the encoder. Both conditions are counted so a
+    /// starving pipeline shows up in the log instead of failing invisibly.
     /// </summary>
     public void PushFrame(byte[] rgba, int width, int height)
     {
-        if (_videoEnd == null || _pc == null) return;
-        if (_pc.connectionState != RTCPeerConnectionState.connected) return;
+        var pc = _pc;
+        var enc = _videoEnd;
+        if (enc == null || pc == null) { Interlocked.Increment(ref _dropped); return; }
+        if (pc.connectionState != RTCPeerConnectionState.connected ||
+            !_formatReady || !_videoStarted)
+        {
+            Interlocked.Increment(ref _dropped);
+            MaybeLogStats();
+            return;
+        }
         try
         {
-            _videoEnd.ExternalVideoSourceRawSample(
+            Interlocked.Increment(ref _pushed);
+            enc.ExternalVideoSourceRawSample(
                 33, width, height, rgba, VideoPixelFormatsEnum.Bgra);
         }
         catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }
+        MaybeLogStats();
     }
+
+    /// <summary>~5 s heartbeat of the video pipeline so "connected but black" is diagnosable.</summary>
+    private void MaybeLogStats()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastStatsUtc).TotalSeconds < 5) return;
+        _lastStatsUtc = now;
+        Log.Info($"webrtc video pipe: pushed={Interlocked.Read(ref _pushed)} " +
+                 $"encoded={Interlocked.Read(ref _encoded)} dropped={Interlocked.Read(ref _dropped)} " +
+                 $"formatReady={_formatReady} started={_videoStarted}");
+    }
+
 
     private async Task SignalPumpAsync(CancellationToken ct)
     {

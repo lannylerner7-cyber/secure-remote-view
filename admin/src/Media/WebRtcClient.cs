@@ -112,6 +112,26 @@ public sealed class WebRtcClient
             catch (Exception ex) { _onError?.Invoke("ICE post: " + ex.Message); }
         };
 
+        // Receive-side telemetry: distinguishes "never connected" from
+        // "connected but the sender emits nothing" — the exact failure where
+        // the encoder never got its negotiated format.
+        long rtpVideoPackets = 0;
+        var lastRtpLog = DateTime.MinValue;
+        _pc.OnRtpPacketReceived += (_, media, __) =>
+        {
+            if (media != SDPMediaTypesEnum.video) return;
+            var n = Interlocked.Increment(ref rtpVideoPackets);
+            if (n == 1)
+            {
+                System.Diagnostics.Debug.WriteLine("[webrtc] first video RTP packet received");
+                return;
+            }
+            var now = DateTime.UtcNow;
+            if ((now - lastRtpLog).TotalSeconds < 5) return;
+            lastRtpLog = now;
+            System.Diagnostics.Debug.WriteLine($"[webrtc] video rtp packets={n}");
+        };
+
         // A relayed path legitimately dips through `disconnected` while TURN
         // rebinds — only escalate if it hasn't recovered after the grace window.
         var disconnectedSince = DateTime.MinValue;
@@ -121,6 +141,8 @@ public sealed class WebRtcClient
             if (state == RTCPeerConnectionState.connected)
             {
                 disconnectedSince = DateTime.MinValue;
+                if (Interlocked.Read(ref rtpVideoPackets) == 0)
+                    System.Diagnostics.Debug.WriteLine("[webrtc] connected — awaiting first video RTP packet");
                 onConnected();
             }
             else if (state == RTCPeerConnectionState.disconnected)
@@ -128,6 +150,7 @@ public sealed class WebRtcClient
                 disconnectedSince = DateTime.UtcNow;
             }
         };
+
 
         var offer = _pc.createOffer();
         await _pc.setLocalDescription(offer).ConfigureAwait(false);
