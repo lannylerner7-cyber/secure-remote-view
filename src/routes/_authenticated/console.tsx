@@ -245,6 +245,51 @@ function AdminPage() {
     return () => { if (video.parentElement === host) host.removeChild(video); };
   }, [liveId, rtcVideoLive]);
 
+  // Measure decoded video frame rate. requestVideoFrameCallback fires once per
+  // presented frame, so this is the true stream cadence — the old HUD only ever
+  // counted JPEG arrivals and therefore read "1 fps" during healthy video.
+  useEffect(() => {
+    if (!rtcVideoLive) { setVideoFps(0); videoFpsRef.current = { last: 0, frames: 0, fps: 0 }; return; }
+    const video = rtcRef.current?.video as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (id: number) => void }) | undefined;
+    if (!video) return;
+    let stop = false;
+    let handle = 0;
+    const tick = () => {
+      if (stop) return;
+      const st = videoFpsRef.current;
+      const t = performance.now();
+      st.frames += 1;
+      if (!st.last) st.last = t;
+      else if (t - st.last >= 1000) {
+        st.fps = Math.round((st.frames * 1000) / (t - st.last));
+        st.frames = 0;
+        st.last = t;
+        setVideoFps(st.fps);
+      }
+      if (video.requestVideoFrameCallback) handle = video.requestVideoFrameCallback(tick);
+    };
+    if (video.requestVideoFrameCallback) {
+      handle = video.requestVideoFrameCallback(tick);
+    } else {
+      // Safari/older engines: fall back to a decoded-frame-count poll.
+      const iv = setInterval(() => {
+        const q = (video as unknown as { getVideoPlaybackQuality?: () => { totalVideoFrames: number } }).getVideoPlaybackQuality?.();
+        if (!q) return;
+        const st = videoFpsRef.current;
+        if (st.last) setVideoFps(Math.max(0, q.totalVideoFrames - st.frames));
+        st.frames = q.totalVideoFrames;
+        st.last = 1;
+      }, 1000);
+      return () => clearInterval(iv);
+    }
+    return () => {
+      stop = true;
+      if (handle && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(handle);
+    };
+  }, [liveId, rtcVideoLive]);
+
+
+
 
   useEffect(() => {
     if (!liveId) return;
