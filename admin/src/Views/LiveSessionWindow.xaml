@@ -14,12 +14,28 @@
                                VerticalAlignment="Center" FontSize="11" />
                     <TextBlock x:Name="DeviceLabel" Foreground="White" VerticalAlignment="Center" />
                     <TextBlock Text="•" Foreground="{StaticResource TextMuted}" Margin="8,0" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding Transport}" Foreground="{StaticResource TextMuted}"
-                               VerticalAlignment="Center" FontSize="11" />
+                    <!-- Pill honesty: green only while decoded frames present. -->
+                    <TextBlock Text="{Binding Transport}" VerticalAlignment="Center" FontSize="11">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding NativeVideo}" Value="True">
+                                        <Setter Property="Foreground" Value="#22C55E" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="•" Foreground="{StaticResource TextMuted}" Margin="8,0" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding LinkState}" Foreground="#22C55E"
                                VerticalAlignment="Center" FontSize="11" />
+                    <!-- G2 measurement: fps / latency / queue depth / source size. -->
+                    <TextBlock Text="{Binding VideoStats}" Foreground="{StaticResource TextMuted}"
+                               Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11" />
                 </StackPanel>
+
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
                     <Button Content="Reconnect" Command="{Binding ReconnectAgentCommand}"
                             Background="#334155" Margin="4,0"

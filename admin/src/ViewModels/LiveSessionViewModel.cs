@@ -18,9 +18,21 @@ public partial class LiveSessionViewModel : ObservableObject
     [ObservableProperty] private string mode = "view";
     [ObservableProperty] private bool curtainOn;
     // Shared transport taxonomy with the web console:
-    // "WebRTC video" | "Realtime frames" | "Frame fallback" | "Reconnecting" | "Ended".
+    // "Native video" | "Realtime frames" | "Frame fallback" | "Reconnecting" | "Ended".
+    // Phase 6 pill honesty: "Native video" appears ONLY while decoded frames
+    // are actually being presented. Everything else is labelled as the
+    // fallback it is.
     [ObservableProperty] private string transport = "Reconnecting";
-    [ObservableProperty] private BitmapSource? currentFrame;
+
+    // The one thing the live surface renders. Holds the decoded D3DImage /
+    // WriteableBitmap while the native path is presenting, and the JPEG still
+    // otherwise. Typed as ImageSource because D3DImage is not a BitmapSource.
+    [ObservableProperty] private System.Windows.Media.ImageSource? currentFrame;
+
+    // True while decoded VP8 frames are reaching the screen. JPEG stills are
+    // ignored while this is set so the two paths never fight over the surface.
+    [ObservableProperty] private bool nativeVideo;
+    [ObservableProperty] private string? videoStats;
 
     // When set, the live view was superseded by another admin machine
     // taking over the same session — the window binds this to a red banner.
@@ -40,6 +52,7 @@ public partial class LiveSessionViewModel : ObservableObject
     // True while the raw Supabase Realtime socket is delivering frames — the
     // HTTP fallback pumps still run but the Realtime pipe is our fast path.
     private volatile bool _realtimeHealthy;
+
 
     // Latest cursor sample (normalised 0..1) bound by LiveSessionWindow.
     [ObservableProperty] private double cursorNormX;
@@ -94,12 +107,13 @@ public partial class LiveSessionViewModel : ObservableObject
     {
         _cts = new CancellationTokenSource();
         _framePump = new FrameFallbackPump(SessionId,
-            bmp => Application.Current?.Dispatcher.Invoke(() => CurrentFrame = bmp),
+            bmp => Application.Current?.Dispatcher.Invoke(() => { if (!NativeVideo) CurrentFrame = bmp; }),
             onError: SurfaceError,
             onSuperseded: HandleTakenOver,
             onFrameStamp: utc => _lastFrameUtc = utc);
         _framePump.Start(_cts.Token);
         Transport = "Frame fallback";
+
 
         _cursorPump = new CursorPollPump(SessionId, sample =>
         {
@@ -130,13 +144,15 @@ public partial class LiveSessionViewModel : ObservableObject
             SessionId,
             onFrameBytes: (bytes, utc) =>
             {
+                if (NativeVideo) return;              // native path owns the surface
                 var bmp = DecodeJpeg(bytes);
                 if (bmp == null) return;
                 _lastFrameUtc = utc;
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
+                    if (NativeVideo) return;
                     CurrentFrame = bmp;
-                    if (Transport != "WebRTC video") Transport = "Realtime frames";
+                    Transport = "Realtime frames";
                 });
             },
             onCursor: e =>
@@ -158,12 +174,21 @@ public partial class LiveSessionViewModel : ObservableObject
         _realtime.Start();
 
         _rtc = new WebRtcClient(SessionId);
+
+        // The decoded surface (D3DImage, or WriteableBitmap when the D3D path
+        // is unavailable) replaces the JPEG still the moment it exists.
+        _rtc.Pipeline.SurfaceReady += src =>
+        {
+            Application.Current?.Dispatcher.Invoke(() => CurrentFrame = src);
+        };
+
         _ = _rtc.StartAsync(_cts.Token,
             onVideoLive: () =>
             {
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
-                    Transport = "WebRTC video";
+                    NativeVideo = true;
+                    Transport = "Native video";
                     StatusMessage = null;
                 });
             },
@@ -171,15 +196,70 @@ public partial class LiveSessionViewModel : ObservableObject
             {
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
+                    NativeVideo = false;
                     Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
-                    LinkState = "video stalled — fallback active";
+                    LinkState = "native video stalled — fallback active";
                 });
             },
             onTerminated: HandleTakenOver,
             onError: SurfaceError);
 
         StartLinkWatchdog(_cts.Token);
+        StartVideoStats(_cts.Token);
+        StartNetworkWatch();
     }
+
+    // ---- G2 on-screen measurement ----------------------------------------
+    // fps + queue depth + decode-to-present latency, refreshed once a second,
+    // so "is it actually smooth" is a reading, not an opinion.
+    private void StartVideoStats(CancellationToken ct)
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
+                var p = _rtc?.Pipeline;
+                if (p == null) continue;
+                var presenting = p.IsPresenting;
+                var text = presenting
+                    ? $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {p.SourceWidth}x{p.SourceHeight} · {(p.UsingD3D ? "D3D" : "bitmap")}"
+                    : null;
+                Application.Current?.Dispatcher.InvokeAsync(() =>
+                {
+                    VideoStats = text;
+                    if (!presenting && NativeVideo)
+                    {
+                        NativeVideo = false;
+                        Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
+                    }
+                });
+            }
+        }, CancellationToken.None);
+    }
+
+    // ---- G5-F1: snap back the instant connectivity returns ----------------
+    private System.Net.NetworkInformation.NetworkAddressChangedEventHandler? _netHandler;
+
+    private void StartNetworkWatch()
+    {
+        _netHandler = (_, __) =>
+        {
+            if (_cts == null || _cts.IsCancellationRequested) return;
+            SurfaceError("Network change detected — re-establishing the live link…");
+            _ = ReconnectAgent();
+        };
+        try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += _netHandler; }
+        catch { _netHandler = null; }
+    }
+
+    private void StopNetworkWatch()
+    {
+        if (_netHandler == null) return;
+        try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged -= _netHandler; } catch { }
+        _netHandler = null;
+    }
+
 
     private static BitmapSource? DecodeJpeg(byte[] bytes)
     {
@@ -205,7 +285,7 @@ public partial class LiveSessionViewModel : ObservableObject
                 try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
                 var last = _lastFrameUtc;
                 string state;
-                if (Transport == "WebRTC video") state = "live";
+                if (NativeVideo) state = "live";
                 else if (last == DateTime.MinValue) state = "waiting for agent…";
                 else
                 {
@@ -221,6 +301,8 @@ public partial class LiveSessionViewModel : ObservableObject
     public void Stop()
     {
         StopCurtainHeartbeat();
+        StopNetworkWatch();
+
         // Release the remote keyboard/mouse and drop the curtain BEFORE the
         // session row is ended — otherwise the agent keeps BlockInput engaged
         // until its 5s watchdog notices the pings stopped.
@@ -244,8 +326,15 @@ public partial class LiveSessionViewModel : ObservableObject
         _rtc = null;
         _framePump = null;
         _cursorPump = null;
+        // G3: drop the decoded surface reference so nothing keeps a dead
+        // D3D back-buffer alive between sessions.
+        NativeVideo = false;
+        VideoStats = null;
+        CurrentFrame = null;
+        Transport = "Ended";
         _ = App.Api.EndSessionAsync(SessionId, CancellationToken.None);
     }
+
 
     // ---- Curtain dead-man heartbeat --------------------------------------
     // The agent's InputBlocker releases the curtain after 5s without a

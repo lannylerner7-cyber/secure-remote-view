@@ -2,56 +2,87 @@ using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using ConnectLive.Admin.Diag;
 using SIPSorcery.Net;
 
 namespace ConnectLive.Admin.Media;
 
 /// <summary>
-/// Minimal SIPSorcery-based WebRTC client. Creates an offer, POSTs it via the
-/// signaling table (from_side="admin"), then polls for the agent's answer and
-/// ICE candidates.
+/// SIPSorcery-based WebRTC client for the native console.
 ///
-/// Persistence layer (matches the web console):
-///   - Every outbound signal rides <c>PushSignalReliableAsync</c>, which
-///     serialises per-session and stamps an <c>attempt_id</c> for idempotent
-///     retries with bounded exponential backoff.
-///   - A 15s heartbeat calls the <c>bind_admin</c> RPC to refresh this
-///     admin's ownership of the session. If the RPC reports "superseded"
-///     (another admin console took over), we fire onTerminated and close.
-///     If the admin crashes, the server-side prune releases the binding
-///     after 90s so a fresh console can take over cleanly.
+/// Gate A (transport): every ICE state transition, candidate type and
+/// negotiation milestone is written to admin.log with a monotonic
+/// <c>[t=…ms]</c> stamp, so the offer→answer→ICE→connected timeline can be read
+/// end to end from one file. Candidates post the instant they are gathered
+/// (trickle) on the signal fast path — never batched.
 ///
-/// If ICE fails or times out (12s), we exit quietly and let the HTTP frame
-/// fallback carry the session.
+/// Gates B/C + Phases 1–3 (video): inbound VP8 is depacketised by SIPSorcery,
+/// handed to <see cref="VideoPipeline"/> (decode off the UI thread, present on
+/// it, D3DImage first with a WriteableBitmap fallback). The JPEG frame pump in
+/// the ViewModel keeps running underneath and is only labelled as the fallback
+/// it is.
+///
+/// Phase 4 (robustness): a decode stall asks for a keyframe first (RTCP PLI);
+/// only if that keeps failing does the admin — which owns the offer per ruling
+/// R1 — restart ICE by re-offering. STUN-only; no TURN.
+///
+/// Persistence: outbound signals ride PushSignalReliableAsync (idempotent
+/// attempt_id + backoff); a 15s bind_admin heartbeat keeps ownership, and a
+/// "superseded" answer tears this console down cleanly.
 /// </summary>
-public sealed class WebRtcClient
+public sealed class WebRtcClient : IDisposable
 {
+    private static readonly System.Diagnostics.Stopwatch MonoClock = System.Diagnostics.Stopwatch.StartNew();
+
     private readonly string _sessionId;
     private RTCPeerConnection? _pc;
     private long _sinceSignalId;
     private CancellationTokenSource? _cts;
     private Action? _onTerminated;
     private Action<string>? _onError;
+    private Action? _onVideoLive;
+    private Action? _onVideoStalled;
+
+    private readonly object _restartGate = new();
+    private DateTime _lastPliUtc = DateTime.MinValue;
+    private DateTime _lastRestartUtc = DateTime.MinValue;
+    private int _pliBurst;
+    private int _restarts;
+    private RtpCapture? _capture;
+
+    /// <summary>The native video pipeline. The window binds its surface directly.</summary>
+    public VideoPipeline Pipeline { get; } = new();
+
+    /// <summary>Number of admin-initiated ICE restarts this session (Phase 4 evidence).</summary>
+    public int IceRestarts => _restarts;
 
     public WebRtcClient(string sessionId) => _sessionId = sessionId;
 
-    /// <param name="onTerminated">
-    /// Fired when the agent reports our peer was superseded by another admin
-    /// machine (someone else took over the same live session). The ViewModel
-    /// closes the window and shows a banner.
-    /// </param>
-    /// <param name="onError">
-    /// Fired on repeated signal-poll failures (typically 401/RLS) so the
-    /// ViewModel can raise a banner instead of the loop dying silently.
-    /// </param>
-    public async Task StartAsync(CancellationToken outerCt, Action onVideoLive, Action? onVideoStalled = null, Action? onTerminated = null, Action<string>? onError = null)
+    private static void T(string msg) => Log.Write($"[t={MonoClock.ElapsedMilliseconds}] [webrtc] {msg}");
+
+    public async Task StartAsync(CancellationToken outerCt, Action onVideoLive,
+        Action? onVideoStalled = null, Action? onTerminated = null, Action<string>? onError = null)
     {
         _onTerminated = onTerminated;
         _onError = onError;
+        _onVideoLive = onVideoLive;
+        _onVideoStalled = onVideoStalled;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var ct = _cts.Token;
 
-        // Claim / refresh the binding before signaling starts.
+        _capture = RtpCapture.CreateIfEnabled(_sessionId);
+        if (_capture != null) T("RTP capture harness armed -> " + _capture.Path);
+
+        Pipeline.KeyFrameRequested += OnKeyFrameRequested;
+        Pipeline.Diagnostic += d => T("pipeline: " + d);
+        Pipeline.FirstFrame += () =>
+        {
+            T($"FIRST DECODED FRAME presented ({(Pipeline.UsingD3D ? "d3d" : "bitmap")} path)");
+            try { _onVideoLive?.Invoke(); } catch { }
+        };
+        Pipeline.Start();
+
+        // Claim / refresh the binding before signalling starts.
         try
         {
             var initial = await App.Api.BindAdminAsync(_sessionId, ct).ConfigureAwait(false);
@@ -64,26 +95,62 @@ public sealed class WebRtcClient
         }
         catch (Exception ex) { _onError?.Invoke("Bind session: " + ex.Message); return; }
 
+        T("bind ok — building peer");
+        if (!await NegotiateAsync(ct).ConfigureAwait(false)) return;
+
+        _ = Task.Run(() => PollAgentSignals(ct), CancellationToken.None);
+        _ = Task.Run(() => HeartbeatLoop(ct), CancellationToken.None);
+        _ = Task.Run(() => StatsLoop(ct), CancellationToken.None);
+        StartConnectWatchdog(ct);
+    }
+
+    // ---- negotiation (admin offers, ruling R1) ---------------------------
+
+    private async Task<bool> NegotiateAsync(CancellationToken ct)
+    {
+        try { _pc?.close(); } catch { }
+
         // STUN-only, hardcoded. No TURN / external relay service.
-        var iceServers = new System.Collections.Generic.List<RTCIceServer>
+        var cfg = new RTCConfiguration
         {
-            new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
+            iceServers = new System.Collections.Generic.List<RTCIceServer>
+            {
+                new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
+            },
         };
-
-        var cfg = new RTCConfiguration { iceServers = iceServers };
-        _pc = new RTCPeerConnection(cfg);
-
+        var pc = new RTCPeerConnection(cfg);
+        _pc = pc;
 
         // Codec pinning guardrail — see agent WebRtcSession for the matching side.
-        _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video,
+        pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video,
             false, new System.Collections.Generic.List<SDPAudioVideoMediaFormat>
             {
                 new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000),
             }, MediaStreamStatusEnum.RecvOnly));
 
-        _pc.onicecandidate += async (c) =>
+        WireDiagnostics(pc, ct);
+        WireVideo(pc);
+
+        var offer = pc.createOffer();
+        await pc.setLocalDescription(offer).ConfigureAwait(false);
+        T("offer created + local description set");
+        try
+        {
+            await App.Api.PushSignalReliableAsync(_sessionId, "offer",
+                new { sdp = offer.sdp, type = offer.type.ToString() }, ct);
+            T("offer posted");
+        }
+        catch (Exception ex) { _onError?.Invoke("Offer post: " + ex.Message); return false; }
+        return true;
+    }
+
+    private void WireDiagnostics(RTCPeerConnection pc, CancellationToken ct)
+    {
+        pc.onicecandidate += async (c) =>
         {
             if (c == null) return;
+            // Trickle: post the instant it is gathered, on the signal fast path.
+            T($"local candidate gathered type={CandidateType(c.candidate)} mid={c.sdpMid}");
             try
             {
                 await App.Api.PushSignalReliableAsync(_sessionId, "ice", new
@@ -96,86 +163,131 @@ public sealed class WebRtcClient
             catch (Exception ex) { _onError?.Invoke("ICE post: " + ex.Message); }
         };
 
-        // Receive-side telemetry: distinguishes "never connected" from
-        // "connected but the sender emits nothing" — the exact failure where
-        // the encoder never got its negotiated format.
+        pc.oniceconnectionstatechange += (s) => T($"iceConnectionState={s}");
+        pc.onicegatheringstatechange += (s) => T($"iceGatheringState={s}");
+        pc.onsignalingstatechange += () => T($"signalingState={pc.signalingState}");
+
+        pc.onconnectionstatechange += (state) =>
+        {
+            T($"connectionState={state}");
+            if (state == RTCPeerConnectionState.connected)
+                T("TRANSPORT GREEN — connected");
+            if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.disconnected)
+                TryIceRestart("connection " + state);
+        };
+    }
+
+    private static string CandidateType(string? candidate)
+    {
+        if (string.IsNullOrEmpty(candidate)) return "unknown";
+        var i = candidate.IndexOf(" typ ", StringComparison.Ordinal);
+        if (i < 0) return "unknown";
+        var rest = candidate.Substring(i + 5);
+        var sp = rest.IndexOf(' ');
+        return sp < 0 ? rest : rest.Substring(0, sp);
+    }
+
+    private void WireVideo(RTCPeerConnection pc)
+    {
         long rtpVideoPackets = 0;
-        long lastObservedPackets = 0;
-        DateTime lastVideoPacketUtc = DateTime.MinValue;
-        int videoLiveRaised = 0;
-        var lastRtpLog = DateTime.MinValue;
-        _pc.OnRtpPacketReceived += (_, media, __) =>
+
+        pc.OnRtpPacketReceived += (_, media, pkt) =>
         {
             if (media != SDPMediaTypesEnum.video) return;
             var n = Interlocked.Increment(ref rtpVideoPackets);
-            lastVideoPacketUtc = DateTime.UtcNow;
-            if (n == 1)
+            if (n == 1) T("first video RTP packet received");
+            // Gate B tap — strictly passive, debug-flag gated.
+            if (_capture != null)
             {
-                System.Diagnostics.Debug.WriteLine("[webrtc] first video RTP packet received");
-                if (Interlocked.Exchange(ref videoLiveRaised, 1) == 0) onVideoLive();
-                return;
-            }
-            var now = DateTime.UtcNow;
-            if ((now - lastRtpLog).TotalSeconds < 5) return;
-            lastRtpLog = now;
-            System.Diagnostics.Debug.WriteLine($"[webrtc] video rtp packets={n}");
-        };
-
-        _pc.onconnectionstatechange += (state) =>
-        {
-            System.Diagnostics.Debug.WriteLine("[webrtc] connectionState: " + state);
-            if (state == RTCPeerConnectionState.connected)
-            {
-                if (Interlocked.Read(ref rtpVideoPackets) == 0)
-                    System.Diagnostics.Debug.WriteLine("[webrtc] connected — awaiting first video RTP packet");
+                try { _capture.Write(pkt.GetBytes()); } catch { }
             }
         };
 
-
-        var offer = _pc.createOffer();
-        await _pc.setLocalDescription(offer).ConfigureAwait(false);
+        // SIPSorcery depacketises VP8 into whole frames for us; the pipeline
+        // owns the jitter buffer, decode thread and presentation.
         try
         {
-            await App.Api.PushSignalReliableAsync(_sessionId, "offer",
-                new { sdp = offer.sdp, type = offer.type.ToString() }, ct);
+            pc.OnVideoFrameReceived += (_, __, frame, ___) =>
+            {
+                if (frame != null && frame.Length > 0) Pipeline.Submit(frame);
+            };
         }
-        catch (Exception ex) { _onError?.Invoke("Offer post: " + ex.Message); return; }
+        catch (Exception ex) { T("frame handler wiring failed: " + ex.Message); }
+    }
 
-        _ = Task.Run(() => PollAgentSignals(ct), CancellationToken.None);
-        _ = Task.Run(() => HeartbeatLoop(ct), CancellationToken.None);
+    // ---- Phase 4: keyframe first, then admin-initiated ICE restart -------
+
+    private void OnKeyFrameRequested()
+    {
+        var now = DateTime.UtcNow;
+        lock (_restartGate)
+        {
+            if ((now - _lastPliUtc).TotalMilliseconds < 750) return;
+            _lastPliUtc = now;
+            _pliBurst++;
+        }
+
+        var pc = _pc;
+        if (pc == null) return;
+        try
+        {
+            pc.SendVideoRtcpFeedback(new RTCPFeedback(pc.VideoLocalTrack?.Ssrc ?? 0,
+                pc.VideoRemoteTrack?.Ssrc ?? 0, PSFBFeedbackTypesEnum.PLI));
+            T("PLI sent (keyframe request)");
+        }
+        catch (Exception ex) { T("PLI failed: " + ex.Message); }
+
+        // Six unanswered keyframe requests (~4.5s of nothing decodable) means
+        // the media path, not the encoder, is broken. Escalate once.
+        if (_pliBurst >= 6)
+        {
+            _pliBurst = 0;
+            try { _onVideoStalled?.Invoke(); } catch { }
+            TryIceRestart("decode stall");
+        }
+    }
+
+    private void TryIceRestart(string why)
+    {
+        var ct = _cts?.Token ?? CancellationToken.None;
+        if (ct.IsCancellationRequested) return;
+        lock (_restartGate)
+        {
+            if ((DateTime.UtcNow - _lastRestartUtc).TotalSeconds < 15) return;
+            _lastRestartUtc = DateTime.UtcNow;
+            _restarts++;
+        }
+        T($"ICE RESTART #{_restarts} — reason: {why}");
         _ = Task.Run(async () =>
         {
-            while (!ct.IsCancellationRequested)
-            {
-                try { await Task.Delay(3000, ct).ConfigureAwait(false); } catch { return; }
-                var packets = Interlocked.Read(ref rtpVideoPackets);
-                if (packets > lastObservedPackets)
-                {
-                    lastObservedPackets = packets;
-                    continue;
-                }
-                if (Interlocked.CompareExchange(ref videoLiveRaised, 0, 1) == 1 &&
-                    lastVideoPacketUtc != DateTime.MinValue &&
-                    (DateTime.UtcNow - lastVideoPacketUtc).TotalSeconds >= 6)
-                {
-                    try { onVideoStalled?.Invoke(); } catch { }
-                }
-            }
+            try { await NegotiateAsync(ct).ConfigureAwait(false); }
+            catch (Exception ex) { T("ICE restart failed: " + ex.Message); }
         }, CancellationToken.None);
+    }
 
-        // Blind connect watchdog — original 12s baseline.
+    private void StartConnectWatchdog(CancellationToken ct)
+    {
         _ = Task.Run(async () =>
         {
             try { await Task.Delay(12_000, ct); } catch { return; }
             var st = _pc?.connectionState;
             if (st != null && st != RTCPeerConnectionState.connected)
             {
-                System.Diagnostics.Debug.WriteLine("[webrtc] watchdog closing peer, state=" + st);
-                try { _pc?.close(); } catch { }
+                T($"watchdog: still {st} after 12s — one restart, then the JPEG fallback carries the session");
+                TryIceRestart("12s connect watchdog");
             }
         }, CancellationToken.None);
+    }
 
+    // ---- G1/G2: per-minute stats line ------------------------------------
 
+    private async Task StatsLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(60_000, ct).ConfigureAwait(false); } catch { return; }
+            Log.Write(Pipeline.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState}");
+        }
     }
 
     private async Task HeartbeatLoop(CancellationToken ct)
@@ -189,6 +301,7 @@ public sealed class WebRtcClient
                 var r = await App.Api.BindAdminAsync(_sessionId, ct).ConfigureAwait(false);
                 if (!r.bound && r.reason == "superseded")
                 {
+                    T("binding superseded by another admin console");
                     try { _pc?.close(); } catch { }
                     _pc = null;
                     try { _onTerminated?.Invoke(); } catch { }
@@ -210,37 +323,41 @@ public sealed class WebRtcClient
                 _sinceSignalId = max;
                 foreach (var s in items)
                 {
-                    if (_pc == null) return;
+                    var pc = _pc;
+                    if (pc == null) return;
                     if (s.Kind == "answer" && s.Payload is JsonElement je && je.TryGetProperty("sdp", out var sdp))
                     {
                         var desc = new RTCSessionDescriptionInit { sdp = sdp.GetString(), type = RTCSdpType.answer };
-                        _pc.setRemoteDescription(desc);
+                        var res = pc.setRemoteDescription(desc);
+                        T($"answer applied: {res}");
                     }
                     else if (s.Kind == "ice" && s.Payload is JsonElement je2 && je2.TryGetProperty("candidate", out var cand))
                     {
                         var candStr = cand.GetString();
                         if (!string.IsNullOrEmpty(candStr))
                         {
-                            var init = new RTCIceCandidateInit
+                            T($"remote candidate type={CandidateType(candStr)}");
+                            pc.addIceCandidate(new RTCIceCandidateInit
                             {
                                 candidate = candStr,
                                 sdpMid = je2.TryGetProperty("sdpMid", out var mid) ? mid.GetString() : null,
                                 sdpMLineIndex = je2.TryGetProperty("sdpMLineIndex", out var idx) && idx.ValueKind == JsonValueKind.Number
                                     ? (ushort)idx.GetInt32() : (ushort)0,
-                            };
-                            _pc.addIceCandidate(init);
+                            });
                         }
                     }
                     else if (s.Kind == "terminated")
                     {
-                        try { _pc.close(); } catch { }
+                        T("agent reports session terminated (taken over)");
+                        try { pc.close(); } catch { }
                         _pc = null;
                         try { _onTerminated?.Invoke(); } catch { }
                         return;
                     }
                     else if (s.Kind == "bye")
                     {
-                        try { _pc.close(); } catch { }
+                        T("agent said bye");
+                        try { pc.close(); } catch { }
                         return;
                     }
                 }
@@ -255,13 +372,12 @@ public sealed class WebRtcClient
         }
     }
 
-
+    /// <summary>
+    /// Clean teardown (G3): bye to the agent, cancel every loop, flush the
+    /// decoder and queues, park the D3D surface. Safe to call twice.
+    /// </summary>
     public void Close()
     {
-        // Best-effort "bye" so the agent tears down its peer immediately
-        // instead of waiting on its own 12s watchdog. Uses a fresh short
-        // timeout token — we do NOT gate it on _cts because Close() is
-        // about to cancel it.
         try
         {
             using var byeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -271,5 +387,12 @@ public sealed class WebRtcClient
         try { _cts?.Cancel(); } catch { }
         try { _pc?.close(); } catch { }
         _pc = null;
+        try { Pipeline.KeyFrameRequested -= OnKeyFrameRequested; } catch { }
+        try { Pipeline.Dispose(); } catch { }
+        try { _capture?.Dispose(); } catch { }
+        _capture = null;
+        Log.Write("[webrtc] closed — pipeline flushed, D3D surface parked");
     }
+
+    public void Dispose() => Close();
 }

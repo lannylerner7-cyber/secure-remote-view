@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using ConnectLive.Admin.Input;
+using ConnectLive.Admin.Media;
+
 using ConnectLive.Admin.Ui;
 using ConnectLive.Admin.ViewModels;
 
@@ -35,6 +37,8 @@ public partial class LiveSessionWindow : Window
         PreviewKeyUp += OnKeyUp;
         TextInput += OnTextInput;
 
+        // Recompute the content rect on element resize AND whenever the source
+        // changes size mid-session (Phase 4 resolution change).
         FrameImage.SizeChanged += (_, _) => UpdateCursorGhost();
         _vm.PropertyChanged += Vm_PropertyChanged;
     }
@@ -43,34 +47,62 @@ public partial class LiveSessionWindow : Window
     {
         if (e.PropertyName == nameof(LiveSessionViewModel.CursorNormX) ||
             e.PropertyName == nameof(LiveSessionViewModel.CursorNormY) ||
-            e.PropertyName == nameof(LiveSessionViewModel.CursorVisible))
+            e.PropertyName == nameof(LiveSessionViewModel.CursorVisible) ||
+            e.PropertyName == nameof(LiveSessionViewModel.CurrentFrame))
         {
             UpdateCursorGhost();
         }
     }
 
+    /// <summary>
+    /// Phase 5 — the ONE place element-space and source-space meet.
+    /// Stretch="Uniform" letterboxes the picture; every conversion must go
+    /// through <see cref="ContentRect"/> or clicks land off-target and the
+    /// ghost cursor drifts toward the edges.
+    /// </summary>
+    private ContentRect Rect()
+    {
+        var src = FrameImage.Source;
+        if (src == null) return ContentRect.Empty;
+        double srcW = src.Width, srcH = src.Height;
+        if (src is System.Windows.Media.Imaging.BitmapSource bs) { srcW = bs.PixelWidth; srcH = bs.PixelHeight; }
+        else if (src is System.Windows.Interop.D3DImage d3d) { srcW = d3d.PixelWidth; srcH = d3d.PixelHeight; }
+        return ContentRect.Compute(FrameImage.ActualWidth, FrameImage.ActualHeight, srcW, srcH);
+    }
+
     private void UpdateCursorGhost()
     {
         if (!_vm.CursorVisible) { CursorGhost.Visibility = Visibility.Collapsed; return; }
-        double w = FrameImage.ActualWidth;
-        double h = FrameImage.ActualHeight;
-        if (w <= 0 || h <= 0) { CursorGhost.Visibility = Visibility.Collapsed; return; }
-        Canvas.SetLeft(CursorGhost, _vm.CursorNormX * w - 1);
-        Canvas.SetTop(CursorGhost, _vm.CursorNormY * h - 1);
+        var r = Rect();
+        if (!r.IsValid) { CursorGhost.Visibility = Visibility.Collapsed; return; }
+        // Offset by the letterbox bars, not by the raw element size.
+        var (x, y) = r.ToElement(_vm.CursorNormX, _vm.CursorNormY);
+        Canvas.SetLeft(CursorGhost, x - 1);
+        Canvas.SetTop(CursorGhost, y - 1);
         CursorGhost.Visibility = Visibility.Visible;
     }
 
     private (double x, double y) ToAbs(MouseEventArgs e)
     {
+        var r = Rect();
+        if (!r.IsValid) return (0, 0);
         var p = e.GetPosition(FrameImage);
-        var w = FrameImage.ActualWidth;
-        var h = FrameImage.ActualHeight;
-        if (w <= 0 || h <= 0) return (0, 0);
-        return (System.Math.Clamp(p.X / w, 0, 1), System.Math.Clamp(p.Y / h, 0, 1));
+        return r.Normalize(p.X, p.Y);
     }
+
+    /// <summary>True when the pointer is on the picture, not the black bar.</summary>
+    private bool OnPicture(MouseEventArgs e)
+    {
+        var r = Rect();
+        if (!r.IsValid) return false;
+        var p = e.GetPosition(FrameImage);
+        return r.Contains(p.X, p.Y);
+    }
+
 
     private void Frame_MouseMove(object sender, MouseEventArgs e)
     {
+        if (!OnPicture(e)) return;      // letterbox bar: not part of the desktop
         var (x, y) = ToAbs(e);
         _coalesce.Update(x, y);
     }
@@ -78,6 +110,7 @@ public partial class LiveSessionWindow : Window
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
         Keyboard.Focus(this);
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Left, x, y);
@@ -85,6 +118,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Left, x, y);
@@ -92,6 +126,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightDown(object sender, MouseButtonEventArgs e)
     {
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Right, x, y);
@@ -99,6 +134,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightUp(object sender, MouseButtonEventArgs e)
     {
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Right, x, y);
@@ -106,9 +142,15 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseWheel(object sender, MouseWheelEventArgs e)
     {
+        if (!OnPicture(e)) return;
+        // Park the pointer at the wheel position first so the remote machine
+        // scrolls the control under the cursor, not whatever had focus.
+        var (x, y) = ToAbs(e);
+        _coalesce.Update(x, y);
         _coalesce.FlushNow();
         await _mouse.WheelAsync(e.Delta);
     }
+
 
     // Alt-combos arrive as Key.System with the real key in SystemKey.
     private static Key Effective(KeyEventArgs e) => e.Key == Key.System ? e.SystemKey : e.Key;
