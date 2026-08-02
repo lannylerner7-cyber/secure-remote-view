@@ -145,11 +145,12 @@ the "unmatched feel" work, ordered by feel-per-unit-of-effort:
    `Select()` already rebuilds the DXGI duplication. Needs a `monitors` field
    on the heartbeat response, a `set_monitor` command, and a dropdown in
    `LiveSessionWindow`.
-3. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder**, driven off the
-   RTCP RR loss/jitter figures the new `OnReceiveReport` handler already sees.
-4. `SCOPE:INPUT` — **Relative-motion pointer mode** for games/CAD.
-5. `SCOPE:CAPTURE` / `SCOPE:RENDER` — **Hardware H.264 (NVENC/QSV/AMF)** with
-   VP8 fallback. Largest job: touches encode on the agent and decode in
+2. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3)*,
+   driven off the RTCP RR loss/jitter figures the `OnReceiveReport` handler
+   already sees.
+3. `SCOPE:INPUT` / `SCOPE:CAPTURE` — **Relative-motion pointer mode** for
+   games/CAD, plus **hardware H.264 (NVENC/QSV/AMF)** with VP8 fallback
+   *(turn 4)*. Largest job: touches encode on the agent and decode in
    `admin/src/Media/VideoPipeline.cs`.
 
 ---
