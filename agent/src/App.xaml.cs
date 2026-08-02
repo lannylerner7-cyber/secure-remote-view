@@ -9,7 +9,7 @@ public partial class App : Application
 {
     private readonly CancellationTokenSource _cts = new();
     private Mutex? _singleInstance;
-    private MainWindow? _main;
+    private SplashWindow? _splash;
     private Agent? _agent;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -59,37 +59,29 @@ public partial class App : Application
             }
         }
 
-        // No stop.flag any more: quitting the Agent only ends the current
-        // process. The three logon triggers bring it back at next sign-in.
-
-        SplashWindow? splash = null;
+        // Only visible surface: the ~5s splash on a foreground launch. It
+        // doubles as the connection banner (device id + session). Wake and
+        // background launches stay silent — no window, no tray, no toast.
         if (!background)
         {
-            splash = new SplashWindow();
-            splash.Show();
+            _splash = new SplashWindow();
+            _splash.Show();
         }
 
         var api = new ApiClient(apiUrl);
         var dispatcher = new WpfDispatcher(Current.Dispatcher);
 
-        // Status window exists for the process lifetime; only ever shown on a
-        // foreground (double-click / Start Menu) launch.
-        _main = new MainWindow();
-
         try
         {
-            splash?.SetStatus("Registering with ConnectLive…");
-            _main.SetLink("Connecting…");
+            _splash?.SetStatus("Registering with ConnectLive…");
 
             // Self-persistence: three redundant logon triggers (HKCU Run key,
             // Startup folder shortcut, Scheduled Task) — re-asserted every
             // launch. Dev-path guard inside means a Downloads/dist run never
-            // clobbers an installed machine's autostart. Enrollment itself is
-            // boot-proof: Agent.RunAsync retries forever so a "Windows Startup
-            // fired before Wi-Fi came up" boot doesn't strand the Agent.
+            // clobbers an installed machine's autostart.
             try { StartupSelfHeal.EnsureAll(); } catch { }
 
-            _main.SetDevice(api.DeviceId ?? "not enrolled");
+            _splash?.SetDevice(api.DeviceId ?? "not enrolled");
 
             // Explicit /SESSION=<id> wins; otherwise restore the last session
             // binding from the hidden local store. The Agent never creates a
@@ -98,14 +90,14 @@ public partial class App : Application
             if (wake && !string.IsNullOrWhiteSpace(wakeSessionId))
             {
                 sessionId = wakeSessionId;
-                splash?.SetStatus("Attaching to session…");
+                _splash?.SetStatus("Attaching to session…");
             }
             else if (!string.IsNullOrEmpty(api.DeviceToken))
             {
                 var saved = api.LoadSessionBinding();
                 if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
                 {
-                    splash?.SetStatus("Restoring previous session…");
+                    _splash?.SetStatus("Restoring previous session…");
                     try
                     {
                         var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
@@ -118,49 +110,44 @@ public partial class App : Application
                 }
             }
 
-            splash?.SetStatus(sessionId is null ? "Standing by" : "Session restored");
-            if (splash is not null)
+            _splash?.SetStatus(sessionId is null ? "Standing by" : "Session restored");
+            _splash?.SetSession(sessionId is null ? "No active session" : $"Session {sessionId}");
+
+            // Progressive splash: hold ~5s so a foreground launch reads as a
+            // real application start, then go quiet forever.
+            if (_splash is not null)
             {
-                // Progressive splash: hold the full ~5s so a foreground launch
-                // reads as a real application start, then go quiet.
-                await Task.Delay(1200);
-                splash.Close();
+                _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ =>
+                    Current?.Dispatcher.Invoke(() =>
+                    {
+                        try { _splash?.Close(); } catch { }
+                        _splash = null;
+                    }), TaskScheduler.Default);
             }
 
-            _main.SetLink(string.IsNullOrEmpty(api.DeviceToken) ? "Waiting for network" : "Connected");
-            _main.SetSession(sessionId is null ? "No active session" : $"Session {sessionId}");
-
-            if (!background)
-                _main.ShowAndActivate();
-
-            // One unified path: Agent owns the session lifecycle (invite pickup
-            // + frame/input/cursor loops + WebRTC upgrade). On cold-boot with a
-            // restored session, seed it so Agent joins immediately.
-            _agent = new Agent(api, s => _main?.SetLink(s), dispatcher, onWake: SurfaceUi);
+            // Agent owns the session lifecycle end-to-end. onWake is a no-op:
+            // wake events must never surface a window — they only cause the
+            // agent to attach to the session in the background.
+            _agent = new Agent(api, s => _splash?.SetStatus(s), dispatcher, onWake: null);
             _agent.SessionStateChanged += OnSessionStateChanged;
             if (!string.IsNullOrEmpty(sessionId))
                 _agent.SeedRestoredSession(sessionId!);
 
-            // Standalone build: heartbeat long-poll is the single transport.
-            // No SSE listener, no helper service — the Agent is self-contained.
-
-            // Heartbeat runs for the full application lifetime, independent of
-            // any window being visible.
+            // Heartbeat runs for the full application lifetime.
             await _agent.RunAsync(_cts.Token);
         }
         catch (Exception ex)
         {
             Log.Warn($"startup: {ex.Message}");
-            _main?.SetLink($"Error: {ex.Message}");
+            _splash?.SetStatus($"Error: {ex.Message}");
         }
     }
 
-    private void OnSessionStateChanged(string state) => _main?.SetSession(state);
-
-    /// <summary>Admin pressed Connect — bring the status window forward.</summary>
-    private void SurfaceUi()
+    private void OnSessionStateChanged(string state)
     {
-        try { Current?.Dispatcher.Invoke(() => _main?.ShowAndActivate()); } catch { }
+        // Reflect state into the splash only while it is still visible; after
+        // it auto-closes there is intentionally no surface to update.
+        try { Current?.Dispatcher.Invoke(() => _splash?.SetSession(state)); } catch { }
     }
 
     protected override void OnExit(ExitEventArgs e)
