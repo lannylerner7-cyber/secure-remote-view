@@ -98,16 +98,36 @@ public sealed class RealtimeChannel : IAsyncDisposable
                 _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
                 await _ws.ConnectAsync(new Uri(_wsUrl), ct).ConfigureAwait(false);
 
+                lock (_joinGate)
+                {
+                    _pendingJoins.Clear();
+                    _joinError = null;
+                    _joinsDone = new TaskCompletionSource<bool>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                }
+
                 await JoinAsync("session_frames", ct).ConfigureAwait(false);
                 await JoinAsync("session_cursors", ct).ConfigureAwait(false);
+
+                using var hbCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                _ = Task.Run(() => HeartbeatLoop(hbCts.Token), CancellationToken.None);
+                var receive = ReceiveLoop(ct);
+
+                // Health is a *reply*, not a send. 10s covers a cold Realtime
+                // node; past that the socket is dead weight and we recycle.
+                var ack = _joinsDone!.Task;
+                var settled = await Task.WhenAny(ack, receive, Task.Delay(10_000, ct))
+                    .ConfigureAwait(false);
+                if (settled != ack)
+                {
+                    hbCts.Cancel();
+                    throw new InvalidOperationException(_joinError ?? "join timed out (no phx_reply)");
+                }
 
                 _onHealth?.Invoke(true);
                 backoffMs = 1000;
 
-                using var hbCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                _ = Task.Run(() => HeartbeatLoop(hbCts.Token), CancellationToken.None);
-
-                await ReceiveLoop(ct).ConfigureAwait(false);
+                await receive.ConfigureAwait(false);
                 hbCts.Cancel();
             }
             catch (OperationCanceledException) { return; }
@@ -128,6 +148,7 @@ public sealed class RealtimeChannel : IAsyncDisposable
     {
         var topic = $"realtime:public:{table}:session_id=eq.{_sessionId}";
         var joinRef = Interlocked.Increment(ref _ref).ToString();
+        lock (_joinGate) { _pendingJoins[joinRef] = table; }
         var payload = new
         {
             config = new
@@ -151,6 +172,25 @@ public sealed class RealtimeChannel : IAsyncDisposable
         var msg = new { topic, @event = "phx_join", payload, @ref = joinRef };
         await SendJsonAsync(msg, ct).ConfigureAwait(false);
     }
+
+    /// <summary>Resolve/reject the join gate from a phx_reply or phx_error.</summary>
+    private void CompleteJoin(string? joinRef, bool ok, string? reason)
+    {
+        lock (_joinGate)
+        {
+            if (joinRef != null && !_pendingJoins.Remove(joinRef, out _)) return;
+            if (!ok)
+            {
+                _joinError = reason ?? "join rejected";
+                _joinsDone?.TrySetResult(false);
+                // Force the receive loop out so RunAsync recycles the socket.
+                try { _ws?.Abort(); } catch { }
+                return;
+            }
+            if (_pendingJoins.Count == 0) _joinsDone?.TrySetResult(true);
+        }
+    }
+
 
     private async Task HeartbeatLoop(CancellationToken ct)
     {
