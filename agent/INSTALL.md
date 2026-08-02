@@ -47,50 +47,56 @@ The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the sa
 
 ## Build (single-file, self-contained)
 
-Open an **elevated** `cmd` in the `agent\` directory:
+One command from the `agent\` directory builds the binary and both installers:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
+
+Or publish the binary alone:
 
 ```cmd
-:: Worker (user-session agent)
 dotnet publish src\ConnectLiveAgent.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
-
-:: Updater (Windows Service)
-dotnet publish updater\ConnectLiveUpdater.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 ```
 
 Outputs:
 
 ```
-src\bin\Release\net8.0-windows\win-x64\publish\ConnectLive.exe
-updater\bin\Release\net8.0-windows\win-x64\publish\ConnectLiveUpdater.exe
+agent\dist\ConnectLive.exe          (raw binary — installer payload)
+agent\dist\ConnectLiveSetup.exe     (Inno installer)
+agent\dist\ConnectLiveAgent.msi     (MSI for Intune / GPO)
 ```
 
 ## Install (production)
 
-From the `agent\` directory in **elevated PowerShell**:
+Run the packaged installer — there is no service to register:
 
-```powershell
-.\install.ps1 install
+```cmd
+ConnectLiveSetup.exe /VERYSILENT
 ```
 
-This copies both exes to `C:\Program Files\ConnectLive\` and registers `ConnectLiveUpdater` as an auto-start Windows service running under `LocalSystem`. The Updater then spawns the Agent inside the interactive desktop automatically. The installer also locks down `%ProgramData%\ConnectLive` so only `SYSTEM` and `Administrators` can write the shared device token (interactive users get read-only) — this only takes effect when running from an elevated PowerShell.
+It copies `ConnectLive.exe` to `C:\Program Files\ConnectLive\`, creates the
+ONLOGON scheduled task, and launches the Agent with `/background` as the
+original (non-elevated) user. The Agent itself then re-asserts its autostart on
+every run via `StartupSelfHeal` — Run key, Startup shortcut, and scheduled task
+— so removing one of them does not stop it coming back after reboot.
 
-The Updater is a Windows Service, so verify it under **Task Manager → Services**
-or `services.msc` (service name `ConnectLiveUpdater`). It is intentionally not
-listed under **Startup Apps**. Opening `ConnectLive.exe` directly does not
-install the service; run the installer or `install.ps1 install` as Administrator.
-Runtime health is written to `%ProgramData%\ConnectLive\updater-health.json`.
+Per-user state (DPAPI-encrypted device token, last session id) lives in
+`%LOCALAPPDATA%\ConnectLive\`; legacy `%ProgramData%\ConnectLive` stores are
+migrated automatically on first run.
 
-After a successful active session, the Agent stores the session id + pairing code in DPAPI-protected local machine storage. On reboot, it tries `POST /api/public/agent/session/{id}/reconnect` first, so the admin sees the same existing session come back online without asking the user to re-enter a code.
+After a successful active session, the Agent stores the session id in
+DPAPI-protected storage. On reboot it tries
+`POST /api/public/agent/session/{id}/reconnect` first, so the admin sees the
+same session come back online without any user interaction.
 
-Uninstall:
+Uninstall: Apps & Features → **ConnectLive Agent** (removes the binary, the
+scheduled task, and the autostart entries).
 
-```powershell
-.\install.ps1 uninstall
-```
+## Dev / quick iteration
 
-## Dev / quick iteration (no service)
-
-You don't need the Updater during development — just run the Worker directly in an **elevated** shell so `BlockInput` / curtain mode work.
+Run the Agent directly in an **elevated** shell so the low-level hooks and
+curtain mode work.
 
 If you run `dotnet run` from a normal terminal, Windows will stop it with `Win32Exception (740): The requested operation requires elevation`. That is expected because the agent manifest asks Windows for administrator rights before Curtain Mode can block local input.
 
