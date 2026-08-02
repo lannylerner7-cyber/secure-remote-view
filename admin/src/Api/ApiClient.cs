@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -306,6 +307,61 @@ public sealed class ApiClient
         }
         finally { gate.Release(); }
     }
+
+    // ---------- ICE configuration ----------
+    // Server-issued STUN + Metered TURN. The relay credential is minted per
+    // request by the backend and never stored in this binary. Authenticated
+    // with the admin's Supabase bearer token.
+
+    private IceConfig? _iceCache;
+    private DateTime _iceCacheUntilUtc = DateTime.MinValue;
+    private readonly SemaphoreSlim _iceLock = new(1, 1);
+
+    public async Task<IceConfig> GetIceServersAsync(CancellationToken ct)
+    {
+        if (_iceCache != null && DateTime.UtcNow < _iceCacheUntilUtc) return _iceCache;
+        await _iceLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_iceCache != null && DateTime.UtcNow < _iceCacheUntilUtc) return _iceCache;
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_config.BaseUrl}/api/public/ice");
+                if (_auth.Current != null && !string.IsNullOrEmpty(_auth.Current.AccessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _auth.Current.AccessToken);
+                using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+                if (res.IsSuccessStatusCode)
+                {
+                    var cfg = await res.Content.ReadFromJsonAsync<IceConfig>(cancellationToken: ct).ConfigureAwait(false);
+                    if (cfg?.IceServers != null && cfg.IceServers.Count > 0)
+                    {
+                        _iceCache = cfg;
+                        _iceCacheUntilUtc = DateTime.UtcNow.AddMinutes(cfg.HasTurn ? 40 : 1);
+                        return cfg;
+                    }
+                }
+            }
+            catch { /* fall through to STUN-only */ }
+
+            var fallback = new IceConfig(
+                new List<IceServerDto> { new IceServerDto("stun:stun.l.google.com:19302", null, null) },
+                false, 10000);
+            _iceCache = fallback;
+            _iceCacheUntilUtc = DateTime.UtcNow.AddMinutes(1);
+            return fallback;
+        }
+        finally { _iceLock.Release(); }
+    }
+
+    public sealed record IceServerDto(
+        [property: JsonPropertyName("urls")] string Urls,
+        [property: JsonPropertyName("username")] string? Username,
+        [property: JsonPropertyName("credential")] string? Credential);
+
+    public sealed record IceConfig(
+        [property: JsonPropertyName("iceServers")] List<IceServerDto> IceServers,
+        [property: JsonPropertyName("hasTurn")] bool HasTurn,
+        [property: JsonPropertyName("connectTimeoutMs")] int ConnectTimeoutMs);
 
     // Heartbeat / take-over via bind_admin RPC.
     // Returns (bound, reason) — reason == "superseded" means another admin
