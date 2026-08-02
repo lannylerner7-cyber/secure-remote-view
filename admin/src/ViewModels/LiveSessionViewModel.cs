@@ -326,8 +326,15 @@ public partial class LiveSessionViewModel : ObservableObject
         _rtc = null;
         _framePump = null;
         _cursorPump = null;
+        // G3: drop the decoded surface reference so nothing keeps a dead
+        // D3D back-buffer alive between sessions.
+        NativeVideo = false;
+        VideoStats = null;
+        CurrentFrame = null;
+        Transport = "Ended";
         _ = App.Api.EndSessionAsync(SessionId, CancellationToken.None);
     }
+
 
     // ---- Curtain dead-man heartbeat --------------------------------------
     // The agent's InputBlocker releases the curtain after 5s without a
