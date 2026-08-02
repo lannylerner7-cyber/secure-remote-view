@@ -930,19 +930,26 @@ function AdminPage() {
         const presence = dev ? presenceOf(dev) : null;
         const active = s.state === "active";
         const frameAge = liveFrame?.updated_at ? now - new Date(liveFrame.updated_at).getTime() : Infinity;
+        // Grace window after the video track drops: the JPEG fallback has to
+        // resubscribe and wait for the agent's next push, so a stale frame in
+        // that window means "handing over", not "dead".
+        const sinceRtcDrop = rtcDroppedAtRef.current ? now - rtcDroppedAtRef.current : Infinity;
+        const handingOver = !rtcVideoLive && sinceRtcDrop < 8000;
         const streamState = !active
           ? "paused"
           : rtcVideoLive
             ? "live"
             : presence && presence !== "online"
               ? "reconnecting"
-              : !liveFrame?.frame
-                ? "waiting"
-                : frameAge < 2000
-                  ? "live"
-                  : frameAge < 8000
-                    ? "lag"
-                    : "stalled";
+              : handingOver
+                ? "reconnecting"
+                : !liveFrame?.frame
+                  ? "waiting"
+                  : frameAge < 2000
+                    ? "live"
+                    : frameAge < 8000
+                      ? "lag"
+                      : "stalled";
         const streamTone = streamState === "live"
           ? "bg-emerald-400"
           : streamState === "lag" || streamState === "waiting" || streamState === "reconnecting"
@@ -962,7 +969,7 @@ function AdminPage() {
         const transport: "connecting" | "video" | "live" | "reconnecting" | "polling" =
           rtcVideoLive
             ? "video"
-            : rtcState === "connecting"
+            : rtcState === "connecting" || handingOver
               ? "connecting"
               : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
                 ? "reconnecting"
@@ -979,9 +986,10 @@ function AdminPage() {
         // Candidate type turns the LAN-vs-cross-network test into a direct
         // read: host/srflx = direct path, relay = TURN is carrying the media.
         const iceKind = rtcRef.current?.candidateType?.() ?? null;
+        const videoLabel = `WebRTC video${iceKind ? ` · ${iceKind}` : ""}${videoFps ? ` · ${videoFps} fps` : ""}`;
         const transportLabel = {
           connecting: "Connecting",
-          video: iceKind ? `WebRTC video · ${iceKind}` : "WebRTC video",
+          video: videoLabel,
           live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
           reconnecting: "Reconnecting",
           polling: "Frame fallback (polling)",
