@@ -122,7 +122,7 @@ public static class ScreenCapture
                     else if (!dxgi.LastFrameHadContentChange)
                     {
                         // Nothing changed on screen — hold last frame, back off.
-                        // Still keep the VP8 encoder fed (throttled) so a static
+                        // Still keep the VP8 encoder fed (keepalive) so a static
                         // desktop never freezes the admin's decoded picture.
                         framesSinceKeyframe++;
                         if (scaledBmp != null) TeeToWebRtc(scaledBmp, throttled: true);
@@ -179,7 +179,7 @@ public static class ScreenCapture
                 {
                     idleCount++;
                     delayMs = idleCount >= 3 ? 100 : 33;
-                    // Keep the video track alive at ~1 fps while idle.
+                    // Keepalive push while idle (throttled to IdleTeeIntervalMs).
                     TeeToWebRtc(scaledBmp, throttled: true);
                 }
                 else
@@ -233,16 +233,16 @@ public static class ScreenCapture
     }
 
     // ---- WebRTC tee ------------------------------------------------------
-    // Copies the scaled frame into the VP8 track. `throttled` limits pushes to
-    // ~1/sec so a static desktop still keeps the encoder (and the admin's
-    // decoded picture) alive without burning CPU. Alpha is forced opaque
-    // before hand-off: the BGRA→I420 conversion must never read a stale 0.
+    // Copies the scaled frame into the VP8 track. `throttled` only applies to
+    // genuinely-unchanged frames (keepalive so the decoder never staleness-
+    // smears); changed frames always go through at full capture rate.
+    private const int IdleTeeIntervalMs = 200;
     private static DateTime _lastTeeUtc = DateTime.MinValue;
 
     /// <summary>
     /// Clears the idle-throttle clock so a freshly-built (or freshly-started)
     /// peer receives the very next captured frame instead of waiting out the
-    /// remainder of the 500 ms window.
+    /// remainder of the keepalive window.
     /// </summary>
     public static void ResetWebRtcTee() => _lastTeeUtc = DateTime.MinValue;
 
@@ -255,7 +255,7 @@ public static class ScreenCapture
             var live = WebRtcSession.Current;
             if (live == null) return;
             var now = DateTime.UtcNow;
-            if (throttled && (now - _lastTeeUtc).TotalMilliseconds < 500) return;
+            if (throttled && (now - _lastTeeUtc).TotalMilliseconds < IdleTeeIntervalMs) return;
             _lastTeeUtc = now;
 
             int w = scaled.Width, h = scaled.Height;
@@ -280,18 +280,12 @@ public static class ScreenCapture
                         {
                             byte* srow = sp + y * data.Stride;
                             byte* drow = dp + y * rowBytes;
-                            // GDI Format32bppRgb memory order: B,G,R,X.
-                            // SIPSorcery's Bgra converter interprets bytes as
-                            // R,G,B,A on wire, which is why straight passthrough
-                            // renders the desert blue and the lake orange. Swap
-                            // R and B so the encoder sees the correct pixels,
-                            // and force alpha opaque.
-                            for (int x = 0; x < w; x++)
-                            {
-                                byte b = srow[0], g = srow[1], r = srow[2];
-                                drow[0] = r; drow[1] = g; drow[2] = b; drow[3] = 0xFF;
-                                srow += 4; drow += 4;
-                            }
+                            // GDI Format32bppRgb memory order is B,G,R,X — exactly
+                            // what VideoPixelFormatsEnum.Bgra expects, and exactly
+                            // what the JPEG encoder reads. Copy verbatim; the only
+                            // fix-up is forcing the undefined 4th byte opaque.
+                            Buffer.MemoryCopy(srow, drow, rowBytes, rowBytes);
+                            for (int x = 3; x < rowBytes; x += 4) drow[x] = 0xFF;
                         }
                     }
                 }
@@ -301,6 +295,7 @@ public static class ScreenCapture
         }
         catch (Exception ex) { Log.Warn($"webrtc tee: {ex.Message}"); }
     }
+
 
 
     // ---- Adaptive quality ------------------------------------------------

@@ -64,31 +64,15 @@ public sealed class WebRtcClient
         }
         catch (Exception ex) { _onError?.Invoke("Bind session: " + ex.Message); return; }
 
-        // Server-issued ICE (STUN + Metered TURN relay). Without a relay
-        // candidate any peer behind symmetric NAT / a strict firewall never
-        // completes ICE. A fetch failure degrades to public STUN.
-        var iceServers = new System.Collections.Generic.List<RTCIceServer>();
-        try
+        // STUN-only, hardcoded. No TURN / external relay service.
+        var iceServers = new System.Collections.Generic.List<RTCIceServer>
         {
-            var ice = await App.Api.GetIceServersAsync(ct).ConfigureAwait(false);
-            foreach (var s in ice.IceServers)
-            {
-                if (string.IsNullOrWhiteSpace(s.Urls)) continue;
-                var entry = new RTCIceServer { urls = s.Urls };
-                if (!string.IsNullOrEmpty(s.Username)) entry.username = s.Username;
-                if (!string.IsNullOrEmpty(s.Credential)) entry.credential = s.Credential;
-                iceServers.Add(entry);
-            }
-            // Hosts only — never log the credential.
-            System.Diagnostics.Debug.WriteLine(
-                $"[webrtc] ice hasTurn={ice.HasTurn} servers={string.Join(", ", iceServers.ConvertAll(x => x.urls))}");
-        }
-        catch { }
-        if (iceServers.Count == 0)
-            iceServers.Add(new RTCIceServer { urls = "stun:stun.l.google.com:19302" });
+            new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
+        };
 
         var cfg = new RTCConfiguration { iceServers = iceServers };
         _pc = new RTCPeerConnection(cfg);
+
 
         // Codec pinning guardrail — see agent WebRtcSession for the matching side.
         _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video,
@@ -132,22 +116,14 @@ public sealed class WebRtcClient
             System.Diagnostics.Debug.WriteLine($"[webrtc] video rtp packets={n}");
         };
 
-        // A relayed path legitimately dips through `disconnected` while TURN
-        // rebinds — only escalate if it hasn't recovered after the grace window.
-        var disconnectedSince = DateTime.MinValue;
         _pc.onconnectionstatechange += (state) =>
         {
             System.Diagnostics.Debug.WriteLine("[webrtc] connectionState: " + state);
             if (state == RTCPeerConnectionState.connected)
             {
-                disconnectedSince = DateTime.MinValue;
                 if (Interlocked.Read(ref rtpVideoPackets) == 0)
                     System.Diagnostics.Debug.WriteLine("[webrtc] connected — awaiting first video RTP packet");
                 onConnected();
-            }
-            else if (state == RTCPeerConnectionState.disconnected)
-            {
-                disconnectedSince = DateTime.UtcNow;
             }
         };
 
@@ -164,33 +140,18 @@ public sealed class WebRtcClient
         _ = Task.Run(() => PollAgentSignals(ct), CancellationToken.None);
         _ = Task.Run(() => HeartbeatLoop(ct), CancellationToken.None);
 
-        // Connect watchdog. The old blind 12s timer killed relayed negotiations
-        // that were still progressing; the ceiling now follows the server's
-        // connectTimeoutMs (10s STUN-only, 20s once TURN is in the list), and
-        // `connecting` counts as progress that buys one more window.
-        var ceilingMs = 12_000;
-        try { ceilingMs = Math.Max(10_000, (await App.Api.GetIceServersAsync(ct).ConfigureAwait(false)).ConnectTimeoutMs); }
-        catch { }
+        // Blind connect watchdog — original 12s baseline.
         _ = Task.Run(async () =>
         {
-            try { await Task.Delay(ceilingMs, ct); } catch { return; }
-            if (_pc == null) return;
-            if (_pc.connectionState == RTCPeerConnectionState.connecting)
-            {
-                // Still negotiating — grant one extra window before bowing out.
-                try { await Task.Delay(ceilingMs, ct); } catch { return; }
-            }
+            try { await Task.Delay(12_000, ct); } catch { return; }
             var st = _pc?.connectionState;
-            var stillDown = st != RTCPeerConnectionState.connected &&
-                            (st != RTCPeerConnectionState.disconnected ||
-                             (disconnectedSince != DateTime.MinValue &&
-                              DateTime.UtcNow - disconnectedSince > TimeSpan.FromSeconds(5)));
-            if (stillDown)
+            if (st != null && st != RTCPeerConnectionState.connected)
             {
                 System.Diagnostics.Debug.WriteLine("[webrtc] watchdog closing peer, state=" + st);
                 try { _pc?.close(); } catch { }
             }
         }, CancellationToken.None);
+
 
     }
 

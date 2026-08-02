@@ -1,45 +1,54 @@
-## What's wrong
 
-The signaling path is fine — the admin/web console offers, the agent answers, ICE has TURN. The break is one level deeper: **the agent's video encoder is never told which format was negotiated, and is never started.**
+## Stage 1 — Full rollback of the TURN integration (no partial keep)
 
-In `agent/src/WebRtcSession.cs` the peer is built with a `VideoEncoderEndPoint`, its `OnVideoSourceEncodedSample` is wired to `SendVideo`, and `ScreenCapture.TeeToWebRtc` pushes tightly-packed RGBA into `PushFrame`. But nowhere in `agent/src` is there:
+Every touchpoint of the Metered work gets removed. Nothing of it survives.
 
-- `_pc.OnVideoFormatsNegotiated += formats => _videoEnd.SetVideoSourceFormat(formats[0])`
-- `_videoEnd.StartVideo()` once the connection reaches `connected`
+**Web console**
+- `src/lib/webrtc-live.ts`: delete the `import { getIceServers }` line and the whole server-ICE block inside the kickoff IIFE (the `getIceServers()` call, `setConfiguration()`, the `connectTimeoutMs` assignment, and the ice-config console log). Rename `FALLBACK_STUN` back to `STUN_SERVERS` and pass it directly into `new RTCPeerConnection({ iceServers: STUN_SERVERS })` as the only config.
+- Watchdog: `connectTimeoutMs` becomes a fixed `10_000` constant again — no server-supplied ceiling, no 20 s TURN branch. Remove the `DISCONNECT_GRACE_MS` relay-flap grace and let `disconnected` behave as it did before the TURN change.
+- Remove `candidateType()` relay reporting only if it was added for TURN; the plain `reportCandidatePair()` diagnostic log stays (it costs nothing and is not TURN-specific).
 
-Without the negotiated format, SIPSorcery's `ExternalVideoSourceRawSample` drops every sample silently (no exception, no log). The peer connects, the console shows a WebRTC pill briefly, no decoded frame ever arrives, `requestVideoFrameCallback` never fires, and the UI settles back onto the 2 fps JPEG pipe. That matches exactly what you're seeing: "video didn't start, just frame fallback".
+**Agent**
+- `agent/src/WebRtcSession.cs`: delete `ResolveIceServers()` entirely. `BuildPeer()` builds `new RTCConfiguration { iceServers = new List<RTCIceServer> { new() { urls = "stun:stun.l.google.com:19302" } } }` inline.
+- `agent/src/ApiClient.cs`: delete `GetIceServersAsync` and its DTOs; remove the `/api/public/ice` line from the header doc comment.
 
-Secondary gaps found in the same file:
-- No keyframe is forced when a new peer connects, so a late subscriber can sit on grey until the encoder happens to emit one.
-- `PushFrame` returns silently when the peer isn't `connected`; there's no counter, so we have no signal telling us whether the tee is starving or the encoder is dropping.
-- `TeeToWebRtc`'s throttle clock (`_lastTeeUtc`) is static and never reset when a new peer attaches.
+**Native admin**
+- `admin/src/Media/WebRtcClient.cs`: delete the `App.Api.GetIceServersAsync` block; hardcode the single Google STUN entry. Restore the blind connect watchdog to its original **12 s** constant and drop the second `GetIceServersAsync` call that computed the ceiling.
+- `admin/src/Api/ApiClient.cs`: delete `GetIceServersAsync` + ICE DTOs.
 
-## Plan
+**Server**
+- Delete `src/lib/ice.server.ts`, `src/lib/ice.functions.ts`, and `src/routes/api/public/ice.ts`.
+- `src/shared/api-routes.ts`: remove the `ice:` entry and the sentence about `/api/public/ice` from the header comment.
+- `ENDPOINTS.md`: drop the ICE row.
+- Remove the `METERED_APP_NAME` / `METERED_SECRET_KEY` secrets from the backend so nothing can accidentally re-enable it.
 
-### 1. Agent — make the VP8 track actually emit (`agent/src/WebRtcSession.cs`)
-- In `BuildPeer()`, subscribe to `OnVideoFormatsNegotiated` and call `_videoEnd.SetVideoSourceFormat(...)` with the negotiated VP8 format; log the chosen format.
-- On `onconnectionstatechange == connected`, `await _videoEnd.StartVideo()` and force one keyframe so the first pushed frame is decodable.
-- Track a `_formatReady` flag; `PushFrame` no-ops until both `connected` and format-ready, and logs once per state transition instead of silently.
-- Add a lightweight counter (frames pushed / frames encoded, logged every ~5 s at Info) so a starving pipeline is visible in the agent log instead of invisible.
-- Reset the tee throttle when a peer is built so a fresh admin gets an immediate frame rather than waiting up to 500 ms.
+**Baseline check before touching anything else**
+- Typecheck + `bun run scripts/verify-agent-routes.ts` (expected count drops by one — I'll update the expectation).
+- Rebuild agent + admin, start a session, and confirm: peer reaches `connected`, curtain engages on click and stays engaged for >30 s continuous, curtain releases on toggle-off. I will not move to Stage 2 until this is confirmed green.
 
-### 2. Agent — teardown correctness
-- Pause/close the encoder in `TearDownPeer()` before nulling it, and clear `_formatReady`, so a take-over rebuild renegotiates cleanly instead of inheriting a dead encoder.
+## Stage 2 — Video fixes only (local code, no network layer)
 
-### 3. Native admin console (`admin/src/Media/WebRtcClient.cs`)
-- Mirror the receive-side check: log when the first RTP video packet arrives so "connected but no picture" is distinguishable from "never connected". No behaviour change beyond diagnostics.
+### 2a. Blue picture — copy the JPEG path's channel handling
+`agent/src/ScreenCapture.cs` `TeeToWebRtc()` currently runs a hand-written per-pixel loop that rewrites `B,G,R,X → R,G,B,0xFF` and then tells SIPSorcery the buffer is `Bgra`. That double-handling is exactly what turns the desert blue, and the loop is also a CPU hog on the capture thread.
 
-### 4. Web console diagnostics (`src/routes/_authenticated/console.tsx`, `src/lib/webrtc-live.ts`)
-- Keep the existing pill, but stop calling the transport "WebRTC video" until at least one decoded frame has landed; until then show "WebRTC negotiating". This removes the misleading green pill during exactly this failure and makes future regressions obvious at a glance.
-- Log `inbound-rtp` framesDecoded/bytesReceived once at 3 s after connect so the browser console names the culprit (no bytes = transport; bytes but no frames = decode/format).
+Fix: delete the swap loop. Copy the rows verbatim (only stripping GDI stride padding, which the JPEG path implicitly does too), force the 4th byte to `0xFF`, and hand it to `ExternalVideoSourceRawSample(..., VideoPixelFormatsEnum.Bgra)`. GDI `Format32bppRgb` **is** BGRA in memory — same bytes the JPEG encoder reads correctly — so the declared format now matches reality and no reorder happens in our code.
 
-### 5. Repackage
-- Bump `agent/src/ConnectLiveAgent.csproj` to 1.8.0, republish `ConnectLive-RemoteAgent-src-v1.8` and `ConnectLive-AdminConsole-src-v1.6` zips.
+### 2b. 1 fps — uncap the capture tee
+`TeeToWebRtc(scaled, throttled: true)` is called on both idle branches and gates pushes to one per 500 ms. When the dirty-rect/hash detector marks frames unchanged (which it does aggressively — it samples only ~4 k bytes), the stream sits on the idle path and the admin sees ~1–2 fps.
 
-## Verification
+Fix:
+- Drop the idle throttle from 500 ms to **200 ms** for genuinely-unchanged frames (keepalive only), and
+- Push **every** frame at full rate on the changed path (already `throttled: false`, but the idle-detection hysteresis of `idleCount >= 3` will be tightened so motion resumes full rate on the first changed frame instead of after the backoff unwinds).
+- Loop delay stays at 33 ms on the motion path — that is the 30 fps ceiling.
+- Keep the existing `webrtc video pipe: pushed=/encoded=/dropped=` 5 s log so the real rate is measurable.
 
-Code-level: `tsgo` clean, `scripts/verify-agent-routes.ts` and `verify-payment-routes.ts` still green. The decisive check has to happen on a Windows build — after this fix the agent log must show `webrtc format negotiated: VP8` followed by a rising encoded-sample counter, and the console pill must read `WebRTC video · relay|srflx · N fps` with N > 0.
+### Verify
+- Agent log shows `pushed` climbing at ~30/s while moving a window, `encoded` tracking it.
+- Web console HUD FPS reads well above 1 during motion.
+- Colors correct on a known reference (blue sky stays blue).
+- Curtain still engages/releases — re-checked after the capture change, since it shares the agent's threads.
 
-## Note
-
-I have not been able to run the live pipeline from here, so the diagnosis rests on the source: the missing `OnVideoFormatsNegotiated` / `StartVideo` wiring is confirmed absent by search across `agent/src`, and it is sufficient on its own to produce a connected-but-black track. If after the fix the log shows encoded samples flowing but the browser still decodes nothing, the next suspect is the codec pinning between the two sides, and I'll chase that with the new counters rather than guessing.
+## Technical notes
+- No schema changes, no new dependencies, nothing added to the network layer.
+- Rollback and video fix are two separate commits so Stage 1 can be kept even if Stage 2 needs another pass.
+- Repackaged zips only after both stages verify.

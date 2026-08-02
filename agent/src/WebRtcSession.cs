@@ -81,43 +81,17 @@ public sealed class WebRtcSession : IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// ICE servers come from the backend (STUN + Metered TURN relay) so a peer
-    /// behind symmetric NAT / a strict firewall still gets a relay candidate.
-    /// Fetched once per session and cached in ApiClient; a failure degrades to
-    /// public STUN rather than blocking the session.
-    /// </summary>
-    private List<RTCIceServer> ResolveIceServers()
-    {
-        try
-        {
-            var cfg = _api.GetIceServersAsync(_cts.Token).GetAwaiter().GetResult();
-            var list = new List<RTCIceServer>();
-            foreach (var s in cfg.IceServers)
-            {
-                if (string.IsNullOrWhiteSpace(s.Urls)) continue;
-                var entry = new RTCIceServer { urls = s.Urls };
-                if (!string.IsNullOrEmpty(s.Username)) entry.username = s.Username;
-                if (!string.IsNullOrEmpty(s.Credential)) entry.credential = s.Credential;
-                list.Add(entry);
-            }
-            if (list.Count > 0)
-            {
-                // Hosts only — never log the credential.
-                Log.Info($"webrtc ice hasTurn={cfg.HasTurn} servers={string.Join(", ", list.ConvertAll(x => x.urls))}");
-                return list;
-            }
-        }
-        catch (Exception ex) { Log.Warn("ice resolve failed: " + ex.Message); }
-        return new List<RTCIceServer> { new RTCIceServer { urls = "stun:stun.l.google.com:19302" } };
-    }
-
     private void BuildPeer()
     {
+        // STUN-only, hardcoded. No TURN / external relay service.
         var cfg = new RTCConfiguration
         {
-            iceServers = ResolveIceServers(),
+            iceServers = new List<RTCIceServer>
+            {
+                new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
+            },
         };
+
         _pc = new RTCPeerConnection(cfg);
         _formatReady = false;
         _videoStarted = false;
@@ -255,7 +229,7 @@ public sealed class WebRtcSession : IDisposable
     /// has been handed to the encoder. Both conditions are counted so a
     /// starving pipeline shows up in the log instead of failing invisibly.
     /// </summary>
-    public void PushFrame(byte[] rgba, int width, int height)
+    public void PushFrame(byte[] bgra, int width, int height)
     {
         var pc = _pc;
         var enc = _videoEnd;
@@ -271,7 +245,8 @@ public sealed class WebRtcSession : IDisposable
         {
             Interlocked.Increment(ref _pushed);
             enc.ExternalVideoSourceRawSample(
-                33, width, height, rgba, VideoPixelFormatsEnum.Bgra);
+                33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
+
         }
         catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }
         MaybeLogStats();

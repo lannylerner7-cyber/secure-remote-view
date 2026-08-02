@@ -29,7 +29,7 @@ namespace ConnectLive.Agent;
 ///   POST /api/public/agent/session/:id/signal    -> WebRTC signaling
 ///   GET  /api/public/agent/session/:id/signal    -> WebRTC signaling (poll)
 ///   POST /api/public/agent/power/:cmdId/ack      -> power-command acknowledgement
-///   GET  /api/public/ice                         -> STUN/TURN credentials
+///   (no ICE endpoint — WebRTC uses hardcoded Google STUN)
 /// All authenticated requests send X-Device-Id + X-Device-Token.
 /// Transport is HTTPS-only; the old realtime WebSocket path was removed
 /// (heartbeat + long-poll already deliver invites and signaling).
@@ -502,63 +502,7 @@ public sealed class ApiClient
 
     // ---- DTOs ----------------------------------------------------------
 
-    // ---- ICE configuration ---------------------------------------------
 
-    private IceConfig? _iceCache;
-    private DateTime _iceCacheUntilUtc = DateTime.MinValue;
-    private readonly SemaphoreSlim _iceLock = new(1, 1);
-
-    /// <summary>
-    /// Server-issued ICE servers (STUN + Metered TURN relay). Credentials are
-    /// short-lived and never baked into the binary; the backend mints them.
-    /// Cached in-process for 40 minutes, well inside the credential lifetime,
-    /// and re-fetched on demand after a failure.
-    /// </summary>
-    public async Task<IceConfig> GetIceServersAsync(CancellationToken ct)
-    {
-        if (_iceCache != null && DateTime.UtcNow < _iceCacheUntilUtc) return _iceCache;
-        await _iceLock.WaitAsync(ct);
-        try
-        {
-            if (_iceCache != null && DateTime.UtcNow < _iceCacheUntilUtc) return _iceCache;
-            try
-            {
-                using var resp = await SendAuthedAsync(
-                    () => new HttpRequestMessage(HttpMethod.Get, "/api/public/ice"), ct);
-                resp.EnsureSuccessStatusCode();
-                var cfg = await resp.Content.ReadFromJsonAsync<IceConfig>(cancellationToken: ct);
-                if (cfg?.IceServers != null && cfg.IceServers.Count > 0)
-                {
-                    _iceCache = cfg;
-                    // Failed/degraded lookups expire fast so a transient blip
-                    // doesn't pin this process to STUN-only for the session.
-                    _iceCacheUntilUtc = DateTime.UtcNow.AddMinutes(cfg.HasTurn ? 40 : 1);
-                    return cfg;
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("ice config fetch failed: " + ex.Message);
-            }
-            var fallback = new IceConfig(
-                new List<IceServerDto> { new IceServerDto("stun:stun.l.google.com:19302", null, null) },
-                false, 10000);
-            _iceCache = fallback;
-            _iceCacheUntilUtc = DateTime.UtcNow.AddMinutes(1);
-            return fallback;
-        }
-        finally { _iceLock.Release(); }
-    }
-
-    public sealed record IceServerDto(
-        [property: JsonPropertyName("urls")] string Urls,
-        [property: JsonPropertyName("username")] string? Username,
-        [property: JsonPropertyName("credential")] string? Credential);
-
-    public sealed record IceConfig(
-        [property: JsonPropertyName("iceServers")] List<IceServerDto> IceServers,
-        [property: JsonPropertyName("hasTurn")] bool HasTurn,
-        [property: JsonPropertyName("connectTimeoutMs")] int ConnectTimeoutMs);
 
     public sealed record EnrollResponse(string DeviceId, string DeviceToken);
     public sealed record SessionBinding(string SessionId, string? PairingCode, DateTimeOffset SavedAt);

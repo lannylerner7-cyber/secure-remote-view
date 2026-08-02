@@ -24,18 +24,16 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
-import { getIceServers } from "@/lib/ice.functions";
 
-/** Local last-resort only — the real list comes from the server (TURN included). */
-const FALLBACK_STUN: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+/** STUN-only. No TURN / external relay service. */
+const STUN_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 const WEB_CLIENT_KEY = "connectlive.web_client_id";
 const CURSOR_KEY = (sessionId: string) => `connectlive.sig_cursor.${sessionId}`;
 const HEARTBEAT_MS = 15_000;
-/** Ceiling used only while ICE never leaves new/gathering; server may raise it for TURN. */
-const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
-/** A relayed path flaps through `disconnected` on rebinding — grace before failing. */
-const DISCONNECT_GRACE_MS = 5_000;
+/** Ceiling used only while ICE never leaves new/checking. */
+const CONNECT_TIMEOUT_MS = 10_000;
 const MAX_ATTEMPTS = 6;
+
 
 export type WebRtcState = "idle" | "connecting" | "connected" | "failed" | "superseded";
 export interface WebRtcLive {
@@ -97,24 +95,19 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   const listeners = new Set<(s: WebRtcState) => void>();
   const setState = (s: WebRtcState) => { state = s; listeners.forEach((cb) => cb(s)); };
 
-  // Created with the local fallback; the server-issued list (TURN included)
-  // is applied via setConfiguration() before setLocalDescription() kicks off
-  // gathering, so no candidate is ever gathered with the wrong config.
-  const pc = new RTCPeerConnection({ iceServers: FALLBACK_STUN });
+  // STUN-only, hardcoded. No external relay service is involved.
+  const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
   let dc: RTCDataChannel | null = pc.createDataChannel("inputs", { ordered: true });
   dc.onclose = () => { dc = null; };
 
   let selectedCandidateType: string | null = null;
-  let connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
+  const connectTimeoutMs = CONNECT_TIMEOUT_MS;
   let watchdog: number | null = null;
-  let disconnectTimer: number | null = null;
 
-  const clearDisconnectTimer = () => {
-    if (disconnectTimer !== null) { window.clearTimeout(disconnectTimer); disconnectTimer = null; }
-  };
   const clearWatchdog = () => {
     if (watchdog !== null) { window.clearTimeout(watchdog); watchdog = null; }
   };
+
   /**
    * The watchdog only guards the "ICE never even started checking" case.
    * Reaching `checking` is real progress (relay allocation can be slow), so
@@ -178,28 +171,17 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     }
     if (s === "connected" || s === "completed") {
       clearWatchdog();
-      clearDisconnectTimer();
       setState("connected");
       void reportCandidatePair();
       return;
     }
     if (state === "superseded") return;
-    if (s === "failed" || s === "closed") {
+    if (s === "failed" || s === "closed" || s === "disconnected") {
       clearWatchdog();
-      clearDisconnectTimer();
       setState("failed");
-      return;
-    }
-    if (s === "disconnected") {
-      // Relay rebinding legitimately dips through `disconnected`.
-      if (disconnectTimer !== null) return;
-      disconnectTimer = window.setTimeout(() => {
-        disconnectTimer = null;
-        const now = pc.iceConnectionState;
-        if (now !== "connected" && now !== "completed" && state !== "superseded") setState("failed");
-      }, DISCONNECT_GRACE_MS);
     }
   };
+
 
 
   // ---- Retry queue --------------------------------------------------------
@@ -323,21 +305,8 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       return;
     }
     heartbeatTimer = window.setInterval(() => { void heartbeat(); }, HEARTBEAT_MS);
-
-    // Server-issued ICE (TURN relay when Metered is reachable). Applied
-    // before setLocalDescription so gathering uses the full list.
-    try {
-      const cfg = await getIceServers();
-      if (closed) return;
-      connectTimeoutMs = cfg.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
-      pc.setConfiguration({ iceServers: cfg.iceServers as RTCIceServer[] });
-      console.info(
-        `[webrtc] ice config hasTurn=${cfg.hasTurn} servers=${cfg.iceServers.map((s) => String(s.urls)).join(", ")}`,
-      );
-    } catch (err) {
-      console.warn("[webrtc] ice config fetch failed, using STUN only", err);
-    }
     armWatchdog();
+
 
     try {
       pc.addTransceiver("video", { direction: "recvonly" });
@@ -365,7 +334,8 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     close: () => {
       closed = true;
       clearWatchdog();
-      clearDisconnectTimer();
+
+
 
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
       enqueue("bye", {});
