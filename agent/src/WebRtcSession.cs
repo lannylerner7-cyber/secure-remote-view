@@ -152,7 +152,8 @@ public sealed class WebRtcSession : IDisposable
                 }
                 _videoEnd?.SetVideoSourceFormat(fmt);
                 _formatReady = true;
-                Log.Info($"webrtc video format negotiated: {fmt.Codec} pt={fmt.FormatID}");
+                _negotiatedPt = fmt.FormatID;
+                Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc video format negotiated: {fmt.Codec} pt={fmt.FormatID}");
             }
             catch (Exception ex) { Log.Warn($"webrtc set format: {ex.Message}"); }
         };
