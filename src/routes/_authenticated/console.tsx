@@ -173,7 +173,9 @@ function AdminPage() {
   useEffect(() => {
     if (!liveId) { setLiveFrame(null); setLiveCursor(null); setSharedNote(""); setRealtimeStatus("connecting"); return; }
     let cancelled = false;
-    const wantFrames = !rtcVideoLive;
+    // Only stand down the JPEG pipe once video is genuinely decoding.
+    const wantFrames = !videoDecoding;
+
     setRealtimeStatus("connecting");
     lastRealtimePushAtRef.current = 0;
     if (wantFrames) {
