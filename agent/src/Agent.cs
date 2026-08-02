@@ -118,11 +118,39 @@ public sealed class Agent
         Log.Info("restart_agent: soft-restart complete");
     }
 
+    /// <summary>
+    /// G5 — presence resilience: Wi-Fi flip, VPN up/down or dock change used to
+    /// cost up to a full heartbeat cycle before the agent noticed. Snap a beat
+    /// the moment the OS reports a new address so presence recovers in ~0s.
+    /// </summary>
+    private void SubscribeNetworkChange(CancellationToken ct)
+    {
+        System.Net.NetworkInformation.NetworkAddressChangedEventHandler? h = null;
+        h = (_, _) =>
+        {
+            Log.Info("network address changed — snapping heartbeat");
+            // Signal only: don't surface any UI, this is a background recovery.
+            try { if (_wakeSignal.CurrentCount == 0) _wakeSignal.Release(); } catch { }
+        };
+
+        try
+        {
+            System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += h;
+            ct.Register(() =>
+            {
+                try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged -= h; } catch { }
+            });
+        }
+        catch (Exception ex) { Log.Warn($"network watch: {ex.Message}"); }
+    }
 
 
     public async Task RunAsync(CancellationToken ct)
     {
         _outerCt = ct;
+        SubscribeNetworkChange(ct);
+
+
 
         // Boot-proof enrollment: retry every 5s forever. Windows Startup fires
         // before Wi-Fi finishes negotiating, so a single failure here used to
@@ -248,7 +276,15 @@ public sealed class Agent
             {
                 await HandleInvite(s.id, s.mode, ct);
             }
-            else if (s.state == "active")
+            else if (s.state == "paused")
+            {
+                // G4: pause means STOP THE PIXELS, keep the session. Nothing
+                // leaves the machine while the user works on their own window.
+                _acceptedSessions.Add(s.id);
+                _currentSessionId = s.id;
+                PauseSessionLoops(s.id);
+            }
+            else if (s.state == "active" || s.state == "consented")
             {
                 if (!_acceptedSessions.Contains(s.id) || _currentSessionId != s.id)
                 {
@@ -261,9 +297,12 @@ public sealed class Agent
                 }
                 else
                 {
+                    // Also the resume path: a paused session cancelled its loops,
+                    // so the health check fails here and they restart cleanly.
                     EnsureSessionLoops(s.id, s.mode);
                 }
             }
+
         }
 
         // Session ended on the server side: tear down local session state.
@@ -366,6 +405,25 @@ public sealed class Agent
         Log.Info($"session {sessionId} started ({mode}) with {technician}");
     }
 
+    /// <summary>
+    /// G4 — session paused: cancel the capture/input/cursor loops so no pixels
+    /// and no injected input flow, but keep the session (and WebRTC) alive so
+    /// resume is instant instead of a full renegotiation.
+    /// </summary>
+    private void PauseSessionLoops(string sessionId)
+    {
+        if (_loopSessionId == null && _sessionCts == null) return;
+        if (_sessionCts == null || _sessionCts.IsCancellationRequested) return;
+        try { _sessionCts.Cancel(); } catch { }
+        _sessionCts = null;
+        _loopSessionId = null;
+        _screenTask = null;
+        _inputTask = null;
+        _cursorTask = null;
+        ReportState("Session paused");
+        Log.Info($"session {sessionId} paused — capture and input stopped");
+    }
+
     private void EndSession()
     {
         try { _sessionCts?.Cancel(); } catch { }
@@ -380,6 +438,7 @@ public sealed class Agent
         Log.Info("session ended");
     }
 }
+
 
 internal static class Log
 {
