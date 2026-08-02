@@ -126,6 +126,14 @@ function AdminPage() {
   // reports the stream's actual cadence rather than the JPEG fallback's.
   const videoFpsRef = useRef({ last: 0, frames: 0, fps: 0 });
   const [videoFps, setVideoFps] = useState(0);
+  // "Connected" is not the same as "showing pixels": a peer can complete ICE
+  // while the sender's encoder emits nothing. Only a decoded frame proves the
+  // video surface is real — until then we keep the JPEG fallback alive and
+  // label the transport honestly.
+  const [videoDecoding, setVideoDecoding] = useState(false);
+  const videoDecodingRef = useRef(false);
+  videoDecodingRef.current = videoDecoding;
+
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
