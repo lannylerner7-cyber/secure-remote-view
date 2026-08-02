@@ -29,7 +29,7 @@ namespace ConnectLive.Agent;
 ///   POST /api/public/agent/session/:id/signal    -> WebRTC signaling
 ///   GET  /api/public/agent/session/:id/signal    -> WebRTC signaling (poll)
 ///   POST /api/public/agent/power/:cmdId/ack      -> power-command acknowledgement
-///   GET  /api/public/ice                         -> STUN/TURN credentials
+///   (no ICE endpoint — WebRTC uses hardcoded Google STUN)
 /// All authenticated requests send X-Device-Id + X-Device-Token.
 /// Transport is HTTPS-only; the old realtime WebSocket path was removed
 /// (heartbeat + long-poll already deliver invites and signaling).
