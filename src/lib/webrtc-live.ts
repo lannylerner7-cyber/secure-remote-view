@@ -355,6 +355,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     state: () => state,
     onState: (cb) => { listeners.add(cb); },
     candidateType: () => selectedCandidateType,
+    stats: async () => { try { return await pc.getStats(); } catch { return null; } },
     sendInput: (payload) => {
       if (dc && dc.readyState === "open") {
         try { dc.send(JSON.stringify(payload)); return true; } catch { return false; }

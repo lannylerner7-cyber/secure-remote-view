@@ -290,8 +290,7 @@ function AdminPage() {
     const probe = window.setTimeout(() => {
       void (async () => {
         try {
-          const pc = (rtcRef.current as unknown as { pc?: RTCPeerConnection })?.pc;
-          const stats = await (pc?.getStats?.() ?? Promise.resolve(null));
+          const stats = await (rtcRef.current?.stats?.() ?? Promise.resolve(null));
           if (!stats) return;
           stats.forEach((r: Record<string, unknown>) => {
             if (r["type"] === "inbound-rtp" && r["kind"] === "video") {
