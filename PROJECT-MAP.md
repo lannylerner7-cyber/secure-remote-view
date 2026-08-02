@@ -185,28 +185,58 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 ## 6. Backlog — next attention, in priority order
 
 Closed so far: audit backlog items 1–6 (pass 2), predictive cursor (turn 1),
-multi-monitor picker (turn 2), agent surface reduction (this pass). What
-remains, ordered by feel-per-unit-of-effort:
+multi-monitor picker (turn 2), agent surface reduction, docs/DB truth pass.
+Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 
-**→ Next up: turn 3.**
+### Tier A — finish what is half-shipped
 
-1. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3, next)*.
+1. `SCOPE:WEB` — **Monitor picker in the browser console.** Read
+   `devices.metadata.monitors` / `selected_monitor`, render a Display dropdown
+   in the live view, enqueue `switch_monitor` + `restart_stream`. Mirror, not
+   source of truth — identical semantics to `LiveSessionViewModel.cs`.
+2. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3)*.
    Drive off the RTCP RR loss/jitter/RTT figures `WebRtcSession.OnReceiveReport`
-   already parses. Shape: a small controller on the agent that owns
-   `(targetBitrate, maxEdge, fps)`, steps **down** fast on sustained loss and
+   already parses. A small agent-side controller owning
+   `(targetBitrate, maxEdge, fps)`, stepping **down** fast on sustained loss and
    **up** slowly on a clean window, with hysteresis so it cannot oscillate; a
    resolution step forces an IDR through the existing `RequestKeyFrame()` and
    resets the encoder reference chain (same seam the monitor switch uses). The
-   HTTPS JPEG fallback gets the same ladder applied to its quality/interval.
-2. `SCOPE:INPUT` / `SCOPE:CAPTURE` — **Relative-motion pointer mode** for
+   HTTPS JPEG fallback gets the same ladder on its quality/interval.
+3. `SCOPE:INPUT` / `SCOPE:CAPTURE` — **Relative-motion pointer mode** for
    games/CAD, plus **hardware H.264 (NVENC/QSV/AMF)** with VP8 fallback
    *(turn 4)*. Largest job: touches encode on the agent and decode in
    `admin/src/Media/VideoPipeline.cs`.
-3. `SCOPE:WEB` — mirror the monitor picker in the browser console
-   (`/console`); the native console has it as of turn 2, the web one does not.
-4. `SCOPE:SESSION` — **Clipboard + file drop** over a WebRTC data channel,
-   and **consented session recording** (see §7).
 
+### Tier B — new capability
+
+4. `SCOPE:SESSION` — **Clipboard sync + file drop** over a WebRTC data channel.
+   Text first, then files with a size cap and an `audit_logs` row per transfer.
+5. `SCOPE:SESSION` — **Consented session recording**: watermarked capture to a
+   storage bucket, retention policy, audit row on start/stop. Only item that
+   needs new infrastructure — there are no storage buckets yet, so this adds
+   the first (bucket + RLS + grants in one migration).
+6. `SCOPE:PRESENCE` — **Standing-consent policy surfaced in the console**: show
+   which devices carry standing consent, allow remote revoke, write an audit
+   entry every time it is exercised.
+7. `SCOPE:SESSION` — **Session transcript / activity timeline** per session,
+   built from the rows already in `audit_logs`, shown on a device detail page.
+
+### Tier C — operations and hardening
+
+8. `SCOPE:WEB` — **Split `console.tsx`** (3,119 lines) into route-level
+   children: devices, live, orders, settings, admins. Lands **before** items
+   1, 6 and 7 — they all add surface to the same file.
+9. `SCOPE:PRESENCE` — **Device health panel**: agent version, uptime,
+   last-error, capture backend (DXGI vs GDI), monitor count. All of it already
+   flows in the heartbeat; none of it is surfaced.
+10. `SCOPE:DATA` — **Retention + growth guard**: row counters and a
+    console-visible prune dashboard so `prune_session_ephemera` is observable
+    rather than assumed.
+11. `SCOPE:WEB` — **Ops status page** at `/status`, fed by
+    `/api/public/health`, `stats/orders`, and an online-device count.
+12. `SCOPE:DATA` — **Wake reliability metrics**: record dispatch→delivered
+    latency on `power_commands` and surface a success rate, so "wake didn't
+    work" becomes measurable instead of anecdotal.
 
 ---
 
@@ -216,12 +246,49 @@ remains, ordered by feel-per-unit-of-effort:
   the link is healthy, step down on RTT/loss instead of dropping frames.
 - **Hardware H.264 (NVENC/QSV/AMF)** with VP8 fallback — the single biggest
   sharpness/latency win over the current software VP8 path.
-- **Predictive cursor** — render the admin's own pointer immediately and
-  reconcile against agent telemetry, so control feels zero-latency.
+- ~~**Predictive cursor**~~ — shipped, turn 1.
 - **Relative-motion pointer mode** — send deltas instead of absolute positions
   for games/CAD, and for pointer-lock style precision.
-- **Multi-monitor picker** in the admin console with per-output duplication.
+- ~~**Multi-monitor picker**~~ — shipped in the native console (turn 2); the
+  browser console is Tier A item 1.
 - **Clipboard + file drop channel** over a WebRTC data channel.
 - **Session recording** (consented, watermarked) to storage for audit.
 - **Unattended/standing-consent policy** surfaced in the admin UI with an
   audit entry each time it is used.
+
+---
+
+## 8. Verified state — 2026-08-02
+
+Snapshot of what was actually observed, so the next audit diffs rather than
+re-derives. Anything here that stops being true is a regression, not a
+surprise.
+
+**Code**
+
+| Claim | Evidence |
+| --- | --- |
+| Agent has one visible surface | `agent/src/SplashWindow.xaml.cs` present; zero `MainWindow` / `NotifyIcon` hits under `agent/` |
+| Turn 1 + 2 shipped in the native console | `admin/src/Media/PredictiveCursor.cs`, `admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Views/LiveSessionWindow.xaml` |
+| SSE wake has a client | `agent/src/StreamListener.cs` ↔ `src/routes/api/public/agent/stream.ts` |
+| Web console has **no** monitor picker | `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts` |
+| Console is a monolith | `src/routes/_authenticated/console.tsx` = 3,119 lines |
+| Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `health` (+ unauthenticated `/health` probe for Coolify) |
+
+**Database**
+
+| Fact | Value |
+| --- | --- |
+| `power_commands_kind_check` | `wake`, `wake_agent`, `reboot`, `shutdown`, `lock`, `logoff`, `restart_stream`, `restart_agent`, `switch_monitor` |
+| `power_commands_state_check` | `queued`, `dispatched`, `delivered`, `failed`, `expired` |
+| pg_cron jobs (both active, `*/1 * * * *`) | `reconcile-orders` HTTP post; `public.prune_session_ephemera()` |
+| `supabase_realtime` publication | `devices`, `sessions`, `session_frames`, `session_signals`, `session_cursors`, `notifications`, `power_commands` |
+| Triggers on `sessions` | `sessions_touch`, `trg_clear_admin_binding_on_end`, `trg_sessions_sync_device_active` (duplicate dropped this pass) |
+| Row counts | 5 devices · 2 sessions · 11 orders · 3 active plans · 3 roles · 163 audit rows · 424 notifications · 4 power commands |
+
+**Known, accepted linter findings** (pre-existing, unrelated to this pass):
+two `RLS enabled / no policy` INFO rows on deliberately closed tables
+(`license_lookups`, `login_attempts` — service-role only by design),
+`pg_trgm` living in `public`, `SECURITY DEFINER` execute grants on the
+helper functions, and leaked-password protection disabled in auth settings.
+
