@@ -118,6 +118,29 @@ public sealed class Agent
         Log.Info("restart_agent: soft-restart complete");
     }
 
+    /// <summary>
+    /// G5 — presence resilience: Wi-Fi flip, VPN up/down or dock change used to
+    /// cost up to a full heartbeat cycle before the agent noticed. Snap a beat
+    /// the moment the OS reports a new address so presence recovers in ~0s.
+    /// </summary>
+    private void SubscribeNetworkChange(CancellationToken ct)
+    {
+        System.Net.NetworkInformation.NetworkAddressChangedEventHandler? h = null;
+        h = (_, _) =>
+        {
+            Log.Info("network address changed — snapping heartbeat");
+            RequestWake();
+        };
+        try
+        {
+            System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += h;
+            ct.Register(() =>
+            {
+                try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged -= h; } catch { }
+            });
+        }
+        catch (Exception ex) { Log.Warn($"network watch: {ex.Message}"); }
+    }
 
 
     public async Task RunAsync(CancellationToken ct)
