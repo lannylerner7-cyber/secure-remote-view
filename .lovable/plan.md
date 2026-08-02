@@ -1,41 +1,53 @@
-## Goal
+## Step 1 — Instrumentation (read-only, ship first)
 
-Verify — not rewrite — that everything landed by the recent video/signaling/database work is consistent across the three code bases (Windows Agent, native Admin console, web app + API) and that nothing drifted.
+Land only diagnostics, then run one session and read the logs before any fix.
 
-## What I found already (needs attention)
+**Agent — `agent/src/WebRtcSession.cs`**
+- Extend the 5 s `webrtc video pipe` line to include `lastW x lastH` of the most recent `PushFrame` and the current negotiated payload id.
+- Log every `OnVideoFormatsNegotiated` and every peer state transition with a monotonic ms timestamp.
 
-- `agent/src/ConnectLiveAgent.csproj` is still `1.8.0` and `admin/src/ConnectLiveAdmin.csproj` is still `1.6.0`, even though the last packaging step described v1.9 Agent / v1.7 Admin. Version metadata and the shipped installers are out of sync.
-- The site currently exposes no download link for either client package (no zip referenced anywhere in `src/`), so the published page cannot hand out the latest builds.
+**Agent — `agent/src/ScreenCapture.cs`**
+- Log every `SetQualityMode` transition with the timestamp and old→new max-edge.
+- Log the first `TeeToWebRtc` after each resolution change (dimensions + `throttled` flag).
 
-## Verification plan
+**Web — `src/lib/webrtc-live.ts`**
+- Extend the media watchdog probe to also record `pliCount`, `nackCount`, `keyFramesDecoded`, `framesDropped`, `frameWidth`, `frameHeight` alongside `framesDecoded`. Log once every 3 s tick.
 
-### 1. Agent client side
+**Verification run**
+- Open a live session, hold still 10 s, then drag a window continuously for ~60 s to force motion + possible mode flip.
+- Capture: agent `%LOCALAPPDATA%\ConnectLive\agent.log`, browser console.
+- Decision rule:
+  - Corruption present from **frame one** with `framesDecoded` climbing but visible stripes → fix #1 (RTP duration).
+  - Corruption starts **at a `SetQualityMode` line** → fix #2 (resolution stability).
+  - `pliCount` rising with `keyFramesDecoded` flat → fix #3 (keyframe-on-loss).
 
-- Re-read `ScreenCapture.cs`, `DxgiCapture.cs`, `WebRtcSession.cs`, `Agent.cs` and confirm, line by line: even-dimension enforcement, BGRX→RGBA swap, `RowPitch`-aware row copy, VP8 verification before track start, `PushFrame` buffer-length guard, 10s idle heartbeat.
-- Confirm every API path the agent calls exists in `src/routes/api/public/agent/` (enroll, hello, heartbeat, frame, cursor, inputs, signal, consent, reconnect, power ack, stream).
-- Confirm the standalone story is intact: no updater/watcher references, startup self-heal present, no tray/session-indicator remnants.
+## Step 2 — Fix, driven by Step 1 evidence
 
-### 2. Admin client side
+Only the fix(es) the logs justify. Details:
 
-- Re-read `WebRtcClient.cs`, `LiveSessionViewModel.cs`, `RealtimeChannel.cs`, `FrameFallbackPump.cs`, `CursorPollPump.cs`, `InputCoalescer.cs`.
-- Confirm the RTP liveness watchdog is wired to the transport label, that fallback pumps stop when video recovers (no double-render), and that STUN-only server list matches the agent's.
-- Confirm icon, config, and auth/bearer flow are consistent with the web API.
+1. **RTP duration from real delta.** In `PushFrame`, replace the constant `33` with `(int)((nowMs - lastPushMs) * 90)` clamped to `[1500, 15000]` (≈60 fps floor, ≈6 fps ceiling), computed against a monotonic `Stopwatch`. Keeps VP8 RTP timestamps accurate even when the capture loop drifts off 30 fps.
+2. **Resolution stability.** Freeze the WebRTC tee resolution at first-frame dimensions per peer. `SetQualityMode` continues to affect the JPEG fallback; the tee ignores mode changes until the peer is rebuilt. On peer rebuild, `ResetWebRtcTee()` also clears the frozen size.
+3. **Keyframe-on-loss.** Subscribe to SIPSorcery's PLI/RTCP-feedback event on the video track; call `_videoEnd.ForceKeyFrame()`. On the web side, when `framesDecoded` stalls but `bytesReceived` still rises, request a keyframe via a data-channel `keyframe_request` message before escalating to `iceRestart`.
 
-### 3. Web console + API
+## Step 3 — Wake for offline devices
 
-- Re-read `src/lib/webrtc-live.ts` watchdog + `iceRestart` path and the console transport pill states.
-- Run `scripts/verify-agent-routes.ts` and `scripts/verify-payment-routes.ts`.
-- Run `scripts/e2e-smoke.ts` and `scripts/e2e-wake.ts` and read the full output, including the Realtime-vs-REST delivery result flagged last time.
+The wake button reportedly no longer revives an offline agent. Independent of the video issue.
 
-### 4. Database
+- Reproduce: close the agent process on a test device, click Wake, watch server-side `power_commands` and `stream.ts` behavior.
+- Verify against current code:
+  - `stream.ts` only serves connected agents; an *offline* agent has no SSE session, so it can't receive `wake`. The Windows-side revival path must be independent of the agent process.
+  - Confirm whether the standalone-agent refactor removed the mechanism that previously started `ConnectLive.exe` on an admin wake (the old Updater service). If yes, we're missing a host that survives when the agent isn't running.
+- Decide with the user between two options (**do not build yet**):
+  - (A) Reintroduce a tiny SYSTEM-context launcher (scheduled task triggered on-event, or a minimal service) whose only job is to (re)start `ConnectLive.exe` when a wake row appears for this machine. Poll interval ≤ 5 s.
+  - (B) Rely purely on the existing ONLOGON scheduled task + agent self-heal — accept that a fully-exited agent on a locked machine cannot be revived remotely.
 
-- Re-check `session_frames` replica identity, the power-command index, and RLS/grants on every table the three clients touch; list any column that is written but never read so we can decide on cleanup separately (no drops in this pass).
+Report the Step 1 logs and the wake reproduction findings before we commit to Step 2 or Step 3 code changes.
 
-### 5. Fix-ups produced by the sweep
+## Non-goals
 
-- Bump `ConnectLiveAgent.csproj` to 1.9.0 and `ConnectLiveAdmin.csproj` to 1.7.0, and align the Inno/WiX version strings.
-- Fix only defects the sweep actually finds; anything larger gets reported back to you rather than silently changed.
+- No TURN. STUN-only stays.
+- No transport rewrite, no schema change, no version bumps in this pass.
 
-### Technical notes
+## Technical notes
 
-No new transport, no TURN, no architecture change: STUN-only stays as the baseline. This pass is read-verify-then-patch-minimal. and output correct sanitised both admin and agent zip file
+Files touched in Step 1 only: `agent/src/WebRtcSession.cs`, `agent/src/ScreenCapture.cs`, `src/lib/webrtc-live.ts`. Step 2/3 file lists are decided by evidence.
