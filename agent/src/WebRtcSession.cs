@@ -119,6 +119,12 @@ public sealed class WebRtcSession : IDisposable
             iceServers = ResolveIceServers(),
         };
         _pc = new RTCPeerConnection(cfg);
+        _formatReady = false;
+        _videoStarted = false;
+        _pushed = _encoded = _dropped = 0;
+        _lastStatsUtc = DateTime.UtcNow;
+        // A fresh peer must get a frame immediately, not up to 500 ms later.
+        ScreenCapture.ResetWebRtcTee();
 
         _videoEnd = new VideoEncoderEndPoint();
         // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
@@ -128,8 +134,26 @@ public sealed class WebRtcSession : IDisposable
 
         _videoEnd.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
         {
+            System.Threading.Interlocked.Increment(ref _encoded);
             _pc?.SendVideo(durationRtpUnits, sample);
         };
+
+        // WITHOUT this the encoder has no negotiated format and silently drops
+        // every raw sample — the peer connects, ICE succeeds, and the admin
+        // still sees nothing but the JPEG fallback. Do not remove.
+        _pc.OnVideoFormatsNegotiated += (formats) =>
+        {
+            if (formats == null || formats.Count == 0) return;
+            try
+            {
+                var fmt = formats[0];
+                _videoEnd?.SetVideoSourceFormat(fmt);
+                _formatReady = true;
+                Log.Info($"webrtc video format negotiated: {fmt.Codec} pt={fmt.FormatID}");
+            }
+            catch (Exception ex) { Log.Warn($"webrtc set format: {ex.Message}"); }
+        };
+
 
         _pc.ondatachannel += (dc) =>
         {
