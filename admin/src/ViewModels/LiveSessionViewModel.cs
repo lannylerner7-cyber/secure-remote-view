@@ -148,14 +148,16 @@ public partial class LiveSessionViewModel : ObservableObject
                 if (sample == null || !sample.Visible ||
                     sample.FrameW is null or 0 || sample.FrameH is null or 0)
                 {
-                    CursorVisible = false;
+                    PublishCursor(CursorNormX, CursorNormY, false);
                     return;
                 }
-                CursorNormX = Math.Clamp((double)sample.X / sample.FrameW.Value, 0, 1);
-                CursorNormY = Math.Clamp((double)sample.Y / sample.FrameH.Value, 0, 1);
-                CursorVisible = true;
+                PublishCursor(
+                    Math.Clamp((double)sample.X / sample.FrameW.Value, 0, 1),
+                    Math.Clamp((double)sample.Y / sample.FrameH.Value, 0, 1),
+                    true);
             });
         }, onError: SurfaceError);
+
         _cursorPump.Start(_cts.Token);
 
         // Raw Supabase Realtime is the fast path: session_frames /
