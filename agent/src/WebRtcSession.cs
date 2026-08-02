@@ -53,6 +53,12 @@ public sealed class WebRtcSession : IDisposable
     private long _encoded = 0;
     private long _dropped = 0;
     private DateTime _lastStatsUtc = DateTime.MinValue;
+    // Step 1 diagnostics — most recent PushFrame dimensions and negotiated payload id.
+    private int _lastPushW = 0;
+    private int _lastPushH = 0;
+    private int _negotiatedPt = -1;
+    /// <summary>Monotonic ms clock shared by the video diagnostics so log lines can be correlated.</summary>
+    internal static readonly System.Diagnostics.Stopwatch MonoClock = System.Diagnostics.Stopwatch.StartNew();
 
 
     // Identity of the admin machine that owns the current peer. Null until
