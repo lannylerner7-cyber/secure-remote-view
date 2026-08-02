@@ -95,7 +95,24 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 
 ## 5. Change log (rolling — newest first)
 
+### 2026 — Agent surface reduction + verification pass (`SCOPE:PRESENCE`)
+
+| Scope | File | Change |
+| --- | --- | --- |
+| `SCOPE:PRESENCE` | `agent/src/App.xaml.cs` | The agent has exactly one visible surface: the ~5 s startup splash, which doubles as the connection banner (device id + session state). No `MainWindow`, no tray icon, no wake pop-up — `onWake: null`, and `/BACKGROUND`, `/MINIMIZED`, `/WAKE` launches show nothing at all. Splash auto-closes after 5 s and every later state change is a no-op once it is gone. |
+| `SCOPE:PRESENCE` | `agent/src/SplashWindow.xaml.cs` | Borderless branded card: wordmark, indeterminate progress, live status line, Device / Session rows, and the standing consent promise. Only remaining agent UI besides `ConsentPrompt` and `CurtainOverlay`. |
+| `SCOPE:WEB` | `scripts/verify-agent-routes.ts` | Power-command vocabulary assertion now includes `switch_monitor` (turn 2 added it to the DB check constraint but not to the verifier). |
+
+**Verification run (this pass)**
+
+- TypeScript: clean, no diagnostics.
+- `scripts/verify-agent-routes.ts` → 19/19 against `https://zoomlite.live` (enroll issues a token; every device-token route 401s unauthenticated; login lockout active; PostgREST rejects keyless calls).
+- `scripts/verify-payment-routes.ts` → 5/5 (`stats/orders`, unsigned CDP webhook rejected, cron requires secret, `/order` + `/license` render).
+- DB: `power_commands_kind_check` confirmed to contain `switch_monitor`.
+- Agent tree: no `MainWindow`/`NotifyIcon` references remain (`admin/` hits are the technician console, which is meant to have a window).
+
 ### 2026 — Feel work, turn 2: multi-monitor picker (`SCOPE:CAPTURE`)
+
 
 | Scope | File | Change |
 | --- | --- | --- |
@@ -150,21 +167,29 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 
 ## 6. Backlog — next attention, in priority order
 
-Items 1–6 of the previous backlog are **closed** in pass 2 above, the
-predictive cursor is **closed** in turn 1, and the multi-monitor picker is
-**closed** in turn 2. What remains is the rest of the "unmatched feel" work,
-ordered by feel-per-unit-of-effort:
+Closed so far: audit backlog items 1–6 (pass 2), predictive cursor (turn 1),
+multi-monitor picker (turn 2), agent surface reduction (this pass). What
+remains, ordered by feel-per-unit-of-effort:
 
+**→ Next up: turn 3.**
 
-1. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3)*,
-   driven off the RTCP RR loss/jitter figures the `OnReceiveReport` handler
-   already sees.
+1. `SCOPE:TRANSPORT` — **Adaptive bitrate + resolution ladder** *(turn 3, next)*.
+   Drive off the RTCP RR loss/jitter/RTT figures `WebRtcSession.OnReceiveReport`
+   already parses. Shape: a small controller on the agent that owns
+   `(targetBitrate, maxEdge, fps)`, steps **down** fast on sustained loss and
+   **up** slowly on a clean window, with hysteresis so it cannot oscillate; a
+   resolution step forces an IDR through the existing `RequestKeyFrame()` and
+   resets the encoder reference chain (same seam the monitor switch uses). The
+   HTTPS JPEG fallback gets the same ladder applied to its quality/interval.
 2. `SCOPE:INPUT` / `SCOPE:CAPTURE` — **Relative-motion pointer mode** for
    games/CAD, plus **hardware H.264 (NVENC/QSV/AMF)** with VP8 fallback
    *(turn 4)*. Largest job: touches encode on the agent and decode in
    `admin/src/Media/VideoPipeline.cs`.
 3. `SCOPE:WEB` — mirror the monitor picker in the browser console
    (`/console`); the native console has it as of turn 2, the web one does not.
+4. `SCOPE:SESSION` — **Clipboard + file drop** over a WebRTC data channel,
+   and **consented session recording** (see §7).
+
 
 ---
 

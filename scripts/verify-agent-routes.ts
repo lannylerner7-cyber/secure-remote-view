@@ -16,7 +16,7 @@ const add = (name: string, ok: boolean, detail: string) =>
   results.push({ name, ok, detail });
 
 const SID = "00000000-0000-0000-0000-000000000000";
-const POWER_KINDS = ["wake", "wake_agent", "reboot", "shutdown", "lock", "logoff", "restart_stream", "restart_agent"] as const;
+const POWER_KINDS = ["wake", "wake_agent", "reboot", "shutdown", "lock", "logoff", "restart_stream", "restart_agent", "switch_monitor"] as const;
 
 async function hit(
   method: string,
@@ -113,7 +113,8 @@ async function hit(
 
   add("power command vocabulary",
     POWER_KINDS.includes("wake_agent") && POWER_KINDS.includes("reboot")
-      && POWER_KINDS.includes("restart_stream") && POWER_KINDS.includes("restart_agent"),
+      && POWER_KINDS.includes("restart_stream") && POWER_KINDS.includes("restart_agent")
+      && POWER_KINDS.includes("switch_monitor"),
     POWER_KINDS.join(", "));
 
 
