@@ -308,10 +308,6 @@ public sealed class ApiClient
         finally { gate.Release(); }
     }
 
-    // ---------- ICE configuration ----------
-
-
-
     // Heartbeat / take-over via bind_admin RPC.
     // Returns (bound, reason) — reason == "superseded" means another admin
     // console owns this session and the UI should close the live window.

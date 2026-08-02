@@ -97,7 +97,7 @@ public sealed class WebRtcSession : IDisposable
         _videoStarted = false;
         _pushed = _encoded = _dropped = 0;
         _lastStatsUtc = DateTime.UtcNow;
-        // A fresh peer must get a frame immediately, not up to 500 ms later.
+        // A fresh peer must get a frame immediately, not after the keepalive gap.
         ScreenCapture.ResetWebRtcTee();
 
         _videoEnd = new VideoEncoderEndPoint();
