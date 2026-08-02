@@ -280,6 +280,16 @@ public sealed class WebRtcSession : IDisposable
         try
         {
             Interlocked.Increment(ref _pushed);
+            // Step 1 diagnostics: record the exact geometry handed to the encoder
+            // and shout the first time it changes mid-peer (suspected stripe cause).
+            if (width != _lastPushW || height != _lastPushH)
+            {
+                if (_lastPushW != 0)
+                    Log.Warn($"[t={MonoClock.ElapsedMilliseconds}] webrtc RESOLUTION CHANGE mid-peer " +
+                             $"{_lastPushW}x{_lastPushH} -> {width}x{height} (no renegotiation)");
+                _lastPushW = width;
+                _lastPushH = height;
+            }
             enc.ExternalVideoSourceRawSample(
                 33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
 
@@ -294,10 +304,12 @@ public sealed class WebRtcSession : IDisposable
         var now = DateTime.UtcNow;
         if ((now - _lastStatsUtc).TotalSeconds < 5) return;
         _lastStatsUtc = now;
-        Log.Info($"webrtc video pipe: pushed={Interlocked.Read(ref _pushed)} " +
+        Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc video pipe: pushed={Interlocked.Read(ref _pushed)} " +
                  $"encoded={Interlocked.Read(ref _encoded)} dropped={Interlocked.Read(ref _dropped)} " +
-                 $"formatReady={_formatReady} started={_videoStarted}");
+                 $"formatReady={_formatReady} started={_videoStarted} " +
+                 $"size={_lastPushW}x{_lastPushH} pt={_negotiatedPt}");
     }
+
 
 
     private async Task SignalPumpAsync(CancellationToken ct)
