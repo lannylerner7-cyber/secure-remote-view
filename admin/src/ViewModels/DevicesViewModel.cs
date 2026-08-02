@@ -50,7 +50,7 @@ public partial class DevicesViewModel : ObservableObject
     }
 
     // Exponential back-off (seconds) on consecutive Refresh() failures.
-    // Mirrors the updater's cadence so a flaky link doesn't hammer the gateway.
+    // Mirrors the agent heartbeat cadence so a flaky link doesn't hammer the gateway.
     private static readonly int[] BackoffSeconds = { 5, 10, 20, 30 };
 
     private async Task PollLoop(CancellationToken ct)
@@ -165,7 +165,7 @@ public partial class DevicesViewModel : ObservableObject
         {
             var session = await App.Api.CreateSessionAsync(item.RowId, "view", CancellationToken.None);
             // Explicit wake: covers the case where the user manually closed the
-            // agent tray icon. Updater heartbeat picks this up and relaunches.
+            // agent. The SSE stream / autostart self-heal picks this up and relaunches.
             try
             {
                 await App.Api.EnqueuePowerCommandAsync(

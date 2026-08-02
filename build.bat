@@ -1,42 +1,42 @@
 @echo off
 REM ConnectLive one-click builder — Windows, requires .NET 8 SDK.
-REM Publishes Agent, Updater, and Admin as single-file, self-contained
-REM win-x64 binaries, then zips each side into a shippable bundle:
+REM Publishes the standalone Agent and the Admin Console as single-file,
+REM self-contained win-x64 binaries, then zips each side into a bundle:
 REM   agent\dist\ConnectLive-RemoteAgent.zip
 REM   admin\dist\ConnectLive-AdminConsole.zip
+REM
+REM There is no updater/watcher service — the Agent is standalone and
+REM self-persistent (HKCU Run key + Startup shortcut + ONLOGON task).
 
-echo [1/4] Building Updater...
-dotnet publish "agent\updater\ConnectLiveUpdater.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "agent\publish\updater"
-if errorlevel 1 goto :fail
-
-echo [2/4] Building Agent...
+echo [1/3] Building Agent...
 dotnet publish "agent\src\ConnectLiveAgent.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "agent\publish\agent"
 if errorlevel 1 goto :fail
 
-echo [3/4] Building Admin Console...
+echo [2/3] Building Admin Console...
 dotnet publish "admin\src\ConnectLiveAdmin.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "admin\publish\admin"
 if errorlevel 1 goto :fail
 
-echo [4/4] Packaging zips...
+echo [3/3] Packaging zips...
 
 REM ---- Agent zip -----------------------------------------------------------
 if not exist "agent\dist" mkdir "agent\dist"
 copy /Y "agent\publish\agent\ConnectLive.exe" "agent\dist\" >nul
 if errorlevel 1 goto :fail
-copy /Y "agent\publish\updater\ConnectLiveUpdater.exe" "agent\dist\" >nul
-if errorlevel 1 goto :fail
-copy /Y "agent\install.ps1" "agent\dist\" >nul
-copy /Y "agent\run-elevated.ps1" "agent\dist\" >nul
 copy /Y "agent\INSTALL.md" "agent\dist\README-INSTALL.txt" >nul
 if not exist "agent\dist\ConnectLive.exe" goto :fail
-if not exist "agent\dist\ConnectLiveUpdater.exe" goto :fail
+
+REM Purge stale helper binaries from older full builds so they cannot ship.
+if exist "agent\dist\ConnectLiveUpdater.exe" del "agent\dist\ConnectLiveUpdater.exe"
+if exist "agent\dist\ConnectLiveService.exe" del "agent\dist\ConnectLiveService.exe"
+
 if exist "agent\dist\ConnectLive-RemoteAgent.zip" del "agent\dist\ConnectLive-RemoteAgent.zip"
-powershell -NoProfile -Command "Compress-Archive -Path 'agent\dist\ConnectLive.exe','agent\dist\ConnectLiveUpdater.exe','agent\dist\install.ps1','agent\dist\run-elevated.ps1','agent\dist\README-INSTALL.txt' -DestinationPath 'agent\dist\ConnectLive-RemoteAgent.zip' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path 'agent\dist\ConnectLive.exe','agent\dist\README-INSTALL.txt' -DestinationPath 'agent\dist\ConnectLive-RemoteAgent.zip' -Force"
 if errorlevel 1 goto :fail
 
 REM ---- Admin zip -----------------------------------------------------------
 if not exist "admin\dist" mkdir "admin\dist"
 copy /Y "admin\publish\admin\ConnectLiveAdmin.exe" "admin\dist\" >nul
+if errorlevel 1 goto :fail
 copy /Y "admin\src\admin.config.json" "admin\dist\" >nul
 copy /Y "admin\INSTALL.md" "admin\dist\README-INSTALL.txt" >nul
 if exist "admin\dist\ConnectLive-AdminConsole.zip" del "admin\dist\ConnectLive-AdminConsole.zip"

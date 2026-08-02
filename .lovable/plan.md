@@ -1,43 +1,52 @@
-## Where things stand (verified by reading the code just now)
+## Goal
 
-| Item | State |
-|---|---|
-| 1. R/B swap + tight packing in `agent/src/ScreenCapture.cs` → `TeeToWebRtc` | Done — row-by-row pointer copy, `drow = r,g,b,0xFF`, no stride padding |
-| 1b. `WebRtcSession.PushFrame` tightly-packed contract (no stride arg) | Done |
-| 1c. `AllowUnsafeBlocks` for the pointer loop | Present in `agent/src/ConnectLiveAgent.csproj` |
-| 2. Idle keep-alive raised to ~500 ms | Done (`throttled` gate is 500 ms) |
-| 2b. Transport-aware fps in web console | Done — `requestVideoFrameCallback` counter, pill reads `WebRTC video · relay · N fps` |
-| 3. False "Connecting / Stalled" banner | Done — 8 s handover grace; native console watchdog reports `live` while transport is WebRTC video |
-| 4. Route audit (static + live) | **Not done** |
-| 5. Repackage v1.7 / v1.5 | **Not done** (latest on disk: agent v1.6, admin v1.4) |
+Do a final correctness pass over the two Windows clients, remove the pile of duplicate/stale zip archives, and cut one clean pair of source bundles.
 
-So the remaining work is verification and packaging, plus fixing whatever the sweep turns up.
+## 1. Client-side verification (read-only)
 
-## Plan
+**Agent (`agent/src/`)**
+- `ScreenCapture.cs` — confirm the tee packs tightly (`width*4` per row), swaps R/B, forces alpha `0xFF`, keeps the JPEG path on the untouched bitmap, and that the 500 ms idle keep-alive is in place.
+- `WebRtcSession.cs` — `PushFrame` has no stride argument and no caller passes a strided buffer.
+- `DxgiCapture.cs` — `Format32bppRgb` + `SourceCopy` still intact (the darkening fix).
+- `ApiClient.cs` — every endpoint it calls exists under `src/routes/api/public/**`; no dead `X-Deployment-Key`; ICE + power-ack routes present.
+- `StartupSelfHeal.cs` / `StartupRegistration.cs` — three autostart triggers, `/background` lowercase, dev-path guard.
+- Project file: `AllowUnsafeBlocks`, `ApplicationIcon`, assembly name `ConnectLive`; no leftover updater/watcher references anywhere in `agent/`.
 
-### A. Re-verify the client-side fixes as described
+**Admin (`admin/src/`)**
+- `Api/ApiClient.cs` — endpoints and column names match the live schema; ICE fetch present.
+- `Media/WebRtcClient.cs`, `RealtimeChannel.cs`, `FrameFallbackPump.cs`, `CursorPollPump.cs` — cadences and fallback ordering as designed.
+- `ViewModels/LiveSessionViewModel.cs` — transport taxonomy and watchdog wording match the web console.
+- `Input/InputCoalescer.cs` — moves flushed before discrete clicks/keys.
+- `Ui/AppIcon.cs` + `assets/icon.ico` present and wired.
 
-- Agent: confirm the JPEG path still uses the untouched `scaledBmp` (colour-correct reference), that `32bppRgb` + `SourceCopy` from the darkening fix is intact in both `ScreenCapture.cs` and `DxgiCapture.cs`, and that no other caller passes a strided buffer to `PushFrame`.
-- Native admin (`admin/`): confirm the decoded WebRTC surface needs no matching swap (the swap is on the encoder input, so the decoder output is already correct) and that `LiveSessionViewModel` status text, transport taxonomy, and the fps/last-frame readout agree with the web console wording.
-- Web console: confirm the fallback JPEG subscription still resumes correctly after the grace window, so a genuinely dead session still reaches "Stalled".
+Anything broken and unambiguous gets fixed in this pass; anything ambiguous is reported, not silently changed.
 
-### B. Static route audit (reported as a table)
+## 2. Zip cleanup
 
-- Every file under `src/routes/`: `createFileRoute("…")` string vs filename, duplicate/orphaned paths, and `head()` metadata presence on each page route.
-- Every `/api/**` route cross-checked three ways: against `ENDPOINTS.md`, against web-console call sites, and against `agent/src/ApiClient.cs` + `admin/src/Api/ApiClient.cs`. Flag (a) endpoints a client calls that no longer exist, (b) routes nothing calls.
+Current state is messy — 16 archives in `/mnt/documents` plus 7 duplicated copies in `public/`:
 
-### C. Live smoke tests
+```text
+/mnt/documents  v1.1 … v1.6 agent, v1.1 … v1.4 admin,
+                plus unversioned ConnectLive-*-src.zip,
+                ConnectLive-RemoteAgent.zip, ConnectLiveAgent.zip,
+                ConnectLiveAdmin.zip, agent-src-package/
+public/         7 stale copies (nothing in src/ links to them)
+```
 
-- Run `scripts/verify-agent-routes.ts`, `scripts/verify-payment-routes.ts`, `scripts/e2e-smoke.ts`, `scripts/e2e-wake.ts` against the running app.
-- Sweep every public page route for 200, and every `/api/public/*` endpoint anonymously, asserting protected ones return 401 rather than data.
+Action:
+- Delete every `public/*.zip` — no route, component, or page references them, so they only bloat the deploy.
+- Delete all superseded archives in `/mnt/documents`, keeping only the two new bundles.
+- Remove the empty `agent-src-package/` scratch dir and the now-pointless `public/ConnectLiveAgent.zip` line in `.dockerignore`.
 
-Anything broken and unambiguous gets fixed in the same pass; anything ambiguous is reported, not silently changed.
+## 3. Repackage
 
-### D. Repackage
+Build from the live source tree (source-only: no `bin/`, `obj/`, `publish/`, `dist/`):
+- `ConnectLive-RemoteAgent-src-v1.7-20260802.zip` — `agent/src`, `agent/assets`, `agent/packaging`, `build.ps1`, `INSTALL.md`, `README.md`
+- `ConnectLive-AdminConsole-src-v1.5-20260802.zip` — `admin/src`, `admin/assets`, `build.ps1`, `INSTALL.md`, `README.md`
 
-- `ConnectLive-RemoteAgent-src-v1.7-<date>.zip` and `ConnectLive-AdminConsole-src-v1.5-<date>.zip` into `/mnt/documents`, after `ENDPOINTS.md` is updated with anything the audit changes.
+Then list each archive's contents and confirm `icon.ico`, the fixed `ScreenCapture.cs`, and the current `ApiClient.cs` are actually inside before handing them over.
 
 ## Technical notes
 
-- No database, RLS, or ICE/TURN changes — last turn's work stays as is.
-- The colour fix cannot be validated from here (it needs a Windows build against a real desktop); the verification I can give is code-level plus the smoke tests. The visual check stays yours: the desert must render orange under the "WebRTC video" pill.
+- No database, RLS, or ICE/TURN changes — that work stays as is.
+- The colour fix can't be validated from here (needs a Windows build against a real desktop); verification is code-level. The visual check stays yours: the desert must render orange under the "WebRTC video" pill.

@@ -14,7 +14,7 @@ dist
 npm-debug.log*
 .lovable
 agent
-public/ConnectLiveAgent.zip
+public/*.zip
 /mnt
 README.md
 AGENTS.md

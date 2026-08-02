@@ -16,7 +16,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>1.2.0</Version>
+    <Version>1.7.0</Version>
     <Company>ConnectLive</Company>
     <Product>ConnectLive Agent</Product>
     <AssemblyTitle>ConnectLive Agent</AssemblyTitle>
@@ -25,9 +25,6 @@
 
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
-    
     <PackageReference Include="System.Net.WebSockets.Client" Version="4.3.2" />
     <!-- WebRTC (pure-managed; single-file publish safe). -->
     <PackageReference Include="SIPSorcery" Version="6.2.4" />
