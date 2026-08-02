@@ -226,6 +226,23 @@ public sealed class DxgiCapture : IDisposable
             desktopTexture?.Dispose();
             desktopResource?.Dispose();
             try { _duplication?.ReleaseFrame(); } catch { }
+        }
+    }
+
+    public void Dispose()
+    {
+        try { _duplication?.Dispose(); } catch { }
+        try { _staging?.Dispose(); } catch { }
+        try { _context?.Dispose(); } catch { }
+        try { _device?.Dispose(); } catch { }
+        _duplication = null;
+        _staging = null;
+        _context = null;
+        _device = null;
+        _initialized = false;
+    }
+
+
     /// <summary>
     /// Rebuild the CPU-readable staging texture for a new desktop size.
     /// Called on a mid-session resolution change; never tears the D3D device
