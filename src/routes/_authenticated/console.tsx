@@ -1117,8 +1117,8 @@ function AdminPage() {
                     );
                   })()}
                   <span>session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}</span>
-                  <span>· {fpsCounterRef.current.fps} fps</span>
-                  {liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
+                  <span>· {rtcVideoLive ? `${videoFps} fps video` : `${fpsCounterRef.current.fps} fps frames`}</span>
+                  {!rtcVideoLive && liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
                 </div>
 
                 {s.mode === "control" && s.device_id && (
