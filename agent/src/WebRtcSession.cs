@@ -192,17 +192,19 @@ public sealed class WebRtcSession : IDisposable
 
     /// <summary>
     /// Called from ScreenCapture: encode this frame into the WebRTC video track.
-    /// Silently no-op when the peer isn't connected yet — admin sees the HTTPS
-    /// stream in that window.
+    /// Buffer MUST be tightly packed (width*4 bytes per row) in RGBA memory
+    /// order — SIPSorcery's Bgra converter reads bytes as R,G,B,A, so passing
+    /// GDI BGRA verbatim renders the picture with R/B swapped. Silently no-ops
+    /// when the peer isn't connected yet — admin sees the HTTPS stream then.
     /// </summary>
-    public void PushFrame(byte[] bgra, int width, int height, int stride)
+    public void PushFrame(byte[] rgba, int width, int height)
     {
         if (_videoEnd == null || _pc == null) return;
         if (_pc.connectionState != RTCPeerConnectionState.connected) return;
         try
         {
             _videoEnd.ExternalVideoSourceRawSample(
-                33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
+                33, width, height, rgba, VideoPixelFormatsEnum.Bgra);
         }
         catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }
     }
