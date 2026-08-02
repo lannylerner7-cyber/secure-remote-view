@@ -29,8 +29,10 @@ public partial class LiveSessionWindow : Window
 
         Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); };
         Closed += (_, _) => { _coalesce.Stop(); _vm.Stop(); };
-        KeyDown += OnKeyDown;
-        KeyUp += OnKeyUp;
+        // Tunnelled key events so the live surface wins over WPF focus
+        // navigation (Tab, arrows, Alt menus) before it can swallow them.
+        PreviewKeyDown += OnKeyDown;
+        PreviewKeyUp += OnKeyUp;
         TextInput += OnTextInput;
 
         FrameImage.SizeChanged += (_, _) => UpdateCursorGhost();
@@ -75,54 +77,71 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
+        Keyboard.Focus(this);
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
-        await _mouse.DownAsync("left", x, y);
+        await _mouse.DownAsync(MouseInjector.Left, x, y);
     }
 
     private async void Frame_MouseUp(object sender, MouseButtonEventArgs e)
     {
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
-        await _mouse.UpAsync("left", x, y);
+        await _mouse.UpAsync(MouseInjector.Left, x, y);
     }
 
     private async void Frame_MouseRightDown(object sender, MouseButtonEventArgs e)
     {
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
-        await _mouse.DownAsync("right", x, y);
+        await _mouse.DownAsync(MouseInjector.Right, x, y);
     }
 
     private async void Frame_MouseRightUp(object sender, MouseButtonEventArgs e)
     {
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
-        await _mouse.UpAsync("right", x, y);
+        await _mouse.UpAsync(MouseInjector.Right, x, y);
     }
 
     private async void Frame_MouseWheel(object sender, MouseWheelEventArgs e)
     {
         _coalesce.FlushNow();
-        await _mouse.WheelAsync(0, e.Delta);
+        await _mouse.WheelAsync(e.Delta);
+    }
+
+    // Alt-combos arrive as Key.System with the real key in SystemKey.
+    private static Key Effective(KeyEventArgs e) => e.Key == Key.System ? e.SystemKey : e.Key;
+
+    private static bool IsPrintable(Key key)
+    {
+        var mods = Keyboard.Modifiers;
+        if ((mods & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return false;
+        return (key >= Key.A && key <= Key.Z)
+            || (key >= Key.D0 && key <= Key.D9)
+            || (key >= Key.NumPad0 && key <= Key.NumPad9)
+            || (key >= Key.Oem1 && key <= Key.OemBackslash)
+            || key == Key.Space;
     }
 
     private async void OnKeyDown(object sender, KeyEventArgs e)
     {
-        var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
-        var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-        var alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
+        var key = Effective(e);
+        e.Handled = true;
+        // Unmodified printable keys are delivered by TextInput as Unicode so
+        // the remote layout, dead keys and IME composition all behave.
+        if (IsPrintable(key)) return;
         _coalesce.FlushNow();
-        await _kb.KeyAsync(e.Key.ToString(), true, ctrl, shift, alt);
+        await _kb.KeyAsync(key, true);
     }
 
     private async void OnKeyUp(object sender, KeyEventArgs e)
     {
-        var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
-        var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-        var alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
+        var key = Effective(e);
+        e.Handled = true;
+        if (IsPrintable(key)) return;
         _coalesce.FlushNow();
-        await _kb.KeyAsync(e.Key.ToString(), false, ctrl, shift, alt);
+        await _kb.KeyAsync(key, false);
     }
 
 
