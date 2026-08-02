@@ -162,8 +162,12 @@ public partial class LiveSessionWindow : Window
     {
         if (!OnPicture(e)) return;      // letterbox bar: not part of the desktop
         var (x, y) = ToAbs(e);
+        // Prediction FIRST — the ghost must move on this frame, not on the
+        // frame after the agent's telemetry round trip completes.
+        _predict.Predict(x, y);
         _coalesce.Update(x, y);
     }
+
 
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
