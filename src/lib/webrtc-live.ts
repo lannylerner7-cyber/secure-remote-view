@@ -256,12 +256,28 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     void pc.getStats().then(async (stats) => {
       let decoded = 0;
       let hasInboundVideo = false;
+      // Step 1 diagnostics: loss/keyframe/geometry counters alongside framesDecoded.
+      let probe: Record<string, unknown> | null = null;
       stats.forEach((r: Record<string, unknown>) => {
         if (r["type"] === "inbound-rtp" && (r["kind"] === "video" || r["mediaType"] === "video")) {
           hasInboundVideo = true;
           decoded = Math.max(decoded, Number(r["framesDecoded"] ?? 0));
+          probe = {
+            framesDecoded: r["framesDecoded"],
+            keyFramesDecoded: r["keyFramesDecoded"],
+            framesDropped: r["framesDropped"],
+            framesReceived: r["framesReceived"],
+            packetsReceived: r["packetsReceived"],
+            packetsLost: r["packetsLost"],
+            pliCount: r["pliCount"],
+            nackCount: r["nackCount"],
+            bytesReceived: r["bytesReceived"],
+            frameWidth: r["frameWidth"],
+            frameHeight: r["frameHeight"],
+          };
         }
       });
+      if (probe) console.info("[webrtc][diag]", JSON.stringify(probe));
       const now = Date.now();
       if (decoded > lastDecodedFrames) {
         lastDecodedFrames = decoded;
@@ -270,6 +286,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       }
       if (!hasInboundVideo && now - connectedAt < 8_000) return;
       if (now - lastMediaProgressAt < 8_000) return;
+
 
       if (!mediaRecoveryAttempted) {
         mediaRecoveryAttempted = true;
