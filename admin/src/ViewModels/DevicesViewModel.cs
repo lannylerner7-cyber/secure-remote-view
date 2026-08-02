@@ -50,7 +50,7 @@ public partial class DevicesViewModel : ObservableObject
     }
 
     // Exponential back-off (seconds) on consecutive Refresh() failures.
-    // Mirrors the updater's cadence so a flaky link doesn't hammer the gateway.
+    // Mirrors the agent heartbeat cadence so a flaky link doesn't hammer the gateway.
     private static readonly int[] BackoffSeconds = { 5, 10, 20, 30 };
 
     private async Task PollLoop(CancellationToken ct)
