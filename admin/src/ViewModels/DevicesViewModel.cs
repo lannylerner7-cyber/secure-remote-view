@@ -165,7 +165,7 @@ public partial class DevicesViewModel : ObservableObject
         {
             var session = await App.Api.CreateSessionAsync(item.RowId, "view", CancellationToken.None);
             // Explicit wake: covers the case where the user manually closed the
-            // agent tray icon. Updater heartbeat picks this up and relaunches.
+            // agent. The SSE stream / autostart self-heal picks this up and relaunches.
             try
             {
                 await App.Api.EnqueuePowerCommandAsync(
