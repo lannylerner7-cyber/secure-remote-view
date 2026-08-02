@@ -216,13 +216,39 @@ public sealed class ApiClient
         return list[0];
     }
 
+    /// <summary>
+    /// Flip the session to ended. Teardown is fire-and-forget at the call
+    /// site, so a swallowed non-2xx here used to leave the row live forever:
+    /// the device stayed is_session_active, the agent kept pumping pixels and
+    /// the next connect reused a zombie session. Retry three times with a
+    /// short backoff and record the failure in admin.log either way.
+    /// </summary>
     public async Task EndSessionAsync(string sessionId, CancellationToken ct)
     {
-        using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
-        req.Content = JsonContent.Create(new { state = "ended", ended_at = DateTime.UtcNow });
-        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
-        _ = res.IsSuccessStatusCode; // best-effort on teardown
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
+                req.Content = JsonContent.Create(new { state = "ended", ended_at = DateTime.UtcNow });
+                using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+                if (res.IsSuccessStatusCode) return;
+                var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                Diag.Log.Write($"[session] end attempt {attempt} failed {(int)res.StatusCode}: {body}");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex)
+            {
+                Diag.Log.Write($"[session] end attempt {attempt} threw: {ex.Message}");
+            }
+            if (attempt < 3)
+            {
+                try { await Task.Delay(400 * attempt, ct).ConfigureAwait(false); } catch { return; }
+            }
+        }
+        Diag.Log.Write($"[session] end GAVE UP for {sessionId} — row may stay live until prune_session_ephemera");
     }
+
 
     public async Task SetSessionModeAsync(string sessionId, string mode, CancellationToken ct)
     {
