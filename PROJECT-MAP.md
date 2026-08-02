@@ -111,6 +111,7 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 - `src/routes/_authenticated/console.tsx` is 3,119 lines (device grid + live view + settings + notifications + Telegram funnel in one file). Tier C item 8.
 - DB: `power_commands_kind_check` vocabulary matches the doc; 2 active pg_cron jobs; 7 tables in `supabase_realtime`; `sessions` now carries exactly 3 triggers.
 
+### 2026 — Agent surface reduction + verification pass (`SCOPE:PRESENCE`)
 
 
 | Scope | File | Change |
