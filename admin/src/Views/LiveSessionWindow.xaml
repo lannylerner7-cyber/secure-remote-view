@@ -30,9 +30,10 @@
                     <Button Content="Restart agent" Command="{Binding RestartAgentCommand}"
                             Background="#334155" Margin="4,0"
                             ToolTip="Soft-restart the agent in place (falls back to relaunch if the reset fails)" />
-                    <Button Content="Take control" Command="{Binding TogglePauseCommand}" Margin="4,0" />
-                    <Button Content="Curtain" Command="{Binding ToggleCurtainCommand}"
-                            Background="#7F1D1D" Margin="4,0" />
+                    <Button Content="{Binding ControlButtonLabel}" Command="{Binding ToggleControlCommand}"
+                            Background="#7F1D1D" Margin="4,0"
+                            ToolTip="Take control: blocks the user's keyboard/mouse, shows the curtain, and routes your real mouse and keyboard to the remote machine" />
+
                     <Button Content="Lock" Command="{Binding PowerCommandCommand}" CommandParameter="lock"
                             Background="#334155" Margin="4,0" />
                     <Button Content="Restart" Command="{Binding PowerCommandCommand}" CommandParameter="reboot"
