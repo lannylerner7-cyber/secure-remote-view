@@ -18,9 +18,21 @@ public partial class LiveSessionViewModel : ObservableObject
     [ObservableProperty] private string mode = "view";
     [ObservableProperty] private bool curtainOn;
     // Shared transport taxonomy with the web console:
-    // "WebRTC video" | "Realtime frames" | "Frame fallback" | "Reconnecting" | "Ended".
+    // "Native video" | "Realtime frames" | "Frame fallback" | "Reconnecting" | "Ended".
+    // Phase 6 pill honesty: "Native video" appears ONLY while decoded frames
+    // are actually being presented. Everything else is labelled as the
+    // fallback it is.
     [ObservableProperty] private string transport = "Reconnecting";
-    [ObservableProperty] private BitmapSource? currentFrame;
+
+    // The one thing the live surface renders. Holds the decoded D3DImage /
+    // WriteableBitmap while the native path is presenting, and the JPEG still
+    // otherwise. Typed as ImageSource because D3DImage is not a BitmapSource.
+    [ObservableProperty] private System.Windows.Media.ImageSource? currentFrame;
+
+    // True while decoded VP8 frames are reaching the screen. JPEG stills are
+    // ignored while this is set so the two paths never fight over the surface.
+    [ObservableProperty] private bool nativeVideo;
+    [ObservableProperty] private string? videoStats;
 
     // When set, the live view was superseded by another admin machine
     // taking over the same session — the window binds this to a red banner.
@@ -40,6 +52,7 @@ public partial class LiveSessionViewModel : ObservableObject
     // True while the raw Supabase Realtime socket is delivering frames — the
     // HTTP fallback pumps still run but the Realtime pipe is our fast path.
     private volatile bool _realtimeHealthy;
+
 
     // Latest cursor sample (normalised 0..1) bound by LiveSessionWindow.
     [ObservableProperty] private double cursorNormX;
