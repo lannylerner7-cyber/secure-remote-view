@@ -246,17 +246,47 @@ public static class ScreenCapture
             var live = WebRtcSession.Current;
             if (live == null) return;
             var now = DateTime.UtcNow;
-            if (throttled && (now - _lastTeeUtc).TotalMilliseconds < 1000) return;
+            if (throttled && (now - _lastTeeUtc).TotalMilliseconds < 500) return;
             _lastTeeUtc = now;
 
-            var rect = new Rectangle(0, 0, scaled.Width, scaled.Height);
+            int w = scaled.Width, h = scaled.Height;
+            var rect = new Rectangle(0, 0, w, h);
             var data = scaled.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
             try
             {
-                var buf = new byte[data.Stride * data.Height];
-                Marshal.Copy(data.Scan0, buf, 0, buf.Length);
-                for (int i = 3; i < buf.Length; i += 4) buf[i] = 0xFF;
-                live.PushFrame(buf, data.Width, data.Height, data.Stride);
+                // Pack tightly (width*4 per row, no stride padding) so the encoder
+                // never sees the GDI alignment slack — that padding is what shears
+                // frames on non-multiple-of-4 widths (e.g. 960px low-BW profile
+                // after downscale rounding).
+                int rowBytes = w * 4;
+                var buf = new byte[rowBytes * h];
+                IntPtr src = data.Scan0;
+                unsafe
+                {
+                    byte* sp = (byte*)src.ToPointer();
+                    fixed (byte* dpFixed = buf)
+                    {
+                        byte* dp = dpFixed;
+                        for (int y = 0; y < h; y++)
+                        {
+                            byte* srow = sp + y * data.Stride;
+                            byte* drow = dp + y * rowBytes;
+                            // GDI Format32bppRgb memory order: B,G,R,X.
+                            // SIPSorcery's Bgra converter interprets bytes as
+                            // R,G,B,A on wire, which is why straight passthrough
+                            // renders the desert blue and the lake orange. Swap
+                            // R and B so the encoder sees the correct pixels,
+                            // and force alpha opaque.
+                            for (int x = 0; x < w; x++)
+                            {
+                                byte b = srow[0], g = srow[1], r = srow[2];
+                                drow[0] = r; drow[1] = g; drow[2] = b; drow[3] = 0xFF;
+                                srow += 4; drow += 4;
+                            }
+                        }
+                    }
+                }
+                live.PushFrame(buf, w, h);
             }
             finally { scaled.UnlockBits(data); }
         }
