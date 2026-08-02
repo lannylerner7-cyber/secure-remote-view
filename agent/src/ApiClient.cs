@@ -18,7 +18,7 @@ namespace ConnectLive.Agent;
 /// <summary>
 /// Thin HTTP client for the ConnectLive gateway.
 /// Routes (kept in sync with src/shared/api-routes.ts):
-///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }  (gated by X-Deployment-Key)
+///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }  (keyless, IP-throttled)
 ///   POST /api/public/agent/hello                -> presence "arrived" signal
 ///   POST /api/public/agent/heartbeat            -> pending session invites + is_session_active
 ///   POST /api/public/agent/session/:id/reconnect -> resume same device/session after reboot
@@ -28,6 +28,8 @@ namespace ConnectLive.Agent;
 ///   GET  /api/public/agent/session/:id/inputs    -> admin input queue (long-poll)
 ///   POST /api/public/agent/session/:id/signal    -> WebRTC signaling
 ///   GET  /api/public/agent/session/:id/signal    -> WebRTC signaling (poll)
+///   POST /api/public/agent/power/:cmdId/ack      -> power-command acknowledgement
+///   GET  /api/public/ice                         -> STUN/TURN credentials
 /// All authenticated requests send X-Device-Id + X-Device-Token.
 /// Transport is HTTPS-only; the old realtime WebSocket path was removed
 /// (heartbeat + long-poll already deliver invites and signaling).
