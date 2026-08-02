@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using ConnectLive.Admin.Input;
+using ConnectLive.Admin.Media;
+
 using ConnectLive.Admin.Ui;
 using ConnectLive.Admin.ViewModels;
 
