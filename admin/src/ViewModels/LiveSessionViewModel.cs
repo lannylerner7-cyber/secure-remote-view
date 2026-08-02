@@ -59,11 +59,37 @@ public partial class LiveSessionViewModel : ObservableObject
     [ObservableProperty] private double cursorNormY;
     [ObservableProperty] private bool cursorVisible;
 
+    /// <summary>
+    /// SCOPE:RENDER — raised on the UI thread exactly once per authoritative
+    /// cursor sample (poll pump OR realtime), carrying (normX, normY, visible).
+    /// The three CursorNorm* properties can't serve this purpose: ObservableObject
+    /// suppresses PropertyChanged when a value is unchanged, so a listener
+    /// watching them would miss samples and mis-reconcile the prediction.
+    /// </summary>
+    public event Action<double, double, bool>? CursorSample;
+
+    private void PublishCursor(double nx, double ny, bool visible)
+    {
+        CursorNormX = nx;
+        CursorNormY = ny;
+        CursorVisible = visible;
+        try { CursorSample?.Invoke(nx, ny, visible); } catch { }
+    }
+
+    /// <summary>
+    /// True only while this console is genuinely driving the remote pointer —
+    /// control mode, curtain engaged, not superseded. The predictive cursor is
+    /// gated on this so a view-only or taken-over session can never draw a
+    /// pointer the agent isn't going to honour.
+    /// </summary>
+    public bool InputAuthoritative => Mode == "control" && CurtainOn && !TakenOver;
+
     public LiveSessionViewModel(string sessionId, DeviceItem device)
     {
         SessionId = sessionId;
         Device = device;
     }
+
 
     // Marshals any background-thread error onto the UI thread and auto-clears
     // the banner after 15s so a transient RLS/401 blip never leaves a stale
