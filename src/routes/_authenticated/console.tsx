@@ -116,7 +116,16 @@ function AdminPage() {
   const [rtcState, setRtcState] = useState<WebRtcState>("idle");
   const rtcVideoLive = rtcState === "connected";
   const rtcVideoLiveRef = useRef(false);
+  // When the video track drops we unsubscribe/resubscribe the JPEG fallback,
+  // so `liveFrame` is momentarily ancient. Remember the drop instant and grant
+  // a grace window instead of screaming "Stalled" at a session that is fine.
+  const rtcDroppedAtRef = useRef<number>(0);
+  if (rtcVideoLiveRef.current && !rtcVideoLive) rtcDroppedAtRef.current = Date.now();
   rtcVideoLiveRef.current = rtcVideoLive;
+  // Decoded-video frame rate, sampled off the real <video> element so the HUD
+  // reports the stream's actual cadence rather than the JPEG fallback's.
+  const videoFpsRef = useRef({ last: 0, frames: 0, fps: 0 });
+  const [videoFps, setVideoFps] = useState(0);
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
@@ -235,6 +244,51 @@ function AdminPage() {
     if (video.parentElement !== host) host.appendChild(video);
     return () => { if (video.parentElement === host) host.removeChild(video); };
   }, [liveId, rtcVideoLive]);
+
+  // Measure decoded video frame rate. requestVideoFrameCallback fires once per
+  // presented frame, so this is the true stream cadence — the old HUD only ever
+  // counted JPEG arrivals and therefore read "1 fps" during healthy video.
+  useEffect(() => {
+    if (!rtcVideoLive) { setVideoFps(0); videoFpsRef.current = { last: 0, frames: 0, fps: 0 }; return; }
+    const video = rtcRef.current?.video as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (id: number) => void }) | undefined;
+    if (!video) return;
+    let stop = false;
+    let handle = 0;
+    const tick = () => {
+      if (stop) return;
+      const st = videoFpsRef.current;
+      const t = performance.now();
+      st.frames += 1;
+      if (!st.last) st.last = t;
+      else if (t - st.last >= 1000) {
+        st.fps = Math.round((st.frames * 1000) / (t - st.last));
+        st.frames = 0;
+        st.last = t;
+        setVideoFps(st.fps);
+      }
+      if (video.requestVideoFrameCallback) handle = video.requestVideoFrameCallback(tick);
+    };
+    if (video.requestVideoFrameCallback) {
+      handle = video.requestVideoFrameCallback(tick);
+    } else {
+      // Safari/older engines: fall back to a decoded-frame-count poll.
+      const iv = setInterval(() => {
+        const q = (video as unknown as { getVideoPlaybackQuality?: () => { totalVideoFrames: number } }).getVideoPlaybackQuality?.();
+        if (!q) return;
+        const st = videoFpsRef.current;
+        if (st.last) setVideoFps(Math.max(0, q.totalVideoFrames - st.frames));
+        st.frames = q.totalVideoFrames;
+        st.last = 1;
+      }, 1000);
+      return () => clearInterval(iv);
+    }
+    return () => {
+      stop = true;
+      if (handle && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(handle);
+    };
+  }, [liveId, rtcVideoLive]);
+
+
 
 
   useEffect(() => {
@@ -876,19 +930,26 @@ function AdminPage() {
         const presence = dev ? presenceOf(dev) : null;
         const active = s.state === "active";
         const frameAge = liveFrame?.updated_at ? now - new Date(liveFrame.updated_at).getTime() : Infinity;
+        // Grace window after the video track drops: the JPEG fallback has to
+        // resubscribe and wait for the agent's next push, so a stale frame in
+        // that window means "handing over", not "dead".
+        const sinceRtcDrop = rtcDroppedAtRef.current ? now - rtcDroppedAtRef.current : Infinity;
+        const handingOver = !rtcVideoLive && sinceRtcDrop < 8000;
         const streamState = !active
           ? "paused"
           : rtcVideoLive
             ? "live"
             : presence && presence !== "online"
               ? "reconnecting"
-              : !liveFrame?.frame
-                ? "waiting"
-                : frameAge < 2000
-                  ? "live"
-                  : frameAge < 8000
-                    ? "lag"
-                    : "stalled";
+              : handingOver
+                ? "reconnecting"
+                : !liveFrame?.frame
+                  ? "waiting"
+                  : frameAge < 2000
+                    ? "live"
+                    : frameAge < 8000
+                      ? "lag"
+                      : "stalled";
         const streamTone = streamState === "live"
           ? "bg-emerald-400"
           : streamState === "lag" || streamState === "waiting" || streamState === "reconnecting"
@@ -908,7 +969,7 @@ function AdminPage() {
         const transport: "connecting" | "video" | "live" | "reconnecting" | "polling" =
           rtcVideoLive
             ? "video"
-            : rtcState === "connecting"
+            : rtcState === "connecting" || handingOver
               ? "connecting"
               : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
                 ? "reconnecting"
@@ -925,9 +986,10 @@ function AdminPage() {
         // Candidate type turns the LAN-vs-cross-network test into a direct
         // read: host/srflx = direct path, relay = TURN is carrying the media.
         const iceKind = rtcRef.current?.candidateType?.() ?? null;
+        const videoLabel = `WebRTC video${iceKind ? ` · ${iceKind}` : ""}${videoFps ? ` · ${videoFps} fps` : ""}`;
         const transportLabel = {
           connecting: "Connecting",
-          video: iceKind ? `WebRTC video · ${iceKind}` : "WebRTC video",
+          video: videoLabel,
           live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
           reconnecting: "Reconnecting",
           polling: "Frame fallback (polling)",
@@ -1055,8 +1117,8 @@ function AdminPage() {
                     );
                   })()}
                   <span>session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}</span>
-                  <span>· {fpsCounterRef.current.fps} fps</span>
-                  {liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
+                  <span>· {rtcVideoLive ? `${videoFps} fps video` : `${fpsCounterRef.current.fps} fps frames`}</span>
+                  {!rtcVideoLive && liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
                 </div>
 
                 {s.mode === "control" && s.device_id && (

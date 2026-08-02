@@ -1,78 +1,54 @@
-## Goal
+## What the two screenshots prove
 
-Every peer currently hardcodes STUN-only (`stun:stun.l.google.com:19302`) in three places:
-`src/lib/webrtc-live.ts:28`, `agent/src/WebRtcSession.cs:79`, `admin/src/Media/WebRtcClient.cs:71`.
-No relay candidate is ever gathered, so any pair that can't do a direct/reflexive hole-punch
-never completes ICE. This change adds Metered TURN, served from the backend (credentials
-never in a client binary or bundle), and stops the watchdog from killing negotiations that
-are still legitimately in progress.
+Both shots are the same desktop, seconds apart:
 
-Explicitly out of scope: the blue tint (YUV plane swap) and the 1 fps cap. A stable,
-still-blue, still-1fps stream after this lands is the success condition.
+- **"WebRTC video" pill** → the desert wallpaper renders **blue**, the lake **orange**.
+- **"Connecting / Stalled" pill** (JPEG fallback path) → the same wallpaper renders **correctly orange**.
 
-## 1. Server-issued ICE configuration
+The JPEG pipeline is colour-correct; only the WebRTC path is wrong, and the colours are exactly inverted between the red and blue channels. That is a classic **R/B channel swap in the BGRA → I420 conversion**, not a brightness, gamma or alpha problem. The earlier "darkened" fix (32bppRgb + SourceCopy) was correct and stays; this is a separate, second defect on the video tee only.
 
-New `src/lib/ice.server.ts`:
+Two more things visible in the shots:
+- Both states report **1 fps** in the overlay, even while streaming video — the counter only tracks JPEG frames, so a healthy 30 fps video stream still reads "1 fps".
+- The pill flips to **"Connecting … Stalled"** while the picture is actually still arriving over the fallback, which reads as a dead session.
 
-- Calls Metered `https://<METERED_APP_NAME>.metered.live/api/v1/turn/credentials?apiKey=<METERED_SECRET_KEY>`
-- [{ https://zoomlite.metered.live/api/v1/turn/credentials?apiKey=5b142aafdb1a7943622e9b9ef1268dff16f2](https://zoomlite.metered.live/api/v1/turn/credentials?apiKey=5b142aafdb1a7943622e9b9ef1268dff16f2) }  
-(both secrets already saved; read inside the handler, never at module scope).
-- In-memory cache with a TTL below the credential lifetime (~50 min) so we don't hit the  
-API on every session start.
-- Always prepends Google STUN and returns `{ iceServers, hasTurn }`. If Metered errors or
-the secrets are absent, it degrades to STUN-only with `hasTurn: false` — a TURN outage
-must never block a session that could connect directly.
+## Changes
 
-Two consumers:
+### 1. Colour: correct the channel order handed to the encoder (agent)
 
-- `src/lib/ice.functions.ts` — `getIceServers` server fn (`requireSupabaseAuth`) for the web console.
-- `src/routes/api/public/ice.ts` — for the two C# clients. Authorises the caller as either
-an enrolled device (`X-Device-Id` + `X-Device-Token`, same check the other
-`/api/public/agent/*` routes use) or a signed-in admin (`Authorization: Bearer <jwt>`
-validated against the backend). Unauthenticated callers get 401; no credentials leak
-to anonymous requests.
+In `agent/src/ScreenCapture.cs` → `TeeToWebRtc`, the locked GDI buffer is passed straight through as `Bgra`. The encoder's conversion is consuming it in the opposite order. Fix by packing an explicit, tightly-packed buffer for the encoder instead of relying on the GDI layout:
 
-## 2. Wire the three peers
+- Copy row-by-row using `data.Stride` so the destination is exactly `width * 4` per row — this also removes the **stride-padding skew** that appears on odd widths today, where the frame shears diagonally.
+- Write the bytes in the order the encoder actually wants, with the alpha byte forced to `0xFF`.
+- Keep the existing 32bppRgb/SourceCopy capture untouched.
 
-- **Web console** (`src/lib/webrtc-live.ts`): fetch the ICE config before constructing
-`RTCPeerConnection`, drop the `STUN_SERVERS` constant, keep the STUN-only literal solely
-as the local fallback if the fetch fails.
-- **Agent** (`agent/src/WebRtcSession.cs`): `BuildPeer()` becomes async-fed by an
-`ApiClient.GetIceServersAsync()` (device-token headers, cached for the process lifetime
-with a refresh on 401/expiry), mapped to `RTCIceServer { urls, username, credential }`.
-- **Native admin** (`admin/src/Media/WebRtcClient.cs`): same fetch through `App.Api`, using
-the existing admin bearer.
+`agent/src/WebRtcSession.cs` → `PushFrame` gains an explicit tightly-packed contract (no stride argument) so no future caller can reintroduce the padding bug.
 
-## 3. Watchdog: ICE-state-driven, not a blind timer
+Verification is visual and unambiguous: the desert must render orange over WebRTC, exactly matching the JPEG fallback shot.
 
-Current behaviour (`webrtc-live.ts:238`) flips to `failed` 10 s after start if `state` is
-still `"connecting"`, regardless of what ICE is doing — relayed gathering routinely takes
-longer than that, so it kills connections that were about to succeed.
+### 2. Frame vitality and the fps readout
 
-New rule, applied identically in the web console and mirrored in both C# clients:
+- The tee is throttled to ~1 push/sec whenever the dirty-rect check says "unchanged". During actual motion it already runs full rate, but the overlay's counter never sees it. Feed the overlay a **transport-aware fps** — count decoded video frames when WebRTC is the active surface, JPEG arrivals otherwise.
+- Raise the idle keep-alive from 1 s to ~500 ms so a static desktop recovers faster after a decoder hiccup, without meaningfully raising CPU.
 
-- The watchdog **never fires** while `iceConnectionState` is `checking`, `connected`, or
-`completed`. Reaching `checking` is progress and restarts the clock.
-- `failed` is reported immediately when ICE itself reports `failed` — no waiting out the timer.
-- Hard ceiling only for the case where ICE never leaves `new`/`gathering`: **10 s when the
-config is STUN-only, 20 s when a TURN server is present** (`hasTurn` drives which).
-- `disconnected` no longer means dead: it starts a 5 s grace window and only escalates to
-`failed` if ICE hasn't returned to `connected`/`completed`, since a relayed path flaps
-through `disconnected` on rebinding.
+### 3. Stop the false "Connecting / Stalled" banner
 
-## 4. Diagnostics for your LAN vs cross-network test
+`src/routes/_authenticated/console.tsx` currently marks the session stalled on a frame-age timer that ignores the video track. If WebRTC is delivering, the session is live — the stalled/connecting state must only apply when **both** transports are quiet. Same rule mirrored in the native console's status text so the two clients agree.
 
-- Log the selected candidate pair type (`host` / `srflx` / `relay`) once ICE connects, and
-surface it in the existing admin transport pill (e.g. "WebRTC video · relay"). That turns
-your test into a direct read: same-LAN should show `host`/`srflx`, cross-network should
-show `relay` once TURN works.
-- Log `hasTurn` and the ICE-server host list (never the credential) at session start.
+### 4. Verify every route
+
+Two passes, reported as a table:
+
+- **Static audit** — every file under `src/routes/`, confirming each `createFileRoute("…")` string matches its filename, every page route has its own `head()` metadata, and no orphaned/duplicate paths. Cross-check the 18 API routes against `ENDPOINTS.md` and against actual call sites in the web console, `agent/src/ApiClient.cs`, and `admin/src/Api/ApiClient.cs` — flagging any endpoint a client calls that no longer exists, and any route nothing calls.
+- **Live smoke test** — run `scripts/verify-agent-routes.ts`, `scripts/verify-payment-routes.ts`, `scripts/e2e-smoke.ts` and `scripts/e2e-wake.ts` against the running app, plus a sweep of every public page route and each `/api/public/*` endpoint, asserting authenticated ones reject anonymous callers (401) rather than leaking data.
+
+Anything the sweep finds gets fixed in the same pass; anything ambiguous is reported rather than silently changed.
+
+### 5. Repackage
+
+New agent source zip (v1.7) and admin console zip (v1.5) once the colour fix is in, so the Windows build you compile matches this code.
 
 ## Technical notes
 
-- Metered credentials are short-lived and per-request; caching is server-side only, so a
-captured client binary yields nothing durable.
-- The `iceServers` shape is identical across the three clients so codec/ICE parity stays in
-lockstep, matching the existing VP8 pinning guardrail comments.
-- No database migration, no schema change, no change to the signalling tables or the
-frame/cursor fallback path.
+- Root cause of the tint is byte order at the `ExternalVideoSourceRawSample` boundary, confirmed by the JPEG path — which reads the *same* `scaledBmp` — being correct.
+- Stride padding is only harmless while width is a multiple of 4 at 32bpp; the low-bandwidth 960px profile and non-standard resolutions can break that, so the packed copy is a real fix, not a defensive one.
+- No database, RLS, or ICE/TURN changes — that work landed last turn and stays as is.
