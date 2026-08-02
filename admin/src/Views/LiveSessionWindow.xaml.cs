@@ -129,7 +129,12 @@ public partial class LiveSessionWindow : Window
         // Sample() advances prediction expiry and the fade, so it must be
         // called every tick — even when we end up hiding the ghost.
         var (nx, ny, visible) = _predict.Sample();
-        if (!visible || !_vm.CursorVisible) { CursorGhost.Visibility = Visibility.Collapsed; return; }
+        // Sample() already folds in telemetry visibility: it returns false when
+        // the agent reports no cursor and we are not predicting, so gating on
+        // the VM flag as well would suppress the ghost during the window
+        // before the first telemetry row arrives.
+        if (!visible) { CursorGhost.Visibility = Visibility.Collapsed; return; }
+
         var r = Rect();
         if (!r.IsValid) { CursorGhost.Visibility = Visibility.Collapsed; return; }
         // Offset by the letterbox bars, not by the raw element size.
