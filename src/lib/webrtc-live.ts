@@ -382,14 +382,22 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       return false;
     },
     close: () => {
+      if (closed) return;
+      closed = true;
       clearWatchdog();
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
       if (mediaWatchdog !== null) window.clearInterval(mediaWatchdog);
-      // Queue the final signal before marking the transport closed; drainQueue
-      // intentionally ignores new work after `closed` becomes true.
-      enqueue("bye", {});
-      void drainQueue().finally(() => {
-        closed = true;
+      // Send the final signal directly: the normal queue stops accepting work
+      // once close begins, and a queued bye could otherwise be stranded.
+      void postAdminSignal({
+        data: {
+          sessionId,
+          clientId: webClientId,
+          kind: "bye",
+          payload: {},
+          attemptId: newAttemptId(),
+        },
+      }).catch(() => undefined).finally(() => {
         try { dc?.close(); } catch {}
         try { pc.close(); } catch {}
         try { supabase.removeChannel(channel); } catch {}
