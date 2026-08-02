@@ -95,7 +95,23 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 
 ## 5. Change log (rolling — newest first)
 
-### 2026 — Agent surface reduction + verification pass (`SCOPE:PRESENCE`)
+### 2026-08-02 — Truth pass: docs ↔ code ↔ DB reconciliation (`SCOPE:DATA`, `SCOPE:WEB`)
+
+| Scope | File | Change |
+| --- | --- | --- |
+| `SCOPE:DATA` | migration | Dropped the duplicate `trg_sync_device_session_active` on `public.sessions`. Both it and `trg_sessions_sync_device_active` executed `sync_device_session_active()`; the dropped one fired on **every** update (including bare `updated_at` touches), the survivor is column-scoped (`AFTER INSERT OR DELETE OR UPDATE OF state, device_id`) and therefore the correct one to keep. Note: the pass-1 changelog named the other trigger — the *narrow* trigger wins on merit, and this entry is the correction. |
+| `SCOPE:WEB` | `PROJECT-MAP.md` §3 | `agent/stream` was still documented as "dead server-side". It has had a client since pass 2 (`agent/src/StreamListener.cs`) and `ENDPOINTS.md` already described it as live. Row corrected. |
+| `SCOPE:WEB` | `PROJECT-MAP.md` §6, §8 | Backlog re-indexed into Tier A / B / C with 12 ordered items; new §8 records the verified DB + code state with a date so the next audit has something to diff against. |
+
+**Verification run (this pass)**
+
+- Agent tree: `SplashWindow.xaml.cs`, `MonitorSelector.cs`, `StreamListener.cs`, `StartupSelfHeal.cs`, `DxgiCapture.cs` all present; zero `MainWindow`/`NotifyIcon` hits under `agent/`.
+- Native console: `PredictiveCursor.cs`, `LiveSessionViewModel.cs`, `LiveSessionWindow.xaml` present — turns 1 and 2 confirmed on disk.
+- Web console: **gap confirmed** — `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts`; `/console` never reads them and never enqueues `switch_monitor`. Tier A item 1.
+- `src/routes/_authenticated/console.tsx` is 3,119 lines (device grid + live view + settings + notifications + Telegram funnel in one file). Tier C item 8.
+- DB: `power_commands_kind_check` vocabulary matches the doc; 2 active pg_cron jobs; 7 tables in `supabase_realtime`; `sessions` now carries exactly 3 triggers.
+
+
 
 | Scope | File | Change |
 | --- | --- | --- |
