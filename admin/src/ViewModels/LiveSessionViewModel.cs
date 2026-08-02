@@ -144,13 +144,15 @@ public partial class LiveSessionViewModel : ObservableObject
             SessionId,
             onFrameBytes: (bytes, utc) =>
             {
+                if (NativeVideo) return;              // native path owns the surface
                 var bmp = DecodeJpeg(bytes);
                 if (bmp == null) return;
                 _lastFrameUtc = utc;
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
+                    if (NativeVideo) return;
                     CurrentFrame = bmp;
-                    if (Transport != "WebRTC video") Transport = "Realtime frames";
+                    Transport = "Realtime frames";
                 });
             },
             onCursor: e =>
@@ -172,12 +174,21 @@ public partial class LiveSessionViewModel : ObservableObject
         _realtime.Start();
 
         _rtc = new WebRtcClient(SessionId);
+
+        // The decoded surface (D3DImage, or WriteableBitmap when the D3D path
+        // is unavailable) replaces the JPEG still the moment it exists.
+        _rtc.Pipeline.SurfaceReady += src =>
+        {
+            Application.Current?.Dispatcher.Invoke(() => CurrentFrame = src);
+        };
+
         _ = _rtc.StartAsync(_cts.Token,
             onVideoLive: () =>
             {
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
-                    Transport = "WebRTC video";
+                    NativeVideo = true;
+                    Transport = "Native video";
                     StatusMessage = null;
                 });
             },
@@ -185,15 +196,70 @@ public partial class LiveSessionViewModel : ObservableObject
             {
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
+                    NativeVideo = false;
                     Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
-                    LinkState = "video stalled — fallback active";
+                    LinkState = "native video stalled — fallback active";
                 });
             },
             onTerminated: HandleTakenOver,
             onError: SurfaceError);
 
         StartLinkWatchdog(_cts.Token);
+        StartVideoStats(_cts.Token);
+        StartNetworkWatch();
     }
+
+    // ---- G2 on-screen measurement ----------------------------------------
+    // fps + queue depth + decode-to-present latency, refreshed once a second,
+    // so "is it actually smooth" is a reading, not an opinion.
+    private void StartVideoStats(CancellationToken ct)
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
+                var p = _rtc?.Pipeline;
+                if (p == null) continue;
+                var presenting = p.IsPresenting;
+                var text = presenting
+                    ? $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {p.SourceWidth}x{p.SourceHeight} · {(p.UsingD3D ? "D3D" : "bitmap")}"
+                    : null;
+                Application.Current?.Dispatcher.InvokeAsync(() =>
+                {
+                    VideoStats = text;
+                    if (!presenting && NativeVideo)
+                    {
+                        NativeVideo = false;
+                        Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
+                    }
+                });
+            }
+        }, CancellationToken.None);
+    }
+
+    // ---- G5-F1: snap back the instant connectivity returns ----------------
+    private System.Net.NetworkInformation.NetworkAddressChangedEventHandler? _netHandler;
+
+    private void StartNetworkWatch()
+    {
+        _netHandler = (_, __) =>
+        {
+            if (_cts == null || _cts.IsCancellationRequested) return;
+            SurfaceError("Network change detected — re-establishing the live link…");
+            _ = ReconnectAgent();
+        };
+        try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += _netHandler; }
+        catch { _netHandler = null; }
+    }
+
+    private void StopNetworkWatch()
+    {
+        if (_netHandler == null) return;
+        try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged -= _netHandler; } catch { }
+        _netHandler = null;
+    }
+
 
     private static BitmapSource? DecodeJpeg(byte[] bytes)
     {
