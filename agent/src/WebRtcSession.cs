@@ -205,9 +205,26 @@ public sealed class WebRtcSession : IDisposable
             catch (Exception ex) { Log.Warn($"webrtc ice post: {ex.Message}"); }
         };
 
-        _pc.onconnectionstatechange += (s) =>
+        _pc.onconnectionstatechange += async (s) =>
         {
             Log.Info($"webrtc pc state: {s}");
+            if (s == RTCPeerConnectionState.connected)
+            {
+                // The encoder is a source: it stays paused until StartVideo().
+                try
+                {
+                    if (_videoEnd != null && !_videoStarted)
+                    {
+                        await _videoEnd.StartVideo();
+                        _videoStarted = true;
+                        try { _videoEnd.ForceKeyFrame(); } catch { }
+                        ScreenCapture.ResetWebRtcTee();
+                        Log.Info("webrtc video source started (keyframe forced)");
+                    }
+                }
+                catch (Exception ex) { Log.Warn($"webrtc start video: {ex.Message}"); }
+                return;
+            }
             if (s == RTCPeerConnectionState.failed || s == RTCPeerConnectionState.closed || s == RTCPeerConnectionState.disconnected)
             {
                 // Only the peer is torn down here; a follow-up offer (same or
@@ -219,30 +236,58 @@ public sealed class WebRtcSession : IDisposable
 
     private void TearDownPeer()
     {
+        try { _videoEnd?.PauseVideo(); } catch { }
         try { _videoEnd?.CloseVideo(); } catch { }
         try { _pc?.close(); } catch { }
         _videoEnd = null;
         _pc = null;
+        _formatReady = false;
+        _videoStarted = false;
     }
 
     /// <summary>
     /// Called from ScreenCapture: encode this frame into the WebRTC video track.
     /// Buffer MUST be tightly packed (width*4 bytes per row) in RGBA memory
     /// order — SIPSorcery's Bgra converter reads bytes as R,G,B,A, so passing
-    /// GDI BGRA verbatim renders the picture with R/B swapped. Silently no-ops
-    /// when the peer isn't connected yet — admin sees the HTTPS stream then.
+    /// GDI BGRA verbatim renders the picture with R/B swapped.
+    ///
+    /// No-ops until the peer is connected AND the SDP-negotiated video format
+    /// has been handed to the encoder. Both conditions are counted so a
+    /// starving pipeline shows up in the log instead of failing invisibly.
     /// </summary>
     public void PushFrame(byte[] rgba, int width, int height)
     {
-        if (_videoEnd == null || _pc == null) return;
-        if (_pc.connectionState != RTCPeerConnectionState.connected) return;
+        var pc = _pc;
+        var enc = _videoEnd;
+        if (enc == null || pc == null) { Interlocked.Increment(ref _dropped); return; }
+        if (pc.connectionState != RTCPeerConnectionState.connected ||
+            !_formatReady || !_videoStarted)
+        {
+            Interlocked.Increment(ref _dropped);
+            MaybeLogStats();
+            return;
+        }
         try
         {
-            _videoEnd.ExternalVideoSourceRawSample(
+            Interlocked.Increment(ref _pushed);
+            enc.ExternalVideoSourceRawSample(
                 33, width, height, rgba, VideoPixelFormatsEnum.Bgra);
         }
         catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }
+        MaybeLogStats();
     }
+
+    /// <summary>~5 s heartbeat of the video pipeline so "connected but black" is diagnosable.</summary>
+    private void MaybeLogStats()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastStatsUtc).TotalSeconds < 5) return;
+        _lastStatsUtc = now;
+        Log.Info($"webrtc video pipe: pushed={Interlocked.Read(ref _pushed)} " +
+                 $"encoded={Interlocked.Read(ref _encoded)} dropped={Interlocked.Read(ref _dropped)} " +
+                 $"formatReady={_formatReady} started={_videoStarted}");
+    }
+
 
     private async Task SignalPumpAsync(CancellationToken ct)
     {
