@@ -123,6 +123,9 @@ public sealed class Agent
     public async Task RunAsync(CancellationToken ct)
     {
         _outerCt = ct;
+        SubscribeNetworkChange(ct);
+
+
 
         // Boot-proof enrollment: retry every 5s forever. Windows Startup fires
         // before Wi-Fi finishes negotiating, so a single failure here used to
