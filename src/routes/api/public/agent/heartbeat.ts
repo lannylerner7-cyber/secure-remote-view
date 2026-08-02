@@ -92,7 +92,10 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           id: r.id,
           kind: r.kind,
           payload: r.payload,
-          role: r.relay_device_id === ctx.device.id && r.device_id !== ctx.device.id ? "relay" : "target",
+          role:
+            r.relay_device_id === ctx.device.id && r.device_id !== ctx.device.id
+              ? "relay"
+              : "target",
         }));
 
         if (powerCommands.length > 0) {

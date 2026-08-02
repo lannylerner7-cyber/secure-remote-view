@@ -20,11 +20,21 @@ function Page() {
     <LegalShell title="Contact us" updated="">
       <p>The fastest way to reach us is email. We reply within one business day.</p>
       <ul>
-        <li><strong>Sales & billing:</strong> <a href="mailto:billing@zoomlite.live">billing@zoomlite.live</a></li>
-        <li><strong>Support:</strong> <a href="mailto:support@zoomlite.live">support@zoomlite.live</a></li>
-        <li><strong>Privacy & security:</strong> <a href="mailto:privacy@zoomlite.live">privacy@zoomlite.live</a></li>
+        <li>
+          <strong>Sales & billing:</strong>{" "}
+          <a href="mailto:billing@zoomlite.live">billing@zoomlite.live</a>
+        </li>
+        <li>
+          <strong>Support:</strong> <a href="mailto:support@zoomlite.live">support@zoomlite.live</a>
+        </li>
+        <li>
+          <strong>Privacy & security:</strong>{" "}
+          <a href="mailto:privacy@zoomlite.live">privacy@zoomlite.live</a>
+        </li>
       </ul>
-      <p>For urgent live-session issues, include your order ID or meeting code in the subject line.</p>
+      <p>
+        For urgent live-session issues, include your order ID or meeting code in the subject line.
+      </p>
     </LegalShell>
   );
 }

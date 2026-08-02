@@ -45,10 +45,15 @@ export const Route = createFileRoute("/api/public/admin/bootstrap")({
             email,
             password: body.password,
             email_confirm: true,
-            user_metadata: { technician_id: body.technicianId, display_name: body.displayName ?? body.technicianId },
+            user_metadata: {
+              technician_id: body.technicianId,
+              display_name: body.displayName ?? body.technicianId,
+            },
           });
           if (error || !data.user) {
-            return new Response(JSON.stringify({ error: error?.message ?? "create_failed" }), { status: 500 });
+            return new Response(JSON.stringify({ error: error?.message ?? "create_failed" }), {
+              status: 500,
+            });
           }
           userId = data.user.id;
         } else {

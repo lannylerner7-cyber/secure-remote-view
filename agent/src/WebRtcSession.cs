@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -6,6 +7,7 @@ using System.Collections.Generic;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using SIPSorceryMedia.Encoders;
+
 
 namespace ConnectLive.Agent;
 
@@ -57,8 +59,17 @@ public sealed class WebRtcSession : IDisposable
     private int _lastPushW = 0;
     private int _lastPushH = 0;
     private int _negotiatedPt = -1;
+    // SCOPE:TRANSPORT keyframe-on-demand bookkeeping. A lossy link can produce
+    // a PLI burst (the admin sends one per damaged frame); encoding a keyframe
+    // per PLI would saturate the very link that is already struggling, so
+    // requests inside the cooldown collapse into the one already in flight.
+    private long _lastKeyFrameTicks = 0;
+    private long _keyFrameRequests = 0;
+    private long _keyFramesForced = 0;
+    private const int KeyFrameCooldownMs = 200;
     /// <summary>Monotonic ms clock shared by the video diagnostics so log lines can be correlated.</summary>
     internal static readonly System.Diagnostics.Stopwatch MonoClock = System.Diagnostics.Stopwatch.StartNew();
+
 
 
     // Identity of the admin machine that owns the current peer. Null until
@@ -76,6 +87,35 @@ public sealed class WebRtcSession : IDisposable
         _sessionId = sessionId;
         _cts = new CancellationTokenSource();
         Current = this;
+    }
+
+    /// <summary>
+    /// SCOPE:TRANSPORT — ask the VP8 encoder for an immediate keyframe.
+    /// Called from the RTCP feedback handler when the admin's decoder reports
+    /// loss. Cooldown prevents a PLI storm on a lossy link from becoming a
+    /// keyframe storm that saturates the very link that is already hurting.
+    /// </summary>
+    private void RequestKeyFrame(string reason)
+    {
+        Interlocked.Increment(ref _keyFrameRequests);
+        var end = _videoEnd;
+        if (end == null || !_videoStarted) return;
+
+        long now = MonoClock.ElapsedMilliseconds;
+        long last = Interlocked.Read(ref _lastKeyFrameTicks);
+        if (last != 0 && now - last < KeyFrameCooldownMs) return;
+        if (Interlocked.CompareExchange(ref _lastKeyFrameTicks, now, last) != last) return;
+
+        try
+        {
+            end.ForceKeyFrame();
+            // Reset the safety-net counter so the next periodic keyframe is
+            // measured from *this* IDR, not the last scheduled one.
+            ScreenCapture.ResetKeyframeClock();
+            Interlocked.Increment(ref _keyFramesForced);
+            Log.Info($"[t={now}] webrtc keyframe forced ({reason})");
+        }
+        catch (Exception ex) { Log.Warn($"webrtc force keyframe: {ex.Message}"); }
     }
 
     public Task StartAsync()
@@ -184,12 +224,45 @@ public sealed class WebRtcSession : IDisposable
                     }
                     JsonElement? flush;
                     lock (moveLock) { flush = pendingMove; pendingMove = null; }
-                    if (flush.HasValue) InputRelayBridge.Apply(flush.Value);
-                    InputRelayBridge.Apply(root);
+                    // Direct call — InputRelay.Apply is internal, same
+                    // assembly. The old reflection bridge existed only when
+                    // this file lived outside the agent assembly.
+                    if (flush.HasValue) InputRelay.Apply(flush.Value);
+                    InputRelay.Apply(root);
                     doc.Dispose();
                 }
                 catch (Exception ex) { Log.Warn($"webrtc dc apply: {ex.Message}"); }
             };
+        };
+
+        // ---- SCOPE:TRANSPORT — keyframe on demand -------------------------
+        // Before this handler existed, PLI/FIR from the admin were swallowed
+        // and the decoder would sit on a corrupt reference frame until the
+        // safety-net periodic refresh (see ScreenCapture.PeriodicRefreshFrames).
+        // SIPSorcery raises OnReceiveReport for every incoming RTCP compound
+        // packet; the payload-specific feedback packet carries either PLI
+        // (fmt=1) or FIR (fmt=4). Either one means "I lost sync, please
+        // resend an IDR immediately".
+        _pc.OnReceiveReport += (IPEndPoint ep, SDPMediaTypesEnum mediaType, RTCPCompoundPacket rtcp) =>
+        {
+            try
+            {
+                if (mediaType != SDPMediaTypesEnum.video) return;
+                var fb = rtcp?.Feedback;
+                var hdr = fb?.Header;
+                if (hdr == null) return;
+
+                // PSFB carries the payload-specific messages; PLI (fmt=1) is
+                // what Chrome/SIPSorcery send on decode failure, FIR (fmt=4)
+                // is the legacy equivalent some stacks still emit.
+                if (hdr.PacketType == RTCPReportTypesEnum.PSFB &&
+                    (hdr.PayloadFeedbackMessageType == PSFBFeedbackTypesEnum.PLI ||
+                     hdr.PayloadFeedbackMessageType == PSFBFeedbackTypesEnum.FIR))
+                {
+                    RequestKeyFrame(hdr.PayloadFeedbackMessageType.ToString());
+                }
+            }
+            catch (Exception ex) { Log.Warn($"webrtc rtcp handler: {ex.Message}"); }
         };
 
 
@@ -437,23 +510,18 @@ public sealed class WebRtcSession : IDisposable
         if (Current == this) Current = null;
         try { _cts.Cancel(); } catch { }
         TearDownPeer();
+
+        // SCOPE:TRANSPORT lifecycle — both of these are per-session and were
+        // previously only cancelled, never released. Over a long shift of
+        // connect/disconnect cycles the agent accrued a CTS timer registration
+        // and a semaphore handle per session.
+        try { _cts.Dispose(); } catch { }
+        try { _handoffLock.Dispose(); } catch { }
+
+        Log.Info($"webrtc closed — keyframe requests={Interlocked.Read(ref _keyFrameRequests)} " +
+                 $"forced={Interlocked.Read(ref _keyFramesForced)}");
     }
 
     public void Dispose() => Close();
 }
 
-/// <summary>
-/// Reuses InputRelay's `Apply(JsonElement)` switch without exposing it publicly.
-/// Wired via reflection to avoid touching InputRelay signatures.
-/// </summary>
-internal static class InputRelayBridge
-{
-    private static readonly System.Reflection.MethodInfo? _apply =
-        typeof(InputRelay).GetMethod("Apply",
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-
-    public static void Apply(JsonElement el)
-    {
-        _apply?.Invoke(null, new object[] { el });
-    }
-}

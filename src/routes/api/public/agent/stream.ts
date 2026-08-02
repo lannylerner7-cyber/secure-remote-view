@@ -32,7 +32,9 @@ export const Route = createFileRoute("/api/public/agent/stream")({
                 controller.enqueue(
                   enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
                 );
-              } catch { /* controller closed */ }
+              } catch {
+                /* controller closed */
+              }
             };
             send("ready", { ok: true, at: new Date().toISOString() });
 
@@ -41,7 +43,11 @@ export const Route = createFileRoute("/api/public/agent/stream")({
             const close = () => {
               if (closed) return;
               closed = true;
-              try { controller.close(); } catch { /* already closed */ }
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
             };
             abort.addEventListener("abort", close);
 
@@ -67,8 +73,12 @@ export const Route = createFileRoute("/api/public/agent/stream")({
               }
               // Keepalive comment every 15 ticks (~15s) so proxies don't reap us.
               if (++ticks % 15 === 0) {
-                try { controller.enqueue(enc.encode(`: keepalive ${Date.now()}\n\n`)); }
-                catch { close(); break; }
+                try {
+                  controller.enqueue(enc.encode(`: keepalive ${Date.now()}\n\n`));
+                } catch {
+                  close();
+                  break;
+                }
               }
               await new Promise((r) => setTimeout(r, 1000));
             }
@@ -80,7 +90,7 @@ export const Route = createFileRoute("/api/public/agent/stream")({
           headers: {
             "content-type": "text/event-stream",
             "cache-control": "no-cache, no-transform",
-            "connection": "keep-alive",
+            connection: "keep-alive",
             "x-accel-buffering": "no",
           },
         });

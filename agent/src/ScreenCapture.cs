@@ -25,6 +25,24 @@ public static class ScreenCapture
     /// <summary>True when the low-bandwidth profile is engaged.</summary>
     public static bool PerformanceMode { get; private set; }
 
+    /// <summary>
+    /// Longest edge, in pixels, of the frame currently being shipped.
+    /// <see cref="CursorPump"/> reads this so cursor telemetry lands in the
+    /// exact coordinate space of the picture the technician is looking at.
+    /// </summary>
+    public static int MaxEdge => _maxEdge;
+
+    /// <summary>
+    /// Periodic full refresh, in frames, used as a *safety net* only.
+    /// Keyframes are normally driven on demand by RTCP PLI/FIR
+    /// (<see cref="WebRtcSession"/>). Before that handler existed this was 60
+    /// (~2 s) because it was the only recovery path after packet loss; with
+    /// real feedback wired up it can relax to ~10 s, which removes a periodic
+    /// bandwidth spike that bought nothing on a healthy link.
+    /// </summary>
+    private const int PeriodicRefreshFrames = 300;
+
+
     /// <summary>Switch between Normal (1920/q70-85) and Performance (960/q40-55).</summary>
     public static void SetQualityMode(bool performance)
     {
@@ -80,7 +98,8 @@ public static class ScreenCapture
 
         // Try DXGI Desktop Duplication once — falls back to GDI transparently
         // on RDP, Session 0, or any COM failure. Enterprise pipeline: ~sub-ms
-        // GPU acquire vs 15-30ms CPU BitBlt.
+        // GPU acquire vs 15-30ms CPU BitBlt. The output it duplicates is the
+        // one MonitorSelector points at, not blindly index 0.
         DxgiCapture? dxgi = new DxgiCapture();
         if (!dxgi.TryInitialize())
         {
@@ -89,13 +108,47 @@ public static class ScreenCapture
             Log.Info("capture: DXGI unavailable, using GDI fallback");
         }
 
+        // Remember which display we are on so a picker change (or a monitor
+        // being unplugged) reallocates the bitmaps instead of blitting a
+        // 2560-wide desktop into a 1920-wide buffer.
+        string lastDeviceName = MonitorSelector.SelectedDeviceName;
+        // GDI-fallback rebuild clock, mirrors the DXGI reinit rate limit.
+        var lastDxgiRetryUtc = DateTime.UtcNow;
+
         while (!ct.IsCancellationRequested)
         {
             int delayMs = 33; // ~30 FPS target during motion
             try
             {
-                var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds
-                             ?? new Rectangle(0, 0, 1920, 1080);
+                var target = MonitorSelector.Resolve();
+                var bounds = target.Bounds;
+                if (bounds.Width <= 0 || bounds.Height <= 0)
+                    bounds = new Rectangle(0, 0, 1920, 1080);
+
+                if (!string.Equals(lastDeviceName, target.DeviceName, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Info($"capture: monitor switched {lastDeviceName} -> {target.DeviceName}");
+                    lastDeviceName = target.DeviceName;
+                    // Force a re-scale/re-alloc on the next block and re-tee so
+                    // the admin sees the new display within one frame interval.
+                    prevBoundsW = prevBoundsH = 0;
+                    ResetWebRtcTee();
+                }
+
+                // GDI fallback is running but DXGI may have become available
+                // again (RDP session ended, secure desktop dismissed, driver
+                // recovered). Retry at most once every 10 s.
+                if (dxgi == null && (DateTime.UtcNow - lastDxgiRetryUtc).TotalSeconds >= 10)
+                {
+                    lastDxgiRetryUtc = DateTime.UtcNow;
+                    var probe = new DxgiCapture();
+                    if (probe.TryInitialize())
+                    {
+                        dxgi = probe;
+                        Log.Info($"capture: DXGI became available on {probe.DeviceName}");
+                    }
+                    else probe.Dispose();
+                }
 
                 // Reallocate raw bitmap only when screen size changes.
                 if (rawBmp == null || bounds.Width != prevBoundsW || bounds.Height != prevBoundsH)
@@ -115,9 +168,15 @@ public static class ScreenCapture
                 bool haveFreshRaw = false;
                 if (dxgi != null && dxgi.IsInitialized)
                 {
-                    // Force a full refresh every ~60 frames (~2s at 30fps) so
-                    // fresh admin subscribers see the current desktop.
-                    bool forceRefresh = framesSinceKeyframe >= 60;
+                    // An RTCP-driven keyframe just went out: restart the
+                    // countdown from it rather than emitting a second one.
+                    if (ConsumeKeyframeClockReset()) framesSinceKeyframe = 0;
+
+                    // Safety-net full refresh (see PeriodicRefreshFrames). The
+                    // real recovery path is the RTCP PLI/FIR handler in
+                    // WebRtcSession, which forces a keyframe on actual loss.
+                    bool forceRefresh = framesSinceKeyframe >= PeriodicRefreshFrames;
+
                     using var dxFrame = dxgi.TryCapture(15, forceRefresh);
                     if (dxFrame != null)
                     {
@@ -141,6 +200,7 @@ public static class ScreenCapture
                         continue;
                     }
                 }
+
 
                 if (!haveFreshRaw)
                 {
@@ -264,6 +324,21 @@ public static class ScreenCapture
         _lastTeeUtc = DateTime.MinValue;
         _logNextTee = true;
     }
+
+    // Set by WebRtcSession.RequestKeyFrame after an on-demand IDR so the
+    // capture loop restarts its safety-net countdown from that keyframe
+    // instead of firing a redundant full refresh moments later.
+    private static int _keyframeClockReset = 0;
+
+    /// <summary>
+    /// SCOPE:TRANSPORT — signal the capture loop that a keyframe was just
+    /// forced out-of-band (RTCP PLI/FIR). Safe to call from any thread.
+    /// </summary>
+    public static void ResetKeyframeClock() => Interlocked.Exchange(ref _keyframeClockReset, 1);
+
+    private static bool ConsumeKeyframeClockReset() =>
+        Interlocked.Exchange(ref _keyframeClockReset, 0) == 1;
+
 
 
 

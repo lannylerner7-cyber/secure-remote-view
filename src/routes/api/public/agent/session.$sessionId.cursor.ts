@@ -22,13 +22,19 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/curso
         if (!ctx) return new Response("unauthorized", { status: 401 });
 
         const body = (await request.json().catch(() => ({}))) as {
-          x?: number; y?: number; w?: number; h?: number; kind?: string; visible?: boolean;
+          x?: number;
+          y?: number;
+          w?: number;
+          h?: number;
+          kind?: string;
+          visible?: boolean;
         };
         const x = Number.isFinite(body.x) ? Math.trunc(body.x as number) : 0;
         const y = Number.isFinite(body.y) ? Math.trunc(body.y as number) : 0;
         const w = Number.isFinite(body.w) ? Math.trunc(body.w as number) : null;
         const h = Number.isFinite(body.h) ? Math.trunc(body.h as number) : null;
-        const kind = typeof body.kind === "string" && body.kind.length <= 32 ? body.kind : "default";
+        const kind =
+          typeof body.kind === "string" && body.kind.length <= 32 ? body.kind : "default";
         const visible = body.visible !== false;
 
         const { data: session } = await ctx.admin
@@ -40,13 +46,20 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/curso
           return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
         }
         if (session.state !== "active") {
-          return new Response(JSON.stringify({ error: "not_active", state: session.state }), { status: 409 });
+          return new Response(JSON.stringify({ error: "not_active", state: session.state }), {
+            status: 409,
+          });
         }
 
         const { error } = await ctx.admin.from("session_cursors").upsert(
           {
             session_id: session.id,
-            x, y, frame_w: w, frame_h: h, kind, visible,
+            x,
+            y,
+            frame_w: w,
+            frame_h: h,
+            kind,
+            visible,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "session_id" },

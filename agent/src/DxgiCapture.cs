@@ -28,12 +28,27 @@ namespace ConnectLive.Agent;
 ///     AcquireNextFrame result. When false, ScreenCapture can skip encode
 ///     entirely and stall its idle backoff.
 ///
+/// SCOPE:CAPTURE multi-monitor contract (was: hardcoded <c>EnumOutputs(0)</c>):
+/// the output to duplicate is chosen by <see cref="MonitorSelector"/> and
+/// matched on <c>DXGI_OUTPUT_DESC.DeviceName</c> — DXGI's output ordering is
+/// NOT the same as <c>Screen.AllScreens</c> ordering, and on multi-GPU rigs
+/// the target output may not even hang off the default adapter. We therefore
+/// walk every adapter × output, and create the D3D11 device on the adapter
+/// that actually owns the display. <see cref="OffsetX"/>/<see cref="OffsetY"/>
+/// expose that monitor's desktop origin so cursor and input math can be
+/// expressed in the same space as the pixels we ship.
+///
 /// Dependencies: Vortice.Direct3D11 + Vortice.DXGI (pure-managed, single-file
 /// publish safe, MIT). Chosen over SharpDX because SharpDX is unmaintained
 /// and its native COM interop breaks under net8 single-file trimming.
 /// </summary>
 public sealed class DxgiCapture : IDisposable
 {
+    private static readonly FeatureLevel[] FeatureLevels =
+    {
+        FeatureLevel.Level_11_0, FeatureLevel.Level_10_1, FeatureLevel.Level_10_0,
+    };
+
     private IDXGIOutputDuplication? _duplication;
     private ID3D11Device? _device;
     private ID3D11DeviceContext? _context;
@@ -42,6 +57,9 @@ public sealed class DxgiCapture : IDisposable
     private int _height;
     private bool _initialized;
     private bool _lastFrameChanged;
+    private string _deviceName = "";
+    private int _offsetX;
+    private int _offsetY;
     private readonly Stopwatch _sw = new();
 
     public bool IsInitialized => _initialized;
@@ -49,56 +67,38 @@ public sealed class DxgiCapture : IDisposable
     public int Width => _width;
     public int Height => _height;
 
-    public bool TryInitialize()
+    /// <summary>Windows device name of the duplicated output (e.g. <c>\\.\DISPLAY2</c>).</summary>
+    public string DeviceName => _deviceName;
+
+    /// <summary>Desktop-coordinate X origin of the duplicated output.</summary>
+    public int OffsetX => _offsetX;
+
+    /// <summary>Desktop-coordinate Y origin of the duplicated output.</summary>
+    public int OffsetY => _offsetY;
+
+    /// <summary>
+    /// True when the duplicated output no longer matches what
+    /// <see cref="MonitorSelector"/> wants — the capture loop should rebuild.
+    /// </summary>
+    public bool IsStale =>
+        _initialized &&
+        !string.Equals(_deviceName, MonitorSelector.SelectedDeviceName, StringComparison.OrdinalIgnoreCase);
+
+    public bool TryInitialize() => TryInitialize(MonitorSelector.Resolve());
+
+    public bool TryInitialize(MonitorSelector.MonitorInfo target)
     {
         try
         {
-            // Create D3D11 device on the default adapter. BgraSupport is
-            // required for CPU-visible staging textures.
-            var result = D3D11.D3D11CreateDevice(
-                adapter: null,
-                DriverType.Hardware,
-                DeviceCreationFlags.BgraSupport,
-                new[] { FeatureLevel.Level_11_0, FeatureLevel.Level_10_1, FeatureLevel.Level_10_0 },
-                out _device,
-                out _context);
-            if (result.Failure || _device is null || _context is null)
-            {
-                Log.Warn($"DXGI: D3D11CreateDevice failed 0x{result.Code:X8}");
-                return false;
-            }
+            if (TryBuildForDisplay(target.DeviceName)) return true;
 
-            using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
-            using var adapter = dxgiDevice.GetAdapter();
-            adapter.EnumOutputs(0, out IDXGIOutput output);
-            using (output)
-            using (var output1 = output.QueryInterface<IDXGIOutput1>())
-            {
-                _duplication = output1.DuplicateOutput(_device);
-                var desc = _duplication.Description;
-                _width = (int)desc.ModeDescription.Width;
-                _height = (int)desc.ModeDescription.Height;
-
-                // Staging texture matches the duplication surface, CPU-readable.
-                var stagingDesc = new Texture2DDescription
-                {
-                    Width = (uint)_width,
-                    Height = (uint)_height,
-                    MipLevels = 1u,
-                    ArraySize = 1u,
-                    Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
-                    SampleDescription = new SampleDescription(1, 0),
-                    Usage = ResourceUsage.Staging,
-                    BindFlags = BindFlags.None,
-                    CPUAccessFlags = CpuAccessFlags.Read,
-                    MiscFlags = ResourceOptionFlags.None,
-                };
-                _staging = _device.CreateTexture2D(stagingDesc);
-
-                _initialized = true;
-                Log.Info($"DXGI: Desktop Duplication initialized {_width}x{_height}");
-                return true;
-            }
+            // The named display could not be duplicated (RDP, mirrored driver,
+            // Session 0, protected content). Rather than losing the session,
+            // fall back to whatever the default adapter's first output is —
+            // the GDI path in ScreenCapture stays available beneath that.
+            Log.Warn($"DXGI: '{target.DeviceName}' not duplicable — trying default adapter output 0");
+            Dispose();
+            return TryBuildDefault();
         }
         catch (SharpGenException ex)
         {
@@ -115,6 +115,161 @@ public sealed class DxgiCapture : IDisposable
     }
 
     /// <summary>
+    /// Walk every adapter × output looking for the requested display name and
+    /// duplicate it on the adapter that owns it.
+    /// </summary>
+    private bool TryBuildForDisplay(string wantDeviceName)
+    {
+        if (string.IsNullOrWhiteSpace(wantDeviceName)) return false;
+
+        IDXGIFactory1? factory = null;
+        try { factory = DXGI.CreateDXGIFactory1<IDXGIFactory1>(); }
+        catch (Exception ex) { Log.Warn($"DXGI: factory create failed: {ex.Message}"); return false; }
+        if (factory is null) return false;
+
+        using (factory)
+        {
+            for (uint a = 0; ; a++)
+            {
+                IDXGIAdapter1? adapter;
+                try
+                {
+                    if (factory.EnumAdapters1(a, out adapter).Failure || adapter is null) break;
+                }
+                catch { break; }
+
+                using (adapter)
+                {
+                    for (uint o = 0; ; o++)
+                    {
+                        IDXGIOutput? output;
+                        try
+                        {
+                            if (adapter.EnumOutputs(o, out output).Failure || output is null) break;
+                        }
+                        catch { break; }
+
+                        using (output)
+                        {
+                            OutputDescription desc;
+                            try { desc = output.Description; }
+                            catch { continue; }
+
+                            if (!string.Equals(desc.DeviceName, wantDeviceName, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            if (BuildFrom(adapter, output, desc)) return true;
+                            // Matched the name but duplication failed — no other
+                            // output carries this display, so stop searching.
+                            Dispose();
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        Log.Warn($"DXGI: no output reported device name '{wantDeviceName}'");
+        return false;
+    }
+
+    /// <summary>Legacy behaviour: default adapter, first output. Last resort only.</summary>
+    private bool TryBuildDefault()
+    {
+        var result = D3D11.D3D11CreateDevice(
+            null,
+            DriverType.Hardware,
+            DeviceCreationFlags.BgraSupport,
+            FeatureLevels,
+            out _device,
+            out _context);
+        if (result.Failure || _device is null || _context is null)
+        {
+            Log.Warn($"DXGI: D3D11CreateDevice failed 0x{result.Code:X8}");
+            return false;
+        }
+
+        using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
+        using var adapter = dxgiDevice.GetAdapter();
+        if (adapter.EnumOutputs(0, out IDXGIOutput output).Failure || output is null)
+        {
+            Log.Warn("DXGI: default adapter exposes no outputs");
+            return false;
+        }
+        using (output)
+        {
+            OutputDescription desc;
+            try { desc = output.Description; }
+            catch { desc = default; }
+            return FinishDuplication(output, desc);
+        }
+    }
+
+    /// <summary>Create the D3D11 device on <paramref name="adapter"/> and duplicate <paramref name="output"/>.</summary>
+    private bool BuildFrom(IDXGIAdapter1 adapter, IDXGIOutput output, OutputDescription desc)
+    {
+        // A non-null adapter REQUIRES DriverType.Unknown; passing Hardware here
+        // returns E_INVALIDARG and used to look like "DXGI unavailable".
+        var result = D3D11.D3D11CreateDevice(
+            adapter,
+            DriverType.Unknown,
+            DeviceCreationFlags.BgraSupport,
+            FeatureLevels,
+            out _device,
+            out _context);
+        if (result.Failure || _device is null || _context is null)
+        {
+            Log.Warn($"DXGI: D3D11CreateDevice(adapter) failed 0x{result.Code:X8}");
+            return false;
+        }
+        return FinishDuplication(output, desc);
+    }
+
+    private bool FinishDuplication(IDXGIOutput output, OutputDescription desc)
+    {
+        if (_device is null) return false;
+        using var output1 = output.QueryInterface<IDXGIOutput1>();
+        _duplication = output1.DuplicateOutput(_device);
+
+        var dupDesc = _duplication.Description;
+        _width = (int)dupDesc.ModeDescription.Width;
+        _height = (int)dupDesc.ModeDescription.Height;
+
+        _deviceName = string.IsNullOrEmpty(desc.DeviceName)
+            ? MonitorSelector.SelectedDeviceName
+            : desc.DeviceName;
+        _offsetX = desc.DesktopCoordinates.Left;
+        _offsetY = desc.DesktopCoordinates.Top;
+        // A zero-size mode description happens on some virtual displays; take
+        // the desktop rectangle instead so the staging texture is still valid.
+        if (_width <= 0 || _height <= 0)
+        {
+            _width = Math.Max(2, desc.DesktopCoordinates.Right - desc.DesktopCoordinates.Left);
+            _height = Math.Max(2, desc.DesktopCoordinates.Bottom - desc.DesktopCoordinates.Top);
+        }
+
+        _staging = _device.CreateTexture2D(StagingDesc(_width, _height));
+        _initialized = true;
+        Log.Info($"DXGI: Desktop Duplication initialized {_deviceName} {_width}x{_height} " +
+                 $"@ ({_offsetX},{_offsetY})");
+        return true;
+    }
+
+    private static Texture2DDescription StagingDesc(int width, int height) => new()
+    {
+        Width = (uint)width,
+        Height = (uint)height,
+        MipLevels = 1u,
+        ArraySize = 1u,
+        Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
+        SampleDescription = new SampleDescription(1, 0),
+        Usage = ResourceUsage.Staging,
+        BindFlags = BindFlags.None,
+        CPUAccessFlags = CpuAccessFlags.Read,
+        MiscFlags = ResourceOptionFlags.None,
+    };
+
+    /// <summary>
     /// Acquire the next desktop frame and return it as a BGRA <see cref="Bitmap"/>.
     /// Returns null when DXGI reports no visible change (dirty/move rect count
     /// == 0) and <paramref name="forceRefresh"/> is false — callers can then
@@ -126,6 +281,13 @@ public sealed class DxgiCapture : IDisposable
             _context is null || _staging is null)
             return null;
 
+        // Monitor picker changed (or the selected display was unplugged) —
+        // rebuild against the new target before touching the old duplication.
+        if (IsStale)
+        {
+            TryReinitialize($"monitor switched to {MonitorSelector.SelectedDeviceName}");
+            return null;
+        }
 
         IDXGIResource? desktopResource = null;
         ID3D11Texture2D? desktopTexture = null;
@@ -178,7 +340,6 @@ public sealed class DxgiCapture : IDisposable
             }
 
             _context.CopyResource(_staging, desktopTexture);
-
 
             var map = _context.Map(_staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
             try
@@ -242,7 +403,6 @@ public sealed class DxgiCapture : IDisposable
         _initialized = false;
     }
 
-
     /// <summary>
     /// Rebuild the CPU-readable staging texture for a new desktop size.
     /// Called on a mid-session resolution change; never tears the D3D device
@@ -254,19 +414,7 @@ public sealed class DxgiCapture : IDisposable
         try
         {
             var old = _staging;
-            _staging = _device.CreateTexture2D(new Texture2DDescription
-            {
-                Width = (uint)width,
-                Height = (uint)height,
-                MipLevels = 1u,
-                ArraySize = 1u,
-                Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage = ResourceUsage.Staging,
-                BindFlags = BindFlags.None,
-                CPUAccessFlags = CpuAccessFlags.Read,
-                MiscFlags = ResourceOptionFlags.None,
-            });
+            _staging = _device.CreateTexture2D(StagingDesc(width, height));
             try { old?.Dispose(); } catch { }
             _width = width;
             _height = height;
@@ -290,6 +438,6 @@ public sealed class DxgiCapture : IDisposable
         _lastReinitUtc = DateTime.UtcNow;
         Log.Warn($"DXGI: rebuilding duplication ({why})");
         Dispose();
-        if (TryInitialize()) Log.Info("DXGI: duplication rebuilt");
+        if (TryInitialize()) Log.Info($"DXGI: duplication rebuilt on {_deviceName}");
     }
 }

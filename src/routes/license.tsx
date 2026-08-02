@@ -20,10 +20,14 @@ export const Route = createFileRoute("/license")({
       { title: "Look up your ConnectLive license" },
       {
         name: "description",
-        content: "Enter the email you used at checkout to retrieve your ConnectLive license access link.",
+        content:
+          "Enter the email you used at checkout to retrieve your ConnectLive license access link.",
       },
       { property: "og:title", content: "Look up your ConnectLive license" },
-      { property: "og:description", content: "Recover the access link for a paid ConnectLive license." },
+      {
+        property: "og:description",
+        content: "Recover the access link for a paid ConnectLive license.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
@@ -107,7 +111,9 @@ function LicensePage() {
                 </div>
                 <div className="mt-1 text-lg font-medium">
                   {r.plan_code}{" "}
-                  <span className="text-sm text-white/50">· ${Number(r.amount_usd).toFixed(2)}</span>
+                  <span className="text-sm text-white/50">
+                    · ${Number(r.amount_usd).toFixed(2)}
+                  </span>
                 </div>
                 {r.access_link ? (
                   <a
@@ -131,9 +137,7 @@ function LicensePage() {
           </div>
         )}
 
-        <p className="mt-8 text-xs text-white/40">
-          Rate-limited to 5 lookups per email per hour.
-        </p>
+        <p className="mt-8 text-xs text-white/40">Rate-limited to 5 lookups per email per hour.</p>
       </main>
       <Footer />
     </div>

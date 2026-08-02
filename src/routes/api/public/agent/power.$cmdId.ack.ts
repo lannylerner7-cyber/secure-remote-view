@@ -38,7 +38,12 @@ export const Route = createFileRoute("/api/public/agent/power/$cmdId/ack")({
 
         await ctx.admin.from("audit_logs").insert({
           event: `power.${cmd.kind}.${state}`,
-          detail: { commandId: cmd.id, deviceId: cmd.device_id, relay: cmd.relay_device_id, error: body.error ?? null },
+          detail: {
+            commandId: cmd.id,
+            deviceId: cmd.device_id,
+            relay: cmd.relay_device_id,
+            error: body.error ?? null,
+          },
         });
 
         return new Response(JSON.stringify({ ok: true }), {

@@ -13,14 +13,23 @@ namespace ConnectLive.Agent;
 /// &lt;img&gt;, so the pointer glides at native display refresh even when
 /// video drops to 2 fps. Matches the technique ConnectWise / Parsec use.
 ///
-/// Coordinates are emitted in the same scaled space the frame stream uses
-/// (max 960px long edge) so admin math is trivial: overlay uses the same
-/// image element bounds.
+/// SCOPE:CAPTURE geometry contract: coordinates are emitted in the SAME scaled
+/// space the frame stream uses, for the SAME monitor. Both the scale factor
+/// (<see cref="ScreenCapture.MaxEdge"/>) and the monitor rectangle
+/// (<see cref="MonitorSelector.SelectedBounds"/>) are read from the capture
+/// pipeline rather than re-derived here — previously this file hardcoded a
+/// 960px edge and <c>Screen.PrimaryScreen</c>, so on a multi-monitor machine
+/// (or whenever the sharp 1920px profile was active) the ghost cursor was
+/// drawn in a different coordinate space than the pixels underneath it.
+///
+/// A pointer that has wandered onto a monitor we are not capturing is
+/// reported as hidden rather than clamped to an edge — a cursor pinned to the
+/// border reads as a frozen session; an absent cursor reads as "it left".
 /// </summary>
 public static class CursorPump
 {
-    private const int MaxEdge = 960;          // must match ScreenCapture performance mode
     private const int PeriodMs = 33;          // ~30 Hz
+
 
     private const uint CURSOR_SHOWING = 0x00000001;
 
@@ -43,18 +52,33 @@ public static class CursorPump
         {
             try
             {
-                var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds
-                             ?? new Rectangle(0, 0, 1920, 1080);
-                double scale = Math.Min(1.0, (double)MaxEdge / Math.Max(bounds.Width, bounds.Height));
-                int w = Math.Max(1, (int)(bounds.Width * scale));
-                int h = Math.Max(1, (int)(bounds.Height * scale));
+                // Same monitor and same downscale as the frame the admin is
+                // looking at. Both come from the capture pipeline, never from
+                // Screen.PrimaryScreen or a local constant.
+                var bounds = MonitorSelector.SelectedBounds;
+                if (bounds.Width <= 0 || bounds.Height <= 0)
+                    bounds = new Rectangle(0, 0, 1920, 1080);
+                int maxEdge = Math.Max(1, ScreenCapture.MaxEdge);
+                double scale = Math.Min(1.0, (double)maxEdge / Math.Max(bounds.Width, bounds.Height));
+                // Mirror ScreenCapture's even-dimension rule so the overlay's
+                // reference box is byte-identical to the encoded frame's.
+                int w = Math.Max(2, (int)(bounds.Width * scale) & ~1);
+                int h = Math.Max(2, (int)(bounds.Height * scale) & ~1);
 
                 var info = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
                 bool ok = GetCursorInfo(ref info);
-                bool visible = ok && (info.flags & CURSOR_SHOWING) != 0;
+                bool showing = ok && (info.flags & CURSOR_SHOWING) != 0;
+                // Off the captured monitor => not on screen as far as this
+                // stream is concerned. Reporting it clamped would paint a
+                // cursor stuck to the frame border.
+                bool onThisMonitor = ok && bounds.Contains(info.ptScreenPos.X, info.ptScreenPos.Y);
+                bool visible = showing && onThisMonitor;
                 int sx = ok ? (int)Math.Round((info.ptScreenPos.X - bounds.Left) * scale) : 0;
                 int sy = ok ? (int)Math.Round((info.ptScreenPos.Y - bounds.Top) * scale) : 0;
+                sx = Math.Clamp(sx, 0, w);
+                sy = Math.Clamp(sy, 0, h);
                 string kind = visible ? MapCursorKind(info.hCursor) : "hidden";
+
 
                 // Post if anything changed OR at least every 500 ms as a keepalive.
                 long nowTicks = Environment.TickCount64;
