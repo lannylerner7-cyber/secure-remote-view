@@ -139,6 +139,20 @@ public sealed class DxgiCapture : IDisposable
                     _lastFrameChanged = false;
                     return null;
                 }
+                // ACCESS_LOST / DEVICE_REMOVED / DEVICE_RESET are what a
+                // resolution change, a GPU driver reset, a UAC secure-desktop
+                // switch or a monitor hot-plug look like from here. Before this
+                // we just logged and returned null on every subsequent call —
+                // the session froze on its last good frame until the agent was
+                // restarted. Rebuild the duplication instead.
+                if (acquire.Code == unchecked((int)0x887A0026) /* ACCESS_LOST */ ||
+                    acquire.Code == unchecked((int)0x887A0005) /* DEVICE_REMOVED */ ||
+                    acquire.Code == unchecked((int)0x887A0007) /* DEVICE_RESET */ ||
+                    acquire.Code == unchecked((int)0x887A0004) /* UNSUPPORTED */)
+                {
+                    TryReinitialize($"AcquireNextFrame 0x{acquire.Code:X8}");
+                    return null;
+                }
                 Log.Warn($"DXGI: AcquireNextFrame 0x{acquire.Code:X8}");
                 return null;
             }
@@ -152,7 +166,19 @@ public sealed class DxgiCapture : IDisposable
             }
 
             desktopTexture = desktopResource!.QueryInterface<ID3D11Texture2D>();
+
+            // A mid-session resolution change can also arrive silently: the
+            // duplication survives but hands back a differently sized texture.
+            // CopyResource would then fail (or tear) — resize in place.
+            var srcDesc = desktopTexture.Description;
+            if ((int)srcDesc.Width != _width || (int)srcDesc.Height != _height)
+            {
+                Log.Info($"DXGI: source resized {_width}x{_height} -> {srcDesc.Width}x{srcDesc.Height}");
+                if (!ResizeStaging((int)srcDesc.Width, (int)srcDesc.Height)) return null;
+            }
+
             _context.CopyResource(_staging, desktopTexture);
+
 
             var map = _context.Map(_staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
             try
@@ -216,5 +242,54 @@ public sealed class DxgiCapture : IDisposable
         _initialized = false;
     }
 
-}
 
+    /// <summary>
+    /// Rebuild the CPU-readable staging texture for a new desktop size.
+    /// Called on a mid-session resolution change; never tears the D3D device
+    /// down, so the encode loop keeps its cadence.
+    /// </summary>
+    private bool ResizeStaging(int width, int height)
+    {
+        if (_device is null || width <= 0 || height <= 0) return false;
+        try
+        {
+            var old = _staging;
+            _staging = _device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1u,
+                ArraySize = 1u,
+                Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read,
+                MiscFlags = ResourceOptionFlags.None,
+            });
+            try { old?.Dispose(); } catch { }
+            _width = width;
+            _height = height;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"DXGI: staging resize failed: {ex.Message}");
+            TryReinitialize("staging resize failure");
+            return false;
+        }
+    }
+
+    // Don't thrash: a lost desktop (locked workstation, secure desktop) can
+    // fail for many seconds; one rebuild attempt per second is plenty.
+    private DateTime _lastReinitUtc = DateTime.MinValue;
+
+    private void TryReinitialize(string why)
+    {
+        if ((DateTime.UtcNow - _lastReinitUtc).TotalMilliseconds < 1000) return;
+        _lastReinitUtc = DateTime.UtcNow;
+        Log.Warn($"DXGI: rebuilding duplication ({why})");
+        Dispose();
+        if (TryInitialize()) Log.Info("DXGI: duplication rebuilt");
+    }
+}

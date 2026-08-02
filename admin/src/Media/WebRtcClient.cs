@@ -222,10 +222,14 @@ public sealed class WebRtcClient : IDisposable
         var now = DateTime.UtcNow;
         lock (_restartGate)
         {
+            // Once we've surrendered to the fallback there is nobody to answer
+            // a PLI — stop the storm instead of pinging a dead path forever.
+            if (_surrendered) return;
             if ((now - _lastPliUtc).TotalMilliseconds < 750) return;
             _lastPliUtc = now;
             _pliBurst++;
         }
+
 
         var pc = _pc;
         if (pc == null) return;
@@ -247,13 +251,35 @@ public sealed class WebRtcClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Max ICE restarts before we stop fighting the network. Without a cap a
+    /// permanently broken media path produced an endless PLI → restart →
+    /// PLI loop: new ICE candidates every 15s forever, CPU burning, and the
+    /// JPEG fallback repeatedly interrupted by a renegotiation that could
+    /// never succeed. Four attempts (~1 minute) is the ceiling; after that the
+    /// session rides the fallback pump until the user reconnects.
+    /// </summary>
+    private const int MaxIceRestarts = 4;
+    private bool _surrendered;
+
     private void TryIceRestart(string why)
     {
         var ct = _cts?.Token ?? CancellationToken.None;
         if (ct.IsCancellationRequested) return;
         lock (_restartGate)
         {
+            if (_surrendered) return;
+            // A restart that happened more than two minutes ago belongs to a
+            // different network event — don't hold it against this one.
+            if ((DateTime.UtcNow - _lastRestartUtc).TotalMinutes > 2) _restarts = 0;
             if ((DateTime.UtcNow - _lastRestartUtc).TotalSeconds < 15) return;
+            if (_restarts >= MaxIceRestarts)
+            {
+                _surrendered = true;
+                T($"ICE restart cap reached ({MaxIceRestarts}) — surrendering native video, JPEG fallback carries the session");
+                try { _onVideoStalled?.Invoke(); } catch { }
+                return;
+            }
             _lastRestartUtc = DateTime.UtcNow;
             _restarts++;
         }
@@ -264,6 +290,7 @@ public sealed class WebRtcClient : IDisposable
             catch (Exception ex) { T("ICE restart failed: " + ex.Message); }
         }, CancellationToken.None);
     }
+
 
     private void StartConnectWatchdog(CancellationToken ct)
     {

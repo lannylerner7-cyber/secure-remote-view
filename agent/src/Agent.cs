@@ -27,6 +27,11 @@ public sealed class Agent
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private WebRtcSession? _rtc;
     private readonly HashSet<string> _acceptedSessions = new();
+    // Invites whose consent dialog is currently on screen. The heartbeat
+    // re-lists an `invited` session every cycle; without this the user would
+    // get a new dialog every few seconds while deciding.
+    private readonly HashSet<string> _promptingSessions = new();
+
     private string? _currentSessionId;
     private string? _loopSessionId;
     private CancellationTokenSource? _sessionCts;
@@ -274,7 +279,11 @@ public sealed class Agent
         {
             if (s.state == "invited" && !_acceptedSessions.Contains(s.id))
             {
-                await HandleInvite(s.id, s.mode, ct);
+                // Fire-and-forget: the consent dialog can sit on screen for up
+                // to 90s and the heartbeat loop must keep reporting presence
+                // (and must keep noticing an admin-cancelled invite) while the
+                // user decides. HandleInvite is self-guarded against reentry.
+                _ = HandleInvite(s.id, s.mode, ct);
             }
             else if (s.state == "paused")
             {
@@ -284,7 +293,11 @@ public sealed class Agent
                 _currentSessionId = s.id;
                 PauseSessionLoops(s.id);
             }
-            else if (s.state == "active" || s.state == "consented")
+            // `consented` never occurs: the server's consent route transitions
+            // invited -> active | declined directly. Branching on it was dead
+            // code that hid the real state machine.
+            else if (s.state == "active")
+
             {
                 if (!_acceptedSessions.Contains(s.id) || _currentSessionId != s.id)
                 {
@@ -382,8 +395,39 @@ public sealed class Agent
     {
         const string technician = "Helpdesk";
 
-        try { await _api.SubmitConsentAsync(sessionId, true, ct); }
+        // Never accept twice for the same invite while a dialog is on screen:
+        // the heartbeat re-lists the invite every few seconds.
+        if (!_promptingSessions.Add(sessionId)) return;
+
+        bool granted;
+        try
+        {
+            // THE consent gate. Silence, a closed window, or a missing UI
+            // thread all resolve to "no" — the session only starts when a
+            // human at the keyboard clicks Allow (or has previously opted in
+            // to standing consent).
+            try { _onWake?.Invoke(); } catch { }
+            granted = await ConsentPrompt.AskAsync(technician, mode, ct);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"consent prompt: {ex.Message}");
+            granted = false;
+        }
+        finally { _promptingSessions.Remove(sessionId); }
+
+        try { await _api.SubmitConsentAsync(sessionId, granted, ct); }
         catch (Exception ex) { Log.Warn($"consent submit: {ex.Message}"); return; }
+
+        if (!granted)
+        {
+            // Remember the refusal so the next heartbeat doesn't re-prompt a
+            // session the server has already moved to `declined`.
+            _acceptedSessions.Add(sessionId);
+            ReportState("Support request declined");
+            Log.Info($"session {sessionId} declined by user");
+            return;
+        }
 
         _acceptedSessions.Add(sessionId);
         _currentSessionId = sessionId;
@@ -392,6 +436,7 @@ public sealed class Agent
         // HTTPS is the primary transport: start the frame/input/cursor loops
         // immediately so the admin panel gets pixels within one frame interval.
         StartSessionLoops(sessionId, mode);
+
 
         // WebRTC upgrades on top when ICE completes. If it never does (strict
         // NAT, no TURN), the HTTPS loops above already carry the whole session.
