@@ -220,6 +220,18 @@ public partial class LiveSessionViewModel : ObservableObject
 
     public void Stop()
     {
+        StopCurtainHeartbeat();
+        // Release the remote keyboard/mouse and drop the curtain BEFORE the
+        // session row is ended — otherwise the agent keeps BlockInput engaged
+        // until its 5s watchdog notices the pings stopped.
+        try
+        {
+            _ = App.Api.PushInputAsync(SessionId, "release_inputs", new { }, CancellationToken.None);
+            _ = App.Api.PushInputAsync(SessionId, "curtain_off", new { }, CancellationToken.None);
+        }
+        catch { }
+        CurtainOn = false;
+
         try { _cts?.Cancel(); } catch { }
         try { _rtc?.Close(); } catch { }
         if (_realtime != null)
@@ -235,12 +247,52 @@ public partial class LiveSessionViewModel : ObservableObject
         _ = App.Api.EndSessionAsync(SessionId, CancellationToken.None);
     }
 
+    // ---- Curtain dead-man heartbeat --------------------------------------
+    // The agent's InputBlocker releases the curtain after 5s without a
+    // curtain_on ping (so a crashed console never leaves a user locked out).
+    // The web console pings at 1s; the native console must do the same or the
+    // curtain silently drops five seconds after it is engaged.
+    private CancellationTokenSource? _curtainCts;
+
+    private void StartCurtainHeartbeat()
+    {
+        StopCurtainHeartbeat();
+        var cts = new CancellationTokenSource();
+        _curtainCts = cts;
+        var ct = cts.Token;
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
+                if (ct.IsCancellationRequested) return;
+                try { await App.Api.PushInputAsync(SessionId, "curtain_on", new { }, ct).ConfigureAwait(false); }
+                catch { /* transient — the next tick retries */ }
+            }
+        }, CancellationToken.None);
+    }
+
+    private void StopCurtainHeartbeat()
+    {
+        try { _curtainCts?.Cancel(); } catch { }
+        _curtainCts = null;
+    }
+
     // Queue a power command for the agent's PowerRelay
     // (kind ∈ shutdown | reboot | lock | logoff | wake | wake_agent | restart_stream | restart_agent).
     [RelayCommand]
     private async Task PowerCommand(string kind)
     {
         if (string.IsNullOrEmpty(kind)) return;
+        // Destructive actions get the same confirmation the web console shows.
+        if (kind is "reboot" or "shutdown")
+        {
+            var verb = kind == "reboot" ? "Reboot" : "Shut down";
+            var answer = MessageBox.Show(
+                $"{verb} {Device.DisplayName} in 5 seconds?",
+                "ConnectLive Admin", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.OK) return;
+        }
         try
         {
             await App.Api.EnqueuePowerCommandAsync(Device.RowId, kind, null, CancellationToken.None);
@@ -262,40 +314,64 @@ public partial class LiveSessionViewModel : ObservableObject
     [RelayCommand]
     private Task RestartAgent() => PowerCommand("restart_agent");
 
-    // Nudge the agent's UI + force an immediate heartbeat so a pending
-    // invite is picked up under a second (SSE delivers it in real time).
+    // Re-arm THIS session and wake the agent onto it. Mirrors the web
+    // console's requestReconnect: drop the curtain, flip the row back to
+    // active/view, then queue wake_agent carrying the session id so the agent
+    // rejoins this session instead of waiting for a new invite.
     [RelayCommand]
-    private Task ReconnectAgent() => PowerCommand("wake_agent");
-
-
-    [RelayCommand]
-    private async Task TogglePause()
+    private async Task ReconnectAgent()
     {
-        var newMode = Mode == "control" ? "view" : "control";
+        StopCurtainHeartbeat();
+        CurtainOn = false;
+        Mode = "view";
+        TakenOver = false;
         try
         {
-            await App.Api.SetSessionModeAsync(SessionId, newMode, CancellationToken.None);
-            Mode = newMode;
-            if (newMode == "view")
-                await App.Api.PushInputAsync(SessionId, "release_inputs", new { }, CancellationToken.None);
-            StatusMessage = null;
+            await App.Api.PushInputAsync(SessionId, "curtain_off", new { }, CancellationToken.None);
+            await App.Api.ResumeSessionAsync(SessionId, CancellationToken.None);
+            await App.Api.EnqueuePowerCommandAsync(
+                Device.RowId, "wake_agent", new { session_id = SessionId }, CancellationToken.None);
+            StatusMessage = "Wake sent — waiting for the agent to rejoin this session.";
         }
         catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
         catch (Exception ex) { SurfaceError(ex.Message); }
     }
 
+    /// <summary>
+    /// Single control/curtain toggle, matching the web console: taking control
+    /// flips sessions.mode AND engages the curtain (plus its heartbeat);
+    /// releasing does both in reverse. Splitting these was why the native
+    /// console could hold "control" with no curtain, or a curtain that the
+    /// agent watchdog dropped after 5s.
+    /// </summary>
     [RelayCommand]
-    private async Task ToggleCurtain()
+    private async Task ToggleControl()
     {
-        var next = !CurtainOn;
+        var takeControl = Mode != "control";
         try
         {
-            await App.Api.PushInputAsync(SessionId, next ? "curtain_on" : "curtain_off",
+            await App.Api.SetSessionModeAsync(SessionId, takeControl ? "control" : "view", CancellationToken.None);
+            await App.Api.PushInputAsync(SessionId, takeControl ? "curtain_on" : "curtain_off",
                 new { }, CancellationToken.None);
-            CurtainOn = next;
+            Mode = takeControl ? "control" : "view";
+            CurtainOn = takeControl;
+            if (takeControl)
+            {
+                StartCurtainHeartbeat();
+            }
+            else
+            {
+                StopCurtainHeartbeat();
+                await App.Api.PushInputAsync(SessionId, "release_inputs", new { }, CancellationToken.None);
+            }
             StatusMessage = null;
         }
         catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
         catch (Exception ex) { SurfaceError(ex.Message); }
     }
+
+    public string ControlButtonLabel => Mode == "control" ? "Release curtain" : "Curtain (take control)";
+
+    partial void OnModeChanged(string value) => OnPropertyChanged(nameof(ControlButtonLabel));
 }
+
