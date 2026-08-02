@@ -47,6 +47,10 @@ export const Route = createFileRoute("/_authenticated/console")({
   validateSearch: (raw: Record<string, unknown>): { tab?: Nav } => {
     const t = typeof raw.tab === "string" ? raw.tab : undefined;
     return t && (NAV_VALUES as readonly string[]).includes(t) ? { tab: t as Nav } : {};
+  },
+});
+
+
 
 function AdminPage() {
   const navigate = useNavigate();
