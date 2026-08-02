@@ -211,7 +211,7 @@ public sealed class WebRtcSession : IDisposable
 
         _pc.onconnectionstatechange += async (s) =>
         {
-            Log.Info($"webrtc pc state: {s}");
+            Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc pc state: {s}");
             if (s == RTCPeerConnectionState.connected)
             {
                 // The encoder is a source: it stays paused until StartVideo().
