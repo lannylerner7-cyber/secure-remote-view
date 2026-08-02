@@ -377,6 +377,25 @@ public sealed class Agent
         Log.Info($"session {sessionId} started ({mode}) with {technician}");
     }
 
+    /// <summary>
+    /// G4 — session paused: cancel the capture/input/cursor loops so no pixels
+    /// and no injected input flow, but keep the session (and WebRTC) alive so
+    /// resume is instant instead of a full renegotiation.
+    /// </summary>
+    private void PauseSessionLoops(string sessionId)
+    {
+        if (_loopSessionId == null && _sessionCts == null) return;
+        if (_sessionCts == null || _sessionCts.IsCancellationRequested) return;
+        try { _sessionCts.Cancel(); } catch { }
+        _sessionCts = null;
+        _loopSessionId = null;
+        _screenTask = null;
+        _inputTask = null;
+        _cursorTask = null;
+        ReportState("Session paused");
+        Log.Info($"session {sessionId} paused — capture and input stopped");
+    }
+
     private void EndSession()
     {
         try { _sessionCts?.Cancel(); } catch { }
@@ -391,6 +410,7 @@ public sealed class Agent
         Log.Info("session ended");
     }
 }
+
 
 internal static class Log
 {
