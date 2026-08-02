@@ -491,6 +491,16 @@ public partial class LiveSessionViewModel : ObservableObject
 
     public string ControlButtonLabel => Mode == "control" ? "Release curtain" : "Curtain (take control)";
 
-    partial void OnModeChanged(string value) => OnPropertyChanged(nameof(ControlButtonLabel));
+    partial void OnModeChanged(string value)
+    {
+        OnPropertyChanged(nameof(ControlButtonLabel));
+        OnPropertyChanged(nameof(InputAuthoritative));
+    }
+
+    // SCOPE:RENDER — the predictive cursor listens on InputAuthoritative, so
+    // every input on which it depends must republish it.
+    partial void OnCurtainOnChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
+    partial void OnTakenOverChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
 }
+
 
