@@ -64,13 +64,30 @@ public sealed class WebRtcClient
         }
         catch (Exception ex) { _onError?.Invoke("Bind session: " + ex.Message); return; }
 
-        var cfg = new RTCConfiguration
+        // Server-issued ICE (STUN + Metered TURN relay). Without a relay
+        // candidate any peer behind symmetric NAT / a strict firewall never
+        // completes ICE. A fetch failure degrades to public STUN.
+        var iceServers = new System.Collections.Generic.List<RTCIceServer>();
+        try
         {
-            iceServers = new System.Collections.Generic.List<RTCIceServer>
+            var ice = await App.Api.GetIceServersAsync(ct).ConfigureAwait(false);
+            foreach (var s in ice.IceServers)
             {
-                new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
-            },
-        };
+                if (string.IsNullOrWhiteSpace(s.Urls)) continue;
+                var entry = new RTCIceServer { urls = s.Urls };
+                if (!string.IsNullOrEmpty(s.Username)) entry.username = s.Username;
+                if (!string.IsNullOrEmpty(s.Credential)) entry.credential = s.Credential;
+                iceServers.Add(entry);
+            }
+            // Hosts only — never log the credential.
+            System.Diagnostics.Debug.WriteLine(
+                $"[webrtc] ice hasTurn={ice.HasTurn} servers={string.Join(", ", iceServers.ConvertAll(x => x.urls))}");
+        }
+        catch { }
+        if (iceServers.Count == 0)
+            iceServers.Add(new RTCIceServer { urls = "stun:stun.l.google.com:19302" });
+
+        var cfg = new RTCConfiguration { iceServers = iceServers };
         _pc = new RTCPeerConnection(cfg);
 
         // Codec pinning guardrail — see agent WebRtcSession for the matching side.
