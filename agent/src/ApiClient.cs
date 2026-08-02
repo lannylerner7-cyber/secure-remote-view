@@ -18,7 +18,7 @@ namespace ConnectLive.Agent;
 /// <summary>
 /// Thin HTTP client for the ConnectLive gateway.
 /// Routes (kept in sync with src/shared/api-routes.ts):
-///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }  (gated by X-Deployment-Key)
+///   POST /api/public/agent/enroll               -> { deviceId, deviceToken }  (keyless, IP-throttled)
 ///   POST /api/public/agent/hello                -> presence "arrived" signal
 ///   POST /api/public/agent/heartbeat            -> pending session invites + is_session_active
 ///   POST /api/public/agent/session/:id/reconnect -> resume same device/session after reboot
