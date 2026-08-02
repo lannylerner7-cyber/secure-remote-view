@@ -100,6 +100,7 @@ public partial class LiveSessionWindow : Window
 
     private void Frame_MouseMove(object sender, MouseEventArgs e)
     {
+        if (!OnPicture(e)) return;      // letterbox bar: not part of the desktop
         var (x, y) = ToAbs(e);
         _coalesce.Update(x, y);
     }
@@ -107,6 +108,7 @@ public partial class LiveSessionWindow : Window
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
         Keyboard.Focus(this);
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Left, x, y);
@@ -114,6 +116,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Left, x, y);
@@ -121,6 +124,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightDown(object sender, MouseButtonEventArgs e)
     {
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Right, x, y);
@@ -128,6 +132,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightUp(object sender, MouseButtonEventArgs e)
     {
+        if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Right, x, y);
@@ -135,9 +140,15 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseWheel(object sender, MouseWheelEventArgs e)
     {
+        if (!OnPicture(e)) return;
+        // Park the pointer at the wheel position first so the remote machine
+        // scrolls the control under the cursor, not whatever had focus.
+        var (x, y) = ToAbs(e);
+        _coalesce.Update(x, y);
         _coalesce.FlushNow();
         await _mouse.WheelAsync(e.Delta);
     }
+
 
     // Alt-combos arrive as Key.System with the real key in SystemKey.
     private static Key Effective(KeyEventArgs e) => e.Key == Key.System ? e.SystemKey : e.Key;
