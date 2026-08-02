@@ -17,6 +17,11 @@ public partial class LiveSessionWindow : Window
     private readonly KeyboardInjector _kb;
     private readonly InputCoalescer _coalesce;
 
+    // SCOPE:RENDER — client-side prediction for the ghost pointer. See
+    // PredictiveCursor for the reconciliation contract.
+    private readonly PredictiveCursor _predict = new();
+    private EventHandler? _renderTick;
+
     public LiveSessionWindow(string sessionId, DeviceItem device)
     {
         InitializeComponent();
@@ -29,8 +34,18 @@ public partial class LiveSessionWindow : Window
         _kb = new KeyboardInjector(sessionId);
         _coalesce = new InputCoalescer(_mouse);
 
-        Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); };
-        Closed += (_, _) => { _coalesce.Stop(); _vm.Stop(); };
+        // Authoritative telemetry arrives here exactly once per sample.
+        _vm.CursorSample += OnCursorSample;
+
+        Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); StartRenderTick(); };
+        Closed += (_, _) =>
+        {
+            StopRenderTick();
+            _vm.CursorSample -= OnCursorSample;
+            _predict.Reset();
+            _coalesce.Stop();
+            _vm.Stop();
+        };
         // Tunnelled key events so the live surface wins over WPF focus
         // navigation (Tab, arrows, Alt menus) before it can swallow them.
         PreviewKeyDown += OnKeyDown;
@@ -41,14 +56,50 @@ public partial class LiveSessionWindow : Window
         // changes size mid-session (Phase 4 resolution change).
         FrameImage.SizeChanged += (_, _) => UpdateCursorGhost();
         _vm.PropertyChanged += Vm_PropertyChanged;
+        SyncPredictionGate();
+    }
+
+    private void OnCursorSample(double nx, double ny, bool visible)
+        => _predict.Observe(nx, ny, visible);
+
+    /// <summary>
+    /// Prediction is only allowed while this console is actually driving the
+    /// remote pointer. In view mode, while paused, or after a take-over the
+    /// overlay reverts to pure telemetry so it can't lie about a session that
+    /// isn't accepting our input.
+    /// </summary>
+    private void SyncPredictionGate()
+    {
+        var allowed = _vm.InputAuthoritative;
+        if (_predict.Enabled == allowed) return;
+        _predict.Enabled = allowed;
+        if (!allowed) _predict.Surrender();
+    }
+
+    // Draw at display refresh rather than on telemetry arrival: prediction and
+    // the ease-toward-truth both need a steady tick, and CompositionTarget
+    // gives us one that is already synchronised with WPF's render pass.
+    private void StartRenderTick()
+    {
+        if (_renderTick != null) return;
+        _renderTick = (_, _) => UpdateCursorGhost();
+        CompositionTarget.Rendering += _renderTick;
+    }
+
+    private void StopRenderTick()
+    {
+        if (_renderTick == null) return;
+        CompositionTarget.Rendering -= _renderTick;
+        _renderTick = null;
     }
 
     private void Vm_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(LiveSessionViewModel.CursorNormX) ||
-            e.PropertyName == nameof(LiveSessionViewModel.CursorNormY) ||
-            e.PropertyName == nameof(LiveSessionViewModel.CursorVisible) ||
-            e.PropertyName == nameof(LiveSessionViewModel.CurrentFrame))
+        if (e.PropertyName == nameof(LiveSessionViewModel.InputAuthoritative))
+        {
+            SyncPredictionGate();
+        }
+        else if (e.PropertyName == nameof(LiveSessionViewModel.CurrentFrame))
         {
             UpdateCursorGhost();
         }
@@ -72,15 +123,22 @@ public partial class LiveSessionWindow : Window
 
     private void UpdateCursorGhost()
     {
-        if (!_vm.CursorVisible) { CursorGhost.Visibility = Visibility.Collapsed; return; }
+        // Sample() advances prediction expiry and the fade, so it must be
+        // called every tick — even when we end up hiding the ghost.
+        var (nx, ny, visible) = _predict.Sample();
+        if (!visible || !_vm.CursorVisible) { CursorGhost.Visibility = Visibility.Collapsed; return; }
         var r = Rect();
         if (!r.IsValid) { CursorGhost.Visibility = Visibility.Collapsed; return; }
         // Offset by the letterbox bars, not by the raw element size.
-        var (x, y) = r.ToElement(_vm.CursorNormX, _vm.CursorNormY);
+        var (x, y) = r.ToElement(nx, ny);
         Canvas.SetLeft(CursorGhost, x - 1);
         Canvas.SetTop(CursorGhost, y - 1);
+        // Predicted = the technician's own hand (solid); telemetry = the remote
+        // machine's pointer (dimmed), so the two are never confused on screen.
+        CursorGhost.Opacity = _predict.IsPredicting ? 1.0 : 0.75;
         CursorGhost.Visibility = Visibility.Visible;
     }
+
 
     private (double x, double y) ToAbs(MouseEventArgs e)
     {
