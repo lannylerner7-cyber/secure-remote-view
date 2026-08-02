@@ -322,6 +322,21 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     }
     heartbeatTimer = window.setInterval(() => { void heartbeat(); }, HEARTBEAT_MS);
 
+    // Server-issued ICE (TURN relay when Metered is reachable). Applied
+    // before setLocalDescription so gathering uses the full list.
+    try {
+      const cfg = await getIceServers();
+      if (closed) return;
+      connectTimeoutMs = cfg.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+      pc.setConfiguration({ iceServers: cfg.iceServers as RTCIceServer[] });
+      console.info(
+        `[webrtc] ice config hasTurn=${cfg.hasTurn} servers=${cfg.iceServers.map((s) => String(s.urls)).join(", ")}`,
+      );
+    } catch (err) {
+      console.warn("[webrtc] ice config fetch failed, using STUN only", err);
+    }
+    armWatchdog();
+
     try {
       pc.addTransceiver("video", { direction: "recvonly" });
       const offer = await pc.createOffer();
@@ -333,14 +348,11 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     }
   })();
 
-  const watchdog = window.setTimeout(() => {
-    if (state === "connecting") setState("failed");
-  }, WATCHDOG_MS);
-
   return {
     video,
     state: () => state,
     onState: (cb) => { listeners.add(cb); },
+    candidateType: () => selectedCandidateType,
     sendInput: (payload) => {
       if (dc && dc.readyState === "open") {
         try { dc.send(JSON.stringify(payload)); return true; } catch { return false; }
@@ -349,7 +361,9 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     },
     close: () => {
       closed = true;
-      window.clearTimeout(watchdog);
+      clearWatchdog();
+      clearDisconnectTimer();
+
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
       enqueue("bye", {});
       // Fire-and-forget final drain, then tear down.
