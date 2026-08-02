@@ -44,6 +44,8 @@ export interface WebRtcLive {
   onState: (cb: (s: WebRtcState) => void) => void;
   /** "host" | "srflx" | "prflx" | "relay" once ICE settles, else null. */
   candidateType: () => string | null;
+  /** Raw stats for diagnostics (inbound-rtp bytes/framesDecoded). */
+  stats: () => Promise<RTCStatsReport | null>;
   sendInput: (payload: unknown) => boolean;
   close: () => void;
 }
