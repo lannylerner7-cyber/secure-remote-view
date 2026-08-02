@@ -40,6 +40,19 @@ public sealed class RealtimeChannel : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private int _ref;
 
+    // Join bookkeeping. Supabase answers every phx_join with a phx_reply whose
+    // payload.status is "ok" or "error". Before this existed we treated a *sent*
+    // join as a *successful* join: an RLS rejection or a bad filter produced a
+    // socket that was open, heart-beating and permanently silent, while the UI
+    // pill said "Realtime: healthy". Now the channel is only healthy once every
+    // topic has replied ok, and any error reply tears the socket down so the
+    // reconnect ladder (and the HTTP poll fallback) takes over.
+    private readonly System.Collections.Generic.Dictionary<string, string> _pendingJoins = new();
+    private readonly object _joinGate = new();
+    private TaskCompletionSource<bool>? _joinsDone;
+    private string? _joinError;
+
+
     public sealed class CursorEvent
     {
         public int X { get; init; }
