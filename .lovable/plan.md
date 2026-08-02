@@ -1,53 +1,53 @@
-## Step 1 — Instrumentation (read-only, ship first)
+## Status
 
-Land only diagnostics, then run one session and read the logs before any fix.
+Step 1 instrumentation is already shipped in the codebase (agent `MonoClock` + pipeline/resolution/negotiation logs, capture mode-flip logs, web `mediaWatchdog` RTP stats every 3s). Nothing further needs to be written for Step 1.
 
-**Agent — `agent/src/WebRtcSession.cs`**
-- Extend the 5 s `webrtc video pipe` line to include `lastW x lastH` of the most recent `PushFrame` and the current negotiated payload id.
-- Log every `OnVideoFormatsNegotiated` and every peer state transition with a monotonic ms timestamp.
+The remaining work is a **capture run on your Windows machine** — I cannot execute the agent binary from here. Below is the exact procedure and the decision rule I will apply to your logs.
 
-**Agent — `agent/src/ScreenCapture.cs`**
-- Log every `SetQualityMode` transition with the timestamp and old→new max-edge.
-- Log the first `TeeToWebRtc` after each resolution change (dimensions + `throttled` flag).
+## Capture procedure (you run, ~90 seconds)
 
-**Web — `src/lib/webrtc-live.ts`**
-- Extend the media watchdog probe to also record `pliCount`, `nackCount`, `keyFramesDecoded`, `framesDropped`, `frameWidth`, `frameHeight` alongside `framesDecoded`. Log once every 3 s tick.
+1. Install/refresh the v1.9.0 agent build, then start it and let it enroll.
+2. Open the admin console, start a live session, open browser DevTools → Console (preserve log ON).
+3. Timeline:
+   - 0–10s: do nothing at all on the remote machine (static scene).
+   - 10–70s: drag a window continuously around the screen (forces motion + likely quality-mode flip).
+   - 70–90s: stop, stay still again.
+4. Stop the session. Collect:
+   - `%ProgramData%\ConnectLive\logs\agent.log` (last ~200 lines)
+   - Full browser console text dump
+   - Note the wall-clock second at which the picture first corrupts and at which it drops.
 
-**Verification run**
-- Open a live session, hold still 10 s, then drag a window continuously for ~60 s to force motion + possible mode flip.
-- Capture: agent `%LOCALAPPDATA%\ConnectLive\agent.log`, browser console.
-- Decision rule:
-  - Corruption present from **frame one** with `framesDecoded` climbing but visible stripes → fix #1 (RTP duration).
-  - Corruption starts **at a `SetQualityMode` line** → fix #2 (resolution stability).
-  - `pliCount` rising with `keyFramesDecoded` flat → fix #3 (keyframe-on-loss).
+## Decision rule (evidence → single fix)
 
-## Step 2 — Fix, driven by Step 1 evidence
+```text
+IF web stats show frameWidth/frameHeight changing mid-session
+   AND agent log shows a SetQualityMode / resolution-change line at the same moment
+   -> Fix #2 only: freeze encoder resolution for session lifetime
+      (quality mode changes JPEG path only, never the WebRTC track dims)
 
-Only the fix(es) the logs justify. Details:
+ELSE IF framesDecoded advances but keyFramesDecoded stays flat while
+   pliCount/nackCount climb, and corruption grows progressively
+   -> Fix #3 only: PLI/keyframe-on-loss handler + periodic IDR
 
-1. **RTP duration from real delta.** In `PushFrame`, replace the constant `33` with `(int)((nowMs - lastPushMs) * 90)` clamped to `[1500, 15000]` (≈60 fps floor, ≈6 fps ceiling), computed against a monotonic `Stopwatch`. Keeps VP8 RTP timestamps accurate even when the capture loop drifts off 30 fps.
-2. **Resolution stability.** Freeze the WebRTC tee resolution at first-frame dimensions per peer. `SetQualityMode` continues to affect the JPEG fallback; the tee ignores mode changes until the peer is rebuilt. On peer rebuild, `ResetWebRtcTee()` also clears the frozen size.
-3. **Keyframe-on-loss.** Subscribe to SIPSorcery's PLI/RTCP-feedback event on the video track; call `_videoEnd.ForceKeyFrame()`. On the web side, when `framesDecoded` stalls but `bytesReceived` still rises, request a keyframe via a data-channel `keyframe_request` message before escalating to `iceRestart`.
+ELSE IF agent "pushed" count is steady but web framesReceived rate is
+   uneven/bursty, or playoutDelay/jitter grows monotonically
+   -> Fix #1 only: derive RTP duration from real inter-frame delta
+      (90kHz clock) instead of the fixed 33
+```
 
-## Step 3 — Wake for offline devices
+If two conditions fire, I apply the earliest cause in the pipeline first (resolution → timestamp → keyframe) and re-measure before touching anything else.
 
-The wake button reportedly no longer revives an offline agent. Independent of the video issue.
+## Guardrails for this pass
 
-- Reproduce: close the agent process on a test device, click Wake, watch server-side `power_commands` and `stream.ts` behavior.
-- Verify against current code:
-  - `stream.ts` only serves connected agents; an *offline* agent has no SSE session, so it can't receive `wake`. The Windows-side revival path must be independent of the agent process.
-  - Confirm whether the standalone-agent refactor removed the mechanism that previously started `ConnectLive.exe` on an admin wake (the old Updater service). If yes, we're missing a host that survives when the agent isn't running.
-- Decide with the user between two options (**do not build yet**):
-  - (A) Reintroduce a tiny SYSTEM-context launcher (scheduled task triggered on-event, or a minimal service) whose only job is to (re)start `ConnectLive.exe` when a wake row appears for this machine. Poll interval ≤ 5 s.
-  - (B) Rely purely on the existing ONLOGON scheduled task + agent self-heal — accept that a fully-exited agent on a locked machine cannot be revived remotely.
+- STUN-only, no TURN.
+- No database schema change.
+- No transport rewrite.
+- Only one of #1/#2/#3 gets applied, chosen by the rule above.
 
-Report the Step 1 logs and the wake reproduction findings before we commit to Step 2 or Step 3 code changes.
+## Wake button
 
-## Non-goals
+Parked. After the capture I will report what the logs show about the offline-device path (whether the SSE listener is even alive at wake time), but I will not build Option A (minimal launcher) or Option B (accept limitation) until you choose — after the video is clean.
 
-- No TURN. STUN-only stays.
-- No transport rewrite, no schema change, no version bumps in this pass.
+## Next step after approval
 
-## Technical notes
-
-Files touched in Step 1 only: `agent/src/WebRtcSession.cs`, `agent/src/ScreenCapture.cs`, `src/lib/webrtc-live.ts`. Step 2/3 file lists are decided by evidence.
+Paste `agent.log` + console dump here. I will report the Step 1 findings first, name the single fix the evidence selects, and only then write Step 2 code.
