@@ -22,6 +22,7 @@ import { Route as OrderIdRouteImport } from './routes/order.$id'
 import { Route as ConnectlivePaymentRouteImport } from './routes/connectlive.payment'
 import { Route as ConnectliveAdminRouteImport } from './routes/connectlive.admin'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
+import { Route as ApiPublicIceRouteImport } from './routes/api/public/ice'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
 import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
@@ -103,6 +104,11 @@ const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   id: '/console',
   path: '/console',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiPublicIceRoute = ApiPublicIceRouteImport.update({
+  id: '/api/public/ice',
+  path: '/api/public/ice',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
   id: '/api/public/health',
@@ -212,6 +218,7 @@ export interface FileRoutesByFullPath {
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/ice': typeof ApiPublicIceRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -243,6 +250,7 @@ export interface FileRoutesByTo {
   '/order/$id': typeof OrderIdRoute
   '/order': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/ice': typeof ApiPublicIceRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -276,6 +284,7 @@ export interface FileRoutesById {
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/ice': typeof ApiPublicIceRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -309,6 +318,7 @@ export interface FileRouteTypes {
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
+    | '/api/public/ice'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -340,6 +350,7 @@ export interface FileRouteTypes {
     | '/order/$id'
     | '/order'
     | '/api/public/health'
+    | '/api/public/ice'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -372,6 +383,7 @@ export interface FileRouteTypes {
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
+    | '/api/public/ice'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -404,6 +416,7 @@ export interface RootRouteChildren {
   OrderIdRoute: typeof OrderIdRoute
   OrderIndexRoute: typeof OrderIndexRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
+  ApiPublicIceRoute: typeof ApiPublicIceRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
@@ -514,6 +527,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/console'
       preLoaderRoute: typeof AuthenticatedConsoleRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/ice': {
+      id: '/api/public/ice'
+      path: '/api/public/ice'
+      fullPath: '/api/public/ice'
+      preLoaderRoute: typeof ApiPublicIceRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/health': {
       id: '/api/public/health'
@@ -662,6 +682,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrderIdRoute: OrderIdRoute,
   OrderIndexRoute: OrderIndexRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
+  ApiPublicIceRoute: ApiPublicIceRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
