@@ -59,11 +59,37 @@ public partial class LiveSessionViewModel : ObservableObject
     [ObservableProperty] private double cursorNormY;
     [ObservableProperty] private bool cursorVisible;
 
+    /// <summary>
+    /// SCOPE:RENDER — raised on the UI thread exactly once per authoritative
+    /// cursor sample (poll pump OR realtime), carrying (normX, normY, visible).
+    /// The three CursorNorm* properties can't serve this purpose: ObservableObject
+    /// suppresses PropertyChanged when a value is unchanged, so a listener
+    /// watching them would miss samples and mis-reconcile the prediction.
+    /// </summary>
+    public event Action<double, double, bool>? CursorSample;
+
+    private void PublishCursor(double nx, double ny, bool visible)
+    {
+        CursorNormX = nx;
+        CursorNormY = ny;
+        CursorVisible = visible;
+        try { CursorSample?.Invoke(nx, ny, visible); } catch { }
+    }
+
+    /// <summary>
+    /// True only while this console is genuinely driving the remote pointer —
+    /// control mode, curtain engaged, not superseded. The predictive cursor is
+    /// gated on this so a view-only or taken-over session can never draw a
+    /// pointer the agent isn't going to honour.
+    /// </summary>
+    public bool InputAuthoritative => Mode == "control" && CurtainOn && !TakenOver;
+
     public LiveSessionViewModel(string sessionId, DeviceItem device)
     {
         SessionId = sessionId;
         Device = device;
     }
+
 
     // Marshals any background-thread error onto the UI thread and auto-clears
     // the banner after 15s so a transient RLS/401 blip never leaves a stale
@@ -122,14 +148,16 @@ public partial class LiveSessionViewModel : ObservableObject
                 if (sample == null || !sample.Visible ||
                     sample.FrameW is null or 0 || sample.FrameH is null or 0)
                 {
-                    CursorVisible = false;
+                    PublishCursor(CursorNormX, CursorNormY, false);
                     return;
                 }
-                CursorNormX = Math.Clamp((double)sample.X / sample.FrameW.Value, 0, 1);
-                CursorNormY = Math.Clamp((double)sample.Y / sample.FrameH.Value, 0, 1);
-                CursorVisible = true;
+                PublishCursor(
+                    Math.Clamp((double)sample.X / sample.FrameW.Value, 0, 1),
+                    Math.Clamp((double)sample.Y / sample.FrameH.Value, 0, 1),
+                    true);
             });
         }, onError: SurfaceError);
+
         _cursorPump.Start(_cts.Token);
 
         // Raw Supabase Realtime is the fast path: session_frames /
@@ -161,14 +189,16 @@ public partial class LiveSessionViewModel : ObservableObject
                 {
                     if (!e.Visible || e.FrameW is null or 0 || e.FrameH is null or 0)
                     {
-                        CursorVisible = false;
+                        PublishCursor(CursorNormX, CursorNormY, false);
                         return;
                     }
-                    CursorNormX = Math.Clamp((double)e.X / e.FrameW.Value, 0, 1);
-                    CursorNormY = Math.Clamp((double)e.Y / e.FrameH.Value, 0, 1);
-                    CursorVisible = true;
+                    PublishCursor(
+                        Math.Clamp((double)e.X / e.FrameW.Value, 0, 1),
+                        Math.Clamp((double)e.Y / e.FrameH.Value, 0, 1),
+                        true);
                 });
             },
+
             onError: SurfaceError,
             onHealth: healthy => _realtimeHealthy = healthy);
         _realtime.Start();
@@ -461,6 +491,16 @@ public partial class LiveSessionViewModel : ObservableObject
 
     public string ControlButtonLabel => Mode == "control" ? "Release curtain" : "Curtain (take control)";
 
-    partial void OnModeChanged(string value) => OnPropertyChanged(nameof(ControlButtonLabel));
+    partial void OnModeChanged(string value)
+    {
+        OnPropertyChanged(nameof(ControlButtonLabel));
+        OnPropertyChanged(nameof(InputAuthoritative));
+    }
+
+    // SCOPE:RENDER — the predictive cursor listens on InputAuthoritative, so
+    // every input on which it depends must republish it.
+    partial void OnCurtainOnChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
+    partial void OnTakenOverChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
 }
+
 
