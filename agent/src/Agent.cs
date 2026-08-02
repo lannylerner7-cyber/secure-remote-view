@@ -382,8 +382,39 @@ public sealed class Agent
     {
         const string technician = "Helpdesk";
 
-        try { await _api.SubmitConsentAsync(sessionId, true, ct); }
+        // Never accept twice for the same invite while a dialog is on screen:
+        // the heartbeat re-lists the invite every few seconds.
+        if (!_promptingSessions.Add(sessionId)) return;
+
+        bool granted;
+        try
+        {
+            // THE consent gate. Silence, a closed window, or a missing UI
+            // thread all resolve to "no" — the session only starts when a
+            // human at the keyboard clicks Allow (or has previously opted in
+            // to standing consent).
+            try { _onWake?.Invoke(); } catch { }
+            granted = await ConsentPrompt.AskAsync(technician, mode, ct);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"consent prompt: {ex.Message}");
+            granted = false;
+        }
+        finally { _promptingSessions.Remove(sessionId); }
+
+        try { await _api.SubmitConsentAsync(sessionId, granted, ct); }
         catch (Exception ex) { Log.Warn($"consent submit: {ex.Message}"); return; }
+
+        if (!granted)
+        {
+            // Remember the refusal so the next heartbeat doesn't re-prompt a
+            // session the server has already moved to `declined`.
+            _acceptedSessions.Add(sessionId);
+            ReportState("Support request declined");
+            Log.Info($"session {sessionId} declined by user");
+            return;
+        }
 
         _acceptedSessions.Add(sessionId);
         _currentSessionId = sessionId;
@@ -392,6 +423,7 @@ public sealed class Agent
         // HTTPS is the primary transport: start the frame/input/cursor loops
         // immediately so the admin panel gets pixels within one frame interval.
         StartSessionLoops(sessionId, mode);
+
 
         // WebRTC upgrades on top when ICE completes. If it never does (strict
         // NAT, no TURN), the HTTPS loops above already carry the whole session.
