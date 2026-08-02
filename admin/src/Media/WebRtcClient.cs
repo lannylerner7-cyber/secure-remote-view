@@ -44,7 +44,7 @@ public sealed class WebRtcClient
     /// Fired on repeated signal-poll failures (typically 401/RLS) so the
     /// ViewModel can raise a banner instead of the loop dying silently.
     /// </param>
-    public async Task StartAsync(CancellationToken outerCt, Action onConnected, Action? onTerminated = null, Action<string>? onError = null)
+    public async Task StartAsync(CancellationToken outerCt, Action onVideoLive, Action? onVideoStalled = null, Action? onTerminated = null, Action<string>? onError = null)
     {
         _onTerminated = onTerminated;
         _onError = onError;
@@ -100,14 +100,19 @@ public sealed class WebRtcClient
         // "connected but the sender emits nothing" — the exact failure where
         // the encoder never got its negotiated format.
         long rtpVideoPackets = 0;
+        long lastObservedPackets = 0;
+        DateTime lastVideoPacketUtc = DateTime.MinValue;
+        int videoLiveRaised = 0;
         var lastRtpLog = DateTime.MinValue;
         _pc.OnRtpPacketReceived += (_, media, __) =>
         {
             if (media != SDPMediaTypesEnum.video) return;
             var n = Interlocked.Increment(ref rtpVideoPackets);
+            lastVideoPacketUtc = DateTime.UtcNow;
             if (n == 1)
             {
                 System.Diagnostics.Debug.WriteLine("[webrtc] first video RTP packet received");
+                if (Interlocked.Exchange(ref videoLiveRaised, 1) == 0) onVideoLive();
                 return;
             }
             var now = DateTime.UtcNow;
@@ -123,7 +128,6 @@ public sealed class WebRtcClient
             {
                 if (Interlocked.Read(ref rtpVideoPackets) == 0)
                     System.Diagnostics.Debug.WriteLine("[webrtc] connected — awaiting first video RTP packet");
-                onConnected();
             }
         };
 
@@ -139,6 +143,25 @@ public sealed class WebRtcClient
 
         _ = Task.Run(() => PollAgentSignals(ct), CancellationToken.None);
         _ = Task.Run(() => HeartbeatLoop(ct), CancellationToken.None);
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(3000, ct).ConfigureAwait(false); } catch { return; }
+                var packets = Interlocked.Read(ref rtpVideoPackets);
+                if (packets > lastObservedPackets)
+                {
+                    lastObservedPackets = packets;
+                    continue;
+                }
+                if (Interlocked.CompareExchange(ref videoLiveRaised, 0, 1) == 1 &&
+                    lastVideoPacketUtc != DateTime.MinValue &&
+                    (DateTime.UtcNow - lastVideoPacketUtc).TotalSeconds >= 6)
+                {
+                    try { onVideoStalled?.Invoke(); } catch { }
+                }
+            }
+        }, CancellationToken.None);
 
         // Blind connect watchdog — original 12s baseline.
         _ = Task.Run(async () =>

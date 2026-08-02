@@ -102,8 +102,26 @@ public sealed class WebRtcSession : IDisposable
 
         _videoEnd = new VideoEncoderEndPoint();
         // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
-        try { _videoEnd.RestrictFormats(f => f.Codec == VideoCodecsEnum.VP8); } catch { }
-        MediaStreamTrack videoTrack = new(_videoEnd.GetVideoSourceFormats(), MediaStreamStatusEnum.SendOnly);
+        try
+        {
+            _videoEnd.RestrictFormats(f => f.Codec == VideoCodecsEnum.VP8);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"webrtc VP8 restriction failed: {ex.Message}");
+        }
+        var sourceFormats = _videoEnd.GetVideoSourceFormats();
+        bool hasVp8 = false;
+        if (sourceFormats != null)
+            foreach (var sourceFormat in sourceFormats)
+                if (sourceFormat.Codec == VideoCodecsEnum.VP8) { hasVp8 = true; break; }
+        if (!hasVp8)
+        {
+            Log.Warn("webrtc VP8 encoder unavailable; keeping HTTPS frame fallback");
+            TearDownPeer();
+            return;
+        }
+        MediaStreamTrack videoTrack = new(sourceFormats, MediaStreamStatusEnum.SendOnly);
         _pc.addTrack(videoTrack);
 
         _videoEnd.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
@@ -121,6 +139,11 @@ public sealed class WebRtcSession : IDisposable
             try
             {
                 var fmt = formats[0];
+                if (fmt.Codec != VideoCodecsEnum.VP8)
+                {
+                    Log.Warn($"webrtc rejected negotiated codec {fmt.Codec}; VP8 required");
+                    return;
+                }
                 _videoEnd?.SetVideoSourceFormat(fmt);
                 _formatReady = true;
                 Log.Info($"webrtc video format negotiated: {fmt.Codec} pt={fmt.FormatID}");
@@ -222,8 +245,7 @@ public sealed class WebRtcSession : IDisposable
     /// <summary>
     /// Called from ScreenCapture: encode this frame into the WebRTC video track.
     /// Buffer MUST be tightly packed (width*4 bytes per row) in RGBA memory
-    /// order — SIPSorcery's Bgra converter reads bytes as R,G,B,A, so passing
-    /// GDI BGRA verbatim renders the picture with R/B swapped.
+    /// order. Encoder package 8.0.7's Bgra branch consumes RGBA bytes.
     ///
     /// No-ops until the peer is connected AND the SDP-negotiated video format
     /// has been handed to the encoder. Both conditions are counted so a
@@ -231,6 +253,13 @@ public sealed class WebRtcSession : IDisposable
     /// </summary>
     public void PushFrame(byte[] bgra, int width, int height)
     {
+        if (width < 2 || height < 2 || (width & 1) != 0 || (height & 1) != 0 ||
+            bgra.Length != checked(width * height * 4))
+        {
+            Interlocked.Increment(ref _dropped);
+            Log.Warn($"webrtc rejected malformed raw frame {width}x{height}, bytes={bgra.Length}");
+            return;
+        }
         var pc = _pc;
         var enc = _videoEnd;
         if (enc == null || pc == null) { Interlocked.Increment(ref _dropped); return; }

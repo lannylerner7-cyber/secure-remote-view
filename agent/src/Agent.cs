@@ -159,7 +159,9 @@ public sealed class Agent
     private async Task HeartbeatLoop(CancellationToken ct)
     {
         var fastDelay = TimeSpan.FromSeconds(5);
-        var slowDelay = TimeSpan.FromSeconds(60);
+        // Standalone mode has no helper/SSE process. Keep idle command pickup
+        // responsive instead of leaving wake/restart queued for up to a minute.
+        var slowDelay = TimeSpan.FromSeconds(10);
         var errDelay = TimeSpan.FromSeconds(1);
 
         int fails = 0;

@@ -159,12 +159,20 @@ public partial class LiveSessionViewModel : ObservableObject
 
         _rtc = new WebRtcClient(SessionId);
         _ = _rtc.StartAsync(_cts.Token,
-            onConnected: () =>
+            onVideoLive: () =>
             {
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
                     Transport = "WebRTC video";
                     StatusMessage = null;
+                });
+            },
+            onVideoStalled: () =>
+            {
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
+                    LinkState = "video stalled — fallback active";
                 });
             },
             onTerminated: HandleTakenOver,
@@ -197,9 +205,6 @@ public partial class LiveSessionViewModel : ObservableObject
                 try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
                 var last = _lastFrameUtc;
                 string state;
-                // While the WebRTC video track is the live surface the JPEG
-                // pipe is intentionally idle, so its frame age says nothing
-                // about health — mirror the web console and report "live".
                 if (Transport == "WebRTC video") state = "live";
                 else if (last == DateTime.MinValue) state = "waiting for agent…";
                 else
