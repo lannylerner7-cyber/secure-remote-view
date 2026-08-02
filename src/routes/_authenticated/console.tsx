@@ -1000,25 +1000,28 @@ function AdminPage() {
           paused: "Session paused",
         }[streamState];
         const rtSinceLastPush = lastRealtimePushAtRef.current ? now - lastRealtimePushAtRef.current : Infinity;
-        // Transport pill: WebRTC video is the primary surface; everything else
-        // is an explicit statement that we are on the fallback slideshow.
-        const transport: "connecting" | "video" | "live" | "reconnecting" | "polling" =
-          rtcVideoLive
+        // Transport pill: only a decoded frame earns the "WebRTC video" label.
+        // A peer that completed ICE but never delivers pixels reads
+        // "WebRTC negotiating" so this exact failure is visible at a glance.
+        const transport: "connecting" | "video" | "negotiating" | "live" | "reconnecting" | "polling" =
+          videoDecoding
             ? "video"
-            : rtcState === "connecting" || handingOver
-              ? "connecting"
-              : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
-                ? "reconnecting"
-                : realtimeStatus === "connecting"
-                  ? "connecting"
-                  : rtSinceLastPush < 5000
-                    ? "live"
-                    : "polling";
+            : rtcVideoLive
+              ? "negotiating"
+              : rtcState === "connecting" || handingOver
+                ? "connecting"
+                : realtimeStatus === "reconnecting" || realtimeStatus === "closed"
+                  ? "reconnecting"
+                  : realtimeStatus === "connecting"
+                    ? "connecting"
+                    : rtSinceLastPush < 5000
+                      ? "live"
+                      : "polling";
         const transportTone = transport === "video"
           ? "bg-emerald-400"
-          : transport === "live" || transport === "polling" || transport === "connecting"
-            ? "bg-amber-400"
-            : "bg-rose-500";
+          : transport === "reconnecting"
+            ? "bg-rose-500"
+            : "bg-amber-400";
         // Candidate type turns the LAN-vs-cross-network test into a direct
         // read: host/srflx = direct path, relay = TURN is carrying the media.
         const iceKind = rtcRef.current?.candidateType?.() ?? null;
@@ -1026,10 +1029,12 @@ function AdminPage() {
         const transportLabel = {
           connecting: "Connecting",
           video: videoLabel,
+          negotiating: `WebRTC negotiating${iceKind ? ` · ${iceKind}` : ""} · no frames yet`,
           live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
           reconnecting: "Reconnecting",
           polling: "Frame fallback (polling)",
         }[transport];
+
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
