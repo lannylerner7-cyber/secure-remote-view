@@ -8,8 +8,7 @@
  *
  * /api/public/agent/enroll is keyless and IP-throttled: it mints a device
  * token on first contact. Every other /api/public/agent/* route MUST validate
- * X-Device-Id + X-Device-Token. /api/public/ice requires either a device token
- * or an admin bearer. The legacy /pair route and the X-Deployment-Key header
+ * X-Device-Id + X-Device-Token. The legacy /pair route and the X-Deployment-Key header
  * are gone — neither the routes nor the clients reference them any more.
  */
 export const API_ROUTES = {
@@ -30,8 +29,6 @@ export const API_ROUTES = {
   agentPowerAck: (cmdId: string) => `/api/public/agent/power/${cmdId}/ack`,
 
   // Shared infrastructure
-  /** STUN/TURN credentials (Metered), auth-gated. */
-  ice: "/api/public/ice",
   health: "/api/public/health",
 
   // Admin auth (native console + lockout-aware login)
