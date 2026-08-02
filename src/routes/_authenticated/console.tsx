@@ -1023,7 +1023,7 @@ function AdminPage() {
             ? "bg-rose-500"
             : "bg-amber-400";
         // Candidate type turns the LAN-vs-cross-network test into a direct
-        // read: host/srflx = direct path, relay = TURN is carrying the media.
+        // read: host = LAN, srflx = NAT-traversed direct path.
         const iceKind = rtcRef.current?.candidateType?.() ?? null;
         const videoLabel = `WebRTC video${iceKind ? ` · ${iceKind}` : ""}${videoFps ? ` · ${videoFps} fps` : ""}`;
         const transportLabel = {
