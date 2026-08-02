@@ -922,13 +922,17 @@ function AdminPage() {
           : transport === "live" || transport === "polling" || transport === "connecting"
             ? "bg-amber-400"
             : "bg-rose-500";
+        // Candidate type turns the LAN-vs-cross-network test into a direct
+        // read: host/srflx = direct path, relay = TURN is carrying the media.
+        const iceKind = rtcRef.current?.candidateType?.() ?? null;
         const transportLabel = {
           connecting: "Connecting",
-          video: "WebRTC video",
+          video: iceKind ? `WebRTC video · ${iceKind}` : "WebRTC video",
           live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
           reconnecting: "Reconnecting",
           polling: "Frame fallback (polling)",
         }[transport];
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setLiveId(null)}>
             <div className="w-full max-w-[min(96vw,1760px)] overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl" onClick={(e) => e.stopPropagation()}>

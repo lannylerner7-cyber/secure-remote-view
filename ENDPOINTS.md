@@ -48,6 +48,7 @@ Everything else the web console does goes straight through the Supabase client
 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
+| GET | `/api/public/ice` | ICE servers (Google STUN + Metered TURN relay) for the agent and the native admin console. Credentials are minted server-side per request and cached ~50 min; degrades to STUN-only if Metered is unreachable. | device token **or** admin bearer |
 | GET | `/api/public/health` | Uptime probe. | none |
 | GET | `/api/public/stats/orders` | Aggregate, non-PII order counters for the landing page. | none |
 | POST | `/api/public/cron/reconcile-orders` | Scheduled crypto-payment reconciliation. | cron secret |
