@@ -28,6 +28,8 @@ namespace ConnectLive.Agent;
 ///   GET  /api/public/agent/session/:id/inputs    -> admin input queue (long-poll)
 ///   POST /api/public/agent/session/:id/signal    -> WebRTC signaling
 ///   GET  /api/public/agent/session/:id/signal    -> WebRTC signaling (poll)
+///   POST /api/public/agent/power/:cmdId/ack      -> power-command acknowledgement
+///   GET  /api/public/ice                         -> STUN/TURN credentials
 /// All authenticated requests send X-Device-Id + X-Device-Token.
 /// Transport is HTTPS-only; the old realtime WebSocket path was removed
 /// (heartbeat + long-poll already deliver invites and signaling).
