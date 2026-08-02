@@ -27,6 +27,11 @@ public sealed class Agent
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private WebRtcSession? _rtc;
     private readonly HashSet<string> _acceptedSessions = new();
+    // Invites whose consent dialog is currently on screen. The heartbeat
+    // re-lists an `invited` session every cycle; without this the user would
+    // get a new dialog every few seconds while deciding.
+    private readonly HashSet<string> _promptingSessions = new();
+
     private string? _currentSessionId;
     private string? _loopSessionId;
     private CancellationTokenSource? _sessionCts;
