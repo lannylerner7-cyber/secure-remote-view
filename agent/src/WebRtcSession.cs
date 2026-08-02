@@ -44,6 +44,17 @@ public sealed class WebRtcSession : IDisposable
     private long _sinceSignal = 0;
     private bool _closed = false;
 
+    // The encoder only accepts raw samples once SDP negotiation has told us
+    // which video format won. Until then ExternalVideoSourceRawSample() drops
+    // every frame silently, which looks exactly like "connected but black".
+    private volatile bool _formatReady = false;
+    private volatile bool _videoStarted = false;
+    private long _pushed = 0;
+    private long _encoded = 0;
+    private long _dropped = 0;
+    private DateTime _lastStatsUtc = DateTime.MinValue;
+
+
     // Identity of the admin machine that owns the current peer. Null until
     // the first offer arrives. Used to detect take-over and to tag outgoing
     // answer/ICE so the admin poller's `admin_client_id` filter routes them.
