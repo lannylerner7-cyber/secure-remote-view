@@ -116,7 +116,16 @@ function AdminPage() {
   const [rtcState, setRtcState] = useState<WebRtcState>("idle");
   const rtcVideoLive = rtcState === "connected";
   const rtcVideoLiveRef = useRef(false);
+  // When the video track drops we unsubscribe/resubscribe the JPEG fallback,
+  // so `liveFrame` is momentarily ancient. Remember the drop instant and grant
+  // a grace window instead of screaming "Stalled" at a session that is fine.
+  const rtcDroppedAtRef = useRef<number>(0);
+  if (rtcVideoLiveRef.current && !rtcVideoLive) rtcDroppedAtRef.current = Date.now();
   rtcVideoLiveRef.current = rtcVideoLive;
+  // Decoded-video frame rate, sampled off the real <video> element so the HUD
+  // reports the stream's actual cadence rather than the JPEG fallback's.
+  const videoFpsRef = useRef({ last: 0, frames: 0, fps: 0 });
+  const [videoFps, setVideoFps] = useState(0);
   const [liveCursor, setLiveCursor] = useState<LiveCursor | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
