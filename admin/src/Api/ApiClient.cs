@@ -232,6 +232,19 @@ public sealed class ApiClient
         await EnsureOkAsync(res, "set session mode", ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Re-arm an existing session so a woken agent rejoins it instead of
+    /// waiting for a fresh invite. Mirrors the web console's requestReconnect.
+    /// </summary>
+    public async Task ResumeSessionAsync(string sessionId, CancellationToken ct)
+    {
+        using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
+        req.Content = JsonContent.Create(new { state = "active", mode = "view", updated_at = DateTime.UtcNow });
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "resume session", ct).ConfigureAwait(false);
+    }
+
+
     // Push an input event (mouse/keyboard/text/curtain) that the agent will pick up.
     public async Task PushInputAsync(string sessionId, string kind, object payload, CancellationToken ct)
     {
