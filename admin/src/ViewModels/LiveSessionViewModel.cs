@@ -197,7 +197,11 @@ public partial class LiveSessionViewModel : ObservableObject
                 try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
                 var last = _lastFrameUtc;
                 string state;
-                if (last == DateTime.MinValue) state = "waiting for agent…";
+                // While the WebRTC video track is the live surface the JPEG
+                // pipe is intentionally idle, so its frame age says nothing
+                // about health — mirror the web console and report "live".
+                if (Transport == "WebRTC video") state = "live";
+                else if (last == DateTime.MinValue) state = "waiting for agent…";
                 else
                 {
                     var age = (DateTime.UtcNow - last).TotalSeconds;
