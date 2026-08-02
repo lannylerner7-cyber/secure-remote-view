@@ -1080,7 +1080,7 @@ function AdminPage() {
                   <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
                     Session has no device attached.
                   </div>
-                ) : (rtcVideoLive || liveFrame?.frame) ? (
+                ) : (videoDecoding || liveFrame?.frame) ? (
                   <div
                     ref={liveSurfaceRef}
                     tabIndex={s.mode === "control" ? 0 : -1}
@@ -1112,12 +1112,12 @@ function AdminPage() {
                         by startWebRtcLive(); we only host it here. */}
                     <div
                       ref={videoHostRef}
-                      className={`pointer-events-none absolute inset-0 ${rtcVideoLive ? "" : "hidden"}`}
+                      className={`pointer-events-none absolute inset-0 ${videoDecoding ? "" : "hidden"}`}
                     />
                     {/* Fallback layer: base64 JPEG slideshow from session_frames.
                         Same object-contain letterboxing so coordinate mapping is
                         identical apart from the source dimensions. */}
-                    {!rtcVideoLive && liveFrame?.frame && (
+                    {!videoDecoding && liveFrame?.frame && (
                       <img
                         src={`data:image/jpeg;base64,${liveFrame.frame}`}
                         alt="Live screen"
@@ -1142,7 +1142,7 @@ function AdminPage() {
                     </div>
                   </div>
                 )}
-                {s.device_id && (rtcVideoLive || liveFrame?.frame) && liveCursor && liveCursor.visible && (
+                {s.device_id && (videoDecoding || liveFrame?.frame) && liveCursor && liveCursor.visible && (
                   <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
                 )}
                 <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
@@ -1158,8 +1158,8 @@ function AdminPage() {
                     );
                   })()}
                   <span>session {s.id.slice(0, 8)}{s.device_id ? ` · device ${s.device_id.slice(0, 8)}` : ""}</span>
-                  <span>· {rtcVideoLive ? `${videoFps} fps video` : `${fpsCounterRef.current.fps} fps frames`}</span>
-                  {!rtcVideoLive && liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
+                  <span>· {videoDecoding ? `${videoFps} fps video` : `${fpsCounterRef.current.fps} fps frames`}</span>
+                  {!videoDecoding && liveFrame?.updated_at && <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>}
                 </div>
 
                 {s.mode === "control" && s.device_id && (
