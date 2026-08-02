@@ -226,7 +226,57 @@ public sealed class DxgiCapture : IDisposable
             desktopTexture?.Dispose();
             desktopResource?.Dispose();
             try { _duplication?.ReleaseFrame(); } catch { }
+    /// <summary>
+    /// Rebuild the CPU-readable staging texture for a new desktop size.
+    /// Called on a mid-session resolution change; never tears the D3D device
+    /// down, so the encode loop keeps its cadence.
+    /// </summary>
+    private bool ResizeStaging(int width, int height)
+    {
+        if (_device is null || width <= 0 || height <= 0) return false;
+        try
+        {
+            var old = _staging;
+            _staging = _device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1u,
+                ArraySize = 1u,
+                Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read,
+                MiscFlags = ResourceOptionFlags.None,
+            });
+            try { old?.Dispose(); } catch { }
+            _width = width;
+            _height = height;
+            return true;
         }
+        catch (Exception ex)
+        {
+            Log.Warn($"DXGI: staging resize failed: {ex.Message}");
+            TryReinitialize("staging resize failure");
+            return false;
+        }
+    }
+
+    // Don't thrash: a lost desktop (locked workstation, secure desktop) can
+    // fail for many seconds; one rebuild attempt per second is plenty.
+    private DateTime _lastReinitUtc = DateTime.MinValue;
+
+    private void TryReinitialize(string why)
+    {
+        if ((DateTime.UtcNow - _lastReinitUtc).TotalMilliseconds < 1000) return;
+        _lastReinitUtc = DateTime.UtcNow;
+        Log.Warn($"DXGI: rebuilding duplication ({why})");
+        Dispose();
+        if (TryInitialize()) Log.Info("DXGI: duplication rebuilt");
+    }
+}
+
     }
 
     public void Dispose()
