@@ -1,0 +1,3 @@
+ALTER TABLE public.power_commands DROP CONSTRAINT power_commands_kind_check;
+ALTER TABLE public.power_commands ADD CONSTRAINT power_commands_kind_check
+  CHECK (kind = ANY (ARRAY['wake'::text,'wake_agent'::text,'reboot'::text,'shutdown'::text,'lock'::text,'logoff'::text,'restart_stream'::text,'restart_agent'::text,'switch_monitor'::text]));

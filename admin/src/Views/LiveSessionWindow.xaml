@@ -34,7 +34,31 @@
                     <!-- G2 measurement: fps / latency / queue depth / source size. -->
                     <TextBlock Text="{Binding VideoStats}" Foreground="{StaticResource TextMuted}"
                                Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11" />
+
+                    <!-- SCOPE:CAPTURE — monitor picker. Hidden on single-display
+                         machines so the bar stays clean. -->
+                    <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMultipleMonitors}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Display" Foreground="{StaticResource TextMuted}"
+                                   VerticalAlignment="Center" FontSize="11" Margin="0,0,6,0" />
+                        <ComboBox MinWidth="190"
+                                  ItemsSource="{Binding Monitors}"
+                                  SelectedItem="{Binding SelectedMonitor, Mode=TwoWay}"
+                                  DisplayMemberPath="Label"
+                                  VerticalAlignment="Center"
+                                  ToolTip="Choose which remote monitor is captured. The stream restarts on change." />
+                    </StackPanel>
                 </StackPanel>
+
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
                     <Button Content="Reconnect" Command="{Binding ReconnectAgentCommand}"

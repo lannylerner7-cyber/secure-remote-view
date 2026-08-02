@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -234,7 +235,41 @@ public sealed class ApiClient
     {
         // Best-effort LAN fingerprint so admins can pick a peer for WoL.
         var (subnet, mac, ipv4) = PowerRelay.LocalLanFingerprint();
-        var payload = new { lan = new { subnet_v4 = subnet, mac, ipv4 } };
+
+        // SCOPE:CAPTURE — publish the attached-display inventory so the admin
+        // console can render a monitor picker without a live session. Cheap
+        // (Screen.AllScreens) and always reflects hot-plug state because it is
+        // re-read on every heartbeat.
+        object[] monitors;
+        string selectedMonitor;
+        try
+        {
+            var outs = MonitorSelector.Outputs();
+            monitors = outs.Select(o => (object)new
+            {
+                index = o.Index,
+                device_name = o.DeviceName,
+                label = o.Label,
+                width = o.Bounds.Width,
+                height = o.Bounds.Height,
+                x = o.Bounds.X,
+                y = o.Bounds.Y,
+                primary = o.IsPrimary,
+            }).ToArray();
+            selectedMonitor = MonitorSelector.SelectedDeviceName;
+        }
+        catch
+        {
+            monitors = Array.Empty<object>();
+            selectedMonitor = "";
+        }
+
+        var payload = new
+        {
+            lan = new { subnet_v4 = subnet, mac, ipv4 },
+            monitors,
+            selected_monitor = selectedMonitor,
+        };
         using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {
             Content = JsonContent.Create(payload),

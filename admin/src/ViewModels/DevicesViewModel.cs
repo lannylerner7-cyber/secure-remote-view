@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +10,20 @@ using ConnectLive.Admin.Api;
 using ConnectLive.Admin.Views;
 
 namespace ConnectLive.Admin.ViewModels;
+
+/// <summary>
+/// SCOPE:CAPTURE — one selectable remote display, mirrored from the agent's
+/// heartbeat (devices.metadata.monitors). DeviceName is the join key the agent
+/// resolves against Screen.AllScreens / DXGI; never send an index alone.
+/// </summary>
+public sealed class MonitorOption
+{
+    public int Index { get; init; }
+    public string DeviceName { get; init; } = "";
+    public string Label { get; init; } = "";
+    public bool IsPrimary { get; init; }
+    public override string ToString() => Label;
+}
 
 public partial class DeviceItem : ObservableObject
 {
@@ -24,8 +39,54 @@ public partial class DeviceItem : ObservableObject
     // by the agent's heartbeat; used by the staged Wake command below.
     public string? LanSubnetV4 { get; init; }
     public string? Mac { get; init; }
+    // Attached displays reported by the agent, plus the one it is capturing.
+    public IReadOnlyList<MonitorOption> Monitors { get; init; } = Array.Empty<MonitorOption>();
+    public string? SelectedMonitor { get; init; }
     public bool IsOffline => Status != "online";
 }
+
+/// <summary>Parses devices.metadata.monitors into MonitorOption rows (best-effort).</summary>
+internal static class MonitorMetadata
+{
+    public static (IReadOnlyList<MonitorOption> monitors, string? selected) Parse(System.Text.Json.JsonElement metadata)
+    {
+        var list = new List<MonitorOption>();
+        string? selected = null;
+        try
+        {
+            if (metadata.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return (list, null);
+            if (metadata.TryGetProperty("selected_monitor", out var sm) &&
+                sm.ValueKind == System.Text.Json.JsonValueKind.String)
+                selected = sm.GetString();
+            if (metadata.TryGetProperty("monitors", out var arr) &&
+                arr.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                int i = 0;
+                foreach (var m in arr.EnumerateArray())
+                {
+                    if (m.ValueKind != System.Text.Json.JsonValueKind.Object) { i++; continue; }
+                    var name = m.TryGetProperty("device_name", out var dn) && dn.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? (dn.GetString() ?? "") : "";
+                    if (name.Length == 0) { i++; continue; }
+                    list.Add(new MonitorOption
+                    {
+                        Index = m.TryGetProperty("index", out var ix) && ix.ValueKind == System.Text.Json.JsonValueKind.Number
+                            ? ix.GetInt32() : i,
+                        DeviceName = name,
+                        Label = m.TryGetProperty("label", out var lb) && lb.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? (lb.GetString() ?? name) : name,
+                        IsPrimary = m.TryGetProperty("primary", out var pr) && pr.ValueKind == System.Text.Json.JsonValueKind.True,
+                    });
+                    i++;
+                }
+            }
+        }
+        catch { /* metadata is best-effort */ }
+        return (list, selected);
+    }
+}
+
 
 public partial class DevicesViewModel : ObservableObject
 {
@@ -117,6 +178,7 @@ public partial class DevicesViewModel : ObservableObject
                         }
                     }
                     catch { /* metadata is best-effort */ }
+                    var (monitors, selectedMonitor) = MonitorMetadata.Parse(d.Metadata);
                     Devices.Add(new DeviceItem
                     {
                         RowId = d.Id,
@@ -129,6 +191,8 @@ public partial class DevicesViewModel : ObservableObject
                         InSession = d.IsSessionActive,
                         LanSubnetV4 = subnet,
                         Mac = mac,
+                        Monitors = monitors,
+                        SelectedMonitor = selectedMonitor,
                     });
                 }
                 Error = null;

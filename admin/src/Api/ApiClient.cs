@@ -149,6 +149,21 @@ public sealed class ApiClient
                ?? new List<DeviceRow>();
     }
 
+    /// <summary>
+    /// Single-row fetch used by the live session window's monitor picker, so
+    /// it can track hot-plugged displays without pulling the whole grid.
+    /// </summary>
+    public async Task<DeviceRow?> GetDeviceAsync(string deviceRowId, CancellationToken ct)
+    {
+        using var req = NewSupabase(HttpMethod.Get,
+            $"/rest/v1/devices?select=id,device_id,display_name,hostname,os,last_seen_at,status,is_session_active,metadata&id=eq.{Uri.EscapeDataString(deviceRowId)}&limit=1");
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "get device", ct).ConfigureAwait(false);
+        var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var list = await JsonSerializer.DeserializeAsync<List<DeviceRow>>(stream, cancellationToken: ct).ConfigureAwait(false);
+        return list is { Count: > 0 } ? list[0] : null;
+    }
+
     public async Task DeleteDeviceAsync(string deviceRowId, CancellationToken ct)
     {
         using var req = NewSupabase(HttpMethod.Delete, $"/rest/v1/devices?id=eq.{Uri.EscapeDataString(deviceRowId)}");
