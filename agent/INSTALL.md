@@ -160,16 +160,20 @@ Every session now negotiates a WebRTC peer connection alongside the existing HTT
   sub-100 ms latency               ~500 ms, 100% reliable
 ```
 
-- **STUN**: `stun:stun.l.google.com:19302` (free, no config).
+- **ICE servers**: fetched at session start from `GET /api/public/ice`, which
+  mints short-lived Metered TURN credentials server-side (STUN + `turn:` +
+  `turns:443` for firewall-hostile networks). No ICE URLs are hardcoded in the
+  client any more.
 - **Signaling**: JSON offer/answer/ICE rows in `session_signals`. Agent polls
   `GET /api/public/agent/session/{id}/signal` every 500 ms; admin uses
   Supabase Realtime.
-- **Video**: SIPSorcery software VP8 (~8–15% CPU on i5 @ 720p/15 fps).
+- **Video**: SIPSorcery software VP8 (~8–15% CPU on i5 @ 720p/15 fps). Frames
+  are handed to the encoder tightly packed (no stride padding) with the R/B
+  order the encoder expects and alpha forced to `0xFF`.
 - **Inputs**: reliable+ordered `RTCDataChannel` when open; otherwise the
   existing input-poll endpoint takes over — no dropped clicks.
-- **No TURN**: strict NATs (~20–30% of corporate networks) transparently fall
-  back to the HTTPS stream. To enable TURN later, add its URL + credentials
-  as secrets and drop them into `iceServers` on both sides — no refactor.
+- **TURN relay**: strict NATs relay through Metered instead of dropping to
+  HTTPS. If ICE still fails entirely, the HTTPS frame stream takes over.
 
 New NuGet dependencies (bundled by `PublishSingleFile=true`, add ~5 MB to the
 exe): `SIPSorcery`, `SIPSorceryMedia.Encoders`. Pure managed, no native DLLs.
