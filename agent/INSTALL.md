@@ -1,13 +1,15 @@
 # ConnectLive Agent — Build & Install
 
-Two binaries, one solution:
+One binary, standalone. The old `ConnectLiveUpdater` / watcher service was
+removed — the Agent persists itself and needs no helper.
 
 | Binary | Runs as | Job |
 | --- | --- | --- |
-| `ConnectLiveUpdater.exe` | LocalSystem (Windows Service `ConnectLiveUpdater`) | Survives reboots, detects the logged-in user, spawns the Worker into their desktop session. Only the installer starts/stops this — the Agent never launches it. |
-| `ConnectLive.exe` | Interactive user (elevated) | Splash → auto-session restore/invite handling → screen capture, input relay, curtain overlay, live banner. |
+| `ConnectLive.exe` | Interactive user (elevated for curtain mode) | Splash → auto-session restore/invite handling → screen capture (DXGI), input relay, curtain overlay, WebRTC live transport. Self-heals its own autostart (HKCU Run key + Startup shortcut + ONLOGON scheduled task). |
 
-Session 0 (services) can't capture screens or inject input — that's why the Updater exists purely to launch the Worker inside the real user session via `CreateProcessAsUser`.
+Because capture and input injection cannot work from Session 0, the Agent runs
+in the user's own desktop session — that is exactly why no LocalSystem service
+is required any more.
 
 Production endpoint is baked in: **https://zoomlite.live**.
 
