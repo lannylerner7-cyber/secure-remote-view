@@ -285,7 +285,7 @@ public partial class LiveSessionViewModel : ObservableObject
                 try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
                 var last = _lastFrameUtc;
                 string state;
-                if (Transport == "WebRTC video") state = "live";
+                if (NativeVideo) state = "live";
                 else if (last == DateTime.MinValue) state = "waiting for agent…";
                 else
                 {
@@ -301,6 +301,8 @@ public partial class LiveSessionViewModel : ObservableObject
     public void Stop()
     {
         StopCurtainHeartbeat();
+        StopNetworkWatch();
+
         // Release the remote keyboard/mouse and drop the curtain BEFORE the
         // session row is ended — otherwise the agent keeps BlockInput engaged
         // until its 5s watchdog notices the pings stopped.
