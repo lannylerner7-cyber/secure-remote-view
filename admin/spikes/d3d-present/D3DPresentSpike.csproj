@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Spike 2 — D3DImage present (Gate C).
+       Throwaway WPF harness around the SHIPPING D3DImageHost/D3D9Ex so what is
+       proven here is the code the console uses; no parallel implementation. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>D3DPresentSpike</AssemblyName>
+    <RootNamespace>ConnectLive.Spikes.D3DPresent</RootNamespace>
+    <StartupObject>ConnectLive.Spikes.D3DPresent.SpikeApp</StartupObject>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\Media\D3D9Ex.cs" Link="D3D9Ex.cs" />
+    <Compile Include="..\..\src\Media\D3DImageHost.cs" Link="D3DImageHost.cs" />
+  </ItemGroup>
+
+</Project>

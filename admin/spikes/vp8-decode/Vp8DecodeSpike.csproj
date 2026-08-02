@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Spike 1 — offline VP8 decode + colour proof (Gate B).
+       Throwaway harness: it links FrameConvert.cs from the real console so the
+       colour maths proven here is byte-for-byte the code that ships. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Vp8DecodeSpike</AssemblyName>
+    <RootNamespace>ConnectLive.Spikes.Vp8Decode</RootNamespace>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SIPSorceryMedia.Encoders" Version="8.0.7" />
+    <PackageReference Include="SIPSorceryMedia.Abstractions" Version="8.0.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\Media\FrameConvert.cs" Link="FrameConvert.cs" />
+  </ItemGroup>
+
+</Project>
