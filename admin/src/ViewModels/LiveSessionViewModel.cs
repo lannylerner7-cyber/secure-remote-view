@@ -107,12 +107,13 @@ public partial class LiveSessionViewModel : ObservableObject
     {
         _cts = new CancellationTokenSource();
         _framePump = new FrameFallbackPump(SessionId,
-            bmp => Application.Current?.Dispatcher.Invoke(() => CurrentFrame = bmp),
+            bmp => Application.Current?.Dispatcher.Invoke(() => { if (!NativeVideo) CurrentFrame = bmp; }),
             onError: SurfaceError,
             onSuperseded: HandleTakenOver,
             onFrameStamp: utc => _lastFrameUtc = utc);
         _framePump.Start(_cts.Token);
         Transport = "Frame fallback";
+
 
         _cursorPump = new CursorPollPump(SessionId, sample =>
         {
