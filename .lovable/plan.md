@@ -1,54 +1,43 @@
-## What the two screenshots prove
+## Where things stand (verified by reading the code just now)
 
-Both shots are the same desktop, seconds apart:
+| Item | State |
+|---|---|
+| 1. R/B swap + tight packing in `agent/src/ScreenCapture.cs` → `TeeToWebRtc` | Done — row-by-row pointer copy, `drow = r,g,b,0xFF`, no stride padding |
+| 1b. `WebRtcSession.PushFrame` tightly-packed contract (no stride arg) | Done |
+| 1c. `AllowUnsafeBlocks` for the pointer loop | Present in `agent/src/ConnectLiveAgent.csproj` |
+| 2. Idle keep-alive raised to ~500 ms | Done (`throttled` gate is 500 ms) |
+| 2b. Transport-aware fps in web console | Done — `requestVideoFrameCallback` counter, pill reads `WebRTC video · relay · N fps` |
+| 3. False "Connecting / Stalled" banner | Done — 8 s handover grace; native console watchdog reports `live` while transport is WebRTC video |
+| 4. Route audit (static + live) | **Not done** |
+| 5. Repackage v1.7 / v1.5 | **Not done** (latest on disk: agent v1.6, admin v1.4) |
 
-- **"WebRTC video" pill** → the desert wallpaper renders **blue**, the lake **orange**.
-- **"Connecting / Stalled" pill** (JPEG fallback path) → the same wallpaper renders **correctly orange**.
+So the remaining work is verification and packaging, plus fixing whatever the sweep turns up.
 
-The JPEG pipeline is colour-correct; only the WebRTC path is wrong, and the colours are exactly inverted between the red and blue channels. That is a classic **R/B channel swap in the BGRA → I420 conversion**, not a brightness, gamma or alpha problem. The earlier "darkened" fix (32bppRgb + SourceCopy) was correct and stays; this is a separate, second defect on the video tee only.
+## Plan
 
-Two more things visible in the shots:
-- Both states report **1 fps** in the overlay, even while streaming video — the counter only tracks JPEG frames, so a healthy 30 fps video stream still reads "1 fps".
-- The pill flips to **"Connecting … Stalled"** while the picture is actually still arriving over the fallback, which reads as a dead session.
+### A. Re-verify the client-side fixes as described
 
-## Changes
+- Agent: confirm the JPEG path still uses the untouched `scaledBmp` (colour-correct reference), that `32bppRgb` + `SourceCopy` from the darkening fix is intact in both `ScreenCapture.cs` and `DxgiCapture.cs`, and that no other caller passes a strided buffer to `PushFrame`.
+- Native admin (`admin/`): confirm the decoded WebRTC surface needs no matching swap (the swap is on the encoder input, so the decoder output is already correct) and that `LiveSessionViewModel` status text, transport taxonomy, and the fps/last-frame readout agree with the web console wording.
+- Web console: confirm the fallback JPEG subscription still resumes correctly after the grace window, so a genuinely dead session still reaches "Stalled".
 
-### 1. Colour: correct the channel order handed to the encoder (agent)
+### B. Static route audit (reported as a table)
 
-In `agent/src/ScreenCapture.cs` → `TeeToWebRtc`, the locked GDI buffer is passed straight through as `Bgra`. The encoder's conversion is consuming it in the opposite order. Fix by packing an explicit, tightly-packed buffer for the encoder instead of relying on the GDI layout:
+- Every file under `src/routes/`: `createFileRoute("…")` string vs filename, duplicate/orphaned paths, and `head()` metadata presence on each page route.
+- Every `/api/**` route cross-checked three ways: against `ENDPOINTS.md`, against web-console call sites, and against `agent/src/ApiClient.cs` + `admin/src/Api/ApiClient.cs`. Flag (a) endpoints a client calls that no longer exist, (b) routes nothing calls.
 
-- Copy row-by-row using `data.Stride` so the destination is exactly `width * 4` per row — this also removes the **stride-padding skew** that appears on odd widths today, where the frame shears diagonally.
-- Write the bytes in the order the encoder actually wants, with the alpha byte forced to `0xFF`.
-- Keep the existing 32bppRgb/SourceCopy capture untouched.
+### C. Live smoke tests
 
-`agent/src/WebRtcSession.cs` → `PushFrame` gains an explicit tightly-packed contract (no stride argument) so no future caller can reintroduce the padding bug.
+- Run `scripts/verify-agent-routes.ts`, `scripts/verify-payment-routes.ts`, `scripts/e2e-smoke.ts`, `scripts/e2e-wake.ts` against the running app.
+- Sweep every public page route for 200, and every `/api/public/*` endpoint anonymously, asserting protected ones return 401 rather than data.
 
-Verification is visual and unambiguous: the desert must render orange over WebRTC, exactly matching the JPEG fallback shot.
+Anything broken and unambiguous gets fixed in the same pass; anything ambiguous is reported, not silently changed.
 
-### 2. Frame vitality and the fps readout
+### D. Repackage
 
-- The tee is throttled to ~1 push/sec whenever the dirty-rect check says "unchanged". During actual motion it already runs full rate, but the overlay's counter never sees it. Feed the overlay a **transport-aware fps** — count decoded video frames when WebRTC is the active surface, JPEG arrivals otherwise.
-- Raise the idle keep-alive from 1 s to ~500 ms so a static desktop recovers faster after a decoder hiccup, without meaningfully raising CPU.
-
-### 3. Stop the false "Connecting / Stalled" banner
-
-`src/routes/_authenticated/console.tsx` currently marks the session stalled on a frame-age timer that ignores the video track. If WebRTC is delivering, the session is live — the stalled/connecting state must only apply when **both** transports are quiet. Same rule mirrored in the native console's status text so the two clients agree.
-
-### 4. Verify every route
-
-Two passes, reported as a table:
-
-- **Static audit** — every file under `src/routes/`, confirming each `createFileRoute("…")` string matches its filename, every page route has its own `head()` metadata, and no orphaned/duplicate paths. Cross-check the 18 API routes against `ENDPOINTS.md` and against actual call sites in the web console, `agent/src/ApiClient.cs`, and `admin/src/Api/ApiClient.cs` — flagging any endpoint a client calls that no longer exists, and any route nothing calls.
-- **Live smoke test** — run `scripts/verify-agent-routes.ts`, `scripts/verify-payment-routes.ts`, `scripts/e2e-smoke.ts` and `scripts/e2e-wake.ts` against the running app, plus a sweep of every public page route and each `/api/public/*` endpoint, asserting authenticated ones reject anonymous callers (401) rather than leaking data.
-
-Anything the sweep finds gets fixed in the same pass; anything ambiguous is reported rather than silently changed.
-
-### 5. Repackage
-
-New agent source zip (v1.7) and admin console zip (v1.5) once the colour fix is in, so the Windows build you compile matches this code.
+- `ConnectLive-RemoteAgent-src-v1.7-<date>.zip` and `ConnectLive-AdminConsole-src-v1.5-<date>.zip` into `/mnt/documents`, after `ENDPOINTS.md` is updated with anything the audit changes.
 
 ## Technical notes
 
-- Root cause of the tint is byte order at the `ExternalVideoSourceRawSample` boundary, confirmed by the JPEG path — which reads the *same* `scaledBmp` — being correct.
-- Stride padding is only harmless while width is a multiple of 4 at 32bpp; the low-bandwidth 960px profile and non-standard resolutions can break that, so the packed copy is a real fix, not a defensive one.
-- No database, RLS, or ICE/TURN changes — that work landed last turn and stays as is.
+- No database, RLS, or ICE/TURN changes — last turn's work stays as is.
+- The colour fix cannot be validated from here (it needs a Windows build against a real desktop); the verification I can give is code-level plus the smoke tests. The visual check stays yours: the desert must render orange under the "WebRTC video" pill.
