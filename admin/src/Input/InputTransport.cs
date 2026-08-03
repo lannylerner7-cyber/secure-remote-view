@@ -84,6 +84,12 @@ public static class InputTransport
         }
     }
 
+    /// <summary>"dc" while the datachannel carries input, "rest" otherwise (S11 telemetry).</summary>
+    public static string CurrentPath
+    {
+        get { lock (_gate) return _open && !_demoted ? "dc" : "rest"; }
+    }
+
     /// <summary>Human line for the stats loop.</summary>
     public static string StatsLine()
     {
