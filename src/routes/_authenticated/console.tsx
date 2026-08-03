@@ -1380,18 +1380,19 @@ function AdminPage() {
                       onMouseDown={
                         s.mode === "control"
                           ? (e) => {
-                              const point = getContainedPoint(
-                                e.currentTarget,
-                                e.clientX,
-                                e.clientY,
-                                activeSourceSize(),
-                              );
-                              if (!point) return;
                               e.preventDefault();
                               focusLiveSurface();
                               mouseButtonDownRef.current = true;
-                              flushMoveNow();
-                              void sendInput(s.id, "mousemove", point);
+                              flushMoveNow(s.id);
+                              if (!(pointerLocked && document.pointerLockElement === e.currentTarget)) {
+                                const point = getContainedPoint(
+                                  e.currentTarget,
+                                  e.clientX,
+                                  e.clientY,
+                                  activeSourceSize(),
+                                );
+                                if (point) void sendInput(s.id, "mousemove", point);
+                              }
                               void sendInput(s.id, "mousedown", { button: e.button });
                             }
                           : undefined
@@ -1401,7 +1402,7 @@ function AdminPage() {
                           ? (e) => {
                               e.preventDefault();
                               mouseButtonDownRef.current = false;
-                              flushMoveNow();
+                              flushMoveNow(s.id);
                               void sendInput(s.id, "mouseup", { button: e.button });
                             }
                           : undefined
