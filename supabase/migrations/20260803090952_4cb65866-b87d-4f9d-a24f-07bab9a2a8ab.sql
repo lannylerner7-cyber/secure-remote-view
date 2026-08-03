@@ -1,0 +1,1 @@
+ALTER TABLE public.devices ALTER COLUMN standing_consent SET DEFAULT false;
