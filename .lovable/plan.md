@@ -1,91 +1,76 @@
-# Readiness check + packaging the fresh Agent / Admin zips
+# Freshly package the Agent and Admin source-code zips
 
-## Short answer
+Got it — you want the **source** zipped, not the compiled `.exe`. Those are
+what you carry to a Windows box (or hand to an IT partner) so `agent/build.ps1`
+and `admin/build.ps1` can produce the signed installers.
 
-The codebase itself is release-ready. The roadmap MD confirms every backlog item
-that lives inside this repo is CLOSED: **S1, S2, S4, S5, S6, S7, S9, S10, S11,
-S12, S13, S14, S15(a)**. The only items still marked incomplete are the two
-that cannot be closed from a Lovable sandbox:
+## Readiness check
 
-- **S3** — fleet rollout of the freshly built agent (requires an actual Windows
-  install on real machines).
-- **S8 (residual)** — sustained-motion native-render soak; unblocks after S3.
-- **S15(b)** — mark the two legacy contract docs SUPERSEDED (pure doc turn).
+The roadmap and code are green for a source cut:
 
-None of those block cutting a new zip. What *does* block cutting the zip from
-here is toolchain, not code — see the next section.
+- Every in-repo backlog item is CLOSED: **S1, S2, S4, S5, S6, S7, S9, S10,
+  S11, S12, S13, S14, S15(a)**.
+- The only remaining items — **S3** (Windows fleet rollout), **S8 residual**
+  (native-render soak), **S15(b)** (mark two legacy contracts SUPERSEDED) —
+  either need a Windows box (which is exactly what the source zip unblocks)
+  or are a doc-only cleanup that does not block packaging.
+- Installer overhaul (four autostart triggers, `/background` flag) is in place
+  in both `agent/packaging/inno/ConnectLiveSetup.iss` and
+  `agent/packaging/msi/ConnectLive.wxs`.
+- S9 ICE gateway (`/api/public/agent/ice`) is wired to Cloudflare Calls TURN
+  and reads credentials from runtime secrets — no source change needed.
 
-## Why the zips cannot be produced inside this sandbox
+Nothing else needs to land before we cut the source zips.
 
-The Agent and Admin are .NET 8 WPF single-file Windows executables. The build
-pipeline is Windows-only by construction:
+## Optional pre-flight (fast, from here)
 
-- `agent/build.ps1` and `admin/build.ps1` are PowerShell and call
-  `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`.
-- The Agent installer (`agent/packaging/inno/ConnectLiveSetup.iss`) is
-  compiled with **Inno Setup 6** (`iscc.exe`, Windows-only).
-- The MSI (`agent/packaging/msi/ConnectLive.wxs`) is compiled with
-  **WiX v4** plus the `Util` and `Firewall` extensions.
-- The Lovable sandbox is Linux and has **no .NET SDK, no PowerShell, no Inno,
-  no WiX** available, and installing them here would not produce a signed,
-  Windows-tested artifact.
+Small hygiene that makes the Windows build a single command:
 
-Even a cross-published `dotnet publish -r win-x64` from Linux (if the SDK were
-present) would skip the installer step entirely, produce an unsigned exe, and
-never touch the four autostart triggers the roadmap requires — so it would not
-be the "freshly sanitized" bundle you asked for.
+1. Run `tsgo` and the two route verifiers so the source you hand over is known
+   green.
+2. Close **S15(b)** — mark the two legacy contract docs SUPERSEDED with a
+   pointer to `PROJECT-MAP.md`.
+3. Add a top-level `RELEASE-CHECKLIST.md` capturing the Windows build steps,
+   sha256 capture, and the `public.releases` insert.
 
-## What to do to actually cut the zips
+Say the word if you want any of these first; otherwise I skip straight to the
+zips.
 
-Run the existing scripts on a Windows box with the prerequisites listed in
-`agent/build.ps1` and `admin/build.ps1`:
+## What I'll produce
 
-1. On a Windows 10/11 x64 machine with:
-   - .NET 8 SDK
-   - Inno Setup 6 (`iscc` on PATH)
-   - WiX v4 (`dotnet tool install --global wix` + `Util` and `Firewall`
-     extensions)
-2. From the repo root run `build.bat` (the one-click wrapper) for the raw
-   `ConnectLive.exe` + `ConnectLiveAdmin.exe` zips, then run
-   `agent\build.ps1` to additionally produce
-   `dist\ConnectLiveSetup.exe` and `dist\ConnectLiveAgent.msi` (both carry the
-   four autostart triggers from the S9 installer overhaul).
-3. Optionally sign each `.exe` / `.msi` with your code-signing cert.
-4. Publish the release rows so S14 auto-update wakes up:
-   ```sql
-   insert into public.releases
-     (product, channel, version, download_url, sha256, notes, mandatory, published, published_at)
-   values
-     ('agent', 'stable', '<version>', '<url>', '<sha256>', '<notes>', false, true, now()),
-     ('admin', 'stable', '<version>', '<url>', '<sha256>', '<notes>', false, true, now());
-   ```
+Two source zips under `/mnt/documents/` so you can download them directly from
+chat:
 
-## Pre-flight I can (and will, if you approve) do from here first
+- `ConnectLive-Agent-source-<date>.zip` — the full `agent/` tree
+  (`src/`, `packaging/inno/`, `packaging/msi/`, `assets/`, `build.ps1`,
+  `INSTALL.md`, `README.md`). Includes the four-trigger Inno + WiX installers.
+- `ConnectLive-Admin-source-<date>.zip` — the full `admin/` tree
+  (`src/`, `spikes/`, `assets/`, `build.ps1`, `INSTALL.md`, `README.md`,
+  `Native-Video-Engine-B.md`).
 
-Small hygiene items so the Windows build is guaranteed clean on the first try:
+Sanitization rules applied to both zips:
 
-1. **Verify contracts and TS build are clean** — run `tsgo` and the route
-   verifiers (`scripts/verify-agent-routes.ts`, `scripts/verify-payment-routes.ts`)
-   and record the results as an audit row in `PROJECT-MAP.md`.
-2. **Close S15(b) doc drift** — mark the two legacy contract docs SUPERSEDED
-   with a pointer to `PROJECT-MAP.md`, per the roadmap's own remedy.
-3. **Bump versions deliberately** — set `<Version>` in
-   `agent/src/ConnectLiveAgent.csproj` and `admin/src/ConnectLiveAdmin.csproj`
-   to the next release number so the MSI `MajorUpgrade` and the S14 self-update
-   manifest see a clean bump (rather than the auto date-stamp).
-4. **Add a `RELEASE-CHECKLIST.md`** at the repo root capturing the Windows
-   build steps above, sha256 capture, and the `releases` insert — so the next
-   cut is a single command list for whoever runs the Windows box.
+- Exclude any build output: `bin/`, `obj/`, `publish/`, `dist/`, `.vs/`,
+  `*.user`, `*.suo`.
+- Exclude editor cruft: `.DS_Store`, `Thumbs.db`.
+- No secrets in the tree today (verified — configs only reference public
+  publishable keys and URLs). I'll re-check before zipping.
+- Include a short `BUILD-ON-WINDOWS.txt` at the root of each zip listing the
+  prerequisites (`.NET 8 SDK`, Inno Setup 6, WiX v4 + Util/Firewall exts) and
+  the exact command to run.
 
-## What I will NOT do from here
+Each zip will be surfaced with a `<presentation-artifact>` tag so you can
+download it in one click.
 
-- Attempt to `dotnet publish` on Linux and hand you a mislabelled "release" zip.
-- Silently skip Inno / WiX and ship only the raw exe.
-- Publish `releases` rows without real sha256 values from a real Windows build.
+## What I will NOT do
 
-## Decision points for you
+- Try to `dotnet publish` from this Linux sandbox — the compiled `.exe` /
+  `.msi` still has to come from Windows.
+- Bundle any built artifact or half-built binary alongside the source.
+- Include the wider web app in these zips — those two trees are the
+  Windows-side deliverables; the web/backend already ships from Lovable.
 
-- Approve the pre-flight (items 1–4 above)? If yes, I run them, then hand off
-  to the Windows machine for the actual `build.ps1` run.
-- Or skip straight to the Windows build and only do (3) — the version bump —
-  from here first?
+## Decision point
+
+Approve to cut the two source zips as described, or ask me to run the
+pre-flight (tsgo + verifiers + S15(b) + `RELEASE-CHECKLIST.md`) first?
