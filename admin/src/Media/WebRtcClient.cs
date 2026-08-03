@@ -175,6 +175,7 @@ public sealed class WebRtcClient : IDisposable
         {
             if (c == null) return;
             // Trickle: post the instant it is gathered, on the signal fast path.
+            NoteCandidate(c.candidate);
             T($"local candidate gathered type={CandidateType(c.candidate)} mid={c.sdpMid}");
             try
             {
@@ -196,10 +197,27 @@ public sealed class WebRtcClient : IDisposable
         {
             T($"connectionState={state}");
             if (state == RTCPeerConnectionState.connected)
-                T("TRANSPORT GREEN — connected");
+                T($"TRANSPORT GREEN — connected (wire={WirePath})");
             if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.disconnected)
                 TryIceRestart("connection " + state);
         };
+    }
+
+    // ---- S11 — wire path -------------------------------------------------
+    // SIPSorcery does not surface the nominated pair, so the path is derived
+    // from the candidate types actually exchanged: any relay on either side
+    // means the media is relayed, otherwise reflexive beats host.
+    private volatile string _wirePath = "unknown";
+
+    /// <summary>host | srflx | relay | unknown — how media is reaching this console.</summary>
+    public string WirePath => _wirePath;
+
+    private void NoteCandidate(string? candidate)
+    {
+        var type = CandidateType(candidate);
+        if (type == "relay") _wirePath = "relay";
+        else if (type == "srflx" && _wirePath != "relay") _wirePath = "srflx";
+        else if (type == "host" && _wirePath == "unknown") _wirePath = "host";
     }
 
     private static string CandidateType(string? candidate)
@@ -211,6 +229,7 @@ public sealed class WebRtcClient : IDisposable
         var sp = rest.IndexOf(' ');
         return sp < 0 ? rest : rest.Substring(0, sp);
     }
+
 
     private void WireVideo(RTCPeerConnection pc)
     {
@@ -338,8 +357,34 @@ public sealed class WebRtcClient : IDisposable
         while (!ct.IsCancellationRequested)
         {
             try { await Task.Delay(60_000, ct).ConfigureAwait(false); } catch { return; }
-            Log.Write(Pipeline.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState} "
+            var p = Pipeline;
+            Log.Write(p.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState} wire={_wirePath} "
                       + ConnectLive.Admin.Input.InputTransport.StatsLine());
+
+            // S11 — the same reading, durable, so the web console and the soak
+            // report can see render health without reading a local log file.
+            try
+            {
+                await App.Api.PushTelemetryAsync(_sessionId, new
+                {
+                    session_id = _sessionId,
+                    admin_client_id = App.ClientId,
+                    fps = Math.Round(p.Fps, 1),
+                    latency_ms = Math.Round(p.LastLatencyMs, 0),
+                    queue_depth = p.QueueDepth,
+                    frames_decoded = p.FramesDecoded,
+                    frames_dropped = p.FramesDropped,
+                    frames_presented = p.FramesPresented,
+                    source_width = p.SourceWidth,
+                    source_height = p.SourceHeight,
+                    render_path = p.UsingD3D ? "d3d" : "bitmap",
+                    input_path = ConnectLive.Admin.Input.InputTransport.CurrentPath,
+                    wire_path = _wirePath,
+                    ice_restarts = _restarts,
+                    peer_state = _pc?.connectionState.ToString(),
+                }, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) { T("telemetry post failed: " + ex.Message); }
         }
     }
 
@@ -389,6 +434,7 @@ public sealed class WebRtcClient : IDisposable
                         var candStr = cand.GetString();
                         if (!string.IsNullOrEmpty(candStr))
                         {
+                            NoteCandidate(candStr);
                             T($"remote candidate type={CandidateType(candStr)}");
                             pc.addIceCandidate(new RTCIceCandidateInit
                             {

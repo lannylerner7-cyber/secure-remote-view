@@ -344,6 +344,21 @@ public sealed class ApiClient
         await EnsureOkAsync(res, "push input", ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// S11 — render telemetry. One row per minute per live console: what the
+    /// technician actually saw (fps, latency, queue, drops, present path) plus
+    /// how it got there (input transport, wire path, ICE restarts, peer state).
+    /// Best-effort: telemetry must never disturb a live session, so failures
+    /// are swallowed by the caller.
+    /// </summary>
+    public async Task PushTelemetryAsync(string sessionId, object row, CancellationToken ct)
+    {
+        using var req = NewSupabase(HttpMethod.Post, "/rest/v1/session_telemetry");
+        req.Content = JsonContent.Create(row);
+        using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
+        await EnsureOkAsync(res, "push telemetry", ct).ConfigureAwait(false);
+    }
+
     // Send a WebRTC signal (SDP or ICE) that the agent will poll.
     // admin_client_id is stamped so the agent can tell which physical admin
     // box owns the current negotiation and can supersede stale ones.

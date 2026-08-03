@@ -28,6 +28,7 @@ import { SessionsTable } from "@/components/console/SessionsTable";
 import { TelegramSettings } from "@/components/console/TelegramSettings";
 import { TeamPanel } from "@/components/console/TeamPanel";
 import { ReaperPanel } from "@/components/console/ReaperPanel";
+import { RenderHealthPanel } from "@/components/console/RenderHealthPanel";
 import { RemoteCursorOverlay } from "@/components/console/RemoteCursorOverlay";
 import { MonitorPicker, type MonitorEntry } from "@/components/console/MonitorPicker";
 
@@ -1179,6 +1180,7 @@ function AdminPage() {
             {nav === "audit" && (
               <div className="space-y-4">
                 <ReaperPanel audit={audit} devices={devices} />
+                <RenderHealthPanel />
                 <div className="rounded-lg border border-white/10 bg-[#1F2A44] p-4 text-xs">
                   {audit.length === 0 ? (
                     <p className="text-white/40">No events yet.</p>
