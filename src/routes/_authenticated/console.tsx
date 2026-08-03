@@ -876,6 +876,30 @@ function AdminPage() {
     if (error) return alert(`Restart stream failed: ${error.message}`);
   }
 
+  // SCOPE:CAPTURE — browser twin of the native admin picker. Enqueue
+  // switch_monitor, then restart_stream: a display change invalidates every
+  // buffered frame and the encoder's reference chain, so a fresh stream beats
+  // torn pixels at the previous display's resolution.
+  async function switchMonitor(s: Session, m: MonitorEntry) {
+    if (!s.device_id) return;
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return;
+    const { error } = await supabase.from("power_commands").insert({
+      device_id: s.device_id,
+      kind: "switch_monitor",
+      payload: { device_name: m.device_name, index: m.index } as never,
+      state: "queued",
+      requested_by: auth.user.id,
+      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+    });
+    if (error) return alert(`Switch display failed: ${error.message}`);
+    setLiveFrame(null);
+    setLiveCursor(null);
+    await restartStream(s);
+  }
+
+
+
   async function signOut() {
     await supabase.auth.signOut();
     navigate({ to: "/connectlive/admin" });
