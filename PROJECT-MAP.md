@@ -112,6 +112,16 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — Gap merge S2 / S7-cron (`SCOPE:PAYMENTS`)
+
+| Scope | File / object | Change |
+| --- | --- | --- |
+| `SCOPE:PAYMENTS` | secret `CDP_WEBHOOK_SECRET` | **S2 closed.** A 64-char signing secret is provisioned, so `/api/public/webhooks/cdp` no longer short-circuits on `503 Webhook not configured`. The verifier now reports the correct closed state — `401 Invalid signature` on an unsigned POST — which means the HMAC path is live and a real signed webhook can be accepted. Crypto confirmation no longer rides the once-a-minute reconciler alone. The same value must be pasted into the CDP notification config for real callbacks to verify. |
+| `SCOPE:PAYMENTS` | migration → `public.cron_tokens`, `cron.job` `reconcile-orders` | **S7, cron half closed.** New table holds one row (`reconcile-orders`) with a `gen_random_bytes(32)` hex token. `GRANT ALL … TO service_role` only, RLS on with **no policies**, so anon and authenticated cannot read it and the value never leaves the database — it is not in env, not in code, not in any log. `cron.schedule` was re-created to send it as `x-cron-secret`. |
+| `SCOPE:PAYMENTS` | `src/routes/api/public/cron/reconcile-orders.ts` | Auth rewritten: the anon-key check is **gone**. The published anon key is not a credential — anyone reading the client bundle could trigger reconciliation. The handler now reads the expected token via `supabaseAdmin` and compares with `timingSafeEqual` after a length guard (`timingSafeEqual` throws on unequal lengths). Missing header → `401` before any DB hit. **Deploy note:** the rescheduled job sends the new header immediately, so production reconciliation stays `401` until this build is published. |
+
+
+
 ### 2026-08-03 — Gap merge S1 / S4 / S5 (`SCOPE:DATA`, `SCOPE:PRESENCE`)
 
 Closing §9.3 soft spots one at a time, each validated three times before the
@@ -574,12 +584,12 @@ that plan does not currently name.
 | # | Gap | Evidence | Cost |
 | --- | --- | --- | --- |
 | ~~S1~~ | ~~**`sessions.state` has no CHECK constraint.**~~ **CLOSED.** Migration adds `sessions_state_check` (`invited\|consented\|active\|paused\|declined\|ended`) and `sessions_mode_check` (`view\|control`), both `convalidated = true`. Pre-flight confirmed the only live values were `ended` (state) and `view`/`control` (mode), and all 12 state/mode write sites across `src/`, `agent/` and `admin/` fall inside the vocabulary. | `pg_get_constraintdef` on `public.sessions` now returns both rows | Done — one migration, no code change |
-| S2 | **CDP webhook is not configured in production.** An unsigned POST returns `503 Webhook not configured`, so no real webhook can be verified either — every crypto payment is confirmed only by the once-a-minute cron reconciler. Slower confirmations, and a silent single point of failure. | `verify-payment-routes.ts` → `503`; secret list has `CDP_API_KEY_NAME`/`CDP_API_KEY_PRIVATE_KEY` but no webhook signing secret | Add the signing secret; the verifier flips to `401 invalid signature`, which is the correct closed state |
+| ~~S2~~ | ~~**CDP webhook is not configured in production.**~~ **CLOSED.** `CDP_WEBHOOK_SECRET` provisioned (64 chars); the HMAC path in `/api/public/webhooks/cdp` is live. Remaining human step: paste the same value into the CDP notification config so real callbacks sign correctly. | `verify-payment-routes.ts` → `401 Invalid signature` (was `503`) | Done |
 | S3 | **The fleet is running an agent older than turns 2 and 4a.** The one online device (`EC2AMAZ-5UBQG30`) has `lan` in `metadata` but **no `monitors[]` and no `encoder{}`**. So the web monitor picker (Tier A item 1) renders nothing, the bitrate ladder is unobserved and the H.264 probe has reported from zero machines — three shipped turns with no production evidence behind them. | `devices.metadata` keys, all 8 rows | Windows build + rollout (`agent/build.ps1`); nothing to change in code |
 | ~~S4~~ | ~~**`verify-agent-routes.ts` mints a real device on every run.**~~ **CLOSED.** The enrollment now tags `hostname: "route-verifier"` and `prune_session_ephemera()` clause 4 sweeps that tag after 1 h (gated on no session / no power command). The 7 pre-existing NULL-hostname ghosts are untouched by the new clause and still age out under the 24 h rule. | Post-fix run: 19/19 passing, new row `route-verifier` present and matching the sweep predicate; both real devices evaluate `false` | Done |
 | ~~S5~~ | ~~**Two agent files are undocumented.**~~ **CLOSED.** `InputBlocker.cs` and `StartupRegistration.cs` are in the §2 map with a changelog entry covering the curtain's fail-open release paths and the install-dir guard on the Run key. | `rg` over `PROJECT-MAP.md` now hits both | Done |
 | S6 | **`prune_session_ephemera()` is still invisible.** Tier C item 10 is half-shipped: the reaper runs every minute and writes `session.reaped` rows that nobody can read without psql. | §6 item 10 | The dashboard half of item 10 |
-| S7 | **Open decisions unchanged from §8**: `devices.standing_consent` still defaults `true`; `cron/reconcile-orders` still authenticates with the published anon key. | §8 "Open decisions" | Your call, one turn each |
+| S7 | **Half closed.** ~~`cron/reconcile-orders` authenticates with the published anon key~~ — it now requires the `x-cron-secret` token stored in `public.cron_tokens` (service-role only, RLS on with no policies), compared with `timingSafeEqual`. **Still open:** `devices.standing_consent` defaults `true`. | `verify-payment-routes.ts` cron check still `401`; §8 "Open decisions" | Consent default is your call, one turn |
 
 ### 9.4 What this pass deliberately did not touch
 
