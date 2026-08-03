@@ -73,6 +73,8 @@ async function hit(
   await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], { headers: j, body: "{}" });
   await hit("GET", `/api/public/agent/session/${SID}/signal`, [401]);
   await hit("GET", "/api/public/agent/stream", [401]);
+  // S9 — ICE gateway: unauthenticated callers must never receive TURN creds.
+  await hit("GET", "/api/public/agent/ice", [401]);
 
 
   // Signal validation (still requires device auth, so 401 is the correct
