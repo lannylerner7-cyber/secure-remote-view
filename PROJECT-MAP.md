@@ -112,6 +112,16 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — Gap merge S2 / S7-cron (`SCOPE:PAYMENTS`)
+
+| Scope | File / object | Change |
+| --- | --- | --- |
+| `SCOPE:PAYMENTS` | secret `CDP_WEBHOOK_SECRET` | **S2 closed.** A 64-char signing secret is provisioned, so `/api/public/webhooks/cdp` no longer short-circuits on `503 Webhook not configured`. The verifier now reports the correct closed state — `401 Invalid signature` on an unsigned POST — which means the HMAC path is live and a real signed webhook can be accepted. Crypto confirmation no longer rides the once-a-minute reconciler alone. The same value must be pasted into the CDP notification config for real callbacks to verify. |
+| `SCOPE:PAYMENTS` | migration → `public.cron_tokens`, `cron.job` `reconcile-orders` | **S7, cron half closed.** New table holds one row (`reconcile-orders`) with a `gen_random_bytes(32)` hex token. `GRANT ALL … TO service_role` only, RLS on with **no policies**, so anon and authenticated cannot read it and the value never leaves the database — it is not in env, not in code, not in any log. `cron.schedule` was re-created to send it as `x-cron-secret`. |
+| `SCOPE:PAYMENTS` | `src/routes/api/public/cron/reconcile-orders.ts` | Auth rewritten: the anon-key check is **gone**. The published anon key is not a credential — anyone reading the client bundle could trigger reconciliation. The handler now reads the expected token via `supabaseAdmin` and compares with `timingSafeEqual` after a length guard (`timingSafeEqual` throws on unequal lengths). Missing header → `401` before any DB hit. **Deploy note:** the rescheduled job sends the new header immediately, so production reconciliation stays `401` until this build is published. |
+
+
+
 ### 2026-08-03 — Gap merge S1 / S4 / S5 (`SCOPE:DATA`, `SCOPE:PRESENCE`)
 
 Closing §9.3 soft spots one at a time, each validated three times before the
