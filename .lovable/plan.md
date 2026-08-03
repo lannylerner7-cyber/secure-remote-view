@@ -1,61 +1,39 @@
-# Fix the remaining Admin + Agent build errors (line edits, no repackaging)
+# Native admin: keyboard dead + picture soft
 
-## Admin — `src\Media\WebRtcClient.cs`, line 306-307
+## 1. Typing does nothing in the native console (confirmed root cause)
 
-Replace these two lines:
+`admin/src/Views/LiveSessionWindow.xaml.cs` wires `PreviewKeyDown` / `PreviewKeyUp` / `TextInput`. Both key handlers set `e.Handled = true` for **every** key, then `return` early for printable keys, on the assumption that `TextInput` will carry the character.
 
-```text
-            pc.SendVideoRtcpFeedback(new RTCPFeedback(pc.VideoLocalTrack?.Ssrc ?? 0,
-                pc.VideoRemoteTrack?.Ssrc ?? 0, PSFBFeedbackTypesEnum.PLI));
-```
+WPF never raises `TextInput` for a key whose `KeyDown` was marked handled — text composition is generated during post-processing of the key event, and a handled key event is skipped. So printable keys are swallowed by the `return`, and `TextInput` never fires: nothing is sent for letters, digits, punctuation or space. Only non-printable keys (Enter, Tab, arrows, Ctrl/Alt combos) reach the agent — which matches "can't type" while the web console, which has its own `keyToVirtualKey` path, works fine.
 
-with:
+Fix in `LiveSessionWindow.xaml.cs`:
 
-```text
-            pc.SendRtcpFeedback(SDPMediaTypesEnum.video,
-                new RTCPFeedback(pc.VideoLocalTrack?.Ssrc ?? 0,
-                    pc.VideoRemoteTrack?.Ssrc ?? 0, PSFBFeedbackTypesEnum.PLI));
-```
+- `OnKeyDown` / `OnKeyUp`: mark `e.Handled = true` **only** for non-printable keys. Leave printable keys unhandled so WPF produces the `TextInput` event that carries the Unicode character.
+- Keep `Effective(e)` (Alt combos via `SystemKey`) and the existing `_coalesce.FlushNow()` ordering unchanged.
+- Add a safety net: if no `TextInput` arrives for a printable key within the same input cycle, fall back to sending the raw virtual key. Implemented by stamping the key in `OnKeyDown` and clearing that stamp in `OnTextInput`; on `OnKeyUp` a still-set stamp sends `vk` down+up. This covers layouts/dead keys where WPF suppresses composition.
+- Ensure the live surface actually holds keyboard focus: set `Focusable="True"` on the window content and call `Keyboard.Focus(this)` on `Loaded` as well as on mouse-down (today it happens only on mouse-down, so a session you never clicked into gets no keys at all).
 
-Why: SIPSorcery 6.2.4 has no `SendVideoRtcpFeedback`. The real API on `RTPSession`/`RTCPeerConnection` is
-`SendRtcpFeedback(SDPMediaTypesEnum mediaType, RTCPFeedback feedback)` — the media type is a parameter, not baked into the method name. The `RTCPFeedback(senderSsrc, mediaSsrc, PSFBFeedbackTypesEnum.PLI)` constructor is unchanged, so the PLI semantics stay identical. No new `using` needed — `SDPMediaTypesEnum` is in `SIPSorcery.Net`, already imported at the top of the file.
+No change to `KeyboardInjector` / `InputTransport` — their `{ vk }` and `{ text }` payloads already match `agent/src/InputRelay.cs`.
 
-## Agent — two one-line edits (still outstanding from the previous message)
+## 2. Soft / blurry picture
 
-### `src\WebRtcSession.cs`, line 127
+The screenshot's status bar reads `Realtime frames · stalled 4s`, so that session was on the JPEG fallback pump, not WebRTC. Two contributors, both addressed:
 
-```text
-            var cfg = await App.Api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
-```
-becomes
-```text
-            var cfg = await _api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
-```
+**a. WPF scaling quality.** `FrameImage` uses `Stretch="Uniform"` with no scaling hint, so WPF uses its default (bilinear) filter and non-integer layout, which smears text when a 1920-wide source is drawn into a ~1080-wide element. Set on the `Image` in `LiveSessionWindow.xaml`:
 
-There is no static `App.Api`; the `ApiClient` lives in the instance field `_api` set by the constructor.
+- `RenderOptions.BitmapScalingMode="HighQuality"` (Fant — the right filter for downscaling text)
+- `UseLayoutRounding="True"` and `SnapsToDevicePixels="True"` on the hosting `Grid`
+- `Stretch="Uniform"` plus `StretchDirection="DownOnly"` so a small source is never blown up into mush
 
-### `src\StreamListener.cs`, line 123
+**b. Adaptive rung not visible.** `BitrateController`'s ladder drops to 1280/1024/800px on any RTCP loss or slow upload, and once dropped there is nothing on screen saying so — a soft picture looks like a renderer bug. Surface it: include the rung (`1920px rung 0/6`) in the `VideoStats` line the title bar already binds, sourced from the fallback pump's reported frame size for the JPEG path and from `VideoPipeline.SourceWidth/Height` for the WebRTC path.
 
-```text
-            if (line.StartsWith(':', StringComparison.Ordinal)) continue;
-```
-becomes
-```text
-            if (line.StartsWith(":", StringComparison.Ordinal)) continue;
-```
+This tells us, on the next run, whether the softness is the ladder having stepped down (a link problem) or the presenter. I am not claiming which yet — the rung readout is the measurement that decides it.
 
-Only `':'` → `":"`. There is no `StartsWith(char, StringComparison)` overload.
+## Files touched
 
-## Warnings you can ignore
+- `admin/src/Views/LiveSessionWindow.xaml.cs` — key handling, focus, fallback vk path
+- `admin/src/Views/LiveSessionWindow.xaml` — scaling mode, layout rounding, stretch direction
+- `admin/src/ViewModels/LiveSessionViewModel.cs` — rung / source-size in `VideoStats`
+- `PROJECT-MAP.md` — note the input + render fixes
 
-- `NU1903` SIPSorcery 6.2.4 advisory — warning only.
-- `CS1998` in `Agent.cs` 275/293 — async without await; warning only.
-- `WFAC010` high-DPI manifest — warning only.
-- The `Copy-Item ... does not exist` / `Expected 'ConnectLive.exe'` failures are downstream of the compile errors: publish never emitted an exe. They clear once the errors above are fixed.
-- The `ConnectLiveAdmin_bscs1v4y_wpftmp.csproj` name in the log is just the WPF temporary project the SDK generates — not a stray file.
-
-## After the edits
-
-Re-run `powershell -ExecutionPolicy Bypass -File build.ps1` in each folder. Admin should produce `dist\ConnectLiveAdmin.exe`; Agent should produce `dist\ConnectLive.exe` plus the installers if Inno/WiX are on PATH.
-
-I will also apply all three fixes in the repo so the next source zip is clean.
+No agent-side or web-side changes; the web console keeps working exactly as it does now.
