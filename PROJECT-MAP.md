@@ -305,3 +305,18 @@ helper functions, and leaked-password protection disabled in auth settings.
 - Pure move — no behaviour, prop or DOM change. Verified: `tsgo --noEmit` clean,
   `verify-agent-routes.ts` 19/19, `/console` returns 200 from the dev server.
 - Next: Tier A item 1 — browser monitor picker in `DevicesTable` / live view.
+
+### Turn: Tier A item 1 — browser monitor picker (`SCOPE:WEB`) — 2026-08-03
+
+- New `src/components/console/MonitorPicker.tsx`: `readMonitors()` parses
+  `devices.metadata.monitors` / `selected_monitor` defensively (agent is the
+  authority; the browser never optimistically rewrites the selection), and the
+  dropdown only renders when 2+ displays were reported.
+- `console.tsx`: new `switchMonitor(session, monitor)` enqueues
+  `switch_monitor` `{device_name,index}` then `restart_stream`, clearing the
+  frame/cursor buffers first — identical semantics to
+  `admin/src/ViewModels/LiveSessionViewModel.cs`. Picker sits in the live-view
+  toolbar, hidden for `viewer` role.
+- Verified: `tsgo --noEmit` clean, `verify-agent-routes.ts` 19/19
+  (`switch_monitor` present in the power-command vocabulary).
+- Next: Tier A item 2 — adaptive bitrate + resolution ladder (`SCOPE:TRANSPORT`).
