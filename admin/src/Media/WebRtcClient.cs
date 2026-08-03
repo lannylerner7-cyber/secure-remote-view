@@ -408,6 +408,7 @@ public sealed class WebRtcClient : IDisposable
                         var candStr = cand.GetString();
                         if (!string.IsNullOrEmpty(candStr))
                         {
+                            NoteCandidate(candStr);
                             T($"remote candidate type={CandidateType(candStr)}");
                             pc.addIceCandidate(new RTCIceCandidateInit
                             {
