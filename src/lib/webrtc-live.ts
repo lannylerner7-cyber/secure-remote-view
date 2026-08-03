@@ -404,6 +404,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
 
 
     try {
+      try { pc.setConfiguration({ iceServers: await icePromise }); } catch { /* pre-offer only */ }
       pc.addTransceiver("video", { direction: "recvonly" });
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
