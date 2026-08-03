@@ -234,18 +234,41 @@ public sealed class WebRtcClient : IDisposable
     private void WireVideo(RTCPeerConnection pc)
     {
         long rtpVideoPackets = 0;
+        int lastSeq = -1;
 
         pc.OnRtpPacketReceived += (_, media, pkt) =>
         {
             if (media != SDPMediaTypesEnum.video) return;
             var n = Interlocked.Increment(ref rtpVideoPackets);
             if (n == 1) T("first video RTP packet received");
+
+            // S13 — SIPSorcery reassembles VP8 frames but does not tell us when
+            // packets went missing, and a frame reassembled over a hole decodes
+            // into the striped corruption we chased earlier. Watch the sequence
+            // number ourselves (16-bit, wraps) and gate the decoder on loss.
+            int seq = pkt.Header.SequenceNumber;
+            if (lastSeq >= 0)
+            {
+                int delta = (seq - lastSeq) & 0xFFFF;
+                if (delta > 1 && delta < 0x8000)
+                {
+                    T($"rtp gap: {delta - 1} packet(s) missing before seq={seq}");
+                    Pipeline.NotifyPacketLoss(delta - 1);
+                }
+                // delta == 0 or >= 0x8000 is a duplicate/reordered late packet;
+                // SIPSorcery's framer handles those, and treating them as loss
+                // would gate the decoder on healthy links.
+                if (delta < 0x8000) lastSeq = seq;
+            }
+            else lastSeq = seq;
+
             // Gate B tap — strictly passive, debug-flag gated.
             if (_capture != null)
             {
                 try { _capture.Write(pkt.GetBytes()); } catch { }
             }
         };
+
 
         // SIPSorcery depacketises VP8 into whole frames for us; the pipeline
         // owns the jitter buffer, decode thread and presentation.
