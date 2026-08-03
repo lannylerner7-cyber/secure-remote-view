@@ -3,7 +3,14 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { fetchInboundTxs, type CoinKey } from "@/lib/cdp.server";
 
 /**
- * Cron endpoint — invoked every 60s by pg_cron with `apikey` = anon key.
+ * Cron endpoint — invoked every 60s by pg_cron.
+ *
+ * Auth: pg_cron sends `x-cron-secret`, whose value lives in
+ * `public.cron_tokens` (service-role only, no RLS policies, never exposed to
+ * anon/authenticated). The secret therefore never leaves the database and is
+ * never checked into env or code. The legacy anon-key path is gone: the
+ * published anon key is not a credential and let anyone trigger reconciliation.
+ *
  * For every pending / detected order that has a receive_address, look up
  * on-chain history and update status when we see the matching amount.
  *
@@ -14,16 +21,26 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apiKey =
-          request.headers.get("apikey") ??
-          request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
-        const expected =
-          process.env.SUPABASE_PUBLISHABLE_KEY ??
-          process.env.SUPABASE_ANON_KEY ??
-          process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-        if (!expected || apiKey !== expected) {
+        const presented =
+          request.headers.get("x-cron-secret") ??
+          request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ??
+          "";
+        if (!presented) return new Response("Unauthorized", { status: 401 });
+
+        const { data: tokenRow } = await supabaseAdmin
+          .from("cron_tokens")
+          .select("token")
+          .eq("name", "reconcile-orders")
+          .maybeSingle();
+        const expected = tokenRow?.token ?? "";
+        if (
+          !expected ||
+          presented.length !== expected.length ||
+          !timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
+        ) {
           return new Response("Unauthorized", { status: 401 });
         }
+
 
         const CONF: Record<CoinKey, number> = { BTC: 2, USDT_ERC20: 12, USDC_ERC20: 12 };
         const AMOUNT_EPSILON = 1e-6;
