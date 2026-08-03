@@ -1,47 +1,50 @@
-# Fix the Admin build without repackaging
+# Fix the Agent build without repackaging
 
-The zip you downloaded still contains the pre-fix `VideoPipeline.cs`. The repo copy is already correct, so instead of re-cutting a zip you only need to change **two lines** in the file on your machine.
+Two one-line edits in the downloaded zip. Both files are already correct in the repo — your local copy is the pre-fix version.
 
-File: `C:\Users\HomePC\Downloads\ConnectLive-Admin-source-2026-08-03\src\Media\VideoPipeline.cs`
-
-## Line 44
+## 1. `src\WebRtcSession.cs` — line 127
 
 Replace:
 
 ```text
-    private VideoEncoder? _decoder;
+            var cfg = await App.Api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
 ```
 
 with:
 
 ```text
-    private VpxVideoEncoder? _decoder;
+            var cfg = await _api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
 ```
 
-## Line ~188 (inside `DecodeLoop()`, the `try { _decoder = new ... }`)
+Why: there is no static `App.Api`. The `ApiClient` is held in the instance field `_api` (set in the constructor). `App.Api` is the leftover of an earlier singleton design and is what the CS0117 is complaining about.
+
+## 2. `src\StreamListener.cs` — line 123
 
 Replace:
 
 ```text
-        try { _decoder = new VideoEncoder(); }
+            if (line.StartsWith(':', StringComparison.Ordinal)) continue; // keepalive comment
 ```
 
 with:
 
 ```text
-        try { _decoder = new VpxVideoEncoder(); }
+            if (line.StartsWith(":", StringComparison.Ordinal)) continue; // keepalive comment
 ```
 
-Nothing else changes: the `using SIPSorceryMedia.Encoders;` at line 9 is already present, and the `_decoder!.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.VP8)` call has the same signature on `VpxVideoEncoder`.
+Only the `':'` → `":"` change (single quotes to double quotes). `string.StartsWith(char, StringComparison)` does not exist — only `(string, StringComparison)` does. That is the CS1503.
 
-## Why
+## What you can ignore
 
-`SIPSorceryMedia.Encoders` 8.0.7 renamed the software codec class from `VideoEncoder` to `VpxVideoEncoder`. That single missing type aborts the publish, which is why `publish\admin\ConnectLiveAdmin.exe` never got produced and `Copy-Item` then failed — the copy error is a symptom, not a second bug.
+- `NU1903` (SIPSorcery 6.2.4 advisory) — warning, not an error.
+- `CS1998` in `Agent.cs` at 275 and 293 — async methods with no `await`. Warnings only; the build proceeds.
+- `WFAC010` (high-DPI manifest) — warning only.
+- The `Expected 'ConnectLive.exe' in 'publish/agent' but publish produced: (none)` message is a symptom of the two compile errors above — publish never wrote the exe, so the staging step had nothing to copy. It resolves itself once the two errors are fixed.
 
-## After the edit
+## After the edits
 
 ```text
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-`warning NU1903` (SIPSorcery 6.2.4 advisory) will still print. It is a warning, not an error, and does not block the build. Say the word if you want the SIPSorcery upgrade scoped as its own change — it touches the WebRTC client and needs its own verification pass.
+should produce `dist\ConnectLive.exe`, then `dist\ConnectLiveSetup.exe` (Inno) and `dist\ConnectLiveAgent.msi` (WiX) if those toolchains are on PATH.
