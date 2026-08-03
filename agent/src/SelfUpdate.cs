@@ -191,7 +191,7 @@ public static class SelfUpdate
 
             // Re-assert startup registration against the new image, then hand
             // over. /background keeps the relaunch silent (no splash).
-            try { StartupRegistration.EnsureRegistered(); } catch { }
+            try { StartupRegistration.RegisterStartupWithWindows(); } catch { }
 
             Process.Start(new ProcessStartInfo
             {
