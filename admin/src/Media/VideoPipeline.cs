@@ -75,6 +75,16 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
     public bool UsingD3D { get; private set; }
 
+    /// <summary>S12 — D3D device-lost events seen this session (0 on a healthy box).</summary>
+    public int D3DDeviceLosses => _d3d.DeviceLosses;
+
+    /// <summary>S12 — how many of those losses were recovered without leaving the D3D path.</summary>
+    public int D3DDeviceRecoveries => _d3d.DeviceRecoveries;
+
+    /// <summary>S12 — device (re)creations; must stay at 1 across park/resume (G3).</summary>
+    public int D3DDeviceCreations => _d3d.DeviceCreations;
+
+
     /// <summary>Raised (worker thread) when the pipeline wants a fresh keyframe from the agent.</summary>
     public event Action? KeyFrameRequested;
 
