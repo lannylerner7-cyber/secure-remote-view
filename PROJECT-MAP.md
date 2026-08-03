@@ -931,7 +931,9 @@ Current "Next up" is turn 4b. This register argues the order should be:
 4. **S10** — input datachannel (new Tier B item, ahead of clipboard: same
    channel machinery, bigger feel win, receive side already shipped).
 
-S12, S13 are verification-first checks that slot into the S8 soak week.
+S12, S13 were verification-first checks; both CLOSED 2026-08-03 (S12 needed
+real code, not just a test — see §5).
+
 S14 lands whenever rollout pain next bites — before 4b if the S3 rollout
 proves as slow as the map implies. S15 is a documentation turn, one sitting.
 
