@@ -310,7 +310,9 @@ public partial class LiveSessionWindow : Window
     {
         e.Handled = true;
         if (string.IsNullOrEmpty(e.Text)) return;
-        _textDelivered = true;
+        // This character settles the most recent pending key, so its fallback
+        // must not fire on key-up.
+        if (_awaitingText.Count > 0) _awaitingText.RemoveAt(_awaitingText.Count - 1);
         await _kb.TextAsync(e.Text);
     }
 
