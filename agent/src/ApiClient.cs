@@ -264,12 +264,7 @@ public sealed class ApiClient
             selectedMonitor = "";
         }
 
-        var payload = new
-        {
-            lan = new { subnet_v4 = subnet, mac, ipv4 },
-            monitors,
-            selected_monitor = selectedMonitor,
-        };
+        // SCO
         using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {
             Content = JsonContent.Create(payload),
