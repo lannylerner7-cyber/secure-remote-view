@@ -196,10 +196,27 @@ public sealed class WebRtcClient : IDisposable
         {
             T($"connectionState={state}");
             if (state == RTCPeerConnectionState.connected)
-                T("TRANSPORT GREEN — connected");
+                T($"TRANSPORT GREEN — connected (wire={WirePath})");
             if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.disconnected)
                 TryIceRestart("connection " + state);
         };
+    }
+
+    // ---- S11 — wire path -------------------------------------------------
+    // SIPSorcery does not surface the nominated pair, so the path is derived
+    // from the candidate types actually exchanged: any relay on either side
+    // means the media is relayed, otherwise reflexive beats host.
+    private volatile string _wirePath = "unknown";
+
+    /// <summary>host | srflx | relay | unknown — how media is reaching this console.</summary>
+    public string WirePath => _wirePath;
+
+    private void NoteCandidate(string? candidate)
+    {
+        var type = CandidateType(candidate);
+        if (type == "relay") _wirePath = "relay";
+        else if (type == "srflx" && _wirePath != "relay") _wirePath = "srflx";
+        else if (type == "host" && _wirePath == "unknown") _wirePath = "host";
     }
 
     private static string CandidateType(string? candidate)
@@ -211,6 +228,7 @@ public sealed class WebRtcClient : IDisposable
         var sp = rest.IndexOf(' ');
         return sp < 0 ? rest : rest.Substring(0, sp);
     }
+
 
     private void WireVideo(RTCPeerConnection pc)
     {
