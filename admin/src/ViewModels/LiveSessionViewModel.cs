@@ -279,7 +279,7 @@ public partial class LiveSessionViewModel : ObservableObject
                     {
                         NativeVideo = true;
                         Transport = "Native video";
-                        LinkState = null;
+                        LinkState = "live";
                     }
                 });
 
