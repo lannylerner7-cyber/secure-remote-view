@@ -649,4 +649,26 @@ public sealed class ApiClient
         [JsonPropertyName("turn")] public bool Turn { get; set; }
         [JsonPropertyName("ttlSeconds")] public int TtlSeconds { get; set; }
     }
+
+    /// S14 — release manifest row served by /api/public/agent/release.
+    public sealed class ReleaseManifest
+    {
+        [JsonPropertyName("product")] public string? Product { get; set; }
+        [JsonPropertyName("channel")] public string? Channel { get; set; }
+        [JsonPropertyName("version")] public string? Version { get; set; }
+        [JsonPropertyName("download_url")] public string? DownloadUrl { get; set; }
+        [JsonPropertyName("sha256")] public string? Sha256 { get; set; }
+        [JsonPropertyName("notes")] public string? Notes { get; set; }
+        [JsonPropertyName("min_supported_version")] public string? MinSupportedVersion { get; set; }
+        [JsonPropertyName("mandatory")] public bool Mandatory { get; set; }
+        [JsonPropertyName("published_at")] public string? PublishedAt { get; set; }
+
+        /// True when this manifest is strictly newer than the running build.
+        public bool IsNewerThan(string current)
+        {
+            if (!System.Version.TryParse(Version, out var remote)) return false;
+            if (!System.Version.TryParse(current, out var local)) return true;
+            return remote > local;
+        }
+    }
 }
