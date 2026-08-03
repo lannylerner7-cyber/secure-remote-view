@@ -1179,6 +1179,7 @@ function AdminPage() {
             {nav === "audit" && (
               <div className="space-y-4">
                 <ReaperPanel audit={audit} devices={devices} />
+                <RenderHealthPanel />
                 <div className="rounded-lg border border-white/10 bg-[#1F2A44] p-4 text-xs">
                   {audit.length === 0 ? (
                     <p className="text-white/40">No events yet.</p>
