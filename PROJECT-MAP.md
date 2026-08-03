@@ -369,6 +369,23 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 12. `SCOPE:DATA` — **Wake reliability metrics**: record dispatch→delivered
     latency on `power_commands` and surface a success rate, so "wake didn't
     work" becomes measurable instead of anecdotal.
+13. `SCOPE:RENDER` — **Render telemetry** *(S11, gates the S8 soak)*.
+    `RenderStats` on the admin: frames decoded / presented / dropped per
+    second, decode-ms and upload-ms rolling averages, queue depth and working
+    set — shown in the live-window status bar and written to the soak log.
+    Without it turn 4b's "sharper, lower latency" claim cannot be demonstrated.
+    `VideoPipeline.StatsLine()` already emits most of this; it is unsurfaced.
+14. `SCOPE:PRESENCE` — **Agent auto-update** *(S14)*. Version in the heartbeat,
+    a signed-release manifest route, agent-side download → verify → swap →
+    restart through the existing `restart_agent` power command, staged rollout
+    flag per device. S3 is the standing proof of the cost of not having it.
+15. `SCOPE:RENDER` / docs — **Truth housekeeping** *(S15)*. (a) Verify the
+    transport pill keys off "a decoded frame presented in the last N ms"
+    (`VideoPipeline.IsPresenting`) rather than "RTP arrived", so the ICE
+    surrender to JPEG can never be reported as native video. (b) Mark both
+    contracts SUPERSEDED with a pointer to this map and fold the surviving
+    obligations (S8 soak, S9 TURN) into §6.
+
 
 ---
 
