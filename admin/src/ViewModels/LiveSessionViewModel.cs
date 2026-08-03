@@ -423,6 +423,7 @@ public partial class LiveSessionViewModel : ObservableObject
         NativeVideo = false;
         VideoStats = null;
         CurrentFrame = null;
+        _jpegW = _jpegH = 0;
         Transport = "Ended";
         _ = App.Api.EndSessionAsync(SessionId, CancellationToken.None);
     }
