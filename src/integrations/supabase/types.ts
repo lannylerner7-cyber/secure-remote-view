@@ -653,6 +653,74 @@ export type Database = {
           },
         ]
       }
+      session_telemetry: {
+        Row: {
+          admin_client_id: string | null
+          created_at: string
+          fps: number | null
+          frames_decoded: number | null
+          frames_dropped: number | null
+          frames_presented: number | null
+          ice_restarts: number | null
+          id: string
+          input_path: string | null
+          latency_ms: number | null
+          peer_state: string | null
+          queue_depth: number | null
+          render_path: string | null
+          session_id: string
+          source_height: number | null
+          source_width: number | null
+          wire_path: string | null
+        }
+        Insert: {
+          admin_client_id?: string | null
+          created_at?: string
+          fps?: number | null
+          frames_decoded?: number | null
+          frames_dropped?: number | null
+          frames_presented?: number | null
+          ice_restarts?: number | null
+          id?: string
+          input_path?: string | null
+          latency_ms?: number | null
+          peer_state?: string | null
+          queue_depth?: number | null
+          render_path?: string | null
+          session_id: string
+          source_height?: number | null
+          source_width?: number | null
+          wire_path?: string | null
+        }
+        Update: {
+          admin_client_id?: string | null
+          created_at?: string
+          fps?: number | null
+          frames_decoded?: number | null
+          frames_dropped?: number | null
+          frames_presented?: number | null
+          ice_restarts?: number | null
+          id?: string
+          input_path?: string | null
+          latency_ms?: number | null
+          peer_state?: string | null
+          queue_depth?: number | null
+          render_path?: string | null
+          session_id?: string
+          source_height?: number | null
+          source_width?: number | null
+          wire_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_telemetry_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sessions: {
         Row: {
           admin_bound_at: string | null
