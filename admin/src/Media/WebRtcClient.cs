@@ -438,6 +438,8 @@ public sealed class WebRtcClient : IDisposable
         }
         catch { }
         try { _cts?.Cancel(); } catch { }
+        // Input must fall back to REST the instant the peer goes away.
+        try { ConnectLive.Admin.Input.InputTransport.Detach(); } catch { }
         try { _pc?.close(); } catch { }
         _pc = null;
         try { Pipeline.KeyFrameRequested -= OnKeyFrameRequested; } catch { }
