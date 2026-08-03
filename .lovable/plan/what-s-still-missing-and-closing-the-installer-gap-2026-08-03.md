@@ -107,10 +107,6 @@ Changes:
 2. Create a new Calls app.
 3. Copy the **App ID** and create an **App Token**.
 4. Paste both into the secure form when I request them.
-  cloudflare call details delete when you done integrate 100,000 storage limit 
-5. Name: zoomlite
-6. App ID: 1dc62793a99650ecdda4f7ed0519ec77
-7. API TOKEN: a82e34490cfa3d02964c7a396bb3ce4d0ea68c71102b827eef31074d567c130d
 
 Then I update `/api/public/agent/ice` and `.env.sample` in the same turn.
 
