@@ -138,6 +138,24 @@ public sealed class WebRtcClient : IDisposable
         WireDiagnostics(pc, ct);
         WireVideo(pc);
 
+        // S10 — open the input datachannel BEFORE createOffer so the SDP
+        // advertises the SCTP m-line. Ordered + reliable: input events must
+        // land in send order and lost events must retransmit (a swallowed
+        // mouseup would leave a button pinned down). Agent side already
+        // handles ondatachannel; see agent/src/WebRtcSession.cs.
+        try
+        {
+            var dc = await pc.createDataChannel("input",
+                new RTCDataChannelInit { ordered = true }).ConfigureAwait(false);
+            ConnectLive.Admin.Input.InputTransport.Attach(_sessionId, dc);
+            T("input datachannel created (label=input, ordered)");
+        }
+        catch (Exception ex)
+        {
+            T("input datachannel create failed, staying on REST: " + ex.Message);
+            ConnectLive.Admin.Input.InputTransport.Detach();
+        }
+
         var offer = pc.createOffer();
         await pc.setLocalDescription(offer).ConfigureAwait(false);
         T("offer created + local description set");
