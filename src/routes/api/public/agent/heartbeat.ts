@@ -108,6 +108,15 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           };
         }
 
+        // S14 — agent build version. Same merge discipline: an agent that
+        // predates this field must not blank out a version we already know.
+        if (typeof body.version === "string" && body.version.length > 0) {
+          mergedMetadata = {
+            ...(mergedMetadata ?? prevMeta),
+            agent_version: body.version.slice(0, 32),
+            agent_version_updated_at: nowIso,
+          };
+        }
 
 
         await ctx.admin
