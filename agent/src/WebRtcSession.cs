@@ -253,9 +253,27 @@ public sealed class WebRtcSession : IDisposable
             try
             {
                 if (mediaType != SDPMediaTypesEnum.video) return;
+
+                // ---- SCOPE:TRANSPORT — congestion feedback ----------------
+                // The RR block is the only honest measure of what the admin
+                // actually received. Feed it to the ladder before looking at
+                // PLI/FIR, because a compound packet often carries only one of
+                // the two and the early-return below would swallow the RR.
+                var rrList = rtcp?.ReceiverReport?.ReceptionReports
+                             ?? rtcp?.SenderReport?.ReceptionReports;
+                if (rrList != null && rrList.Count > 0)
+                {
+                    var rr = rrList[0];
+                    double loss = rr.FractionLost / 256.0;
+                    BitrateController.NoteReceiverReport(
+                        loss, rr.Jitter,
+                        EstimateRttMs(rr.LastSenderReportTimestamp, rr.DelaySinceLastSenderReport));
+                }
+
                 var fb = rtcp?.Feedback;
                 var hdr = fb?.Header;
                 if (hdr == null) return;
+
 
                 // PSFB carries the payload-specific messages; PLI (fmt=1) is
                 // what Chrome/SIPSorcery send on decode failure, FIR (fmt=4)
