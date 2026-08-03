@@ -47,9 +47,16 @@ async function hit(
 
   // Open auto-enrollment (no deployment key since the enrollment overhaul).
   // 200 = a machine token was minted, 429 = IP rate limit tripped.
+  //
+  // This is a REAL enrollment — it leaves a real device row behind. We tag it
+  // `hostname: "route-verifier"` so `prune_session_ephemera()` can sweep it
+  // within the hour (see the verifier clause in the presence reaper), and we
+  // leave `displayName` unset so the row also matches the ordinary 24 h
+  // nameless-ghost rule as a backstop. Do NOT give this a friendly display
+  // name: a named row is invisible to both sweeps and would live forever.
   await hit("POST", "/api/public/agent/enroll", [200, 429, 503], {
     headers: { "content-type": "application/json" },
-    body: "{}",
+    body: JSON.stringify({ hostname: "route-verifier", os: "route-verifier" }),
   });
 
 
