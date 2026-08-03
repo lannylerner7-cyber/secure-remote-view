@@ -63,6 +63,6 @@ Ship `ConnectLive.exe` through Intune, SCCM, or GPO. On first run the agent:
 
 ## Non-negotiables (baked into the code)
 
-- Invited sessions auto-activate for enrolled managed devices so the admin live view starts immediately.
+- Invited sessions never auto-activate. `Agent.cs` awaits `ConsentPrompt.AskAsync` and only starts capture/input loops when the user clicks Allow (90 s auto-decline).
 - Curtain/takeover mode uses the dedicated input-blocking hooks and always releases on dead-man failure.
 - No Defender exclusions requested or applied by the installer.

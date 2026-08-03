@@ -22,6 +22,6 @@ if (-not (Test-Path $msiUnc)) {
     exit 1
 }
 
-# DEPLOYMENT_KEY is delivered by the ADMX policy → HKLM registry — no need to
-# pass it on the msiexec command line here.
+# Enrollment is keyless — the Agent mints its own device token on first launch,
+# so there is nothing to pass on the msiexec command line.
 Start-Process msiexec.exe -ArgumentList "/i `"$msiUnc`" /qn /norestart" -Wait -NoNewWindow

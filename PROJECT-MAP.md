@@ -69,7 +69,7 @@ auth — every handler authenticates itself.
 | `auth/login` | rate-limited, `login_attempts` lockout | admin sign-in |
 | `cron/reconcile-orders` | cron secret | payment reconciliation |
 | `webhooks/cdp` | HMAC verified | crypto payment events |
-| `stats/orders`, `health` | public read-only | no PII |
+| `stats/orders`, `api/public/health`, `/health` | public read-only | no PII; `/health` is the standalone Coolify probe |
 
 Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 `/terms`, `/refund`, `/connectlive/admin` (login), `/connectlive/payment`,
@@ -162,8 +162,8 @@ fix, and it needs your call before a migration touches it.
 
 - Agent tree: `SplashWindow.xaml.cs`, `MonitorSelector.cs`, `StreamListener.cs`, `StartupSelfHeal.cs`, `DxgiCapture.cs` all present; zero `MainWindow`/`NotifyIcon` hits under `agent/`.
 - Native console: `PredictiveCursor.cs`, `LiveSessionViewModel.cs`, `LiveSessionWindow.xaml` present — turns 1 and 2 confirmed on disk.
-- Web console: **gap confirmed** — `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts`; `/console` never reads them and never enqueues `switch_monitor`. Tier A item 1.
-- `src/routes/_authenticated/console.tsx` is **1,514 lines** (route shell + live view). Tier C item 8 **done** — presentational blocks now live in `src/components/console/*` with shared types in `src/lib/console-types.ts` and input mapping in `src/lib/console-input.ts`.
+- Web console: gap **closed** — `src/components/console/MonitorPicker.tsx` reads `devices.metadata.monitors` and `switchMonitor()` in `console.tsx` enqueues `switch_monitor` + `restart_stream`. Tier A item 1 done.
+- `src/routes/_authenticated/console.tsx` is **1,648 lines** (route shell + live view). Tier C item 8 **done** — presentational blocks now live in `src/components/console/*` with shared types in `src/lib/console-types.ts` and input mapping in `src/lib/console-input.ts`.
 - DB: `power_commands_kind_check` vocabulary matches the doc; 2 active pg_cron jobs; 7 tables in `supabase_realtime`; `sessions` now carries exactly 3 triggers.
 
 ### 2026 — Agent surface reduction + verification pass (`SCOPE:PRESENCE`)
@@ -336,10 +336,11 @@ surprise.
 | Turn 1 + 2 shipped in the native console | `admin/src/Media/PredictiveCursor.cs`, `admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Views/LiveSessionWindow.xaml` |
 | SSE wake has a client | `agent/src/StreamListener.cs` ↔ `src/routes/api/public/agent/stream.ts` |
 | Web console **has** a monitor picker | `src/components/console/MonitorPicker.tsx` + `switchMonitor()` in `console.tsx` (was the gap in the 08-02 snapshot) |
-| Console is modular | `src/routes/_authenticated/console.tsx` = 1,648 lines + 11 components in `src/components/console/` |
+| Console is modular | `src/routes/_authenticated/console.tsx` = 1,648 lines + 11 component files in `src/components/console/` — 9 imported directly by the route, `DirectNotifyModal` and `PowerMenu` nested inside `TeamPanel` / `DevicesTable` |
 | Every route has real head metadata | 11 web routes, each with a unique title + description; the 3 non-public ones also `noindex` + self-canonical |
-| Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `health` (+ unauthenticated `/health` probe for Coolify) |
+| Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `api/public/health`, plus the standalone unauthenticated `/health` probe for Coolify |
 | Known dead code | `admin/src/Input/MouseInjector.MoveRelAsync` is defined but never called — the WPF console has no pointer-capture toggle yet (the browser console does). Intentional: it is the seam for that turn, not a regression. |
+| Packaging docs | `agent/packaging/{jamf,intune,gpo}` documented a `DeploymentKey` registry/ADMX/MSI-property gate that no longer exists in `agent/src` (removed in the enrollment overhaul). Fixed 08-03: ADMX/ADML and the Jamf configuration profile deleted, all four READMEs + `intune-app.json` + `wrap-intune.ps1` + `install-gpo.ps1` rewritten around keyless enrollment. Diff against this row on the next audit. |
 
 **Database**
 
