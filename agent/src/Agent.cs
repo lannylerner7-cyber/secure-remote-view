@@ -81,8 +81,10 @@ public sealed class Agent
         PowerRelay.OnRestartAgent = SoftRestartAsync;
     }
 
-    // Standalone Agent: no SSE listener, no helper service. Heartbeat cadence
-    // is decided purely by session activity (see fastDelay / slowDelay below).
+    // Standalone Agent: no helper service. Wake arrives over the in-process SSE
+    // channel (see _stream / StreamListener below), and the heartbeat cadence is
+    // decided by session activity plus StreamListener.Healthy (fastDelay /
+    // slowDelay below).
 
     /// <summary>Rebuild the WebRTC peer + capture pipeline for the current session without exiting.</summary>
     public Task RestartStreamAsync()
