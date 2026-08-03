@@ -320,3 +320,30 @@ helper functions, and leaked-password protection disabled in auth settings.
 - Verified: `tsgo --noEmit` clean, `verify-agent-routes.ts` 19/19
   (`switch_monitor` present in the power-command vocabulary).
 - Next: Tier A item 2 — adaptive bitrate + resolution ladder (`SCOPE:TRANSPORT`).
+
+### Turn: Tier A item 2 — adaptive bitrate + resolution ladder (`SCOPE:TRANSPORT`) — 2026-08-03
+
+- New `agent/src/BitrateController.cs`: single owner of
+  `(targetBitrate, maxEdge, fps)` across a six-rung ladder
+  (1920/70/30fps → 640/38/12fps). Asymmetric policy: down 1 rung on
+  loss ≥ 4% or RTT ≥ 350 ms, down 2 on loss ≥ 12% or RTT ≥ 600 ms; up 1 rung
+  only after 12 s clean and never within 10 s of the previous change. Both
+  directions rate-limited to one step per 3 s so a burst of RRs cannot fall
+  through the whole ladder.
+- `WebRtcSession.cs`: `OnReceiveReport` now parses the RR block
+  (`FractionLost`, `Jitter`, `LastSenderReportTimestamp`,
+  `DelaySinceLastSenderReport`) *before* the PLI/FIR early-return, and derives
+  RTT per RFC 3550 §6.4.1. `BuildPeer()` calls `BitrateController.Reset()` so a
+  new technician does not inherit the previous link's rung.
+- `ScreenCapture.cs`: no longer owns tunables. Reads
+  `BitrateController.Current` once per frame for max edge, JPEG motion/idle
+  quality and motion cadence; `SetQualityMode(bool)` and `NoteUploadLatency`
+  now delegate to the ladder, so the HTTPS fallback and the WebRTC path move
+  the same control. A rung change re-tees the encoder (frame size changed →
+  the decoder needs a fresh picture, not a delta).
+- `MaxEdge` / `PerformanceMode` stay as public reads, so `CursorPump` keeps
+  landing cursor telemetry in the exact coordinate space of the shipped frame.
+- Verification: no .NET toolchain in this sandbox — agent changes are reviewed,
+  not compiled here; they build in `agent/build.ps1` on Windows. Web side
+  untouched.
+- Next: Tier A item 3 — relative-motion pointer (`SCOPE:INPUT`).

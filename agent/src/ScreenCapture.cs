@@ -9,28 +9,28 @@ using System.Threading.Tasks;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Desktop capture loop. Adaptive cadence: targets ~30 FPS (33ms) during
-/// motion, backs off to ~10 FPS (100ms) when the screen is static.
-/// Normal profile: max 1920px long edge, JPEG q70 motion / q85 idle.
-/// Low-bandwidth profile (auto): 960px, q40 / q55.
+/// Desktop capture loop. Adaptive cadence: targets the current ladder rung's
+/// FPS during motion, backs off to ~10 FPS when the screen is static.
+///
+/// SCOPE:TRANSPORT — resolution, JPEG quality and frame cadence are NOT owned
+/// here any more. <see cref="BitrateController"/> owns the
+/// (targetBitrate, maxEdge, fps) triple and is driven by RTCP receiver reports
+/// on the WebRTC path plus HTTPS upload latency on the fallback path. This
+/// loop simply reads <see cref="BitrateController.Current"/> every frame, so a
+/// rung change takes effect on the very next capture with no restart.
 /// Reuses bitmap allocations across frames to minimise GC pressure.
 /// </summary>
 public static class ScreenCapture
 {
-    // Tunables — Normal (default, sharp) vs low-bandwidth Performance mode.
-    private static int _maxEdge = 1920;
-    private static long _motionQuality = 70L;
-    private static long _idleQuality = 85L;
-
-    /// <summary>True when the low-bandwidth profile is engaged.</summary>
-    public static bool PerformanceMode { get; private set; }
+    /// <summary>True when the ladder has dropped below the sharp rungs.</summary>
+    public static bool PerformanceMode => BitrateController.RungIndex >= 3;
 
     /// <summary>
     /// Longest edge, in pixels, of the frame currently being shipped.
     /// <see cref="CursorPump"/> reads this so cursor telemetry lands in the
     /// exact coordinate space of the picture the technician is looking at.
     /// </summary>
-    public static int MaxEdge => _maxEdge;
+    public static int MaxEdge => BitrateController.Current.MaxEdge;
 
     /// <summary>
     /// Periodic full refresh, in frames, used as a *safety net* only.
@@ -42,34 +42,21 @@ public static class ScreenCapture
     /// </summary>
     private const int PeriodicRefreshFrames = 300;
 
-
-    /// <summary>Switch between Normal (1920/q70-85) and Performance (960/q40-55).</summary>
-    public static void SetQualityMode(bool performance)
+    static ScreenCapture()
     {
-        int prevEdge = _maxEdge;
-        PerformanceMode = performance;
-        if (performance)
+        // A rung change alters the encoder's frame size; the admin's decoder
+        // must be handed a fresh picture rather than a delta against a frame
+        // of the previous dimensions.
+        BitrateController.Changed += _ =>
         {
-            _maxEdge = 960;
-            _motionQuality = 40L;
-            _idleQuality = 55L;
-        }
-        else
-        {
-            _maxEdge = 1920;
-            _motionQuality = 70L;
-            _idleQuality = 85L;
-        }
-        if (prevEdge != _maxEdge)
-        {
-            // Step 1 diagnostics: correlate stripe onset with a mid-stream
-            // encoder-resolution change. Uses the same monotonic clock as the
-            // WebRTC pipe log so both lines line up.
-            Log.Info($"[t={WebRtcSession.MonoClock.ElapsedMilliseconds}] capture SetQualityMode " +
-                     $"performance={performance} maxEdge {prevEdge} -> {_maxEdge}");
             _logNextTee = true;
-        }
+            ResetWebRtcTee();
+        };
     }
+
+    /// <summary>Legacy two-state switch; now pins a ladder rung.</summary>
+    public static void SetQualityMode(bool performance) => BitrateController.Pin(performance);
+
 
 
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
@@ -80,10 +67,11 @@ public static class ScreenCapture
         if (jpegEnc == null) return;
 
         var motionParams = new EncoderParameters(1);
-        motionParams.Param[0] = new EncoderParameter(Encoder.Quality, _motionQuality);
+        motionParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.MotionQuality);
 
         var idleParams = new EncoderParameters(1);
-        idleParams.Param[0] = new EncoderParameter(Encoder.Quality, _idleQuality);
+        idleParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.IdleQuality);
+
 
         ulong lastHash = 0;
         int idleCount = 0;
@@ -117,7 +105,11 @@ public static class ScreenCapture
 
         while (!ct.IsCancellationRequested)
         {
-            int delayMs = 33; // ~30 FPS target during motion
+            // Read the ladder once per frame: rung changes land on the very
+            // next capture without restarting the loop.
+            var rung = BitrateController.Current;
+            int motionDelayMs = rung.FrameDelayMs;
+            int delayMs = motionDelayMs;
             try
             {
                 var target = MonitorSelector.Resolve();
@@ -210,7 +202,7 @@ public static class ScreenCapture
                 }
 
 
-                int maxEdge = _maxEdge;
+                int maxEdge = rung.MaxEdge;
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(rawBmp.Width, rawBmp.Height));
                 // VP8 uses I420 2x2 chroma blocks. Keep both dimensions even;
                 // odd scaled heights (for example 539) shift the chroma planes.
@@ -251,7 +243,7 @@ public static class ScreenCapture
                 if (unchanged && idleCount < 20)
                 {
                     idleCount++;
-                    delayMs = idleCount >= 3 ? 100 : 33;
+                    delayMs = idleCount >= 3 ? 100 : motionDelayMs;
                     // Keepalive push while idle (throttled to IdleTeeIntervalMs).
                     TeeToWebRtc(scaledBmp, throttled: true);
                 }
@@ -260,11 +252,11 @@ public static class ScreenCapture
                     bool wasIdle = idleCount >= 3;
                     idleCount = 0;
                     lastHash = hash;
-                    delayMs = 33; // back to full speed
+                    delayMs = motionDelayMs; // back to the rung's full rate
 
                     // Update quality params if the mode changed at runtime.
-                    motionParams.Param[0] = new EncoderParameter(Encoder.Quality, _motionQuality);
-                    idleParams.Param[0] = new EncoderParameter(Encoder.Quality, _idleQuality);
+                    motionParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.MotionQuality);
+                    idleParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
 
                     // Tee the frame into the WebRTC track when a peer is connected.
                     TeeToWebRtc(scaledBmp, throttled: false);
@@ -400,44 +392,12 @@ public static class ScreenCapture
 
 
     // ---- Adaptive quality ------------------------------------------------
-    // Downgrade to the low-bandwidth profile after 5 consecutive frames whose
-    // upload took > 400 ms; upgrade back after a continuous 30 s window with
-    // every upload under 150 ms.
-    private static int _slowStreak;
-    private static DateTime _fastSince = DateTime.MinValue;
+    // The old two-state flip (5 slow uploads down, 30 clean seconds up) lived
+    // here. It now delegates to BitrateController, which folds this HTTPS
+    // signal together with the RTCP receiver reports from the video path so
+    // both transports move the same ladder.
+    private static void NoteUploadLatency(long ms) => BitrateController.NoteUploadLatency(ms);
 
-    private static void NoteUploadLatency(long ms)
-    {
-        if (!PerformanceMode)
-        {
-            _fastSince = DateTime.MinValue;
-            if (ms > 400)
-            {
-                if (++_slowStreak >= 5)
-                {
-                    _slowStreak = 0;
-                    SetQualityMode(true);
-                    Log.Info("live view: link slow — switching to low-bandwidth profile (960px)");
-                }
-            }
-            else _slowStreak = 0;
-        }
-        else
-        {
-            _slowStreak = 0;
-            if (ms < 150)
-            {
-                if (_fastSince == DateTime.MinValue) _fastSince = DateTime.UtcNow;
-                else if ((DateTime.UtcNow - _fastSince).TotalSeconds >= 30)
-                {
-                    _fastSince = DateTime.MinValue;
-                    SetQualityMode(false);
-                    Log.Info("live view: link healthy — restoring sharp profile (1920px)");
-                }
-            }
-            else _fastSince = DateTime.MinValue;
-        }
-    }
 
     private static ulong HashBitmap(Bitmap bmp)
     {

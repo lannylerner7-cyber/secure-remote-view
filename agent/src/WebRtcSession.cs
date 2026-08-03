@@ -145,6 +145,11 @@ public sealed class WebRtcSession : IDisposable
         _lastStatsUtc = DateTime.UtcNow;
         // A fresh peer must get a frame immediately, not after the keepalive gap.
         ScreenCapture.ResetWebRtcTee();
+        // SCOPE:TRANSPORT — a new peer is a new link. Start at the top rung
+        // rather than inheriting the ladder position a previous technician's
+        // congested connection settled on.
+        BitrateController.Reset();
+
 
         _videoEnd = new VideoEncoderEndPoint();
         // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
@@ -248,9 +253,27 @@ public sealed class WebRtcSession : IDisposable
             try
             {
                 if (mediaType != SDPMediaTypesEnum.video) return;
+
+                // ---- SCOPE:TRANSPORT — congestion feedback ----------------
+                // The RR block is the only honest measure of what the admin
+                // actually received. Feed it to the ladder before looking at
+                // PLI/FIR, because a compound packet often carries only one of
+                // the two and the early-return below would swallow the RR.
+                var rrList = rtcp?.ReceiverReport?.ReceptionReports
+                             ?? rtcp?.SenderReport?.ReceptionReports;
+                if (rrList != null && rrList.Count > 0)
+                {
+                    var rr = rrList[0];
+                    double loss = rr.FractionLost / 256.0;
+                    BitrateController.NoteReceiverReport(
+                        loss, rr.Jitter,
+                        EstimateRttMs(rr.LastSenderReportTimestamp, rr.DelaySinceLastSenderReport));
+                }
+
                 var fb = rtcp?.Feedback;
                 var hdr = fb?.Header;
                 if (hdr == null) return;
+
 
                 // PSFB carries the payload-specific messages; PLI (fmt=1) is
                 // what Chrome/SIPSorcery send on decode failure, FIR (fmt=4)
@@ -264,6 +287,27 @@ public sealed class WebRtcSession : IDisposable
             }
             catch (Exception ex) { Log.Warn($"webrtc rtcp handler: {ex.Message}"); }
         };
+
+        // RFC 3550 §6.4.1 RTT: now − LSR − DLSR, all in the middle-32 NTP
+        // format (16.16 fixed-point seconds). A zero LSR means the receiver
+        // has not seen one of our sender reports yet, so there is nothing to
+        // measure against — report 0 and let loss alone drive the ladder.
+        static double EstimateRttMs(uint lsr, uint dlsr)
+        {
+            if (lsr == 0) return 0;
+            var now = DateTime.UtcNow;
+            var epoch = new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            double seconds = (now - epoch).TotalSeconds;
+            uint nowMiddle = (uint)(((ulong)(seconds * 65536.0)) & 0xFFFFFFFFUL);
+            long delta = (long)nowMiddle - lsr - dlsr;
+            if (delta <= 0) return 0;
+            double ms = delta * 1000.0 / 65536.0;
+            // Anything past a few seconds is a wrapped or bogus timestamp, not
+            // a real round trip; discard rather than crash the ladder down.
+            return ms > 5000 ? 0 : ms;
+        }
+
+
 
 
         _pc.onicecandidate += async (c) =>
