@@ -357,8 +357,34 @@ public sealed class WebRtcClient : IDisposable
         while (!ct.IsCancellationRequested)
         {
             try { await Task.Delay(60_000, ct).ConfigureAwait(false); } catch { return; }
-            Log.Write(Pipeline.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState} "
+            var p = Pipeline;
+            Log.Write(p.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState} wire={_wirePath} "
                       + ConnectLive.Admin.Input.InputTransport.StatsLine());
+
+            // S11 — the same reading, durable, so the web console and the soak
+            // report can see render health without reading a local log file.
+            try
+            {
+                await App.Api.PushTelemetryAsync(_sessionId, new
+                {
+                    session_id = _sessionId,
+                    admin_client_id = App.ClientId,
+                    fps = Math.Round(p.Fps, 1),
+                    latency_ms = Math.Round(p.LastLatencyMs, 0),
+                    queue_depth = p.QueueDepth,
+                    frames_decoded = p.FramesDecoded,
+                    frames_dropped = p.FramesDropped,
+                    frames_presented = p.FramesPresented,
+                    source_width = p.SourceWidth,
+                    source_height = p.SourceHeight,
+                    render_path = p.UsingD3D ? "d3d" : "bitmap",
+                    input_path = ConnectLive.Admin.Input.InputTransport.CurrentPath,
+                    wire_path = _wirePath,
+                    ice_restarts = _restarts,
+                    peer_state = _pc?.connectionState.ToString(),
+                }, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) { T("telemetry post failed: " + ex.Message); }
         }
     }
 
