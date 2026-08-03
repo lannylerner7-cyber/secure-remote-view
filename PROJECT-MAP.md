@@ -157,7 +157,28 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 
 
+### 2026-08-03 — S13 + S15(a): loss gating and pill honesty (`SCOPE:RENDER`)
+
+- **Audit answer for S13:** SIPSorcery reassembles VP8 frames internally
+  (`OnVideoFrameReceived`), and `VideoPipeline` already holds a bounded
+  3-frame drop-oldest jitter queue. No reorder buffer was missing — *loss
+  visibility* was.
+- **`WebRtcClient.WireVideo`** now watches the 16-bit RTP sequence number
+  (wrap-safe; duplicates and late/reordered packets are ignored so healthy
+  links never gate) and reports gaps to the pipeline.
+- **`VideoPipeline.NotifyPacketLoss(missing)`** flushes the queue, sets an
+  await-keyframe gate, and fires `KeyFrameRequested` → PLI. While gated only
+  a VP8 keyframe (`(f[0] & 0x01) == 0`, RFC 6386 §9.1) is admitted, so no
+  inter frame is ever decoded against a reference buffer that never arrived —
+  the stripe-corruption class is closed at its source.
+- **Stats line** gains `loss=` and `gated=` for the S8 soak log.
+- **S15(a)** — `LiveSessionViewModel` re-promotes the transport pill to
+  "Native video" when `Pipeline.IsPresenting` returns true again; previously
+  only the one-shot `FirstFrame` callback could set it, so a recovered stream
+  stayed mislabelled as fallback.
+
 ### 2026-08-03 — S9 code half landed: ICE gateway (`SCOPE:TRANSPORT`)
+
 
 - New route **`GET /api/public/agent/ice`** (`src/routes/api/public/agent/ice.ts`).
   Single source of truth for the ICE set: STUN always; TURN appended when
