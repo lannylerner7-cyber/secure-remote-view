@@ -1,6 +1,8 @@
 # ConnectLive — Endpoint Audit
 
-Production base URL: `https://secure-remote-view.lovable.app`
+Canonical production URL: `https://zoomlite.live` (this is what `head()`
+canonicals, `sitemap.xml` and `scripts/verify-agent-routes.ts` all target).
+Platform alias: `https://secure-remote-view.lovable.app`
 Stable preview: `https://project--13b47594-1b4d-46c6-a939-da4132e55c1c-dev.lovable.app`
 
 Everything under `/api/public/*` bypasses site auth, so each handler does its
