@@ -400,7 +400,14 @@ public sealed class WebRtcClient : IDisposable
                     frames_presented = p.FramesPresented,
                     source_width = p.SourceWidth,
                     source_height = p.SourceHeight,
-                    render_path = p.UsingD3D ? "d3d" : "bitmap",
+                    // S12 — the render path carries its own device-lost history so
+                    // a technician-side GPU reset is visible in the web console
+                    // without a new telemetry column.
+                    render_path = (p.UsingD3D ? "d3d" : "bitmap")
+                                  + (p.D3DDeviceLosses > 0
+                                        ? $" lost{p.D3DDeviceLosses}/rec{p.D3DDeviceRecoveries}"
+                                        : ""),
+
                     input_path = ConnectLive.Admin.Input.InputTransport.CurrentPath,
                     wire_path = _wirePath,
                     ice_restarts = _restarts,
