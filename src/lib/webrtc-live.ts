@@ -24,6 +24,7 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
+import { API_ROUTES } from "@/shared/api-routes";
 
 /** Fallback only. The live set comes from the ICE gateway (S9), which adds
  *  TURN when the deployment has a relay configured. */
