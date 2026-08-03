@@ -114,6 +114,56 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S12 closed: admin D3D device-lost survival (`SCOPE:RENDER`)
+
+- **What was actually broken.** `D3DImageHost` recovered from exactly one of the
+  four ways a technician's D3D9Ex device dies:
+  1. TDR / GPU hang — handled before this turn (`TestCooperativeLevel` → rebuild).
+  2. **Driver update / reinstall** — `D3DERR_DEVICEREMOVED` also invalidates the
+     `IDirect3D9Ex` *factory*; the old code kept it and every `CreateDeviceEx`
+     retry failed against a dead driver, so the session fell to bitmap for good.
+  3. **RDP attach/detach, screen lock, laptop dGPU↔iGPU flip** — WPF drops the
+     front buffer and produces **no HRESULT at all**; nothing in the polling path
+     could ever see it. `Image.IsFrontBufferAvailableChanged` is now subscribed
+     and rebuilds device + surface when the buffer returns.
+  4. **Endless thrash** — a permanently sick GPU strobed between D3D and bitmap
+     forever. A guard retires the D3D path after
+     `MaxLossesPerWindow` (5) losses inside `LossWindowMs` (10 s); the caller
+     then stays on the `WriteableBitmap` presenter for the session. A degraded
+     picture beats a strobing one.
+- **Also fixed:** `ReleaseSurface` called `Dispatcher.Invoke` unconditionally —
+  reachable from the UI thread itself via the new front-buffer handler, which
+  would have deadlocked; it now checks `CheckAccess()` first.
+- **Observability.** `DeviceLost(reason)` / `DeviceRecovered` events plus
+  `DeviceLosses`, `DeviceRecoveries`, `LastLossReason`, and `HealthLine()`.
+  `VideoPipeline` subscribes both edges: the session log gets
+  "GPU device lost (…) — rebuilding the present path" / "GPU device recovered",
+  the pill demotes off `UsingD3D` immediately, the per-minute stats line carries
+  `losses=`/`recovered=`/`lastloss=`, and S11 telemetry `render_path` now reads
+  e.g. `d3d lost2/rec2` so a GPU reset on the technician's box is visible in the
+  web console's Audit tab without a new column.
+- **Evidence harness (the S12 ask).** `admin/spikes/d3d-present` gained an
+  automated mode against the *shipping* host — no parallel implementation:
+
+  ```text
+  dotnet run --project admin/spikes/d3d-present -- --auto
+  ```
+
+  It drives class 1 (`SimulateDeviceLossForTest`), class 2
+  (`SimulateDeviceLossForTest(removed: true)`), class 3
+  (`SimulateFrontBufferLossForTest`), the G3 park→resume ×3 no-device-churn
+  check, and class 4 (thrash guard), asserting after each that frames present
+  again and the device count rose by exactly the losses caused. Writes
+  `s12-evidence.txt` next to the exe and exits 0 (pass) / 1 (fail). On a host
+  with no usable D3D it reports SKIP rather than a false failure — the bitmap
+  presenter is the contract fallback there.
+- Interactive buttons added for the same three classes so a technician box can
+  be exercised by hand alongside `dxcap -forcetdr`.
+- Files: `admin/src/Media/D3DImageHost.cs`, `admin/src/Media/VideoPipeline.cs`,
+  `admin/src/Media/WebRtcClient.cs`, `admin/spikes/d3d-present/SpikeWindow.cs`.
+
+
+
 ### 2026-08-03 — S8 harness landed: soak driver (`SCOPE:TRANSPORT`, `SCOPE:REALTIME`)
 
 - New **`scripts/e2e-soak.ts`** — the endurance driver S8 was missing. It spawns
@@ -476,7 +526,9 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
    field soak (leak / tear / colour-drift / forced `switch_monitor`) with the
    new `RenderStats` numbers as its pass criteria. Closes the evidence gap
    under turns 2, 3 and 4a. **S12** (admin D3D device-lost) and **S13**
-   (depacketize/jitter audit) are verification-first checks in the same week.
+   (depacketize/jitter audit) are both CLOSED 2026-08-03; S12's `--auto` spike
+   run belongs in the same soak week's evidence, on a real GPU box.
+
 1. **Tier A item 4 — ICE gateway + TURN** (S9). Connectivity floor.
 2. **Turn 4b — hardware H.264**, now landing on a measured baseline.
 3. **Tier B item 3a — input datachannel** (S10), ahead of clipboard.
@@ -777,12 +829,18 @@ this probe has already told us how many machines can use it.
 
 ### Next up
 
+**S15(b)** — retire the two stale contracts (one documentation sitting), then
 **Turn 4b — hardware H.264 end-to-end** (Tier A, last item): MFT-backed
 `IVideoEncoder` on the agent, an H.264 depacketise + decode branch in
 `admin/src/Media/VideoPipeline.cs`, and negotiation that prefers H.264 only
 where `HwEncoderProbe` found silicon. VP8 stays the guaranteed fallback on both
 peers. After that Tier A is closed and the queue moves to Tier B (clipboard +
 file drop) or Tier C item 9 (device health panel), whichever you want first.
+
+Carried ops (not gaps): run `admin/spikes/d3d-present -- --auto` on a real GPU
+box during the S8 soak week and paste `s12-evidence.txt` into §8; publish the
+first `releases` rows (S14); deploy TURN and set `TURN_URLS` (S9).
+
 
 ---
 
@@ -861,7 +919,7 @@ unilaterally.
 | S9 | **PARTIALLY CLOSED 2026-08-03 — gateway shipped, TURN not deployed.** Original finding: TURN and an ICE-config gateway are absent from all 12 backlog items.** §2 states "RTP/VP8, STUN only"; no `agent/ice` route exists in §3; both peers hardcode a public STUN server. A commercial remote-support tool meets symmetric NAT and corporate egress filtering as a matter of course — those sessions silently degrade to the JPEG fallback, which is the exact lag the engine was built to escape, and nothing measures how often it happens. | §2 system map; §3 route table (no ice row); §6 Tiers A–C (no TURN/ICE item); §7 candidate scopes (no TURN/ICE item) | One route (`/api/public/agent/ice` + admin equivalent, device-token/JWT authed, returns STUN+TURN set), a coturn or managed-TURN deployment with per-session ephemeral credentials, and a `wire_path` telemetry field (`host/srflx/relay`) in the heartbeat so relay rate becomes a number. Tier A sized | — **Status:** `/api/public/agent/ice` now exists and all three peers consume it with STUN fallback (see §5). Remaining: deploy coturn/managed TURN and set `TURN_URLS` + `TURN_STATIC_SECRET`, and emit `wire_path` in the heartbeat.
 | S10 | **CLOSED 2026-08-03 — input rides the datachannel with REST fallback.** Original finding: agent's ondatachannel handler exists but no admin ever opened one; every click paid REST round-trip. — **Status:** `admin/src/Input/InputTransport.cs` owns the transport switch; `WebRtcClient.NegotiateAsync` opens an ordered `input` datachannel before `createOffer` and attaches it. `MouseInjector`/`KeyboardInjector` now call `InputTransport.SendAsync`; safety kinds `curtain_off` / `release_inputs` stay pinned to REST. First send failure demotes the session to REST for good, and the per-minute stats line now includes `input.path` + `dc.sent` + `rest.fallback` counters. |
 | S11 | **CLOSED 2026-08-03 — render telemetry shipped (see §5): `session_telemetry` table, per-minute rows from the native console, live-window status bar, and the console Audit tab `RenderHealthPanel`. S8 now has pass criteria to read.** Original finding: nothing measures the render path. No fps counter, no decode-to-present latency, no dropped-frame counter anywhere in `SCOPE:RENDER`. Tier C item 9 (device health panel) surfaces agent-side facts only. Without these numbers the soak (S8) has no pass criteria and turn 4b's entire justification — "sharper, lower latency than software VP8" — cannot be demonstrated, only asserted. | §6 Tier C item 9 scope text; absence of any fps/latency mention in §4, §5, §8, §9 | `RenderStats` on the admin: frames decoded/presented/dropped per second, decode-ms and upload-ms rolling averages, exposed in the live-window status bar + logged. Feeds S8's soak log directly. Small |
-| S12 | **Admin-side D3D device-lost is unverified.** The agent's capture recovery is thorough (`ACCESS_LOST` / `DEVICE_REMOVED` / `DEVICE_RESET` rebuild, pass-1 row). No audit pass has ever exercised the technician-side equivalent: `D3DImageHost` surviving a GPU reset, driver update, RDP session switch, or laptop dGPU/iGPU flip mid-session. The engine contract required recreate-and-continue; the map neither confirms nor denies it. | §5 pass-1 `DxgiCapture.cs` row (agent side only); §9.1 Render row (checks PredictiveCursor + VP8-only, not device-lost) | One targeted test (trigger device removal via driver restart / `dxcap -forcetdr` on a dev box) + whatever recreate path is missing in `D3DImageHost`. Verification-first: may already work, has never been shown |
+| S12 | **CLOSED 2026-08-03 — device-lost survival implemented and provable (see §5).** Verification-first answer: the old `D3DImageHost` handled only class 1 (a lost/hung device seen through an HRESULT). Three real classes were unhandled — driver update (`D3DERR_DEVICEREMOVED` leaves the `IDirect3D9Ex` factory stale), RDP attach/detach + screen lock + dGPU/iGPU flip (WPF drops the front buffer with **no** HRESULT anywhere, so polling never notices), and endless thrash (a permanently sick GPU strobed between paths forever). **Fix:** factory rebuild on `DEVICEREMOVED`, `IsFrontBufferAvailableChanged` subscription, a 5-losses-in-10s thrash guard that retires the D3D path to the `WriteableBitmap` presenter, `DeviceLost`/`DeviceRecovered` events + `DeviceLosses`/`DeviceRecoveries`/`LastLossReason` counters, and a deadlock fix in `ReleaseSurface` (`Dispatcher.Invoke` from the UI thread). `VideoPipeline` logs both edges and demotes the pill; the per-minute line carries `losses=`/`recovered=` and telemetry `render_path` carries `lost{n}/rec{m}`. **Evidence:** `dotnet run --project admin/spikes/d3d-present -- --auto` drives all four classes plus the G3 park×3 no-churn check against the shipping host and writes `s12-evidence.txt` (exit 0/1). Original finding: admin-side D3D device-lost is unverified; the contract required recreate-and-continue and the map neither confirmed nor denied it. |
 | S13 | **CLOSED 2026-08-03 — loss detection + keyframe gate in front of the decoder.** Audit result: SIPSorcery *does* reassemble VP8 into whole frames (`OnVideoFrameReceived`) and `VideoPipeline` already ran a bounded 3-frame drop-oldest jitter queue, so no reorder buffer was needed. What was genuinely missing was loss visibility: a frame reassembled across a hole was fed to the decoder and every later inter frame referenced a reference buffer that never existed — the stripe corruption class. **Fix:** `WebRtcClient.WireVideo` now tracks the 16-bit RTP sequence number (wrap-safe, duplicates/late packets ignored) and calls `VideoPipeline.NotifyPacketLoss(missing)` on a gap; the pipeline flushes the queue, gates decode until the next VP8 keyframe (`(f[0] & 1) == 0`, RFC 6386 §9.1) and fires `KeyFrameRequested` → PLI. `loss=` and `gated=` counters added to the per-minute stats line for the S8 soak. |
 | S14 | **CLOSED 2026-08-03.** Manifest + version reporting + `agent/src/SelfUpdate.cs` (idle-only hourly check, mandatory sha256, rename-then-replace with rollback, silent `/background` relaunch); build scripts emit the checksum and the `releases` insert. Remaining as ordinary ops, not a gap: publishing the first rows, and an optional per-device staged-rollout flag. Original finding: **No agent auto-update exists, and S3 is the standing proof of the cost.** Deployment is `build.ps1` + MDM packaging by hand; the map's own audit shows the fleet frozen on an old build while three shipped turns wait for evidence. Every future turn (4b included) inherits this bottleneck. Not in any tier or candidate scope. | S3 row; §8 packaging-docs row (jamf/intune/gpo are install-time only); §6/§7 (no update item) | Modest but real: version in heartbeat (already trivially available), a signed-release manifest route, agent-side download-verify-swap-restart via the existing `restart_agent` power command, staged rollout flag per device. Tier B sized; pays for itself by turn 4b's rollout |
 | S15 | **(a) CLOSED 2026-08-03 — the pill is honest in both directions.** `LiveSessionViewModel.StartVideoStats` already demoted off `Pipeline.IsPresenting` (a decoded frame presented in the last 2 s, not "RTP arrived"); it now also *re-promotes* to "Native video" when presentation resumes after a keyframe recovery or ICE restart, which the one-shot `FirstFrame` callback could never do. **(b) still open** — the two contracts remain stale. Original finding: two truth items: the pill and the contracts. (a) Transport-pill honesty — "Native video" only when decoded frames are presenting — was contract clause 6.1 and gate G2's companion; no changelog or audit row ever confirms it closed. Given the ICE-surrender path deliberately drops to JPEG (pass-1 row), an untruthful pill would mask exactly the S9 degradations. (b) The two contracts + v2 amendment are now stale against reality (state machine is `invited → active\|declined` with `consented` legacy; admin-offers is settled; aspect/ContentRect shipped) — leaving them un-amended re-creates the ENDPOINTS.md class of drift that pass 3 just cleaned up. | (a) no `SCOPE:RENDER`/pill entry in §5, §8, §9; pass-1 ICE-surrender row. (b) §9.2 drift table (the precedent); contract texts vs §4 invariants | (a) One read of the pill's binding: it must key off "presented a decoded frame in the last N ms", not "RTP arrived" — verify or fix, one small change + audit row. (b) Documentation turn: mark both contracts SUPERSEDED with a pointer to this map, fold surviving obligations (S8's soak, S9's TURN scope) into §6 |
@@ -879,7 +937,9 @@ Current "Next up" is turn 4b. This register argues the order should be:
 4. **S10** — input datachannel (new Tier B item, ahead of clipboard: same
    channel machinery, bigger feel win, receive side already shipped).
 
-S12, S13 are verification-first checks that slot into the S8 soak week.
+S12, S13 were verification-first checks; both CLOSED 2026-08-03 (S12 needed
+real code, not just a test — see §5).
+
 S14 lands whenever rollout pain next bites — before 4b if the S3 rollout
 proves as slow as the map implies. S15 is a documentation turn, one sitting.
 

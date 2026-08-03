@@ -75,6 +75,16 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
     public bool UsingD3D { get; private set; }
 
+    /// <summary>S12 — D3D device-lost events seen this session (0 on a healthy box).</summary>
+    public int D3DDeviceLosses => _d3d.DeviceLosses;
+
+    /// <summary>S12 — how many of those losses were recovered without leaving the D3D path.</summary>
+    public int D3DDeviceRecoveries => _d3d.DeviceRecoveries;
+
+    /// <summary>S12 — device (re)creations; must stay at 1 across park/resume (G3).</summary>
+    public int D3DDeviceCreations => _d3d.DeviceCreations;
+
+
     /// <summary>Raised (worker thread) when the pipeline wants a fresh keyframe from the agent.</summary>
     public event Action? KeyFrameRequested;
 
@@ -90,6 +100,18 @@ public sealed class VideoPipeline : IDisposable
     public void Start()
     {
         if (_worker != null) return;
+
+        // S12 — device-lost is visible, not silent. A TDR, driver update, RDP
+        // attach or dGPU/iGPU flip now says so in the session log and in the
+        // per-minute telemetry line; if the D3D path retires itself the
+        // Present() path below has already dropped to the bitmap presenter.
+        _d3d.DeviceLost += reason =>
+        {
+            Diagnostic?.Invoke($"GPU device lost ({reason}) — rebuilding the present path");
+            if (UsingD3D) UsingD3D = false;
+        };
+        _d3d.DeviceRecovered += () => Diagnostic?.Invoke("GPU device recovered — native present resumed");
+
         _worker = new Thread(DecodeLoop)
         {
             IsBackground = true,
@@ -99,6 +121,7 @@ public sealed class VideoPipeline : IDisposable
         _worker.Start();
         StartStallWatch();
     }
+
 
     /// <summary>
     /// S13 — RTP loss/reorder was reported upstream. SIPSorcery reassembles VP8
@@ -333,10 +356,9 @@ public sealed class VideoPipeline : IDisposable
                $"decoded={FramesDecoded} dropped={FramesDropped} presented={FramesPresented} " +
                $"latency={_lastLatencyMs:F0}ms size={_width}x{_height} " +
                $"path={(UsingD3D ? "d3d" : "bitmap")} loss={Interlocked.Read(ref _lossEvents)} " +
-               $"gated={Interlocked.Read(ref _framesGated)} devices={_d3d.DeviceCreations} " +
-
-               $"surfaces={_d3d.SurfaceAllocations} ws={ws}MB";
+               $"gated={Interlocked.Read(ref _framesGated)} " + _d3d.HealthLine() + $" ws={ws}MB";
     }
+
 
     /// <summary>Session ended: flush queues, park the D3D surface, keep the device warm (G3).</summary>
     public void Dispose()
