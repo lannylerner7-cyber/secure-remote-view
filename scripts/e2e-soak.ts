@@ -63,20 +63,21 @@ function pct(arr: number[], p: number): number {
 
 async function runAgent(idx: number, deadline: number, deviceIds: string[]) {
   const hostname = `soak-${Date.now()}-${idx}`;
-  const enroll = await jpost("/api/public/agent/enroll", {
-    hostname, os: "soak", displayName: `soak-${idx}`,
-    mac: `02:00:00:00:${(idx >> 8 & 0xff).toString(16).padStart(2, "0")}:${(idx & 0xff).toString(16).padStart(2, "0")}`,
-    agentVersion: "soak",
-  });
-  if (!enroll.ok) { bump(errCount, "enroll"); return; }
+  let enrollJson: any = null;
+  try {
+    const r = await fetch(`${API}/api/public/agent/enroll`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        hostname, os: "soak", displayName: `soak-${idx}`,
+        mac: `02:00:00:00:${((idx >> 8) & 0xff).toString(16).padStart(2, "0")}:${(idx & 0xff).toString(16).padStart(2, "0")}`,
+        agentVersion: "soak",
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) { bump(errCount, "enroll"); return; }
+    enrollJson = await r.json();
+  } catch { bump(errCount, "enroll"); return; }
   bump(okCount, "enroll");
-  const { deviceId, deviceToken } = JSON.parse(enroll.text || "{}") as any
-    ?? (enroll as any); // fallback
-  // Re-parse: we didn't keep JSON above.
-  const enrollJson = await (await fetch(`${API}/api/public/agent/enroll`, {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ hostname: hostname + "b", os: "soak", displayName: `soak-${idx}b`, mac: `02:00:00:00:${idx & 0xff}:00`, agentVersion: "soak" }),
-  })).json();
   const devId = enrollJson.deviceId as string;
   const devTok = enrollJson.deviceToken as string;
   deviceIds.push(devId);
