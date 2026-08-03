@@ -1,5 +1,5 @@
 using System;
-using System.Text;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,15 +18,8 @@ namespace ConnectLive.Admin.Input;
 /// tunnel with.
 ///
 /// Rules:
-///   * the datachannel is used only while it is genuinely open; one send
-///     failure demotes the session to REST for the rest of it (no per-event
-///     coin flip that would reorder the stream);
-///   * safety kinds — <c>curtain_off</c>, <c>release_inputs</c> — never ride
-///     the channel. They must land even when media is broken, which is
-///     exactly when the channel is untrustworthy;
-///   * wire shapes are identical on both paths: <c>{ kind, ...payload }</c>,
-///     matching the switch in agent/src/InputRelay.cs.
-/// </summary>
-public static class InputTransport
-{
-    /// <summary>Kinds that must always take the REST path. See class
+///   * the channel is used only while it is genuinely open; a single send
+///     failure demotes the session to REST for good, so the stream can never
+///     interleave two transports with different latencies and reorder itself;
+///   * safety kinds — <c>curtain_off</c>, <c>release_inputs</c> — always take
+///     REST. They must land precisely when media
