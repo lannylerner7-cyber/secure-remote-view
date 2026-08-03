@@ -284,6 +284,18 @@ Closed so far: audit backlog items 1–6 (pass 2), predictive cursor (turn 1),
 multi-monitor picker (turn 2), agent surface reduction, docs/DB truth pass.
 Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 
+**Re-sequenced 2026-08-03 (§9.5).** Turn 4b is *no longer next*. Order of work:
+
+0. **S3 + S8 + S11** — Windows build + fleet rollout, then a scripted 10-min
+   field soak (leak / tear / colour-drift / forced `switch_monitor`) with the
+   new `RenderStats` numbers as its pass criteria. Closes the evidence gap
+   under turns 2, 3 and 4a. **S12** (admin D3D device-lost) and **S13**
+   (depacketize/jitter audit) are verification-first checks in the same week.
+1. **Tier A item 4 — ICE gateway + TURN** (S9). Connectivity floor.
+2. **Turn 4b — hardware H.264**, now landing on a measured baseline.
+3. **Tier B item 3a — input datachannel** (S10), ahead of clipboard.
+
+
 ### Tier A — finish what is half-shipped
 
 1. `SCOPE:WEB` — **Monitor picker in the browser console.** Read
