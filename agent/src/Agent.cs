@@ -155,6 +155,13 @@ public sealed class Agent
         _outerCt = ct;
         SubscribeNetworkChange(ct);
 
+        // Log the hardware H.264 encoder capability once per process. The
+        // probe is cheap and idempotent; running it at startup means every
+        // field log carries the machine's encode ceiling whether or not a
+        // session ever opens, which is what tells us how much of the fleet
+        // would benefit from the wire-codec flip landing after this turn.
+        try { HwEncoderProbe.LogCapability(); } catch { }
+
 
 
         // Boot-proof enrollment: retry every 5s forever. Windows Startup fires

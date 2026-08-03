@@ -264,11 +264,36 @@ public sealed class ApiClient
             selectedMonitor = "";
         }
 
+        // SCOPE:CAPTURE — encode capability. `HwEncoderProbe` caches after the
+        // first call, so this costs a field read per heartbeat. Reported now,
+        // before the wire codec can use it, so the fleet-wide answer to "how
+        // many machines have NVENC/QSV/AMF?" is already in the data by the
+        // time the hardware encode path is switchable.
+        string encoderVendor = "none";
+        string encoderName = "";
+        try
+        {
+            encoderVendor = HwEncoderProbe.VendorTag;
+            encoderName = HwEncoderProbe.EncoderName;
+        }
+        catch { }
+
         var payload = new
         {
             lan = new { subnet_v4 = subnet, mac, ipv4 },
             monitors,
             selected_monitor = selectedMonitor,
+            encoder = new
+            {
+                // Wire codec actually in use today. Hardcoded rather than
+                // derived: the pinning guardrail on both peers says VP8, and a
+                // field that silently disagrees with the guardrail is worse
+                // than no field.
+                wire_codec = "VP8",
+                hw_h264 = encoderVendor != "none",
+                hw_vendor = encoderVendor,
+                hw_name = encoderName,
+            },
         };
         using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {

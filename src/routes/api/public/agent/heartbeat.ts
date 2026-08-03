@@ -35,6 +35,13 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             primary?: boolean;
           }>;
           selected_monitor?: string;
+          // SCOPE:CAPTURE — encode capability reported by HwEncoderProbe.
+          encoder?: {
+            wire_codec?: string;
+            hw_h264?: boolean;
+            hw_vendor?: string;
+            hw_name?: string;
+          };
         };
 
         const nowIso = new Date().toISOString();
@@ -79,6 +86,25 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             monitors_updated_at: nowIso,
           };
         }
+
+        // SCOPE:CAPTURE — encode capability. Same merge discipline as the two
+        // blocks above: an older agent that never sends `encoder` must not
+        // erase what a newer build already reported.
+        if (body.encoder && typeof body.encoder === "object") {
+          const e = body.encoder;
+          const vendor = typeof e.hw_vendor === "string" ? e.hw_vendor.slice(0, 16) : "none";
+          mergedMetadata = {
+            ...(mergedMetadata ?? prevMeta),
+            encoder: {
+              wire_codec: typeof e.wire_codec === "string" ? e.wire_codec.slice(0, 16) : "VP8",
+              hw_h264: e.hw_h264 === true,
+              hw_vendor: vendor,
+              hw_name: typeof e.hw_name === "string" ? e.hw_name.slice(0, 128) : "",
+            },
+            encoder_updated_at: nowIso,
+          };
+        }
+
 
 
         await ctx.admin
