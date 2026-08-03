@@ -67,6 +67,8 @@ auth — every handler authenticates itself.
 | `agent/session.$id.reconnect` | device token | resume after network flip |
 | `agent/power.$cmdId.ack` | device token | wake/restart acknowledgement |
 | `agent/stream` | device token | SSE wake channel — **live**; client is `agent/src/StreamListener.cs` |
+| `agent/ice` | device token **or** technician JWT | S9 ICE set: STUN always, TURN when `TURN_URLS` is set |
+| `agent/release` | device token **or** technician JWT | S14 release manifest from `public.releases`; 204 when nothing published |
 | `admin/bootstrap` | BOOTSTRAP_TOKEN | first admin provisioning |
 | `auth/login` | rate-limited, `login_attempts` lockout | admin sign-in |
 | `cron/reconcile-orders` | cron secret | payment reconciliation |
@@ -111,6 +113,36 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 ---
 
 ## 5. Change log (rolling — newest first)
+
+### 2026-08-03 — S14 groundwork: release manifest + fleet version (`SCOPE:PRESENCE`)
+
+- New table **`public.releases`** (product `agent|admin`, channel
+  `stable|beta`, version, download_url, sha256, notes, min_supported_version,
+  mandatory, published, published_at; unique per product+channel+version).
+  Signed-in technicians read `published = true` rows; the service role writes.
+  Nothing is exposed to `anon` — download URLs and checksums are not
+  open-internet data.
+- New route **`GET /api/public/agent/release`** (`?product=&channel=`), authed
+  by device token *or* technician JWT, returning the newest published row or
+  **204** when the channel is empty. Registered in `src/shared/api-routes.ts`
+  as `agentRelease` and smoke-tested (401 unauthenticated) by
+  `scripts/verify-agent-routes.ts`.
+- **Agent** — `ApiClient.AgentVersion` (assembly `major.minor.build`) now rides
+  every heartbeat as `version`; the heartbeat route merges it into
+  `devices.metadata.agent_version` with the same non-clobbering discipline as
+  `lan`/`monitors`/`encoder`, so the fleet's build spread is finally a number
+  (this is what S3 could never answer). `ApiClient.GetReleaseAsync` +
+  `ReleaseManifest.IsNewerThan` give the standalone agent a swap-free update
+  check; the download/verify/restart step is still open.
+- **Native admin** — `ApiClient.GetReleaseAsync` for the console's own update
+  banner and to tell the technician which agent zip the fleet expects.
+- **`.env.sample`** — the stale `TURN_SERVER_*` names are replaced with the
+  ones `agent/ice` actually reads: `TURN_URLS`, `TURN_STATIC_SECRET`, and the
+  static `TURN_USERNAME`/`TURN_PASSWORD` fallback.
+- **§3** gains the missing `agent/ice` and `agent/release` rows; `ENDPOINTS.md`
+  gains the release row.
+
+
 
 ### 2026-08-03 — S11 closed: render telemetry (`SCOPE:RENDER`)
 
@@ -782,7 +814,7 @@ unilaterally.
 | S11 | **CLOSED 2026-08-03 — render telemetry shipped (see §5): `session_telemetry` table, per-minute rows from the native console, live-window status bar, and the console Audit tab `RenderHealthPanel`. S8 now has pass criteria to read.** Original finding: nothing measures the render path. No fps counter, no decode-to-present latency, no dropped-frame counter anywhere in `SCOPE:RENDER`. Tier C item 9 (device health panel) surfaces agent-side facts only. Without these numbers the soak (S8) has no pass criteria and turn 4b's entire justification — "sharper, lower latency than software VP8" — cannot be demonstrated, only asserted. | §6 Tier C item 9 scope text; absence of any fps/latency mention in §4, §5, §8, §9 | `RenderStats` on the admin: frames decoded/presented/dropped per second, decode-ms and upload-ms rolling averages, exposed in the live-window status bar + logged. Feeds S8's soak log directly. Small |
 | S12 | **Admin-side D3D device-lost is unverified.** The agent's capture recovery is thorough (`ACCESS_LOST` / `DEVICE_REMOVED` / `DEVICE_RESET` rebuild, pass-1 row). No audit pass has ever exercised the technician-side equivalent: `D3DImageHost` surviving a GPU reset, driver update, RDP session switch, or laptop dGPU/iGPU flip mid-session. The engine contract required recreate-and-continue; the map neither confirms nor denies it. | §5 pass-1 `DxgiCapture.cs` row (agent side only); §9.1 Render row (checks PredictiveCursor + VP8-only, not device-lost) | One targeted test (trigger device removal via driver restart / `dxcap -forcetdr` on a dev box) + whatever recreate path is missing in `D3DImageHost`. Verification-first: may already work, has never been shown |
 | S13 | **CLOSED 2026-08-03 — loss detection + keyframe gate in front of the decoder.** Audit result: SIPSorcery *does* reassemble VP8 into whole frames (`OnVideoFrameReceived`) and `VideoPipeline` already ran a bounded 3-frame drop-oldest jitter queue, so no reorder buffer was needed. What was genuinely missing was loss visibility: a frame reassembled across a hole was fed to the decoder and every later inter frame referenced a reference buffer that never existed — the stripe corruption class. **Fix:** `WebRtcClient.WireVideo` now tracks the 16-bit RTP sequence number (wrap-safe, duplicates/late packets ignored) and calls `VideoPipeline.NotifyPacketLoss(missing)` on a gap; the pipeline flushes the queue, gates decode until the next VP8 keyframe (`(f[0] & 1) == 0`, RFC 6386 §9.1) and fires `KeyFrameRequested` → PLI. `loss=` and `gated=` counters added to the per-minute stats line for the S8 soak. |
-| S14 | **No agent auto-update exists, and S3 is the standing proof of the cost.** Deployment is `build.ps1` + MDM packaging by hand; the map's own audit shows the fleet frozen on an old build while three shipped turns wait for evidence. Every future turn (4b included) inherits this bottleneck. Not in any tier or candidate scope. | S3 row; §8 packaging-docs row (jamf/intune/gpo are install-time only); §6/§7 (no update item) | Modest but real: version in heartbeat (already trivially available), a signed-release manifest route, agent-side download-verify-swap-restart via the existing `restart_agent` power command, staged rollout flag per device. Tier B sized; pays for itself by turn 4b's rollout |
+| S14 | **PARTIALLY CLOSED 2026-08-03 — manifest + version reporting shipped; download/swap still open.** `public.releases` + `GET /api/public/agent/release` now exist, the agent reports `version` on every heartbeat (`devices.metadata.agent_version`), and both clients have `GetReleaseAsync`. Remaining: agent-side download-verify-swap-restart via `restart_agent`, a staged-rollout flag per device, and publishing the first rows once the zips are uploaded. Original finding: **No agent auto-update exists, and S3 is the standing proof of the cost.** Deployment is `build.ps1` + MDM packaging by hand; the map's own audit shows the fleet frozen on an old build while three shipped turns wait for evidence. Every future turn (4b included) inherits this bottleneck. Not in any tier or candidate scope. | S3 row; §8 packaging-docs row (jamf/intune/gpo are install-time only); §6/§7 (no update item) | Modest but real: version in heartbeat (already trivially available), a signed-release manifest route, agent-side download-verify-swap-restart via the existing `restart_agent` power command, staged rollout flag per device. Tier B sized; pays for itself by turn 4b's rollout |
 | S15 | **(a) CLOSED 2026-08-03 — the pill is honest in both directions.** `LiveSessionViewModel.StartVideoStats` already demoted off `Pipeline.IsPresenting` (a decoded frame presented in the last 2 s, not "RTP arrived"); it now also *re-promotes* to "Native video" when presentation resumes after a keyframe recovery or ICE restart, which the one-shot `FirstFrame` callback could never do. **(b) still open** — the two contracts remain stale. Original finding: two truth items: the pill and the contracts. (a) Transport-pill honesty — "Native video" only when decoded frames are presenting — was contract clause 6.1 and gate G2's companion; no changelog or audit row ever confirms it closed. Given the ICE-surrender path deliberately drops to JPEG (pass-1 row), an untruthful pill would mask exactly the S9 degradations. (b) The two contracts + v2 amendment are now stale against reality (state machine is `invited → active\|declined` with `consented` legacy; admin-offers is settled; aspect/ContentRect shipped) — leaving them un-amended re-creates the ENDPOINTS.md class of drift that pass 3 just cleaned up. | (a) no `SCOPE:RENDER`/pill entry in §5, §8, §9; pass-1 ICE-surrender row. (b) §9.2 drift table (the precedent); contract texts vs §4 invariants | (a) One read of the pill's binding: it must key off "presented a decoded frame in the last N ms", not "RTP arrived" — verify or fix, one small change + audit row. (b) Documentation turn: mark both contracts SUPERSEDED with a pointer to this map, fold surviving obligations (S8's soak, S9's TURN scope) into §6 |
 
 ### Recommended re-sequencing (§6 impact)

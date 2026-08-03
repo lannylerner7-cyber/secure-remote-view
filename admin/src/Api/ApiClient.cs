@@ -130,6 +130,46 @@ public sealed class ApiClient
         return result;
     }
 
+
+    // ---------- Release manifest (S14) ----------
+
+    public sealed record ReleaseInfo(
+        string Product, string Channel, string Version,
+        string DownloadUrl, string? Sha256, string? Notes, bool Mandatory);
+
+    /// <summary>
+    /// Newest published build for a product/channel, or null when nothing is
+    /// published (204) or the call fails. Used for the console's own update
+    /// banner and to tell the technician which agent zip the fleet expects.
+    /// Never throws — an update check must not break the device list.
+    /// </summary>
+    public async Task<ReleaseInfo?> GetReleaseAsync(string product, string channel, CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{_config.BaseUrl}/api/public/agent/release?product={product}&channel={channel}");
+            if (_auth.Current != null && !string.IsNullOrEmpty(_auth.Current.AccessToken))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _auth.Current.AccessToken);
+            using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode || res.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
+            var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body)) return null;
+            using var doc = JsonDocument.Parse(body);
+            var r = doc.RootElement;
+            string? Str(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            var version = Str("version");
+            var url = Str("download_url");
+            if (string.IsNullOrWhiteSpace(version) || string.IsNullOrWhiteSpace(url)) return null;
+            return new ReleaseInfo(
+                Str("product") ?? product,
+                Str("channel") ?? channel,
+                version!, url!, Str("sha256"), Str("notes"),
+                r.TryGetProperty("mandatory", out var m) && m.ValueKind == JsonValueKind.True);
+        }
+        catch { return null; }
+    }
+
     // ---------- Supabase REST helpers ----------
 
     private HttpRequestMessage NewSupabase(HttpMethod method, string path)

@@ -507,6 +507,51 @@ export type Database = {
         }
         Relationships: []
       }
+      releases: {
+        Row: {
+          channel: string
+          created_at: string
+          download_url: string
+          id: string
+          mandatory: boolean
+          min_supported_version: string | null
+          notes: string | null
+          product: string
+          published: boolean
+          published_at: string | null
+          sha256: string | null
+          version: string
+        }
+        Insert: {
+          channel?: string
+          created_at?: string
+          download_url: string
+          id?: string
+          mandatory?: boolean
+          min_supported_version?: string | null
+          notes?: string | null
+          product: string
+          published?: boolean
+          published_at?: string | null
+          sha256?: string | null
+          version: string
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          download_url?: string
+          id?: string
+          mandatory?: boolean
+          min_supported_version?: string | null
+          notes?: string | null
+          product?: string
+          published?: boolean
+          published_at?: string | null
+          sha256?: string | null
+          version?: string
+        }
+        Relationships: []
+      }
       session_cursors: {
         Row: {
           frame_h: number | null

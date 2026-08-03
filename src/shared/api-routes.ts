@@ -25,6 +25,11 @@ export const API_ROUTES = {
    *  Every peer fetches this before building an RTCPeerConnection and falls
    *  back to hardcoded STUN if the call fails. */
   agentIce: "/api/public/agent/ice",
+  /** S14 — release manifest. `?product=agent|admin&channel=stable|beta`
+   *  returns the newest published row in `public.releases` (204 when none).
+   *  Authed by device token (agent) or Supabase bearer JWT (technician);
+   *  download URLs + checksums never go to the open internet. */
+  agentRelease: "/api/public/agent/release",
 
   agentReconnect: (sessionId: string) => `/api/public/agent/session/${sessionId}/reconnect`,
   agentConsent: (sessionId: string) => `/api/public/agent/session/${sessionId}/consent`,
