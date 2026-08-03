@@ -402,6 +402,28 @@ function AdminPage() {
     };
   }, [liveId, sessions]);
 
+  // Pointer-lock lifecycle: keep React state in sync with the DOM (Esc, focus
+  // loss, or a stolen lock all release without firing our toggle handler). We
+  // also refuse to hold the lock in view mode — mode flips must let the OS
+  // cursor go immediately.
+  useEffect(() => {
+    const onChange = () => {
+      const locked = document.pointerLockElement === liveSurfaceRef.current;
+      setPointerLocked(locked);
+      if (!locked) {
+        pointerLockRelRef.current.dx = 0;
+        pointerLockRelRef.current.dy = 0;
+      }
+    };
+    document.addEventListener("pointerlockchange", onChange);
+    return () => document.removeEventListener("pointerlockchange", onChange);
+  }, []);
+  useEffect(() => {
+    if (!liveId) return;
+    const s = sessions.find((x) => x.id === liveId);
+    if (s?.mode !== "control" && document.pointerLockElement) document.exitPointerLock();
+  }, [liveId, sessions]);
+
   async function refresh() {
     const [d, s, a] = await Promise.all([
       supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
