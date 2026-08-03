@@ -319,7 +319,7 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 
 ---
 
-## 8. Verified state — 2026-08-02
+## 8. Verified state — 2026-08-03
 
 Snapshot of what was actually observed, so the next audit diffs rather than
 re-derives. Anything here that stops being true is a regression, not a
@@ -329,12 +329,14 @@ surprise.
 
 | Claim | Evidence |
 | --- | --- |
-| Agent has one visible surface | `agent/src/SplashWindow.xaml.cs` present; zero `MainWindow` / `NotifyIcon` hits under `agent/` |
+| Agent has one visible surface | `agent/src/SplashWindow.xaml.cs` present; zero `MainWindow` / `NotifyIcon` hits under `agent/`; `agent/README.md` now says so too |
 | Turn 1 + 2 shipped in the native console | `admin/src/Media/PredictiveCursor.cs`, `admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Views/LiveSessionWindow.xaml` |
 | SSE wake has a client | `agent/src/StreamListener.cs` ↔ `src/routes/api/public/agent/stream.ts` |
-| Web console has **no** monitor picker | `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts` |
-| Console is modular | `src/routes/_authenticated/console.tsx` = 1,514 lines + 10 components in `src/components/console/` |
+| Web console **has** a monitor picker | `src/components/console/MonitorPicker.tsx` + `switchMonitor()` in `console.tsx` (was the gap in the 08-02 snapshot) |
+| Console is modular | `src/routes/_authenticated/console.tsx` = 1,648 lines + 11 components in `src/components/console/` |
+| Every route has real head metadata | 11 web routes, each with a unique title + description; the 3 non-public ones also `noindex` + self-canonical |
 | Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `health` (+ unauthenticated `/health` probe for Coolify) |
+| Known dead code | `admin/src/Input/MouseInjector.MoveRelAsync` is defined but never called — the WPF console has no pointer-capture toggle yet (the browser console does). Intentional: it is the seam for that turn, not a regression. |
 
 **Database**
 
@@ -342,16 +344,27 @@ surprise.
 | --- | --- |
 | `power_commands_kind_check` | `wake`, `wake_agent`, `reboot`, `shutdown`, `lock`, `logoff`, `restart_stream`, `restart_agent`, `switch_monitor` |
 | `power_commands_state_check` | `queued`, `dispatched`, `delivered`, `failed`, `expired` |
-| pg_cron jobs (both active, `*/1 * * * *`) | `reconcile-orders` HTTP post; `public.prune_session_ephemera()` |
+| pg_cron jobs (both active, `*/1 * * * *`) | `reconcile-orders` HTTP post; `public.prune_session_ephemera()` (now also the presence reaper) |
 | `supabase_realtime` publication | `devices`, `sessions`, `session_frames`, `session_signals`, `session_cursors`, `notifications`, `power_commands` |
-| Triggers on `sessions` | `sessions_touch`, `trg_clear_admin_binding_on_end`, `trg_sessions_sync_device_active` (duplicate dropped this pass) |
-| Row counts | 5 devices · 2 sessions · 11 orders · 3 active plans · 3 roles · 163 audit rows · 424 notifications · 4 power commands |
+| Triggers on `sessions` | `sessions_touch`, `trg_clear_admin_binding_on_end`, `trg_sessions_sync_device_active` |
+| Presence truth after the reaper ran | 8 devices, **1** online · 2 sessions, **0** live · 1 `session.reaped` audit row |
+| Row counts | 8 devices · 2 sessions · 11 orders · 3 active plans · 3 roles · 167 audit rows · 424 notifications · 4 power commands |
 
 **Known, accepted linter findings** (pre-existing, unrelated to this pass):
 two `RLS enabled / no policy` INFO rows on deliberately closed tables
 (`license_lookups`, `login_attempts` — service-role only by design),
 `pg_trgm` living in `public`, `SECURITY DEFINER` execute grants on the
 helper functions, and leaked-password protection disabled in auth settings.
+
+**Open decisions for you** (not bugs, and not changed unilaterally):
+
+1. `devices.standing_consent` defaults to `true` — see the truth-pass entry
+   above. Flip to `false` if consent must always be a click on first contact.
+2. `src/routes/api/public/cron/reconcile-orders.ts` authenticates the pg_cron
+   caller with the Supabase **anon key** as a bearer token. It works and the
+   route is otherwise closed, but the anon key is a published value — a
+   dedicated secret would be stronger. Say the word and it becomes one turn.
+
 
 ### 2026 — Console split (`SCOPE:WEB`, Tier C item 8)
 
