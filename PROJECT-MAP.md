@@ -112,6 +112,20 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — Gap merge S1 / S4 / S5 (`SCOPE:DATA`, `SCOPE:PRESENCE`)
+
+Closing §9.3 soft spots one at a time, each validated three times before the
+next was started.
+
+| Scope | File / object | Change |
+| --- | --- | --- |
+| `SCOPE:DATA` | migration → `public.sessions` | **S1 closed.** `sessions_state_check` (`invited\|consented\|active\|paused\|declined\|ended`) and `sessions_mode_check` (`view\|control`), both `convalidated = true`. Pre-flight showed the only live values were `ended` / `view` / `control`, and all state+mode write sites in `src/`, `agent/src/` and `admin/src/` fall inside the vocabulary, so nothing had to change in code. The state machine consent, capture gating and the reaper all key off can no longer be handed an arbitrary string. Widening it is now a migration, not a string edit. |
+| `SCOPE:PRESENCE` | `scripts/verify-agent-routes.ts` | **S4, half 1.** The enroll assertion is a real keyless enrollment, so it now tags itself `hostname: "route-verifier"`. Note the trap this walked into first: the enroll route copies `hostname` into `display_name`, which makes the row *invisible* to the 24 h nameless-ghost sweep — a naive tag would have leaked a permanent row per run instead of a temporary one. |
+| `SCOPE:PRESENCE` | migration → `public.prune_session_ephemera()` | **S4, half 2.** New clause 4 deletes `hostname = 'route-verifier'` rows after 1 h, still gated on "never in a session, never got a power command" so a real machine carrying the reserved hostname cannot be deleted mid-session. Clauses 1–3 re-verified byte-for-byte; `SECURITY DEFINER` + `search_path=public` preserved. Verified against live rows: the two real devices and the NULL-hostname legacy ghosts all evaluate **false** against the new predicate. |
+| `SCOPE:PRESENCE` | `agent/src/InputBlocker.cs`, `agent/src/StartupRegistration.cs` | **S5 closed.** Both now appear in the §2 system map. `InputBlocker` is the curtain: `WH_MOUSE_LL`/`WH_KEYBOARD_LL` hooks on a dedicated STA message-pump thread that swallow physical input while engaged, passing admin `SendInput` through on a `dwExtraInfo` magic (`CLIV`). It fails **open** — `ProcessExit`, unhandled exception, `SessionSwitch` (lock / Ctrl+Alt+Del / RDP disconnect), a 5 s input-pump watchdog and heartbeat loss all release it, so a crashed agent can never leave a user locked out of their own keyboard. `StartupRegistration` owns the HKCU Run key (`"<exe>" /background`), written by the agent itself rather than the installer because an elevated installer writes to the wrong user hive on silent deployments; it is idempotent and refuses to write unless the exe is running from the installed directory, so a dev run out of `dist\` cannot clobber a real machine's autostart. |
+
+
+
 ### 2026-08-03 — Truth pass 2 + presence reaper (`SCOPE:DATA`, `SCOPE:PRESENCE`, `SCOPE:WEB`)
 
 Three turns in one pass: docs made to match the code, head metadata completed
