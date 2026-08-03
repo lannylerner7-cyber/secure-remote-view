@@ -89,7 +89,10 @@ additionally carry `robots: noindex` and a self-referencing canonical.
   writes, but heartbeat, `prune_session_ephemera()`, the web console and
   `admin/src/Api/ApiClient.cs` all still include it in their "live" filters, so
   it must stay in those `IN (...)` lists until a migration retires it.
-  `sessions.state` has **no CHECK constraint** — see §9.
+  `sessions.state` and `sessions.mode` are now guarded by validated CHECK
+  constraints (`sessions_state_check`, `sessions_mode_check`) — the six states
+  above and `view`/`control`. Widening the vocabulary is a migration, not a
+  string edit.
 - Decode **off** the UI thread, present **on** it, drop the **oldest** frame.
 - Colour is BT.601 limited range. A hue drift means someone changed the
   matrix — revert, don't tune.
@@ -554,7 +557,7 @@ that plan does not currently name.
 
 | # | Gap | Evidence | Cost |
 | --- | --- | --- | --- |
-| S1 | **`sessions.state` has no CHECK constraint.** `power_commands` guards both `kind` and `state`; the session state machine — the thing consent, capture gating and the reaper all key off — accepts any string a bug can write. | `pg_constraint` on `public.sessions` returns **zero** check rows | One migration: `CHECK (state IN ('invited','consented','active','paused','declined','ended'))`, plus a pre-flight `SELECT DISTINCT state` so no existing row is rejected |
+| ~~S1~~ | ~~**`sessions.state` has no CHECK constraint.**~~ **CLOSED.** Migration adds `sessions_state_check` (`invited\|consented\|active\|paused\|declined\|ended`) and `sessions_mode_check` (`view\|control`), both `convalidated = true`. Pre-flight confirmed the only live values were `ended` (state) and `view`/`control` (mode), and all 12 state/mode write sites across `src/`, `agent/` and `admin/` fall inside the vocabulary. | `pg_get_constraintdef` on `public.sessions` now returns both rows | Done — one migration, no code change |
 | S2 | **CDP webhook is not configured in production.** An unsigned POST returns `503 Webhook not configured`, so no real webhook can be verified either — every crypto payment is confirmed only by the once-a-minute cron reconciler. Slower confirmations, and a silent single point of failure. | `verify-payment-routes.ts` → `503`; secret list has `CDP_API_KEY_NAME`/`CDP_API_KEY_PRIVATE_KEY` but no webhook signing secret | Add the signing secret; the verifier flips to `401 invalid signature`, which is the correct closed state |
 | S3 | **The fleet is running an agent older than turns 2 and 4a.** The one online device (`EC2AMAZ-5UBQG30`) has `lan` in `metadata` but **no `monitors[]` and no `encoder{}`**. So the web monitor picker (Tier A item 1) renders nothing, the bitrate ladder is unobserved and the H.264 probe has reported from zero machines — three shipped turns with no production evidence behind them. | `devices.metadata` keys, all 8 rows | Windows build + rollout (`agent/build.ps1`); nothing to change in code |
 | S4 | **`verify-agent-routes.ts` mints a real device on every run.** The enroll assertion is a genuine keyless enrollment, so each run leaves an `Unnamed device` row — 6 of the 8 devices in the table are verifier ghosts. The 24 h reaper clears them, so this is noise, not a leak, but the device count in every snapshot is inflated. | 6 rows named `Unnamed device`, `last_seen_at` within 1 s of `enrolled_at`, no session, no power command | Either tag the enrollment (`hostname: "route-verifier"`) and delete it in a `finally`, or accept the noise and say so in §8 |
