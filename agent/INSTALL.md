@@ -25,7 +25,7 @@ Enrollments are throttled per source IP (backed by `login_attempts`) so a burst 
 
 ## Enterprise deployment (Inno / MSI / Intune / GPO / Jamf)
 
-Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\ConnectLive.exe` produced by `build.ps1` and installs the Agent with an ONLOGON scheduled task, firewall rules, and autostart registration in one step:
+Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\ConnectLive.exe` produced by `build.ps1` and installs the Agent with four autostart triggers, a firewall rule, and install metadata in one step:
 
 ```cmd
 iscc agent\packaging\inno\ConnectLiveSetup.iss
@@ -33,6 +33,28 @@ ConnectLiveSetup.exe /VERYSILENT
 ```
 
 The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same single binary; none of them push a deployment key. **Sign the installer with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
+
+### Autostart triggers created at install time
+
+Both the Inno and MSI installers create the same four triggers, all launching `ConnectLive.exe /background`:
+
+| # | Trigger | Where to look |
+| --- | --- | --- |
+| 1 | HKCU Run key | `reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive` |
+| 2 | HKLM Run key | `reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive` |
+| 3 | All-users Startup shortcut | `shell:common startup` (path varies by Windows language) or `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp` |
+| 4 | ONLOGON Scheduled Task | `schtasks /Query /TN ConnectLiveAgent` |
+
+Verify commands:
+
+```cmd
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
+reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
+reg query "HKLM\Software\ConnectLive"
+schtasks /Query /TN ConnectLiveAgent
+```
+
+`StartupSelfHeal.cs` remains as belt-and-braces: on every launch it re-asserts the HKCU Run key and Startup shortcut in case Group Policy or a cleanup tool removed them.
 
 ---
 
