@@ -338,7 +338,8 @@ public sealed class WebRtcClient : IDisposable
         while (!ct.IsCancellationRequested)
         {
             try { await Task.Delay(60_000, ct).ConfigureAwait(false); } catch { return; }
-            Log.Write(Pipeline.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState}");
+            Log.Write(Pipeline.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState} "
+                      + ConnectLive.Admin.Input.InputTransport.StatsLine());
         }
     }
 
