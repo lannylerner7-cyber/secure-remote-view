@@ -67,10 +67,11 @@ public static class ScreenCapture
         if (jpegEnc == null) return;
 
         var motionParams = new EncoderParameters(1);
-        motionParams.Param[0] = new EncoderParameter(Encoder.Quality, _motionQuality);
+        motionParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.MotionQuality);
 
         var idleParams = new EncoderParameters(1);
-        idleParams.Param[0] = new EncoderParameter(Encoder.Quality, _idleQuality);
+        idleParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.IdleQuality);
+
 
         ulong lastHash = 0;
         int idleCount = 0;
