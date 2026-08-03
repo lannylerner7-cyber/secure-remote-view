@@ -716,6 +716,24 @@ function AdminPage() {
     });
   }
 
+  // Pointer-lock relative moves: accumulate every `movementX/Y` sample and
+  // ship the summed delta once per frame. Zero-delta frames are dropped.
+  function queueRelMove(sessionId: string, dx: number, dy: number) {
+    pointerLockRelRef.current.dx += dx;
+    pointerLockRelRef.current.dy += dy;
+    if (moveRafRef.current !== null) return;
+    moveRafRef.current = requestAnimationFrame(() => {
+      moveRafRef.current = null;
+      const acc = pointerLockRelRef.current;
+      const dxOut = Math.round(acc.dx);
+      const dyOut = Math.round(acc.dy);
+      acc.dx -= dxOut;
+      acc.dy -= dyOut;
+      if (dxOut !== 0 || dyOut !== 0)
+        void sendInput(sessionId, "mousemove_rel", { dx: dxOut, dy: dyOut });
+    });
+  }
+
   // Flush any queued move before an ordered event so a click never lands ahead
   // of the move that positioned it.
   function flushMoveNow() {
