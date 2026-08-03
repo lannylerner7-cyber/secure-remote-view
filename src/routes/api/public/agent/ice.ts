@@ -11,10 +11,12 @@ import { verifyDevice } from "@/lib/agent-auth.server";
  * is the single source of truth for the ICE server set:
  *
  *   - always returns the STUN set;
- *   - adds TURN when TURN_URLS is configured. Credentials are ephemeral
- *     (coturn `use-auth-secret` / RFC 5766 REST): username is
- *     "<expiry-unix>:<peer>", password is base64(HMAC-SHA1(secret, username)).
- *     Falls back to static TURN_USERNAME / TURN_PASSWORD when no secret is set.
+ *   - prefers Cloudflare Calls TURN when CLOUDFLARE_CALLS_APP_ID and
+ *     CLOUDFLARE_CALLS_APP_TOKEN are configured. Credentials are minted
+ *     per-request through the Cloudflare API, so no long-lived secret lives
+ *     in the agent or admin console.
+ *   - falls back to coturn REST credentials (use-auth-secret) when Cloudflare
+ *     is not configured, then to static TURN_USERNAME / TURN_PASSWORD.
  *
  * Callers: agent (X-Device-Id + X-Device-Token) and technician consoles
  * (Supabase bearer JWT). Unauthenticated callers get 401 — TURN relay minutes
@@ -44,7 +46,55 @@ async function verifyTechnician(request: Request): Promise<boolean> {
   return !error && !!data.user;
 }
 
-function buildTurnServers(peer: string): IceServer[] {
+async function buildCloudflareTurnServers(peer: string): Promise<IceServer[]> {
+  const appId = process.env["CLOUDFLARE_CALLS_APP_ID"];
+  const token = process.env["CLOUDFLARE_CALLS_APP_TOKEN"];
+  if (!appId || !token) return [];
+
+  const res = await fetch(
+    `https://rtc.live.cloudflare.com/v1/turn/keys/${appId}/credentials/generate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ttl: TTL_SECONDS }),
+    },
+  );
+
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`Cloudflare TURN credential request failed [${res.status}]: ${body}`);
+    return [];
+  }
+
+  const data = await res.json();
+  // Cloudflare returns { iceServers: { urls, username, credential } }.
+  // Defensively normalise in case the envelope ever changes.
+  const rawServers = Array.isArray(data.iceServers)
+    ? data.iceServers
+    : data.iceServers
+      ? [data.iceServers]
+      : Array.isArray(data)
+        ? data
+        : [];
+
+  const servers: IceServer[] = [];
+  for (const s of rawServers) {
+    if (!s) continue;
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls].filter(Boolean);
+    if (urls.length === 0) continue;
+    servers.push({ urls, username: s.username, credential: s.credential });
+  }
+
+  if (servers.length > 0) {
+    console.log(`Cloudflare TURN credentials minted for peer=${peer}`);
+  }
+  return servers;
+}
+
+function buildCoturnServers(peer: string): IceServer[] {
   const raw = process.env["TURN_URLS"];
   if (!raw) return [];
   const urls = raw
@@ -69,6 +119,12 @@ function buildTurnServers(peer: string): IceServer[] {
   return [];
 }
 
+async function buildTurnServers(peer: string): Promise<IceServer[]> {
+  const cloudflare = await buildCloudflareTurnServers(peer);
+  if (cloudflare.length > 0) return cloudflare;
+  return buildCoturnServers(peer);
+}
+
 export const Route = createFileRoute("/api/public/agent/ice")({
   server: {
     handlers: {
@@ -78,7 +134,7 @@ export const Route = createFileRoute("/api/public/agent/ice")({
         if (!peer && (await verifyTechnician(request))) peer = "admin";
         if (!peer) return new Response("unauthorized", { status: 401 });
 
-        const turn = buildTurnServers(peer);
+        const turn = await buildTurnServers(peer);
         return Response.json(
           {
             iceServers: [{ urls: STUN_URLS }, ...turn],
