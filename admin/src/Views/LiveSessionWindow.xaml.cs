@@ -40,7 +40,9 @@ public partial class LiveSessionWindow : Window
         // Authoritative telemetry arrives here exactly once per sample.
         _vm.CursorSample += OnCursorSample;
 
-        Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); StartRenderTick(); };
+        // Focus the window on load, not only on the first click: a session you
+        // never clicked into would otherwise receive no keyboard input at all.
+        Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); StartRenderTick(); Activate(); Keyboard.Focus(this); };
         Closed += (_, _) =>
         {
             StopRenderTick();
