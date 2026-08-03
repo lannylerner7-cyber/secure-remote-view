@@ -247,12 +247,14 @@ public partial class LiveSessionWindow : Window
             || key == Key.Space;
     }
 
-    // Set while a printable key is down and we are still waiting for WPF to
-    // turn it into a TextInput character. If TextInput never arrives (layouts
-    // or dead keys where composition is suppressed) the key-up handler sends
-    // the raw virtual key instead, so a keystroke is never silently dropped.
-    private Key? _pendingPrintable;
-    private bool _textDelivered;
+    // Printable keys whose TextInput character has not arrived yet, in press
+    // order. A single field was not enough: with fast overlapping typing (B
+    // pressed before A is released) one slot loses track of which key is still
+    // unaccounted for, and the fallback silently stops firing. WPF delivers
+    // TextInput immediately after the KeyDown that produced it, so the newest
+    // entry is always the one a character belongs to.
+    private readonly List<Key> _awaitingText = new();
+    private const int AwaitingTextCap = 16;
 
     private async void OnKeyDown(object sender, KeyEventArgs e)
     {
@@ -263,8 +265,10 @@ public partial class LiveSessionWindow : Window
         // these must be left unhandled here.
         if (IsPrintable(key))
         {
-            _pendingPrintable = key;
-            _textDelivered = false;
+            _awaitingText.Add(key);
+            // Never let a pathological layout that emits no TextInput at all
+            // grow this without bound; the oldest entry is the least useful.
+            if (_awaitingText.Count > AwaitingTextCap) _awaitingText.RemoveAt(0);
             return;
         }
         e.Handled = true;
@@ -277,9 +281,16 @@ public partial class LiveSessionWindow : Window
         var key = Effective(e);
         if (IsPrintable(key))
         {
-            var missed = _pendingPrintable == key && !_textDelivered;
-            _pendingPrintable = null;
-            _textDelivered = false;
+            // Anything still pending for this key means no character was ever
+            // composed for it (dead keys, exotic layouts). Drop every stale
+            // entry for the key and send it raw exactly once.
+            var missed = false;
+            for (var i = _awaitingText.Count - 1; i >= 0; i--)
+            {
+                if (_awaitingText[i] != key) continue;
+                _awaitingText.RemoveAt(i);
+                missed = true;
+            }
             if (missed)
             {
                 // Safety net: no character was composed for this key.
