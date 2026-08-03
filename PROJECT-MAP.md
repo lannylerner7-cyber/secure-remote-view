@@ -526,7 +526,9 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
    field soak (leak / tear / colour-drift / forced `switch_monitor`) with the
    new `RenderStats` numbers as its pass criteria. Closes the evidence gap
    under turns 2, 3 and 4a. **S12** (admin D3D device-lost) and **S13**
-   (depacketize/jitter audit) are verification-first checks in the same week.
+   (depacketize/jitter audit) are both CLOSED 2026-08-03; S12's `--auto` spike
+   run belongs in the same soak week's evidence, on a real GPU box.
+
 1. **Tier A item 4 — ICE gateway + TURN** (S9). Connectivity floor.
 2. **Turn 4b — hardware H.264**, now landing on a measured baseline.
 3. **Tier B item 3a — input datachannel** (S10), ahead of clipboard.
