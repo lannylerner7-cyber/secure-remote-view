@@ -51,9 +51,10 @@ Everything else the web console does goes straight through the Supabase client
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
 | GET | `/api/public/health` | Uptime probe. | none |
+| GET | `/health` | Standalone Docker/Coolify liveness probe (`src/routes/health.ts`) — no auth, no DB touch. | none |
 | GET | `/api/public/stats/orders` | Aggregate, non-PII order counters for the landing page. | none |
-| POST | `/api/public/cron/reconcile-orders` | Scheduled crypto-payment reconciliation. | cron secret |
-| POST | `/api/public/webhooks/cdp` | Coinbase CDP payment webhook. | signature verified |
+| POST | `/api/public/cron/reconcile-orders` | Scheduled crypto-payment reconciliation. Currently authenticated with the Supabase **anon key** as bearer, not a dedicated secret (open decision, PROJECT-MAP §8). | cron secret |
+| POST | `/api/public/webhooks/cdp` | Coinbase CDP payment webhook. Returns **503 `Webhook not configured`** until the CDP webhook signing secret is set — until then, order confirmation rides the cron reconciler alone. | signature verified |
 
 ## Telegram notification matrix
 
