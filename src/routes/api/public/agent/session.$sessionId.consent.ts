@@ -23,7 +23,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/conse
           .maybeSingle();
         if (!session) return new Response("not_found", { status: 404 });
 
-        // State-machine guard: only invited -> consented|declined
+        // State-machine guard: only invited -> active|declined
         if (session.state !== "invited") {
           return new Response(JSON.stringify({ error: "invalid_state", state: session.state }), {
             status: 409,
