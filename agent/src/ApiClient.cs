@@ -561,6 +561,27 @@ public sealed class ApiClient
     public static void SaveConfig(AgentConfig cfg) =>
         File.WriteAllText(ConfigPath, JsonSerializer.Serialize(cfg));
 
+    // ---- ICE gateway (S9) ----------------------------------------------
+
+    /// <summary>
+    /// Fetch the ICE server set. Returns null on any failure so the caller
+    /// keeps its hardcoded STUN fallback — a relay outage must never stop a
+    /// session from forming over host/srflx.
+    /// </summary>
+    public async Task<IceConfig?> GetIceConfigAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, "/api/public/agent/ice"), ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            var cfg = await resp.Content.ReadFromJsonAsync<IceConfig>(cancellationToken: ct);
+            if (cfg?.IceServers == null || cfg.IceServers.Count == 0) return null;
+            return cfg;
+        }
+        catch { return null; }
+    }
+
     // ---- DTOs ----------------------------------------------------------
 
 
@@ -568,4 +589,34 @@ public sealed class ApiClient
     public sealed record EnrollResponse(string DeviceId, string DeviceToken);
     public sealed record SessionBinding(string SessionId, string? PairingCode, DateTimeOffset SavedAt);
     public sealed record AgentConfig(string ApiBaseUrl);
+
+    public sealed class IceServerDto
+    {
+        [JsonPropertyName("urls")] public JsonElement Urls { get; set; }
+        [JsonPropertyName("username")] public string? Username { get; set; }
+        [JsonPropertyName("credential")] public string? Credential { get; set; }
+
+        public List<string> UrlList()
+        {
+            var list = new List<string>();
+            if (Urls.ValueKind == JsonValueKind.String)
+            {
+                var s = Urls.GetString();
+                if (!string.IsNullOrWhiteSpace(s)) list.Add(s!);
+            }
+            else if (Urls.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var e in Urls.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.String && e.GetString() is { Length: > 0 } u) list.Add(u);
+            }
+            return list;
+        }
+    }
+
+    public sealed class IceConfig
+    {
+        [JsonPropertyName("iceServers")] public List<IceServerDto>? IceServers { get; set; }
+        [JsonPropertyName("turn")] public bool Turn { get; set; }
+        [JsonPropertyName("ttlSeconds")] public int TtlSeconds { get; set; }
+    }
 }

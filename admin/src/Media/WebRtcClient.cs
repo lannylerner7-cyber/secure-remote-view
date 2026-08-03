@@ -110,14 +110,21 @@ public sealed class WebRtcClient : IDisposable
     {
         try { _pc?.close(); } catch { }
 
-        // STUN-only, hardcoded. No TURN / external relay service.
-        var cfg = new RTCConfiguration
+        // S9 — ICE gateway: STUN always, TURN when the deployment has a relay.
+        // A gateway failure returns an empty list and we keep the STUN fallback.
+        var iceServers = new System.Collections.Generic.List<RTCIceServer>();
+        try
         {
-            iceServers = new System.Collections.Generic.List<RTCIceServer>
-            {
-                new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
-            },
-        };
+            foreach (var s in await App.Api.GetIceServersAsync(ct).ConfigureAwait(false))
+                foreach (var url in s.Urls)
+                    iceServers.Add(new RTCIceServer { urls = url, username = s.Username, credential = s.Credential });
+        }
+        catch { }
+        if (iceServers.Count == 0)
+            iceServers.Add(new RTCIceServer { urls = "stun:stun.l.google.com:19302" });
+        T($"ice servers: {iceServers.Count}");
+
+        var cfg = new RTCConfiguration { iceServers = iceServers };
         var pc = new RTCPeerConnection(cfg);
         _pc = pc;
 

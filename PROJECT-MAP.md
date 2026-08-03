@@ -112,6 +112,30 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S9 code half landed: ICE gateway (`SCOPE:TRANSPORT`)
+
+- New route **`GET /api/public/agent/ice`** (`src/routes/api/public/agent/ice.ts`).
+  Single source of truth for the ICE set: STUN always; TURN appended when
+  `TURN_URLS` is configured, with ephemeral coturn REST credentials derived from
+  `TURN_STATIC_SECRET` (`<expiry>:<peer>` + base64 HMAC-SHA1), or static
+  `TURN_USERNAME`/`TURN_PASSWORD`. Authed by device token **or** technician
+  bearer JWT — unauthenticated callers get 401, because relay minutes are
+  billable. Registered as `API_ROUTES.agentIce`; documented in `ENDPOINTS.md`.
+- All three peers now fetch it and **fall back to hardcoded STUN on any
+  failure**, so a relay outage removes the relay path but never the session:
+  `src/lib/webrtc-live.ts` (fetch in flight at construction, applied via
+  `setConfiguration` before the first offer, i.e. before gathering starts),
+  `agent/src/WebRtcSession.cs` (warm fetch in `StartAsync`, `_iceServers` read by
+  `BuildPeer`), `admin/src/Media/WebRtcClient.cs` (awaited in `NegotiateAsync`,
+  logged as `ice servers: N`), plus `ApiClient.GetIceConfigAsync` /
+  `GetIceServersAsync` on the two native clients.
+- `scripts/verify-agent-routes.ts` now asserts the route is 401 without creds —
+  **20/20 passing** against localhost. Production shows 404 until publish.
+- **Still open on S9:** no TURN server is deployed (the env vars are unset, so
+  the gateway returns STUN only today) and the `wire_path` heartbeat field
+  (`host`/`srflx`/`relay`) is not yet emitted, so relay rate is still not a
+  number.
+
 ### 2026-08-03 — Audit pass 4 merged, §6 re-sequenced (`SCOPE:DOCS`)
 
 - New **§9.5** registers soft spots **S8–S15** (missing soak, no TURN/ICE, dead
@@ -687,7 +711,7 @@ unilaterally.
 | # | Gap | Evidence | Cost |
 | --- | --- | --- | --- |
 | S8 | **The SOAK has never run, and turn 4b is queued on top of it.** No verification run in §5 or §9 contains a sustained-motion endurance test of the native render path — no leak check, no tear check, no color-drift check, no forced mid-session resolution change. Compounded by open S3: the entire fleet runs an agent older than turns 2 and 4a, so the bitrate ladder, `monitors[]`, and the H.264 probe have zero production evidence. Turn 4b (hardware H.264) would be the fourth consecutive turn shipped with no field observation behind it. | §5/§9 verification runs list `tsgo`, route verifiers, and DB queries only; S3 row (`devices.metadata` on all 8 rows); §6 "Next up" names 4b as next | Rollout via `agent/build.ps1` (S3's own remedy) + one scripted 10-min soak: per-minute log of fps, queue depth, working set, decode errors; forced `switch_monitor` mid-run; pass/fail written into §8. **Sequencing change, near-zero code** |
-| S9 | **TURN and an ICE-config gateway are absent from all 12 backlog items.** §2 states "RTP/VP8, STUN only"; no `agent/ice` route exists in §3; both peers hardcode a public STUN server. A commercial remote-support tool meets symmetric NAT and corporate egress filtering as a matter of course — those sessions silently degrade to the JPEG fallback, which is the exact lag the engine was built to escape, and nothing measures how often it happens. | §2 system map; §3 route table (no ice row); §6 Tiers A–C (no TURN/ICE item); §7 candidate scopes (no TURN/ICE item) | One route (`/api/public/agent/ice` + admin equivalent, device-token/JWT authed, returns STUN+TURN set), a coturn or managed-TURN deployment with per-session ephemeral credentials, and a `wire_path` telemetry field (`host/srflx/relay`) in the heartbeat so relay rate becomes a number. Tier A sized |
+| S9 | **PARTIALLY CLOSED 2026-08-03 — gateway shipped, TURN not deployed.** Original finding: TURN and an ICE-config gateway are absent from all 12 backlog items.** §2 states "RTP/VP8, STUN only"; no `agent/ice` route exists in §3; both peers hardcode a public STUN server. A commercial remote-support tool meets symmetric NAT and corporate egress filtering as a matter of course — those sessions silently degrade to the JPEG fallback, which is the exact lag the engine was built to escape, and nothing measures how often it happens. | §2 system map; §3 route table (no ice row); §6 Tiers A–C (no TURN/ICE item); §7 candidate scopes (no TURN/ICE item) | One route (`/api/public/agent/ice` + admin equivalent, device-token/JWT authed, returns STUN+TURN set), a coturn or managed-TURN deployment with per-session ephemeral credentials, and a `wire_path` telemetry field (`host/srflx/relay`) in the heartbeat so relay rate becomes a number. Tier A sized | — **Status:** `/api/public/agent/ice` now exists and all three peers consume it with STUN fallback (see §5). Remaining: deploy coturn/managed TURN and set `TURN_URLS` + `TURN_STATIC_SECRET`, and emit `wire_path` in the heartbeat.
 | S10 | **Input over the datachannel is half-built and dead.** Pass-2 changelog: the agent's data-channel path calls `InputRelay.Apply` directly — the receive side exists and is wired. The admin never opens or sends on an input datachannel; §2 shows input riding HTTP poll (`/agent/session/:id/inputs` ← `Input/MouseInjector`). Every click and delta pays REST round-trip latency to a peer we already hold an SRTP tunnel with. Not in any tier (Tier B item 4 is clipboard, a different channel). | §5 pass-2 row (`WebRtcSession.cs` — deleted `InputRelayBridge`, direct `InputRelay.Apply`); §2 map input arrows; §6 Tier B item 4 scope | Admin side only: open `input` datachannel in `WebRtcClient`, serialize the existing wire shapes (`mousemove`, `mousemove_rel`, keys, wheel), fall back to REST when the channel isn't open. Safety kinds (`curtain_off`, `release_inputs`) keep the REST path permanently as the guaranteed route. Small, high-feel |
 | S11 | **Nothing measures the render path.** No fps counter, no decode-to-present latency, no dropped-frame counter anywhere in `SCOPE:RENDER`. Tier C item 9 (device health panel) surfaces agent-side facts only. Without these numbers the soak (S8) has no pass criteria and turn 4b's entire justification — "sharper, lower latency than software VP8" — cannot be demonstrated, only asserted. | §6 Tier C item 9 scope text; absence of any fps/latency mention in §4, §5, §8, §9 | `RenderStats` on the admin: frames decoded/presented/dropped per second, decode-ms and upload-ms rolling averages, exposed in the live-window status bar + logged. Feeds S8's soak log directly. Small |
 | S12 | **Admin-side D3D device-lost is unverified.** The agent's capture recovery is thorough (`ACCESS_LOST` / `DEVICE_REMOVED` / `DEVICE_RESET` rebuild, pass-1 row). No audit pass has ever exercised the technician-side equivalent: `D3DImageHost` surviving a GPU reset, driver update, RDP session switch, or laptop dGPU/iGPU flip mid-session. The engine contract required recreate-and-continue; the map neither confirms nor denies it. | §5 pass-1 `DxgiCapture.cs` row (agent side only); §9.1 Render row (checks PredictiveCursor + VP8-only, not device-lost) | One targeted test (trigger device removal via driver restart / `dxcap -forcetdr` on a dev box) + whatever recreate path is missing in `D3DImageHost`. Verification-first: may already work, has never been shown |

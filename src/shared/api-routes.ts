@@ -20,6 +20,11 @@ export const API_ROUTES = {
    *  the heartbeat loop on `event: wake` so revival is sub-second instead of
    *  waiting a full heartbeat tick. Heartbeat stays the source of truth. */
   agentStream: "/api/public/agent/stream",
+  /** S9 — ICE gateway. STUN always, TURN when TURN_URLS is configured.
+   *  Authed by device token (agent) or Supabase bearer JWT (technician).
+   *  Every peer fetches this before building an RTCPeerConnection and falls
+   *  back to hardcoded STUN if the call fails. */
+  agentIce: "/api/public/agent/ice",
 
   agentReconnect: (sessionId: string) => `/api/public/agent/session/${sessionId}/reconnect`,
   agentConsent: (sessionId: string) => `/api/public/agent/session/${sessionId}/consent`,

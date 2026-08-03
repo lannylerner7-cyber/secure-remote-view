@@ -120,6 +120,23 @@ public sealed class WebRtcSession : IDisposable
 
     public Task StartAsync()
     {
+        // S9 — warm the ICE set before the first offer arrives. Fire-and-forget:
+        // BuildPeer falls back to STUN if this hasn't landed yet.
+        _ = Task.Run(async () =>
+        {
+            var cfg = await App.Api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
+            if (cfg == null) return;
+            var list = new List<RTCIceServer>();
+            foreach (var s in cfg.IceServers!)
+                foreach (var url in s.UrlList())
+                    list.Add(new RTCIceServer { urls = url, username = s.Username, credential = s.Credential });
+            if (list.Count > 0)
+            {
+                _iceServers = list;
+                Log.Info($"webrtc ice gateway: {list.Count} server(s), turn={cfg.Turn}");
+            }
+        }, _cts.Token);
+
         // Peer creation is deferred until the first offer arrives — we need
         // the admin_client_id from that offer to build the routing binding
         // before any ICE candidate goes out.
@@ -127,15 +144,18 @@ public sealed class WebRtcSession : IDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>Fallback ICE set. Replaced by the gateway response (S9) when available.</summary>
+    private volatile List<RTCIceServer> _iceServers = new()
+    {
+        new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
+    };
+
     private void BuildPeer()
     {
-        // STUN-only, hardcoded. No TURN / external relay service.
+        // S9 — STUN always, TURN when the deployment configures a relay.
         var cfg = new RTCConfiguration
         {
-            iceServers = new List<RTCIceServer>
-            {
-                new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
-            },
+            iceServers = new List<RTCIceServer>(_iceServers),
         };
 
         _pc = new RTCPeerConnection(cfg);
