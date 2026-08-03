@@ -49,6 +49,10 @@ public sealed class VideoPipeline : IDisposable
 
     // ---- G2 counters -----------------------------------------------------
     private long _framesIn, _framesDecoded, _framesDropped, _framesPresented, _decodeErrors;
+    // S13 — loss gating
+    private long _lossEvents, _framesGated;
+    private volatile bool _awaitingKeyFrame;
+
     private long _lastDecodedMs = -1;
     private double _fps;
     private double _lastLatencyMs;
