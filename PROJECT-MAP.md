@@ -73,7 +73,9 @@ auth — every handler authenticates itself.
 
 Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 `/terms`, `/refund`, `/connectlive/admin` (login), `/connectlive/payment`,
-`/_authenticated/console`. All carry unique `head()` metadata.
+`/_authenticated/console`. All carry unique `head()` metadata; the three
+non-public ones (`/connectlive/admin`, `/connectlive/payment`, `/console`)
+additionally carry `robots: noindex` and a self-referencing canonical.
 
 ---
 
@@ -90,10 +92,63 @@ Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 - Every new `public` table gets `GRANT`s in the same migration as its RLS.
 - Input relay is gated on `state=active AND mode=control`; `curtain_off` and
   `release_inputs` always pass (dead-man safety).
+- **Presence is derived, never asserted.** `devices.status = 'online'` is only
+  true while heartbeats arrive; `prune_session_ephemera()` flips it to
+  `offline` after 3 missed minutes and ends any live session on a device that
+  has been silent for 10. Nothing in the app may set `online` without a
+  matching `last_seen_at`.
 
 ---
 
 ## 5. Change log (rolling — newest first)
+
+### 2026-08-03 — Truth pass 2 + presence reaper (`SCOPE:DATA`, `SCOPE:PRESENCE`, `SCOPE:WEB`)
+
+Three turns in one pass: docs made to match the code, head metadata completed
+on the three non-public routes, and the reaper that closes the gap between
+"what the DB says is happening" and "what is actually happening".
+
+| Scope | File | Change |
+| --- | --- | --- |
+| `SCOPE:PRESENCE` | migration → `public.prune_session_ephemera()` | **Presence reaper**, appended to the existing every-minute job. (1) Devices with `last_seen_at` older than 3 minutes flip to `offline` — three missed beats at the slowest (60 s, SSE-healthy) cadence, so a healthy agent can never be reaped. (2) Sessions in `invited/consented/active/paused` whose device has been silent for **10** minutes are ended, with a `session.reaped` row in `audit_logs` carrying `{reason:'device_silent'}`; the window is deliberately far wider than the offline mark so a network flip can still reconnect into its own session. (3) Ghost enrollments — a token was issued, the agent never came back — are deleted after 24 h, gated on *four* conditions (no second heartbeat, no name, no session ever, no power command ever) so a quiet-but-real device cannot be swept. |
+| `SCOPE:WEB` | `src/routes/connectlive.admin.tsx`, `connectlive.payment.tsx`, `_authenticated/console.tsx` | All three had a title and nothing else. Now full `head()`: description, `og:title`/`og:description`/`og:type`/`og:url`, `twitter:card`, self-referencing canonical, `robots: noindex` retained (console gained it — it was indexable-by-default before). No `og:image`: none of the three has a meaningful cover, and a placeholder previews worse than nothing. |
+| `SCOPE:PRESENCE` | `agent/README.md` | Stale since the standalone refactor: it advertised `src/TrayIcon.cs` and "every session shows a persistent on-screen indicator". Both are gone. Rewritten to state the real UI contract (5 s splash + consent prompt + curtain overlay, nothing else) and the file table now lists what actually ships — `StreamListener`, `StartupSelfHeal`, `MonitorSelector`, `BitrateController`, `HwEncoderProbe`, `DxgiCapture`. |
+| `SCOPE:PRESENCE` | `.env.sample` | Removed `AGENT_DEPLOYMENT_KEY` and the "Agent / Watcher" heading. Enrollment has been keyless + IP-rate-limited since the enrollment overhaul; leaving the variable in the sample invited someone to wire a gate the server no longer reads. `BOOTSTRAP_TOKEN`'s comment corrected — it gates `/admin/bootstrap`, not `/enroll`. |
+| `SCOPE:WEB` | `PROJECT-MAP.md` §3, §4, §8 | Route table notes the noindex/canonical set; new presence invariant; §8 re-snapshotted below against observed rows rather than remembered ones. |
+
+**Observed data-truth issues that motivated the reaper**
+
+These were real rows, not hypotheses — the reaper is the fix, and running it
+resolved all three:
+
+- 8 devices, **all** flagged `online`; only one (`EC2AMAZ-5UBQG30`) had
+  heartbeated within the hour. `devices.status` had no writer that could ever
+  say "offline" — the agent sets it on the way up and nothing sets it on the
+  way down. After the pass: 1 online / 8 total.
+- Session `decace85-2945-4094-b2e1-9b33fc925e8c` sat `active` with a null
+  `ended_at` since 2026-08-02 14:04 on a device last seen at 15:10 — a
+  ~17-hour zombie holding `is_session_active` true on `DESKTOP`. Reaped;
+  `trg_sessions_sync_device_active` correctly flipped the device flag to false,
+  which also confirms the surviving (column-scoped) trigger works.
+- 6 "Unnamed device" rows enrolled 2026-08-02, each with `last_seen_at` within
+  a second of `enrolled_at` and no session, no power command. Ghost
+  enrollments. They are inside the 24 h grace window at time of writing, so
+  the reaper deliberately left them; they age out on their own.
+
+**Deliberately NOT changed:** `devices.standing_consent` defaults to `true`,
+which reads against the "consent is a click" invariant. It is left alone
+because the agent's `ConsentPrompt` is the real gate and the column is only the
+*opt-in* record ("Always allow" stored under `HKCU\Software\ConnectLive`) —
+flipping the default is a product decision about unattended fleets, not a bug
+fix, and it needs your call before a migration touches it.
+
+**Verification run (this pass)**
+
+- `bunx tsgo --noEmit` — clean.
+- `select public.prune_session_ephemera();` executed against the live DB:
+  devices online 8 → 1, zombie session ended with `ended_at` set, one
+  `session.reaped` audit row written, `DESKTOP.is_session_active` → false.
+- Ghost-device delete verified as a **no-op** at 10 h age (the 24 h gate holds).
 
 ### 2026-08-02 — Truth pass: docs ↔ code ↔ DB reconciliation (`SCOPE:DATA`, `SCOPE:WEB`)
 
@@ -237,7 +292,10 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
    flows in the heartbeat; none of it is surfaced.
 10. `SCOPE:DATA` — **Retention + growth guard**: row counters and a
     console-visible prune dashboard so `prune_session_ephemera` is observable
-    rather than assumed.
+    rather than assumed. *Half-shipped 2026-08-03*: the job now also reaps
+    presence (stale devices, zombie sessions, ghost enrollments) and writes a
+    `session.reaped` audit row; what remains is the **dashboard** — nobody can
+    see any of this without a psql prompt.
 11. `SCOPE:WEB` — **Ops status page** at `/status`, fed by
     `/api/public/health`, `stats/orders`, and an online-device count.
 12. `SCOPE:DATA` — **Wake reliability metrics**: record dispatch→delivered
@@ -264,7 +322,7 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 
 ---
 
-## 8. Verified state — 2026-08-02
+## 8. Verified state — 2026-08-03
 
 Snapshot of what was actually observed, so the next audit diffs rather than
 re-derives. Anything here that stops being true is a regression, not a
@@ -274,12 +332,14 @@ surprise.
 
 | Claim | Evidence |
 | --- | --- |
-| Agent has one visible surface | `agent/src/SplashWindow.xaml.cs` present; zero `MainWindow` / `NotifyIcon` hits under `agent/` |
+| Agent has one visible surface | `agent/src/SplashWindow.xaml.cs` present; zero `MainWindow` / `NotifyIcon` hits under `agent/`; `agent/README.md` now says so too |
 | Turn 1 + 2 shipped in the native console | `admin/src/Media/PredictiveCursor.cs`, `admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Views/LiveSessionWindow.xaml` |
 | SSE wake has a client | `agent/src/StreamListener.cs` ↔ `src/routes/api/public/agent/stream.ts` |
-| Web console has **no** monitor picker | `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts` |
-| Console is modular | `src/routes/_authenticated/console.tsx` = 1,514 lines + 10 components in `src/components/console/` |
+| Web console **has** a monitor picker | `src/components/console/MonitorPicker.tsx` + `switchMonitor()` in `console.tsx` (was the gap in the 08-02 snapshot) |
+| Console is modular | `src/routes/_authenticated/console.tsx` = 1,648 lines + 11 components in `src/components/console/` |
+| Every route has real head metadata | 11 web routes, each with a unique title + description; the 3 non-public ones also `noindex` + self-canonical |
 | Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `health` (+ unauthenticated `/health` probe for Coolify) |
+| Known dead code | `admin/src/Input/MouseInjector.MoveRelAsync` is defined but never called — the WPF console has no pointer-capture toggle yet (the browser console does). Intentional: it is the seam for that turn, not a regression. |
 
 **Database**
 
@@ -287,16 +347,27 @@ surprise.
 | --- | --- |
 | `power_commands_kind_check` | `wake`, `wake_agent`, `reboot`, `shutdown`, `lock`, `logoff`, `restart_stream`, `restart_agent`, `switch_monitor` |
 | `power_commands_state_check` | `queued`, `dispatched`, `delivered`, `failed`, `expired` |
-| pg_cron jobs (both active, `*/1 * * * *`) | `reconcile-orders` HTTP post; `public.prune_session_ephemera()` |
+| pg_cron jobs (both active, `*/1 * * * *`) | `reconcile-orders` HTTP post; `public.prune_session_ephemera()` (now also the presence reaper) |
 | `supabase_realtime` publication | `devices`, `sessions`, `session_frames`, `session_signals`, `session_cursors`, `notifications`, `power_commands` |
-| Triggers on `sessions` | `sessions_touch`, `trg_clear_admin_binding_on_end`, `trg_sessions_sync_device_active` (duplicate dropped this pass) |
-| Row counts | 5 devices · 2 sessions · 11 orders · 3 active plans · 3 roles · 163 audit rows · 424 notifications · 4 power commands |
+| Triggers on `sessions` | `sessions_touch`, `trg_clear_admin_binding_on_end`, `trg_sessions_sync_device_active` |
+| Presence truth after the reaper ran | 8 devices, **1** online · 2 sessions, **0** live · 1 `session.reaped` audit row |
+| Row counts | 8 devices · 2 sessions · 11 orders · 3 active plans · 3 roles · 167 audit rows · 424 notifications · 4 power commands |
 
 **Known, accepted linter findings** (pre-existing, unrelated to this pass):
 two `RLS enabled / no policy` INFO rows on deliberately closed tables
 (`license_lookups`, `login_attempts` — service-role only by design),
 `pg_trgm` living in `public`, `SECURITY DEFINER` execute grants on the
 helper functions, and leaked-password protection disabled in auth settings.
+
+**Open decisions for you** (not bugs, and not changed unilaterally):
+
+1. `devices.standing_consent` defaults to `true` — see the truth-pass entry
+   above. Flip to `false` if consent must always be a click on first contact.
+2. `src/routes/api/public/cron/reconcile-orders.ts` authenticates the pg_cron
+   caller with the Supabase **anon key** as a bearer token. It works and the
+   route is otherwise closed, but the anon key is a published value — a
+   dedicated secret would be stronger. Say the word and it becomes one turn.
+
 
 ### 2026 — Console split (`SCOPE:WEB`, Tier C item 8)
 
@@ -424,3 +495,12 @@ this probe has already told us how many machines can use it.
   `HwEncoderProbe.HardwareH264Available` — VP8 stays the guaranteed fallback.
 
 
+
+### Next up
+
+**Turn 4b — hardware H.264 end-to-end** (Tier A, last item): MFT-backed
+`IVideoEncoder` on the agent, an H.264 depacketise + decode branch in
+`admin/src/Media/VideoPipeline.cs`, and negotiation that prefers H.264 only
+where `HwEncoderProbe` found silicon. VP8 stays the guaranteed fallback on both
+peers. After that Tier A is closed and the queue moves to Tier B (clipboard +
+file drop) or Tier C item 9 (device health panel), whichever you want first.
