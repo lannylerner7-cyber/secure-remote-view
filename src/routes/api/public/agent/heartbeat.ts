@@ -35,6 +35,13 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             primary?: boolean;
           }>;
           selected_monitor?: string;
+          // SCOPE:CAPTURE — encode capability reported by HwEncoderProbe.
+          encoder?: {
+            wire_codec?: string;
+            hw_h264?: boolean;
+            hw_vendor?: string;
+            hw_name?: string;
+          };
         };
 
         const nowIso = new Date().toISOString();
