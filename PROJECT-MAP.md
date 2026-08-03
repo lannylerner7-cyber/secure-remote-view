@@ -829,12 +829,18 @@ this probe has already told us how many machines can use it.
 
 ### Next up
 
+**S15(b)** — retire the two stale contracts (one documentation sitting), then
 **Turn 4b — hardware H.264 end-to-end** (Tier A, last item): MFT-backed
 `IVideoEncoder` on the agent, an H.264 depacketise + decode branch in
 `admin/src/Media/VideoPipeline.cs`, and negotiation that prefers H.264 only
 where `HwEncoderProbe` found silicon. VP8 stays the guaranteed fallback on both
 peers. After that Tier A is closed and the queue moves to Tier B (clipboard +
 file drop) or Tier C item 9 (device health panel), whichever you want first.
+
+Carried ops (not gaps): run `admin/spikes/d3d-present -- --auto` on a real GPU
+box during the S8 soak week and paste `s12-evidence.txt` into §8; publish the
+first `releases` rows (S14); deploy TURN and set `TURN_URLS` (S9).
+
 
 ---
 
