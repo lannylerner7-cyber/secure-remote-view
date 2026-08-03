@@ -27,7 +27,19 @@ Output lands in `agent\dist\ConnectLiveSetup.exe`.
 | Item | What it does |
 |---|---|
 | `ConnectLive.exe` | The whole product. Installed to `C:\Program Files\ConnectLive`, firewall rule added, launched `/background`. |
-| Autostart | The Agent asserts its own HKCU Run key, Startup shortcut and ONLOGON scheduled task on every launch (`StartupSelfHeal`). The installer does not register a service. |
+| Autostart | Four triggers are created at install time, all using the identical `/background` flag: HKCU Run key, HKLM Run key, all-users Startup folder shortcut, and an ONLOGON scheduled task. `StartupSelfHeal.cs` re-asserts the HKCU key + Startup shortcut on every launch as belt-and-braces. |
+| Install metadata | Version and install path are recorded under `HKLM\Software\ConnectLive` for self-update and support tooling. |
+
+### Verify the four triggers
+
+```cmd
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
+reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
+reg query "HKLM\Software\ConnectLive"
+schtasks /Query /TN ConnectLiveAgent
+```
+
+The Startup shortcut lives in the all-users Startup folder (typically `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp` on English Windows).
 
 ## Interactive install
 
