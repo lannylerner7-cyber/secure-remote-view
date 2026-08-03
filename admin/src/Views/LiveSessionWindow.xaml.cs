@@ -52,6 +52,10 @@ public partial class LiveSessionWindow : Window
             _coalesce.Stop();
             _vm.Stop();
         };
+        // Losing focus mid-keystroke means the matching key-up never reaches
+        // us; drop the pending stamps so a later press of the same key cannot
+        // fire a spurious raw-key fallback.
+        Deactivated += (_, _) => _awaitingText.Clear();
         // Tunnelled key events so the live surface wins over WPF focus
         // navigation (Tab, arrows, Alt menus) before it can swallow them.
         PreviewKeyDown += OnKeyDown;
