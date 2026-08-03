@@ -1352,6 +1352,28 @@ function AdminPage() {
                         {s.mode === "control" ? "🔓 Release curtain" : "🔒 Curtain (take control)"}
                       </button>
                     )}
+                    {s.device_id && s.mode === "control" && role !== "viewer" && (
+                      <button
+                        onClick={() => {
+                          const el = liveSurfaceRef.current;
+                          if (!el) return;
+                          if (pointerLocked && document.pointerLockElement) {
+                            document.exitPointerLock();
+                          } else {
+                            focusLiveSurface();
+                            el.requestPointerLock?.();
+                          }
+                        }}
+                        className={`rounded px-3 py-1.5 text-xs font-medium ${pointerLocked ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 hover:bg-white/15"}`}
+                        title={
+                          pointerLocked
+                            ? "Release pointer capture (Esc)"
+                            : "Capture pointer — send raw mouse deltas for a native feel"
+                        }
+                      >
+                        {pointerLocked ? "🎯 Pointer locked" : "🎯 Capture pointer"}
+                      </button>
+                    )}
                     {role !== "viewer" && (
                       <button
                         onClick={() => {
