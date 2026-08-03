@@ -145,6 +145,11 @@ public sealed class WebRtcSession : IDisposable
         _lastStatsUtc = DateTime.UtcNow;
         // A fresh peer must get a frame immediately, not after the keepalive gap.
         ScreenCapture.ResetWebRtcTee();
+        // SCOPE:TRANSPORT — a new peer is a new link. Start at the top rung
+        // rather than inheriting the ladder position a previous technician's
+        // congested connection settled on.
+        BitrateController.Reset();
+
 
         _videoEnd = new VideoEncoderEndPoint();
         // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
