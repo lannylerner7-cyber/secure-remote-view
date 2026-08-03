@@ -49,6 +49,10 @@ public sealed class VideoPipeline : IDisposable
 
     // ---- G2 counters -----------------------------------------------------
     private long _framesIn, _framesDecoded, _framesDropped, _framesPresented, _decodeErrors;
+    // S13 — loss gating
+    private long _lossEvents, _framesGated;
+    private volatile bool _awaitingKeyFrame;
+
     private long _lastDecodedMs = -1;
     private double _fps;
     private double _lastLatencyMs;
@@ -96,11 +100,53 @@ public sealed class VideoPipeline : IDisposable
         StartStallWatch();
     }
 
+    /// <summary>
+    /// S13 — RTP loss/reorder was reported upstream. SIPSorcery reassembles VP8
+    /// frames for us but happily hands over a frame whose packets were lost, and
+    /// feeding that to the decoder is exactly how the stripe corruption appears:
+    /// every later inter frame references a reference buffer that never existed.
+    /// So we gate: nothing decodes until the next keyframe lands, and we ask for
+    /// one immediately.
+    /// </summary>
+    public void NotifyPacketLoss(int missing)
+    {
+        if (_disposed) return;
+        Interlocked.Increment(ref _lossEvents);
+        if (!_awaitingKeyFrame)
+        {
+            _awaitingKeyFrame = true;
+            Diagnostic?.Invoke($"packet loss ({missing} rtp seq missing) — gating decode until the next keyframe");
+        }
+        lock (_qGate)
+        {
+            while (_queue.Count > 0) { _queue.Dequeue(); Interlocked.Increment(ref _framesDropped); }
+        }
+        try { KeyFrameRequested?.Invoke(); } catch { }
+    }
+
+    /// <summary>
+    /// VP8 uncompressed data chunk, first byte: bit 0 is the inverse keyframe
+    /// flag (0 = keyframe). RFC 6386 §9.1.
+    /// </summary>
+    private static bool IsKeyFrame(byte[] f) => f.Length > 0 && (f[0] & 0x01) == 0;
+
     /// <summary>Submit one depacketised VP8 frame. Never blocks the RTP thread.</summary>
     public void Submit(byte[] encodedFrame)
     {
         if (_disposed || encodedFrame == null || encodedFrame.Length == 0) return;
         Interlocked.Increment(ref _framesIn);
+
+        if (_awaitingKeyFrame)
+        {
+            if (!IsKeyFrame(encodedFrame))
+            {
+                Interlocked.Increment(ref _framesGated);
+                return;
+            }
+            _awaitingKeyFrame = false;
+            Diagnostic?.Invoke("keyframe recovered — decode resumed");
+        }
+
         lock (_qGate)
         {
             while (_queue.Count >= MaxQueue)
@@ -112,6 +158,7 @@ public sealed class VideoPipeline : IDisposable
         }
         try { _signal.Release(); } catch { }
     }
+
 
     private void DecodeLoop()
     {
@@ -285,7 +332,9 @@ public sealed class VideoPipeline : IDisposable
         return $"[video] fps={_fps:F1} queue={QueueDepth} in={Interlocked.Read(ref _framesIn)} " +
                $"decoded={FramesDecoded} dropped={FramesDropped} presented={FramesPresented} " +
                $"latency={_lastLatencyMs:F0}ms size={_width}x{_height} " +
-               $"path={(UsingD3D ? "d3d" : "bitmap")} devices={_d3d.DeviceCreations} " +
+               $"path={(UsingD3D ? "d3d" : "bitmap")} loss={Interlocked.Read(ref _lossEvents)} " +
+               $"gated={Interlocked.Read(ref _framesGated)} devices={_d3d.DeviceCreations} " +
+
                $"surfaces={_d3d.SurfaceAllocations} ws={ws}MB";
     }
 

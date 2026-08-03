@@ -271,7 +271,18 @@ public partial class LiveSessionViewModel : ObservableObject
                         NativeVideo = false;
                         Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
                     }
+                    // S15(a) — the pill must be honest in BOTH directions. The
+                    // first-frame callback fires once, so a recovered stream
+                    // (keyframe after loss, ICE restart) used to stay labelled
+                    // "fallback" while native frames were plainly on screen.
+                    else if (presenting && !NativeVideo)
+                    {
+                        NativeVideo = true;
+                        Transport = "Native video";
+                        LinkState = "live";
+                    }
                 });
+
             }
         }, CancellationToken.None);
     }
