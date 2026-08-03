@@ -14,7 +14,9 @@ Why it's still open: the build is a Windows-only toolchain (`dotnet publish` + I
 ### 2. No TURN server deployed (S9, half-open)
 `/api/public/agent/ice` exists and all three peers consume it, but `TURN_URLS` / `TURN_STATIC_SECRET` are unset, so the response is STUN-only. Symmetric NAT and corporate egress filtering will silently degrade those sessions to the JPEG fallback — exactly the lag the video engine was built to escape.
 
-Why it's still open: it needs a TURN relay host, not code. Google does **not** offer a public TURN service; `stun.l.google.com` is STUN-only. A TURN relay must be either a self-hosted coturn VM (Google Cloud, AWS, Azure, Hetzner, etc.) or a paid managed TURN provider (Twilio, Xirsys, Cloudflare Calls, Daily, etc.).
+Why it's still open: it needs a TURN relay host, not code. Google does **not** offer a public TURN service; `stun.l.google.com` is STUN-only. A TURN relay must be either a self-hosted coturn VM or a paid managed TURN provider.
+
+**Cloudflare Calls TURN is the cleanest fit.** It gives you a global anycast relay network and mints per-session credentials through the Cloudflare API, so `/api/public/agent/ice` can return fresh `username`/`credential` pairs for every peer without a static secret in the agent. Pricing is metered by data relayed.
 
 ### 3. Soak proves the wire, not the picture (S8, half-open)
 `scripts/e2e-soak.ts` measures enrollment/heartbeat/frame/cursor latency through Realtime and gates on error rate. It does not measure the native render half: sustained-motion fps, working set growth, decode errors, tearing, colour drift, or a forced mid-run `switch_monitor`.
