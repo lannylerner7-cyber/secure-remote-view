@@ -955,3 +955,48 @@ in particular are phrased as *unverified*, not *broken*. If `VideoPipeline`
 already jitter-buffers or `D3DImageHost` already survives reset, the fix is a
 §8 evidence row, not code. That is the same standard §9.4 set: where the code
 is right, the document catches up.
+
+---
+
+## 10. Source-cut pre-flight — 2026-08-03 (`SCOPE:RELEASE`)
+
+Run immediately before packaging the Agent / Admin source zips.
+
+### 10.1 Verification run (2026-08-03)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Typecheck | `tsgo` | clean, exit 0 |
+| Agent + auth routes | `BASE=http://localhost:8080 bun run scripts/verify-agent-routes.ts` | **22/22 passing** |
+| Payment / order routes | `bun run scripts/verify-payment-routes.ts` | **5/5 passing** |
+
+Note (ops, not a code gap): running the agent verifier against its default
+`BASE=https://zoomlite.live` returns 404 for `/api/public/agent/ice` and
+`/api/public/agent/release` — the published deployment predates S9/S14. Both
+routes are mounted and gated (401) on the current build; publish to clear it.
+
+### 10.2 S15(b) — CLOSED 2026-08-03
+
+The two legacy contracts (**CONTRACT-Native-Video-Engine-B**,
+**CONTRACT-Connection-Layer**) and the **Gate Plan v2 amendment** are hereby
+marked **SUPERSEDED** by this document. They are historical records only; where
+they disagree with `PROJECT-MAP.md`, this map wins. Surviving obligations were
+already folded in: the soak lives in S8 (§9.5 + `scripts/e2e-soak.ts`), the
+TURN/ICE scope in S9 (`/api/public/agent/ice`, Cloudflare Calls), the
+transport-pill honesty clause in S15(a), and the state machine is
+`invited → active | declined` (`consented` legacy) per §4.
+
+With this, **S15 is CLOSED in full**. Remaining open backlog: **S3** (Windows
+fleet rollout) and the **S8 residual** (native-render soak) — both require a
+Windows host and are unblocked by the source zips.
+
+### 10.3 Packaging
+
+- `RELEASE-CHECKLIST.md` (repo root) is the single procedure for the Windows
+  build: prerequisites, `agent/build.ps1` / `admin/build.ps1`, signing, sha256
+  capture, and the `public.releases` insert consumed by
+  `/api/public/agent/release`.
+- Source zips are cut from the `agent/` and `admin/` trees only, excluding
+  `bin/ obj/ publish/ dist/ .vs/ *.user *.suo` and editor cruft. No secrets in
+  either tree — re-verified at cut time (configs carry only the publishable
+  key and public URLs).
