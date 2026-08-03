@@ -42,3 +42,23 @@ Write-Host "Zip  : dist/ConnectLiveAdmin.zip"
 Write-Host ""
 Write-Host "Optional: sign with your code-signing cert"
 Write-Host '  signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLiveAdmin.exe'
+
+# -- Release manifest (S14) ----------------------------------------------------
+# The console reads /api/public/agent/release?product=admin to show its update
+# banner. Same rule as the agent: publish the checksum with the row.
+
+Write-Host ""
+Write-Host "=== Release manifest (S14) ==="
+foreach ($a in @("dist/ConnectLiveAdmin.exe", "dist/ConnectLiveAdmin.zip")) {
+    if (Test-Path $a) {
+        $h = (Get-FileHash -Algorithm SHA256 -Path $a).Hash.ToLower()
+        Write-Host ("  {0,-28} {1}" -f (Split-Path $a -Leaf), $h)
+    }
+}
+$adminVersion = ([xml](Get-Content src/ConnectLiveAdmin.csproj)).Project.PropertyGroup.Version | Where-Object { $_ }
+Write-Host ""
+Write-Host "  Publish (after uploading the zip):"
+Write-Host "    insert into public.releases"
+Write-Host "      (product, channel, version, download_url, sha256, notes, mandatory, published, published_at)"
+Write-Host "    values"
+Write-Host "      ('admin', 'stable', '$adminVersion', '<download-url>', '<sha256-from-above>', '<notes>', false, true, now());"

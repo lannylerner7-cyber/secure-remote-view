@@ -179,3 +179,25 @@ Write-Host ""
 Write-Host "  Sign before wide rollout:"
 Write-Host "    signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a dist\ConnectLiveSetup.exe"
 Write-Host "    signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a dist\ConnectLiveAgent.msi"
+
+# -- 8. Release manifest (S14) --------------------------------------------------
+# Self-update refuses any release row without a sha256, so the checksum below is
+# mandatory, not decorative. Upload the artifact, then insert the row; the agent
+# picks it up on its next hourly idle check via /api/public/agent/release.
+
+Write-Host ""
+Write-Host "=== Release manifest (S14) ==="
+$artifacts = @("dist/ConnectLive.exe", "dist/ConnectLiveAgent.zip",
+               "dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi")
+foreach ($a in $artifacts) {
+    if (Test-Path $a) {
+        $h = (Get-FileHash -Algorithm SHA256 -Path $a).Hash.ToLower()
+        Write-Host ("  {0,-32} {1}" -f (Split-Path $a -Leaf), $h)
+    }
+}
+Write-Host ""
+Write-Host "  Publish (after uploading the artifact somewhere the agent can GET):"
+Write-Host "    insert into public.releases"
+Write-Host "      (product, channel, version, download_url, sha256, notes, mandatory, published, published_at)"
+Write-Host "    values"
+Write-Host "      ('agent', 'stable', '$Version', '<download-url>', '<sha256-from-above>', '<notes>', false, true, now());"
