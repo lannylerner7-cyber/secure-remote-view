@@ -316,11 +316,26 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
    heartbeat `encoder` block); the encoder/decoder swap is **turn 4b** and
    touches encode on the agent plus decode in
    `admin/src/Media/VideoPipeline.cs`. Largest remaining job in Tier A.
+4. `SCOPE:TRANSPORT` — **ICE gateway + TURN** *(S9, do before 4b)*. One authed
+   route (`/api/public/agent/ice` + admin equivalent) returning a STUN+TURN set
+   with per-session ephemeral credentials, a coturn/managed-TURN deployment,
+   and a `wire_path` (`host|srflx|relay`) field in the heartbeat so relay rate
+   and silent JPEG-fallback degradation become numbers. Today both peers
+   hardcode public STUN, so symmetric NAT and corporate egress filters are
+   unhandled and unmeasured. De-risks S13.
 
 ### Tier B — new capability
 
+3a. `SCOPE:INPUT` — **Input over the WebRTC datachannel** *(S10)*. Receive side
+   already ships (`WebRtcSession` calls `InputRelay.Apply` directly); the admin
+   never opens the channel, so every click still pays a REST round trip. Admin
+   side only: open an `input` datachannel in `WebRtcClient`, serialize the
+   existing wire shapes (`mousemove`, `mousemove_rel`, keys, wheel), fall back
+   to REST when the channel is closed. Safety kinds (`curtain_off`,
+   `release_inputs`) stay on REST permanently as the guaranteed route.
 4. `SCOPE:SESSION` — **Clipboard sync + file drop** over a WebRTC data channel.
    Text first, then files with a size cap and an `audit_logs` row per transfer.
+   Lands after 3a — same channel machinery, smaller feel win.
 5. `SCOPE:SESSION` — **Consented session recording**: watermarked capture to a
    storage bucket, retention policy, audit row on start/stop. Only item that
    needs new infrastructure — there are no storage buckets yet, so this adds
