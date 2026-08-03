@@ -100,6 +100,18 @@ public sealed class VideoPipeline : IDisposable
     public void Start()
     {
         if (_worker != null) return;
+
+        // S12 — device-lost is visible, not silent. A TDR, driver update, RDP
+        // attach or dGPU/iGPU flip now says so in the session log and in the
+        // per-minute telemetry line; if the D3D path retires itself the
+        // Present() path below has already dropped to the bitmap presenter.
+        _d3d.DeviceLost += reason =>
+        {
+            Diagnostic?.Invoke($"GPU device lost ({reason}) — rebuilding the present path");
+            if (UsingD3D) UsingD3D = false;
+        };
+        _d3d.DeviceRecovered += () => Diagnostic?.Invoke("GPU device recovered — native present resumed");
+
         _worker = new Thread(DecodeLoop)
         {
             IsBackground = true,
@@ -109,6 +121,7 @@ public sealed class VideoPipeline : IDisposable
         _worker.Start();
         StartStallWatch();
     }
+
 
     /// <summary>
     /// S13 — RTP loss/reorder was reported upstream. SIPSorcery reassembles VP8
