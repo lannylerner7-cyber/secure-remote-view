@@ -28,6 +28,8 @@ import { SessionsTable } from "@/components/console/SessionsTable";
 import { TelegramSettings } from "@/components/console/TelegramSettings";
 import { TeamPanel } from "@/components/console/TeamPanel";
 import { RemoteCursorOverlay } from "@/components/console/RemoteCursorOverlay";
+import { MonitorPicker, type MonitorEntry } from "@/components/console/MonitorPicker";
+
 
 export const Route = createFileRoute("/_authenticated/console")({
   component: AdminPage,
