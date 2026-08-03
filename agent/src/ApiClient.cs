@@ -63,13 +63,14 @@ public sealed class ApiClient
     // credential instead of enrolling a second time.
     private static readonly SemaphoreSlim _enrollLock = new(1, 1);
     private long _tokenGeneration;
-    // If a re-enroll itself 401s (deployment key revoked), stop hammering the
-    // gateway. Set to now + 60s; SendAuthedAsync short-circuits until it passes.
+    // If a re-enroll itself 401s (device row deleted / enrollment refused),
+    // stop hammering the gateway. Set to now + 60s; SendAuthedAsync
+    // short-circuits until it passes.
     private DateTime _revokedUntilUtc = DateTime.MinValue;
 
-    /// <summary>Fired once when the deployment key appears to be revoked.
-    /// Wired to a tray balloon from App.xaml.cs so the technician sees a
-    /// single "reinstall required" toast instead of an exception dialog.</summary>
+    /// <summary>Fired once when this device's enrollment appears to be revoked
+    /// (its row was deleted or the server refuses to re-issue a token). The
+    /// Agent has no tray UI, so this is a log/diagnostic signal only.</summary>
     public event Action<string>? OnEnrollmentRevoked;
 
     public ApiClient(string? overrideBaseUrl = null)

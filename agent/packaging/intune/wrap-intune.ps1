@@ -33,6 +33,6 @@ Write-Host "==> Wrapping MSI into .intunewin..."
 
 Write-Host "==> Done: $dist\ConnectLiveAgent.intunewin"
 Write-Host "Upload it in the Intune admin center → Apps → Windows → Add → Win32 app."
-Write-Host "Install command:    msiexec /i ConnectLiveAgent.msi /qn DEPLOYMENT_KEY=<paste-your-key>"
+Write-Host "Install command:    msiexec /i ConnectLiveAgent.msi /qn"
 Write-Host "Uninstall command:  msiexec /x {UPGRADE-CODE-GUID} /qn"
 Write-Host "See intune-app.json for the exact metadata to paste."
