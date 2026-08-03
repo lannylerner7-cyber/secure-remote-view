@@ -258,8 +258,10 @@ public partial class LiveSessionViewModel : ObservableObject
                 var p = _rtc?.Pipeline;
                 if (p == null) continue;
                 var presenting = p.IsPresenting;
+                // S11 — the bar reports the whole hop, not just the decoder:
+                // render numbers, present path, media wire path, input path.
                 var text = presenting
-                    ? $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {p.SourceWidth}x{p.SourceHeight} · {(p.UsingD3D ? "D3D" : "bitmap")}"
+                    ? $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {p.SourceWidth}x{p.SourceHeight} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}"
                     : null;
                 Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
