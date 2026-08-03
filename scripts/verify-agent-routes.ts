@@ -75,6 +75,9 @@ async function hit(
   await hit("GET", "/api/public/agent/stream", [401]);
   // S9 — ICE gateway: unauthenticated callers must never receive TURN creds.
   await hit("GET", "/api/public/agent/ice", [401]);
+  // S14 — release manifest: download URLs + checksums are never public.
+  await hit("GET", "/api/public/agent/release?product=agent&channel=stable", [401]);
+  await hit("GET", "/api/public/agent/release?product=admin&channel=stable", [401]);
 
 
   // Signal validation (still requires device auth, so 401 is the correct
