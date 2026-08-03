@@ -313,11 +313,15 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 - New route **`GET /api/public/agent/ice`** (`src/routes/api/public/agent/ice.ts`).
   Single source of truth for the ICE set: STUN always; TURN appended when
-  `TURN_URLS` is configured, with ephemeral coturn REST credentials derived from
-  `TURN_STATIC_SECRET` (`<expiry>:<peer>` + base64 HMAC-SHA1), or static
-  `TURN_USERNAME`/`TURN_PASSWORD`. Authed by device token **or** technician
-  bearer JWT — unauthenticated callers get 401, because relay minutes are
-  billable. Registered as `API_ROUTES.agentIce`; documented in `ENDPOINTS.md`.
+  configured. **Cloudflare Calls TURN** is the primary relay source — the route
+  mints per-request credentials via `rtc.live.cloudflare.com/v1/turn/keys/{appId}/credentials/generate`
+  using `CLOUDFLARE_CALLS_APP_ID` + `CLOUDFLARE_CALLS_APP_TOKEN` and returns
+  `turn:turn.cloudflare.com:3478?transport=udp` and `turn:turn.cloudflare.com:3478?transport=tcp`
+  with short-lived username/password. Fallbacks: coturn REST credentials derived
+  from `TURN_STATIC_SECRET`, then static `TURN_USERNAME`/`TURN_PASSWORD`.
+  Authed by device token **or** technician bearer JWT — unauthenticated callers
+  get 401, because relay minutes are billable. Registered as `API_ROUTES.agentIce`;
+  documented in `ENDPOINTS.md`.
 - All three peers now fetch it and **fall back to hardcoded STUN on any
   failure**, so a relay outage removes the relay path but never the session:
   `src/lib/webrtc-live.ts` (fetch in flight at construction, applied via
@@ -328,8 +332,8 @@ additionally carry `robots: noindex` and a self-referencing canonical.
   `GetIceServersAsync` on the two native clients.
 - `scripts/verify-agent-routes.ts` now asserts the route is 401 without creds —
   **20/20 passing** against localhost. Production shows 404 until publish.
-- **Still open on S9:** no TURN server is deployed (the env vars are unset, so
-  the gateway returns STUN only today) and the `wire_path` heartbeat field
+- **S9 CLOSED on 2026-08-04:** Cloudflare Calls TURN credentials are wired and
+  the installer autostart gap is closed. The `wire_path` heartbeat field
   (`host`/`srflx`/`relay`) is not yet emitted, so relay rate is still not a
   number.
 
