@@ -114,6 +114,32 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S8 harness landed: soak driver (`SCOPE:TRANSPORT`, `SCOPE:REALTIME`)
+
+- New **`scripts/e2e-soak.ts`** — the endurance driver S8 was missing. It spawns
+  `SOAK_AGENTS` virtual agents; each one enrolls for real through
+  `/api/public/agent/enroll` (keyless, so the harness exercises the production
+  enrollment path, rate limiter included), heartbeats every 15 s, opens an
+  `active` session, and pushes JPEG frames + cursor telemetry at `SOAK_FPS` for
+  `SOAK_DURATION_S`.
+- **Latency is measured end to end, not asserted**: a per-session Realtime
+  subscriber using the console's own `postgres_changes` filters timestamps the
+  delivery of each push, and the report prints p50 / p95 / p99 / max separately
+  for frames and cursors, plus ok/err counts and error rate per hop
+  (`enroll`, `heartbeat`, `frame`, `cursor`).
+- **Exit code is a gate**: any hop above a 1 % error rate fails the run, so the
+  soak can sit in CI or a release checklist rather than being read by eye.
+- **Always cleans up** — every enrolled device and its sessions are deleted at
+  the end, and devices are tagged `os: "soak"` / `hostname: soak-*` so a killed
+  run leaves greppable rows rather than mystery fleet members.
+- First validation run (3 agents × 15 s × 2 fps, localhost): 0 % error on all
+  four hops; frame p50 1568 ms / p95 5096 ms, cursor p50 2473 ms / p95 4417 ms —
+  that is the **HTTPS+Realtime fallback path**, not the native WebRTC path, and
+  it is the baseline the render soak has to beat.
+- **Still open on S8:** the native-render half (working set, decode errors,
+  tear/colour drift, forced mid-run `switch_monitor`) needs the S3 fleet rollout
+  and a Windows box; this harness covers the server, presence and realtime hops.
+
 ### 2026-08-03 — S14 closed: agent self-update (`SCOPE:PRESENCE`)
 
 - New **`agent/src/SelfUpdate.cs`** — download → verify → swap → restart, run
