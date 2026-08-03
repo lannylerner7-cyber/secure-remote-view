@@ -29,6 +29,15 @@ public sealed class MouseInjector
     public Task MoveAsync(double x, double y, CancellationToken ct = default)
         => App.Api.PushInputAsync(_sessionId, "mousemove", new { x, y }, ct);
 
+    /// <summary>
+    /// Pointer-lock relative motion. Agent applies the delta with
+    /// MOUSEEVENTF_MOVE (no ABSOLUTE flag) so Windows' own mouse-accel curve
+    /// runs — feels native, no letterbox math, no dead zones. Deltas MUST be
+    /// integer pixels; accumulate sub-pixel remainders at the caller.
+    /// </summary>
+    public Task MoveRelAsync(int dx, int dy, CancellationToken ct = default)
+        => App.Api.PushInputAsync(_sessionId, "mousemove_rel", new { dx, dy }, ct);
+
     public Task DownAsync(int button, double x, double y, CancellationToken ct = default)
         => PressAsync("mousedown", button, x, y, ct);
 

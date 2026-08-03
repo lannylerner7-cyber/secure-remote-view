@@ -347,3 +347,31 @@ helper functions, and leaked-password protection disabled in auth settings.
   not compiled here; they build in `agent/build.ps1` on Windows. Web side
   untouched.
 - Next: Tier A item 3 — relative-motion pointer (`SCOPE:INPUT`).
+
+### Turn: Tier A item 3 — relative-motion pointer (`SCOPE:INPUT`) — 2026-08-03
+
+- Web `/console` (`src/routes/_authenticated/console.tsx`): new **Capture
+  pointer** button on the live-view header (control mode only). Clicking calls
+  `requestPointerLock()` on the live surface; Esc, focus loss or a stolen lock
+  all resolve through a single `pointerlockchange` listener that flips the
+  React state and drains the delta accumulator, so the button label never
+  lies. Mode flip to view exits the lock immediately.
+- While locked, `onMouseMove` reads `movementX/movementY` instead of
+  `clientX/Y` and pushes them into `queueRelMove`, a per-frame accumulator
+  that ships integer `mousemove_rel { dx, dy }` and carries sub-pixel
+  remainders forward (no drift, no lost precision at rest). `flushMoveNow`
+  drains both the absolute and relative queues before mousedown/mouseup so a
+  click never lands ahead of the delta that aimed it.
+- Native admin (`admin/src/Input/MouseInjector.cs`): added `MoveRelAsync(dx,
+  dy)` for the same wire shape. Kept alongside `MoveAsync` so the WPF
+  console can flip modes without a rewrite when we wire its pointer capture.
+- Agent side unchanged: `InputRelay.cs` already had `mousemove_rel →
+  MoveRel(dx, dy)` using `MOUSEEVENTF_MOVE` (no ABSOLUTE flag), so Windows'
+  own accel curve runs. Pointer lock therefore gets the native feel that
+  absolute mapping through a letterboxed video can't match.
+- Verification: `bunx tsgo --noEmit` clean. WPF change is a one-line addition
+  reviewed against the existing `PushInputAsync` signature.
+- Next: Tier A item 3 continuation — **hardware H.264 (NVENC/QSV/AMF) with VP8
+  fallback** (turn 4). Encoder swap on the agent + decoder swap in
+  `admin/src/Media/VideoPipeline.cs`.
+

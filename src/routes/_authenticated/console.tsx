@@ -58,6 +58,12 @@ function AdminPage() {
     payload: Record<string, unknown>;
   } | null>(null);
   const moveRafRef = useRef<number | null>(null);
+  // Relative-motion pointer (pointer-lock): admin hides the OS cursor and
+  // ships mouse deltas as `mousemove_rel`. The agent translates that into
+  // MOUSEEVENTF_MOVE (no ABSOLUTE flag) so the remote pointer moves with the
+  // OS's own acceleration curve — feels native, ignores the letterbox.
+  const [pointerLocked, setPointerLocked] = useState(false);
+  const pointerLockRelRef = useRef({ dx: 0, dy: 0 });
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -396,6 +402,28 @@ function AdminPage() {
     };
   }, [liveId, sessions]);
 
+  // Pointer-lock lifecycle: keep React state in sync with the DOM (Esc, focus
+  // loss, or a stolen lock all release without firing our toggle handler). We
+  // also refuse to hold the lock in view mode — mode flips must let the OS
+  // cursor go immediately.
+  useEffect(() => {
+    const onChange = () => {
+      const locked = document.pointerLockElement === liveSurfaceRef.current;
+      setPointerLocked(locked);
+      if (!locked) {
+        pointerLockRelRef.current.dx = 0;
+        pointerLockRelRef.current.dy = 0;
+      }
+    };
+    document.addEventListener("pointerlockchange", onChange);
+    return () => document.removeEventListener("pointerlockchange", onChange);
+  }, []);
+  useEffect(() => {
+    if (!liveId) return;
+    const s = sessions.find((x) => x.id === liveId);
+    if (s?.mode !== "control" && document.pointerLockElement) document.exitPointerLock();
+  }, [liveId, sessions]);
+
   async function refresh() {
     const [d, s, a] = await Promise.all([
       supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
@@ -710,9 +738,27 @@ function AdminPage() {
     });
   }
 
+  // Pointer-lock relative moves: accumulate every `movementX/Y` sample and
+  // ship the summed delta once per frame. Zero-delta frames are dropped.
+  function queueRelMove(sessionId: string, dx: number, dy: number) {
+    pointerLockRelRef.current.dx += dx;
+    pointerLockRelRef.current.dy += dy;
+    if (moveRafRef.current !== null) return;
+    moveRafRef.current = requestAnimationFrame(() => {
+      moveRafRef.current = null;
+      const acc = pointerLockRelRef.current;
+      const dxOut = Math.round(acc.dx);
+      const dyOut = Math.round(acc.dy);
+      acc.dx -= dxOut;
+      acc.dy -= dyOut;
+      if (dxOut !== 0 || dyOut !== 0)
+        void sendInput(sessionId, "mousemove_rel", { dx: dxOut, dy: dyOut });
+    });
+  }
+
   // Flush any queued move before an ordered event so a click never lands ahead
   // of the move that positioned it.
-  function flushMoveNow() {
+  function flushMoveNow(sessionId?: string) {
     if (moveRafRef.current !== null) {
       cancelAnimationFrame(moveRafRef.current);
       moveRafRef.current = null;
@@ -720,6 +766,15 @@ function AdminPage() {
     const m = pendingMoveRef.current;
     pendingMoveRef.current = null;
     if (m) void sendInput(m.sessionId, m.kind, m.payload);
+    // Drain the pointer-lock accumulator too, otherwise a click can land
+    // before the delta that aimed it.
+    const acc = pointerLockRelRef.current;
+    const dxOut = Math.round(acc.dx);
+    const dyOut = Math.round(acc.dy);
+    acc.dx -= dxOut;
+    acc.dy -= dyOut;
+    if (sessionId && (dxOut !== 0 || dyOut !== 0))
+      void sendInput(sessionId, "mousemove_rel", { dx: dxOut, dy: dyOut });
   }
 
   // Natural size of whichever layer is currently visible. WebRTC video and the
@@ -1297,6 +1352,28 @@ function AdminPage() {
                         {s.mode === "control" ? "🔓 Release curtain" : "🔒 Curtain (take control)"}
                       </button>
                     )}
+                    {s.device_id && s.mode === "control" && role !== "viewer" && (
+                      <button
+                        onClick={() => {
+                          const el = liveSurfaceRef.current;
+                          if (!el) return;
+                          if (pointerLocked && document.pointerLockElement) {
+                            document.exitPointerLock();
+                          } else {
+                            focusLiveSurface();
+                            el.requestPointerLock?.();
+                          }
+                        }}
+                        className={`rounded px-3 py-1.5 text-xs font-medium ${pointerLocked ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 hover:bg-white/15"}`}
+                        title={
+                          pointerLocked
+                            ? "Release pointer capture (Esc)"
+                            : "Capture pointer — send raw mouse deltas for a native feel"
+                        }
+                      >
+                        {pointerLocked ? "🎯 Pointer locked" : "🎯 Capture pointer"}
+                      </button>
+                    )}
                     {role !== "viewer" && (
                       <button
                         onClick={() => {
@@ -1329,6 +1406,10 @@ function AdminPage() {
                       onMouseMove={
                         s.mode === "control"
                           ? (e) => {
+                              if (pointerLocked && document.pointerLockElement === e.currentTarget) {
+                                queueRelMove(s.id, e.movementX, e.movementY);
+                                return;
+                              }
                               const point = getContainedPoint(
                                 e.currentTarget,
                                 e.clientX,
@@ -1343,18 +1424,19 @@ function AdminPage() {
                       onMouseDown={
                         s.mode === "control"
                           ? (e) => {
-                              const point = getContainedPoint(
-                                e.currentTarget,
-                                e.clientX,
-                                e.clientY,
-                                activeSourceSize(),
-                              );
-                              if (!point) return;
                               e.preventDefault();
                               focusLiveSurface();
                               mouseButtonDownRef.current = true;
-                              flushMoveNow();
-                              void sendInput(s.id, "mousemove", point);
+                              flushMoveNow(s.id);
+                              if (!(pointerLocked && document.pointerLockElement === e.currentTarget)) {
+                                const point = getContainedPoint(
+                                  e.currentTarget,
+                                  e.clientX,
+                                  e.clientY,
+                                  activeSourceSize(),
+                                );
+                                if (point) void sendInput(s.id, "mousemove", point);
+                              }
                               void sendInput(s.id, "mousedown", { button: e.button });
                             }
                           : undefined
@@ -1364,7 +1446,7 @@ function AdminPage() {
                           ? (e) => {
                               e.preventDefault();
                               mouseButtonDownRef.current = false;
-                              flushMoveNow();
+                              flushMoveNow(s.id);
                               void sendInput(s.id, "mouseup", { button: e.button });
                             }
                           : undefined
