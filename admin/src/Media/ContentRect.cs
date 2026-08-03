@@ -38,14 +38,26 @@ public readonly struct ContentRect
     public static readonly ContentRect Empty = new(0, 0, 0, 0);
 
     /// <summary>
-    /// scale  = min(elemW/srcW, elemH/srcH)
+    /// scale  = min(elemW/srcW, elemH/srcH), capped at 1.0 unless
+    ///          <paramref name="allowUpscale"/>
     /// drawn  = src * scale
     /// offset = (elem - drawn) / 2
+    ///
+    /// COUPLING — <paramref name="allowUpscale"/> MUST mirror the hosting
+    /// <c>Image.StretchDirection</c>. The live surface declares
+    /// <c>StretchDirection="DownOnly"</c>, so a source smaller than the element
+    /// (any bitrate rung at 1280px or below in a large window) is drawn at
+    /// native size and centred, NOT stretched up. Without the cap this method
+    /// would report a scaled-up rect, and every consumer — clicks, wheel
+    /// position, ghost cursor — would be off by the window/source ratio.
+    /// Change one and you must change the other.
     /// </summary>
-    public static ContentRect Compute(double elemW, double elemH, double srcW, double srcH)
+    public static ContentRect Compute(double elemW, double elemH, double srcW, double srcH,
+                                      bool allowUpscale = false)
     {
         if (elemW <= 0 || elemH <= 0 || srcW <= 0 || srcH <= 0) return Empty;
         var scale = Math.Min(elemW / srcW, elemH / srcH);
+        if (!allowUpscale) scale = Math.Min(scale, 1.0);
         var drawnW = srcW * scale;
         var drawnH = srcH * scale;
         return new ContentRect((elemW - drawnW) / 2.0, (elemH - drawnH) / 2.0, drawnW, drawnH);
