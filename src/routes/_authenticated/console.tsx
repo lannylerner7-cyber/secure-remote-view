@@ -1264,6 +1264,13 @@ function AdminPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {s.device_id && role !== "viewer" && (
+                      <MonitorPicker
+                        device={dev}
+                        onSelect={(m) => void switchMonitor(s, m)}
+                      />
+                    )}
+                    {s.device_id && role !== "viewer" && (
+
                       <button
                         onClick={() => {
                           setLiveFrame(null);
