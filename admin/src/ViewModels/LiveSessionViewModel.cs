@@ -332,6 +332,26 @@ public partial class LiveSessionViewModel : ObservableObject
         _netHandler = null;
     }
 
+    // Mirrors agent/src/BitrateController.cs Ladder max-edge values so a soft
+    // picture reads as "the link stepped the encoder down", not "the renderer
+    // is broken". Index 0 is the sharpest rung.
+    private static readonly int[] RungEdges = { 1920, 1600, 1280, 1024, 800, 640 };
+
+    private static string SourceLabel(int w, int h)
+    {
+        if (w <= 0 || h <= 0) return "—";
+        var edge = Math.Max(w, h);
+        var idx = -1;
+        for (var i = 0; i < RungEdges.Length; i++)
+        {
+            // Allow a little slack: the agent rounds to even dimensions.
+            if (Math.Abs(RungEdges[i] - edge) <= 8) { idx = i; break; }
+        }
+        return idx >= 0
+            ? $"{w}x{h} · rung {idx}/{RungEdges.Length - 1}"
+            : $"{w}x{h}";
+    }
+
 
     private static BitmapSource? DecodeJpeg(byte[] bytes)
     {
