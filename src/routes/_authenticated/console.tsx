@@ -1176,22 +1176,31 @@ function AdminPage() {
             )}
 
             {nav === "audit" && (
-              <div className="rounded-lg border border-white/10 bg-[#1F2A44] p-4 text-xs">
-                {audit.length === 0 ? (
-                  <p className="text-white/40">No events yet.</p>
-                ) : (
-                  <ul className="space-y-1 font-mono">
-                    {audit.map((a) => (
-                      <li key={a.id} className="border-b border-white/5 py-1 last:border-0">
-                        <span className="text-white/40">
-                          {new Date(a.created_at).toLocaleString()}
-                        </span>{" "}
-                        <span className="text-[#4F7CFF]">{a.event}</span>{" "}
-                        <span className="text-white/50">{JSON.stringify(a.detail)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <div className="space-y-4">
+                <ReaperPanel audit={audit} devices={devices} />
+                <div className="rounded-lg border border-white/10 bg-[#1F2A44] p-4 text-xs">
+                  {audit.length === 0 ? (
+                    <p className="text-white/40">No events yet.</p>
+                  ) : (
+                    <ul className="space-y-1 font-mono">
+                      {audit.map((a) => (
+                        <li key={a.id} className="border-b border-white/5 py-1 last:border-0">
+                          <span className="text-white/40">
+                            {new Date(a.created_at).toLocaleString()}
+                          </span>{" "}
+                          <span
+                            className={
+                              a.event === "session.reaped" ? "text-[#F5A524]" : "text-[#4F7CFF]"
+                            }
+                          >
+                            {a.event}
+                          </span>{" "}
+                          <span className="text-white/50">{JSON.stringify(a.detail)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             )}
 
