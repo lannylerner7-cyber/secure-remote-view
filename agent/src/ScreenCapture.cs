@@ -392,44 +392,12 @@ public static class ScreenCapture
 
 
     // ---- Adaptive quality ------------------------------------------------
-    // Downgrade to the low-bandwidth profile after 5 consecutive frames whose
-    // upload took > 400 ms; upgrade back after a continuous 30 s window with
-    // every upload under 150 ms.
-    private static int _slowStreak;
-    private static DateTime _fastSince = DateTime.MinValue;
+    // The old two-state flip (5 slow uploads down, 30 clean seconds up) lived
+    // here. It now delegates to BitrateController, which folds this HTTPS
+    // signal together with the RTCP receiver reports from the video path so
+    // both transports move the same ladder.
+    private static void NoteUploadLatency(long ms) => BitrateController.NoteUploadLatency(ms);
 
-    private static void NoteUploadLatency(long ms)
-    {
-        if (!PerformanceMode)
-        {
-            _fastSince = DateTime.MinValue;
-            if (ms > 400)
-            {
-                if (++_slowStreak >= 5)
-                {
-                    _slowStreak = 0;
-                    SetQualityMode(true);
-                    Log.Info("live view: link slow — switching to low-bandwidth profile (960px)");
-                }
-            }
-            else _slowStreak = 0;
-        }
-        else
-        {
-            _slowStreak = 0;
-            if (ms < 150)
-            {
-                if (_fastSince == DateTime.MinValue) _fastSince = DateTime.UtcNow;
-                else if ((DateTime.UtcNow - _fastSince).TotalSeconds >= 30)
-                {
-                    _fastSince = DateTime.MinValue;
-                    SetQualityMode(false);
-                    Log.Info("live view: link healthy — restoring sharp profile (1920px)");
-                }
-            }
-            else _fastSince = DateTime.MinValue;
-        }
-    }
 
     private static ulong HashBitmap(Bitmap bmp)
     {
