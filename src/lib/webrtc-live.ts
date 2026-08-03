@@ -120,8 +120,11 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   const listeners = new Set<(s: WebRtcState) => void>();
   const setState = (s: WebRtcState) => { state = s; listeners.forEach((cb) => cb(s)); };
 
-  // STUN-only, hardcoded. No external relay service is involved.
+  // Starts on the STUN fallback; the gateway set (STUN + TURN when deployed)
+  // is applied via setConfiguration before the first offer, i.e. before ICE
+  // gathering begins at setLocalDescription.
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+  const icePromise = fetchIceServers();
   let dc: RTCDataChannel | null = pc.createDataChannel("inputs", { ordered: true });
   dc.onclose = () => { dc = null; };
 
