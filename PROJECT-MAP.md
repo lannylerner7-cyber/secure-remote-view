@@ -112,6 +112,21 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — Audit pass 4 merged, §6 re-sequenced (`SCOPE:DOCS`)
+
+- New **§9.5** registers soft spots **S8–S15** (missing soak, no TURN/ICE, dead
+  input datachannel, no render telemetry, unverified admin D3D device-lost, no
+  named depacketizer/jitter buffer, no agent auto-update, pill + contract
+  truth).
+- **§6 order changed**: turn 4b is no longer next. Rollout (S3) + field soak
+  (S8) with render stats (S11) come first, then ICE/TURN (new Tier A item 4),
+  then 4b, then the input datachannel (new Tier B 3a).
+- New Tier C items 13 (render telemetry), 14 (agent auto-update), 15 (pill
+  honesty + retiring the two contracts). §7 candidates updated to match.
+- Documentation only — no schema, no route behaviour, no C# touched.
+
+
+
 ### 2026-08-03 — Gap merge S6 / S7-consent (`SCOPE:PRESENCE`, `SCOPE:CONSENT`)
 
 | Scope | File / object | Change |
