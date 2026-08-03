@@ -27,7 +27,7 @@ public sealed class MouseInjector
     public const int Right = 2;
 
     public Task MoveAsync(double x, double y, CancellationToken ct = default)
-        => App.Api.PushInputAsync(_sessionId, "mousemove", new { x, y }, ct);
+        => InputTransport.SendAsync(_sessionId, "mousemove", new { x, y }, ct);
 
     /// <summary>
     /// Pointer-lock relative motion. Agent applies the delta with
@@ -36,7 +36,7 @@ public sealed class MouseInjector
     /// integer pixels; accumulate sub-pixel remainders at the caller.
     /// </summary>
     public Task MoveRelAsync(int dx, int dy, CancellationToken ct = default)
-        => App.Api.PushInputAsync(_sessionId, "mousemove_rel", new { dx, dy }, ct);
+        => InputTransport.SendAsync(_sessionId, "mousemove_rel", new { dx, dy }, ct);
 
     public Task DownAsync(int button, double x, double y, CancellationToken ct = default)
         => PressAsync("mousedown", button, x, y, ct);
@@ -48,7 +48,7 @@ public sealed class MouseInjector
     // positioned by the preceding mousemove. We still send the coordinates so a
     // dropped move can't land the click at a stale position.
     private Task PressAsync(string kind, int button, double x, double y, CancellationToken ct)
-        => App.Api.PushInputAsync(_sessionId, kind, new { button, x, y }, ct);
+        => InputTransport.SendAsync(_sessionId, kind, new { button, x, y }, ct);
 
     /// <summary>
     /// <paramref name="wpfDelta"/> is the raw WPF MouseWheelEventArgs.Delta
@@ -56,5 +56,5 @@ public sealed class MouseInjector
     /// its own 3x multiplier, so we invert and scale down to one notch.
     /// </summary>
     public Task WheelAsync(int wpfDelta, CancellationToken ct = default)
-        => App.Api.PushInputAsync(_sessionId, "wheel", new { dy = -wpfDelta / 3 }, ct);
+        => InputTransport.SendAsync(_sessionId, "wheel", new { dy = -wpfDelta / 3 }, ct);
 }
