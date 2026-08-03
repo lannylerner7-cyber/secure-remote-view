@@ -82,9 +82,14 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 ## 4. Invariants — do not "optimise" these away
 
 - Consent is a **click**, not a default. Timeout, closed window, or missing UI
-  thread all mean decline.
-- Server state machine is `invited → active | declined`; `paused` and `ended`
-  come later. There is no `consented` state.
+  thread all mean decline. `/agent/session/:id/consent` is the only writer and
+  it 409s on any state other than `invited`.
+- Server state machine is `invited → active | declined`, then `paused` /
+  `ended`. `consented` is a **legacy value** that the consent route never
+  writes, but heartbeat, `prune_session_ephemera()`, the web console and
+  `admin/src/Api/ApiClient.cs` all still include it in their "live" filters, so
+  it must stay in those `IN (...)` lists until a migration retires it.
+  `sessions.state` has **no CHECK constraint** — see §9.
 - Decode **off** the UI thread, present **on** it, drop the **oldest** frame.
 - Colour is BT.601 limited range. A hue drift means someone changed the
   matrix — revert, don't tune.
