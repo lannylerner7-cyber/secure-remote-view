@@ -25,6 +25,7 @@ signature).
 | POST | `/api/public/agent/session/{sessionId}/consent` | The end user's answer to the on-screen `ConsentPrompt`. `invited → active` on accept, `invited → declined` otherwise; any other current state is a 409. Writes `session.consent_granted` / `session.consent_declined` to `audit_logs`. Never auto-acked. | device token |
 | POST | `/api/public/agent/power/{cmdId}/ack` | Acknowledges a queued power command (restart, shutdown, wake, restart_stream, switch_monitor). | device token |
 | GET | `/api/public/agent/stream` | SSE wake channel — **live on both ends**. Client is `agent/src/StreamListener.cs`, which nudges the heartbeat loop on `event: wake` for sub-second revival. Heartbeat stays the source of truth; SSE only shortens the latency. | device token |
+| GET | `/api/public/agent/ice` | **S9 — ICE gateway.** Single source of truth for the ICE server set: STUN always, plus TURN when `TURN_URLS` is set (ephemeral coturn REST creds from `TURN_STATIC_SECRET`, else static `TURN_USERNAME`/`TURN_PASSWORD`). Consumed by `agent/src/WebRtcSession.cs`, `admin/src/Media/WebRtcClient.cs` and `src/lib/webrtc-live.ts`; every caller falls back to hardcoded STUN if the call fails. | device token **or** technician bearer JWT |
 
 Retired: `/api/public/agent/pair` (meeting-code pairing) — removed with the
 auto-enrollment overhaul.
