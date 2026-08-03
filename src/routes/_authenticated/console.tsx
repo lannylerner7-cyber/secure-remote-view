@@ -58,6 +58,12 @@ function AdminPage() {
     payload: Record<string, unknown>;
   } | null>(null);
   const moveRafRef = useRef<number | null>(null);
+  // Relative-motion pointer (pointer-lock): admin hides the OS cursor and
+  // ships mouse deltas as `mousemove_rel`. The agent translates that into
+  // MOUSEEVENTF_MOVE (no ABSOLUTE flag) so the remote pointer moves with the
+  // OS's own acceleration curve — feels native, ignores the letterbox.
+  const [pointerLocked, setPointerLocked] = useState(false);
+  const pointerLockRelRef = useRef({ dx: 0, dy: 0 });
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
