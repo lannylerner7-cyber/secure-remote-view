@@ -97,11 +97,13 @@ Run the packaged installer — there is no service to register:
 ConnectLiveSetup.exe /VERYSILENT
 ```
 
-It copies `ConnectLive.exe` to `C:\Program Files\ConnectLive\`, creates the
-ONLOGON scheduled task, and launches the Agent with `/background` as the
-original (non-elevated) user. The Agent itself then re-asserts its autostart on
-every run via `StartupSelfHeal` — Run key, Startup shortcut, and scheduled task
-— so removing one of them does not stop it coming back after reboot.
+It copies `ConnectLive.exe` to `C:\Program Files\ConnectLive\`, creates four
+identical autostart triggers (HKCU Run key, HKLM Run key, all-users Startup
+folder shortcut, and an ONLOGON scheduled task), and launches the Agent with
+`/background` as the original (non-elevated) user. The Agent itself then
+re-asserts its autostart on every run via `StartupSelfHeal` — Run key, Startup
+shortcut, and scheduled task — so removing one of them does not stop it coming
+back after reboot.
 
 Per-user state (DPAPI-encrypted device token, last session id) lives in
 `%LOCALAPPDATA%\ConnectLive\`; legacy `%ProgramData%\ConnectLive` stores are
