@@ -292,7 +292,10 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
    flows in the heartbeat; none of it is surfaced.
 10. `SCOPE:DATA` — **Retention + growth guard**: row counters and a
     console-visible prune dashboard so `prune_session_ephemera` is observable
-    rather than assumed.
+    rather than assumed. *Half-shipped 2026-08-03*: the job now also reaps
+    presence (stale devices, zombie sessions, ghost enrollments) and writes a
+    `session.reaped` audit row; what remains is the **dashboard** — nobody can
+    see any of this without a psql prompt.
 11. `SCOPE:WEB` — **Ops status page** at `/status`, fed by
     `/api/public/health`, `stats/orders`, and an online-device count.
 12. `SCOPE:DATA` — **Wake reliability metrics**: record dispatch→delivered
