@@ -184,9 +184,10 @@ Every session now negotiates a WebRTC peer connection alongside the existing HTT
   sub-100 ms latency               ~500 ms, 100% reliable
 ```
 
-- **ICE servers**: hardcoded Google STUN (`stun:stun.l.google.com:19302`).
-  No TURN and no external relay service — if ICE cannot complete, the HTTPS
-  frame stream carries the session.
+- **ICE servers**: hardcoded Google STUN (`stun:stun.l.google.com:19302`) plus
+  Cloudflare Calls TURN credentials minted per request on `GET /api/public/agent/ice`.
+  If the ICE gateway is unreachable or unconfigured, callers fall back to STUN
+  and the HTTPS frame stream carries the session.
 - **Signaling**: JSON offer/answer/ICE rows in `session_signals`. Agent polls
   `GET /api/public/agent/session/{id}/signal` every 500 ms; admin uses
   Supabase Realtime.
