@@ -1,74 +1,53 @@
-# Which installer/build files to keep: repo vs. uploaded
+# Fix admin build: `VideoEncoder` type doesn't exist in SIPSorceryMedia.Encoders 8.0.7
 
-I diffed the two uploaded files against what is in the project.
+## Root cause (verified, not guessed)
 
-## build.ps1 — keep the repo version
+I pulled `SIPSorceryMedia.Encoders` 8.0.7 from nuget.org and dumped the exported
+types. The package exposes **`VpxVideoEncoder`** and **`Vp8Codec`** — there is
+no `VideoEncoder` type. `admin/src/Media/VideoPipeline.cs` declares
+`private VideoEncoder? _decoder;` (line 44) and `new VideoEncoder()` (line 188),
+so CS0246 is correct: the name simply isn't in that assembly at this version.
 
-The uploaded `build-2.ps1` is byte-identical to `agent/build.ps1` except that it
-is **missing the last 22 lines**: the S14 release-manifest block that prints the
-sha256 of each artifact and the `insert into public.releases` statement.
+The Vp8 spike (`admin/spikes/vp8-decode`) compiled fine only because it links
+`FrameConvert.cs` and never touches the decoder type.
 
-Self-update refuses a release row without a sha256, so that block is how you get
-the hash. The repo copy is strictly newer. No change needed.
+The `NU1903` line about `SIPSorcery 6.2.4` is a warning, not the failure — it
+did not stop the build. We can address it separately.
 
-## ConnectLiveSetup.iss — keep the repo version, but port one idea over
+## Fix
 
-The uploaded `ConnectLiveSetup-4.iss` is the **pre-overhaul** installer. Relative
-to the repo copy it drops:
+One file, two edits, no behaviour change:
 
-- the `[Tasks]` autostart opt-in checkbox
-- the **HKCU Run** key and the **HKLM Run** key
-- the **all-users Startup folder shortcut**
-- `HKLM\Software\ConnectLive` **InstallPath / Version** metadata (self-update and
-  support tooling read these)
-- the pre-copy `taskkill /IM ConnectLive.exe` (without it a running agent can
-  lock the exe and fail the file copy) and `CloseApplications=force`
-- the uninstall cleanup of `{commonstartup}\ConnectLive.lnk`
+- `admin/src/Media/VideoPipeline.cs`
+  - line 44: `private VpxVideoEncoder? _decoder;`
+  - line 188: `_decoder = new VpxVideoEncoder();`
 
-So it has **one** logon trigger, not four. Shipping it would be a regression.
+`VpxVideoEncoder.DecodeVideo(byte[], VideoPixelFormatsEnum, VideoCodecsEnum)`
+has the same signature the pipeline already calls, so `DecodeOne` and
+`Dispose` need no changes.
 
-### The one thing the uploaded file does better
+## Verify
 
-It registers the scheduled task from **generated XML via `schtasks /Create /XML`**
-instead of the repo's inline `/TR` string. That is a legitimate concern: the repo
-line nests escaped quotes around `"C:\Program Files\ConnectLive\ConnectLive.exe" /background`,
-and that pattern is the classic way to end up with a task that registers fine and
-then silently never launches.
+Local sandbox can't run `dotnet publish` for a WPF Windows target, so
+verification is on your Windows box:
 
-`ConnectLiveAgentTask.xml` (the third upload) is the same definition as a
-standalone template, with `__AGENT_EXE__` as a placeholder. Its `<URI>` is
-`\ConnectLive` while the task name used everywhere else is `ConnectLiveAgent` —
-that mismatch would need fixing if we adopt the file form.
+```
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
 
-Note also a bug in the uploaded `[Code]`: the comment says "Unicode=True" but the
-call is `SaveStringToFile(XmlPath, Xml, False)` — that third argument is *append*,
-not *Unicode*, so it writes an ANSI file whose declaration claims UTF-16.
-`schtasks /XML` can reject that. Any port must fix it.
+Expected: `Restored ... Build succeeded ...` and `dist\ConnectLiveAdmin.exe` /
+`.zip` produced. The `NU1903` SIPSorcery warning will still print — it's
+non-fatal and separate from this fix.
 
-## Proposed change
+## Re-cut the source zip
 
-Keep `agent/build.ps1` exactly as is. Make one surgical edit to
-`agent/packaging/inno/ConnectLiveSetup.iss`:
+After the edit lands I regenerate `ConnectLive-Admin-source-<date>.zip` so
+you don't have to hand-patch the file on the Windows box.
 
-1. Replace the inline `schtasks /Create /F /SC ONLOGON /TN "ConnectLiveAgent" /TR "..."`
-   line in `[Run]` with an `AfterInstall: RegisterLogonTask` on the `[Files]`
-   entry plus a `[Code]` procedure that builds the task XML with the real
-   installed path baked into `<Command>`, writes it with the Unicode flag
-   correctly set, and calls `schtasks /Create /F /TN "ConnectLiveAgent" /XML`.
-2. Gate that registration on the `autostart` task so it still honours the
-   checkbox, and log the schtasks exit code to `install.log`.
-3. Add `{app}\ConnectLiveAgentTask.xml` to `[UninstallDelete]`.
-4. Leave all four triggers, the HKLM metadata, the taskkill pre-step and the
-   existing uninstall cleanup untouched.
+## Not doing in this plan
 
-Everything else — the other three triggers, HKLM/HKCU Run, Startup shortcut,
-firewall rule, post-install launch — stays exactly as it is today.
-
-## Docs to touch
-
-- `agent/packaging/inno/README.md` — note the task is now registered from
-  generated XML.
-- `PROJECT-MAP.md` — one line in the installer section recording the change.
-
-After the edit I re-cut `ConnectLive-Agent-source-<date>.zip` so the zip carries
-the fixed installer.
+- Bumping SIPSorcery past 6.2.4 to clear NU1903 — that's an API-surface change
+  (breaks `RTCPeerConnection` calls in `WebRtcClient.cs`) and deserves its own
+  plan. Say the word and I'll scope it as a follow-up.
+- Touching `agent/` — the agent uses `Vortice` for capture, not the encoders
+  package, and its own build is unaffected.
