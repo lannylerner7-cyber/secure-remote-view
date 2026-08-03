@@ -112,6 +112,21 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — Audit pass 4 merged, §6 re-sequenced (`SCOPE:DOCS`)
+
+- New **§9.5** registers soft spots **S8–S15** (missing soak, no TURN/ICE, dead
+  input datachannel, no render telemetry, unverified admin D3D device-lost, no
+  named depacketizer/jitter buffer, no agent auto-update, pill + contract
+  truth).
+- **§6 order changed**: turn 4b is no longer next. Rollout (S3) + field soak
+  (S8) with render stats (S11) come first, then ICE/TURN (new Tier A item 4),
+  then 4b, then the input datachannel (new Tier B 3a).
+- New Tier C items 13 (render telemetry), 14 (agent auto-update), 15 (pill
+  honesty + retiring the two contracts). §7 candidates updated to match.
+- Documentation only — no schema, no route behaviour, no C# touched.
+
+
+
 ### 2026-08-03 — Gap merge S6 / S7-consent (`SCOPE:PRESENCE`, `SCOPE:CONSENT`)
 
 | Scope | File / object | Change |
@@ -284,6 +299,18 @@ Closed so far: audit backlog items 1–6 (pass 2), predictive cursor (turn 1),
 multi-monitor picker (turn 2), agent surface reduction, docs/DB truth pass.
 Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 
+**Re-sequenced 2026-08-03 (§9.5).** Turn 4b is *no longer next*. Order of work:
+
+0. **S3 + S8 + S11** — Windows build + fleet rollout, then a scripted 10-min
+   field soak (leak / tear / colour-drift / forced `switch_monitor`) with the
+   new `RenderStats` numbers as its pass criteria. Closes the evidence gap
+   under turns 2, 3 and 4a. **S12** (admin D3D device-lost) and **S13**
+   (depacketize/jitter audit) are verification-first checks in the same week.
+1. **Tier A item 4 — ICE gateway + TURN** (S9). Connectivity floor.
+2. **Turn 4b — hardware H.264**, now landing on a measured baseline.
+3. **Tier B item 3a — input datachannel** (S10), ahead of clipboard.
+
+
 ### Tier A — finish what is half-shipped
 
 1. `SCOPE:WEB` — **Monitor picker in the browser console.** Read
@@ -304,11 +331,26 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
    heartbeat `encoder` block); the encoder/decoder swap is **turn 4b** and
    touches encode on the agent plus decode in
    `admin/src/Media/VideoPipeline.cs`. Largest remaining job in Tier A.
+4. `SCOPE:TRANSPORT` — **ICE gateway + TURN** *(S9, do before 4b)*. One authed
+   route (`/api/public/agent/ice` + admin equivalent) returning a STUN+TURN set
+   with per-session ephemeral credentials, a coturn/managed-TURN deployment,
+   and a `wire_path` (`host|srflx|relay`) field in the heartbeat so relay rate
+   and silent JPEG-fallback degradation become numbers. Today both peers
+   hardcode public STUN, so symmetric NAT and corporate egress filters are
+   unhandled and unmeasured. De-risks S13.
 
 ### Tier B — new capability
 
+3a. `SCOPE:INPUT` — **Input over the WebRTC datachannel** *(S10)*. Receive side
+   already ships (`WebRtcSession` calls `InputRelay.Apply` directly); the admin
+   never opens the channel, so every click still pays a REST round trip. Admin
+   side only: open an `input` datachannel in `WebRtcClient`, serialize the
+   existing wire shapes (`mousemove`, `mousemove_rel`, keys, wheel), fall back
+   to REST when the channel is closed. Safety kinds (`curtain_off`,
+   `release_inputs`) stay on REST permanently as the guaranteed route.
 4. `SCOPE:SESSION` — **Clipboard sync + file drop** over a WebRTC data channel.
    Text first, then files with a size cap and an `audit_logs` row per transfer.
+   Lands after 3a — same channel machinery, smaller feel win.
 5. `SCOPE:SESSION` — **Consented session recording**: watermarked capture to a
    storage bucket, retention policy, audit row on start/stop. Only item that
    needs new infrastructure — there are no storage buckets yet, so this adds
@@ -342,6 +384,23 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 12. `SCOPE:DATA` — **Wake reliability metrics**: record dispatch→delivered
     latency on `power_commands` and surface a success rate, so "wake didn't
     work" becomes measurable instead of anecdotal.
+13. `SCOPE:RENDER` — **Render telemetry** *(S11, gates the S8 soak)*.
+    `RenderStats` on the admin: frames decoded / presented / dropped per
+    second, decode-ms and upload-ms rolling averages, queue depth and working
+    set — shown in the live-window status bar and written to the soak log.
+    Without it turn 4b's "sharper, lower latency" claim cannot be demonstrated.
+    `VideoPipeline.StatsLine()` already emits most of this; it is unsurfaced.
+14. `SCOPE:PRESENCE` — **Agent auto-update** *(S14)*. Version in the heartbeat,
+    a signed-release manifest route, agent-side download → verify → swap →
+    restart through the existing `restart_agent` power command, staged rollout
+    flag per device. S3 is the standing proof of the cost of not having it.
+15. `SCOPE:RENDER` / docs — **Truth housekeeping** *(S15)*. (a) Verify the
+    transport pill keys off "a decoded frame presented in the last N ms"
+    (`VideoPipeline.IsPresenting`) rather than "RTP arrived", so the ICE
+    surrender to JPEG can never be reported as native video. (b) Mark both
+    contracts SUPERSEDED with a pointer to this map and fold the surviving
+    obligations (S8 soak, S9 TURN) into §6.
+
 
 ---
 
@@ -357,6 +416,13 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 - ~~**Multi-monitor picker**~~ — shipped in the native console (turn 2); the
   browser console is Tier A item 1.
 - **Clipboard + file drop channel** over a WebRTC data channel.
+- **ICE gateway + TURN relay** with `wire_path` telemetry — promoted to Tier A
+  item 4 (S9); the current "STUN only" posture cannot cross symmetric NAT.
+- **Input over the datachannel** — Tier B 3a (S10); receive side already ships.
+- **Render telemetry (`RenderStats`)** — Tier C 13 (S11); pass criteria for the
+  soak and the only way to prove turn 4b.
+- **Agent auto-update** — Tier C 14 (S14); the rollout bottleneck behind S3.
+- **RTP depacketize / jitter buffer audit** — S13, verification-first.
 - **Session recording** (consented, watermarked) to storage for audit.
 - **Unattended/standing-consent policy** surfaced in the admin UI with an
   audit entry each time it is used.
@@ -602,5 +668,54 @@ that plan does not currently name.
 
 No schema, no route behaviour, no C#. Every edit above is a comment or a
 document sentence that disagreed with the code, and in each case the **code
-was right**. The plan in §6 is unchanged: turn 4b is still next.
+was right**. *(Superseded by §9.5: the §6 order has since changed — turn 4b is
+no longer next; rollout + soak + ICE/TURN come first.)*
 
+
+---
+
+## 9.5 Audit — 2026-08-03 (pass 4, contract-standard review)
+
+External sweep: the roadmap re-read against the two signed contracts
+(CONTRACT-Native-Video-Engine-B, CONTRACT-Connection-Layer) and the Gate Plan
+v2 amendment, at their standard of evidence. Method: every contract clause
+checked for a corresponding map entry, invariant, or verification run. The
+engine itself is built past what the contracts asked for; these are the gaps
+the map does not currently name. Ordered by risk. Nothing changed
+unilaterally.
+
+| # | Gap | Evidence | Cost |
+| --- | --- | --- | --- |
+| S8 | **The SOAK has never run, and turn 4b is queued on top of it.** No verification run in §5 or §9 contains a sustained-motion endurance test of the native render path — no leak check, no tear check, no color-drift check, no forced mid-session resolution change. Compounded by open S3: the entire fleet runs an agent older than turns 2 and 4a, so the bitrate ladder, `monitors[]`, and the H.264 probe have zero production evidence. Turn 4b (hardware H.264) would be the fourth consecutive turn shipped with no field observation behind it. | §5/§9 verification runs list `tsgo`, route verifiers, and DB queries only; S3 row (`devices.metadata` on all 8 rows); §6 "Next up" names 4b as next | Rollout via `agent/build.ps1` (S3's own remedy) + one scripted 10-min soak: per-minute log of fps, queue depth, working set, decode errors; forced `switch_monitor` mid-run; pass/fail written into §8. **Sequencing change, near-zero code** |
+| S9 | **TURN and an ICE-config gateway are absent from all 12 backlog items.** §2 states "RTP/VP8, STUN only"; no `agent/ice` route exists in §3; both peers hardcode a public STUN server. A commercial remote-support tool meets symmetric NAT and corporate egress filtering as a matter of course — those sessions silently degrade to the JPEG fallback, which is the exact lag the engine was built to escape, and nothing measures how often it happens. | §2 system map; §3 route table (no ice row); §6 Tiers A–C (no TURN/ICE item); §7 candidate scopes (no TURN/ICE item) | One route (`/api/public/agent/ice` + admin equivalent, device-token/JWT authed, returns STUN+TURN set), a coturn or managed-TURN deployment with per-session ephemeral credentials, and a `wire_path` telemetry field (`host/srflx/relay`) in the heartbeat so relay rate becomes a number. Tier A sized |
+| S10 | **Input over the datachannel is half-built and dead.** Pass-2 changelog: the agent's data-channel path calls `InputRelay.Apply` directly — the receive side exists and is wired. The admin never opens or sends on an input datachannel; §2 shows input riding HTTP poll (`/agent/session/:id/inputs` ← `Input/MouseInjector`). Every click and delta pays REST round-trip latency to a peer we already hold an SRTP tunnel with. Not in any tier (Tier B item 4 is clipboard, a different channel). | §5 pass-2 row (`WebRtcSession.cs` — deleted `InputRelayBridge`, direct `InputRelay.Apply`); §2 map input arrows; §6 Tier B item 4 scope | Admin side only: open `input` datachannel in `WebRtcClient`, serialize the existing wire shapes (`mousemove`, `mousemove_rel`, keys, wheel), fall back to REST when the channel isn't open. Safety kinds (`curtain_off`, `release_inputs`) keep the REST path permanently as the guaranteed route. Small, high-feel |
+| S11 | **Nothing measures the render path.** No fps counter, no decode-to-present latency, no dropped-frame counter anywhere in `SCOPE:RENDER`. Tier C item 9 (device health panel) surfaces agent-side facts only. Without these numbers the soak (S8) has no pass criteria and turn 4b's entire justification — "sharper, lower latency than software VP8" — cannot be demonstrated, only asserted. | §6 Tier C item 9 scope text; absence of any fps/latency mention in §4, §5, §8, §9 | `RenderStats` on the admin: frames decoded/presented/dropped per second, decode-ms and upload-ms rolling averages, exposed in the live-window status bar + logged. Feeds S8's soak log directly. Small |
+| S12 | **Admin-side D3D device-lost is unverified.** The agent's capture recovery is thorough (`ACCESS_LOST` / `DEVICE_REMOVED` / `DEVICE_RESET` rebuild, pass-1 row). No audit pass has ever exercised the technician-side equivalent: `D3DImageHost` surviving a GPU reset, driver update, RDP session switch, or laptop dGPU/iGPU flip mid-session. The engine contract required recreate-and-continue; the map neither confirms nor denies it. | §5 pass-1 `DxgiCapture.cs` row (agent side only); §9.1 Render row (checks PredictiveCursor + VP8-only, not device-lost) | One targeted test (trigger device removal via driver restart / `dxcap -forcetdr` on a dev box) + whatever recreate path is missing in `D3DImageHost`. Verification-first: may already work, has never been shown |
+| S13 | **No depacketizer or jitter buffer is named anywhere.** `VideoPipeline` decodes VP8, but the map never mentions RTP reassembly, reorder tolerance, or loss detection ahead of the decoder. On clean links this is invisible; on real internet paths reordered/late packets become decode errors → PLI storms the 200 ms cooldown then rate-limits into visible stutter. Directly compounds S9 (relayed paths jitter more). | §2 pipeline (`WebRtcClient → VideoPipeline`, no depacketize/jitter stage); no `Vp8Depacketizer`/jitter entry in §5 or §8 | Audit first: read `VideoPipeline.cs` and confirm what SIPSorcery already does internally (it may reassemble). If absent: small bounded reorder buffer (~3 frames) + incomplete-frame drop with PLI, in front of the existing decode call |
+| S14 | **No agent auto-update exists, and S3 is the standing proof of the cost.** Deployment is `build.ps1` + MDM packaging by hand; the map's own audit shows the fleet frozen on an old build while three shipped turns wait for evidence. Every future turn (4b included) inherits this bottleneck. Not in any tier or candidate scope. | S3 row; §8 packaging-docs row (jamf/intune/gpo are install-time only); §6/§7 (no update item) | Modest but real: version in heartbeat (already trivially available), a signed-release manifest route, agent-side download-verify-swap-restart via the existing `restart_agent` power command, staged rollout flag per device. Tier B sized; pays for itself by turn 4b's rollout |
+| S15 | **Two truth items: the pill and the contracts.** (a) Transport-pill honesty — "Native video" only when decoded frames are presenting — was contract clause 6.1 and gate G2's companion; no changelog or audit row ever confirms it closed. Given the ICE-surrender path deliberately drops to JPEG (pass-1 row), an untruthful pill would mask exactly the S9 degradations. (b) The two contracts + v2 amendment are now stale against reality (state machine is `invited → active\|declined` with `consented` legacy; admin-offers is settled; aspect/ContentRect shipped) — leaving them un-amended re-creates the ENDPOINTS.md class of drift that pass 3 just cleaned up. | (a) no `SCOPE:RENDER`/pill entry in §5, §8, §9; pass-1 ICE-surrender row. (b) §9.2 drift table (the precedent); contract texts vs §4 invariants | (a) One read of the pill's binding: it must key off "presented a decoded frame in the last N ms", not "RTP arrived" — verify or fix, one small change + audit row. (b) Documentation turn: mark both contracts SUPERSEDED with a pointer to this map, fold surviving obligations (S8's soak, S9's TURN scope) into §6 |
+
+### Recommended re-sequencing (§6 impact)
+
+Current "Next up" is turn 4b. This register argues the order should be:
+
+1. **S3 + S8** — fleet rollout, then the field soak with S11's stats as the
+   pass criteria. Closes the evidence gap under everything already shipped.
+2. **S9** — ICE gateway + TURN + `wire_path` telemetry (new Tier A item 4).
+   The connectivity floor for a commercial tool; also de-risks S13.
+3. **Turn 4b** — hardware H.264, now landing on a measured, field-proven
+   baseline that can actually demonstrate its improvement.
+4. **S10** — input datachannel (new Tier B item, ahead of clipboard: same
+   channel machinery, bigger feel win, receive side already shipped).
+
+S12, S13 are verification-first checks that slot into the S8 soak week.
+S14 lands whenever rollout pain next bites — before 4b if the S3 rollout
+proves as slow as the map implies. S15 is a documentation turn, one sitting.
+
+### What this pass deliberately did not claim
+
+No code was read in this pass beyond what the map itself cites — S12 and S13
+in particular are phrased as *unverified*, not *broken*. If `VideoPipeline`
+already jitter-buffers or `D3DImageHost` already survives reset, the fix is a
+§8 evidence row, not code. That is the same standard §9.4 set: where the code
+is right, the document catches up.
