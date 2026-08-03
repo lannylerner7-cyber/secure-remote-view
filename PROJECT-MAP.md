@@ -112,6 +112,30 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S9 code half landed: ICE gateway (`SCOPE:TRANSPORT`)
+
+- New route **`GET /api/public/agent/ice`** (`src/routes/api/public/agent/ice.ts`).
+  Single source of truth for the ICE set: STUN always; TURN appended when
+  `TURN_URLS` is configured, with ephemeral coturn REST credentials derived from
+  `TURN_STATIC_SECRET` (`<expiry>:<peer>` + base64 HMAC-SHA1), or static
+  `TURN_USERNAME`/`TURN_PASSWORD`. Authed by device token **or** technician
+  bearer JWT — unauthenticated callers get 401, because relay minutes are
+  billable. Registered as `API_ROUTES.agentIce`; documented in `ENDPOINTS.md`.
+- All three peers now fetch it and **fall back to hardcoded STUN on any
+  failure**, so a relay outage removes the relay path but never the session:
+  `src/lib/webrtc-live.ts` (fetch in flight at construction, applied via
+  `setConfiguration` before the first offer, i.e. before gathering starts),
+  `agent/src/WebRtcSession.cs` (warm fetch in `StartAsync`, `_iceServers` read by
+  `BuildPeer`), `admin/src/Media/WebRtcClient.cs` (awaited in `NegotiateAsync`,
+  logged as `ice servers: N`), plus `ApiClient.GetIceConfigAsync` /
+  `GetIceServersAsync` on the two native clients.
+- `scripts/verify-agent-routes.ts` now asserts the route is 401 without creds —
+  **20/20 passing** against localhost. Production shows 404 until publish.
+- **Still open on S9:** no TURN server is deployed (the env vars are unset, so
+  the gateway returns STUN only today) and the `wire_path` heartbeat field
+  (`host`/`srflx`/`relay`) is not yet emitted, so relay rate is still not a
+  number.
+
 ### 2026-08-03 — Audit pass 4 merged, §6 re-sequenced (`SCOPE:DOCS`)
 
 - New **§9.5** registers soft spots **S8–S15** (missing soak, no TURN/ICE, dead
