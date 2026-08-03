@@ -69,7 +69,7 @@ auth — every handler authenticates itself.
 | `auth/login` | rate-limited, `login_attempts` lockout | admin sign-in |
 | `cron/reconcile-orders` | cron secret | payment reconciliation |
 | `webhooks/cdp` | HMAC verified | crypto payment events |
-| `stats/orders`, `health` | public read-only | no PII |
+| `stats/orders`, `api/public/health`, `/health` | public read-only | no PII; `/health` is the standalone Coolify probe |
 
 Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 `/terms`, `/refund`, `/connectlive/admin` (login), `/connectlive/payment`,
@@ -162,8 +162,8 @@ fix, and it needs your call before a migration touches it.
 
 - Agent tree: `SplashWindow.xaml.cs`, `MonitorSelector.cs`, `StreamListener.cs`, `StartupSelfHeal.cs`, `DxgiCapture.cs` all present; zero `MainWindow`/`NotifyIcon` hits under `agent/`.
 - Native console: `PredictiveCursor.cs`, `LiveSessionViewModel.cs`, `LiveSessionWindow.xaml` present — turns 1 and 2 confirmed on disk.
-- Web console: **gap confirmed** — `monitors` / `selected_monitor` appear only in `src/routes/api/public/agent/heartbeat.ts`; `/console` never reads them and never enqueues `switch_monitor`. Tier A item 1.
-- `src/routes/_authenticated/console.tsx` is **1,514 lines** (route shell + live view). Tier C item 8 **done** — presentational blocks now live in `src/components/console/*` with shared types in `src/lib/console-types.ts` and input mapping in `src/lib/console-input.ts`.
+- Web console: gap **closed** — `src/components/console/MonitorPicker.tsx` reads `devices.metadata.monitors` and `switchMonitor()` in `console.tsx` enqueues `switch_monitor` + `restart_stream`. Tier A item 1 done.
+- `src/routes/_authenticated/console.tsx` is **1,648 lines** (route shell + live view). Tier C item 8 **done** — presentational blocks now live in `src/components/console/*` with shared types in `src/lib/console-types.ts` and input mapping in `src/lib/console-input.ts`.
 - DB: `power_commands_kind_check` vocabulary matches the doc; 2 active pg_cron jobs; 7 tables in `supabase_realtime`; `sessions` now carries exactly 3 triggers.
 
 ### 2026 — Agent surface reduction + verification pass (`SCOPE:PRESENCE`)
