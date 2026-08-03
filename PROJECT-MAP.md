@@ -602,7 +602,8 @@ that plan does not currently name.
 
 No schema, no route behaviour, no C#. Every edit above is a comment or a
 document sentence that disagreed with the code, and in each case the **code
-was right**. The plan in §6 is unchanged: turn 4b is still next.
+was right**. *(Superseded by §9.5: the §6 order has since changed — turn 4b is
+no longer next; rollout + soak + ICE/TURN come first.)*
 
 
 ---
