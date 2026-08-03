@@ -510,3 +510,61 @@ this probe has already told us how many machines can use it.
 where `HwEncoderProbe` found silicon. VP8 stays the guaranteed fallback on both
 peers. After that Tier A is closed and the queue moves to Tier B (clipboard +
 file drop) or Tier C item 9 (device health panel), whichever you want first.
+
+---
+
+## 9. Audit — 2026-08-03 (pass 3, roadmap ↔ codebase ↔ live DB)
+
+Three independent sweeps: web/API (`src/`), native C# (`agent/`, `admin/`),
+and the live database. Method: every checkable claim in §3, §4 and §8 re-read
+against the file it names, then the DB re-queried rather than remembered.
+
+### 9.1 Confirmed — no drift
+
+| Area | Result |
+| --- | --- |
+| Server routes | 17 handlers on disk, every §3 row backed by a file; auth mechanism matches the doc on all of them (`verifyDevice` on all 11 agent routes, `BOOTSTRAP_TOKEN`, `login_attempts` lockout, HMAC on CDP, open on the two probes + `stats/orders`) |
+| `src/shared/api-routes.ts` | Zero drift — every registry entry resolves to a route file, and `admin/src/Api/ApiClient.cs:42` is the only hardcoded route string in the native console (`/api/public/auth/login`, exact match) |
+| Head metadata | All 11 web routes carry unique title + description + `og:*` + `twitter:card`; `/connectlive/admin`, `/connectlive/payment`, `/console` also carry `robots: noindex` + self-canonical |
+| Console modularity | `console.tsx` = **1,648** lines, 11 files in `src/components/console/`, 9 imported directly, `DirectNotifyModal`/`PowerMenu` nested — §8 row exact |
+| Input invariant | `session.$sessionId.inputs.ts:41-44` gates on `state=active AND mode=control`, `curtain_off`/`release_inputs` always pass; frame route 409s `not_active` |
+| Agent surface | One visible surface confirmed; zero `MainWindow`/`NotifyIcon`/`TrayIcon` hits under `agent/` |
+| Turns 1–4a | `StreamListener` wired at `Agent.cs:196`; `BitrateController` 6-rung ladder owned centrally and read per frame by `ScreenCapture.cs:33,70,110`; `HwEncoderProbe.LogCapability()` at `Agent.cs:165`; heartbeat sends `monitors[]` + `selected_monitor` + `encoder{}` + `lan{}` (`ApiClient.cs:244-296`) |
+| Power vocabulary | All 9 kinds handled in `PowerRelay.cs` (52/60/64/68/72/76/99/107/117) — matches `power_commands_kind_check` exactly |
+| Transport | VP8 pin + non-VP8 reject (`WebRtcSession.cs:158,193`); RR parsed **before** the PLI/FIR early-return (:262-275); RTT per RFC 3550 §6.4.1 (:295-307); PLI/FIR → `RequestKeyFrame` |
+| Render | `PredictiveCursor` driven from the render loop and gated on `InputAuthoritative` (`LiveSessionWindow.xaml.cs:77,131`); `VideoPipeline` is VP8-only as documented |
+| Live DB | 8 devices / **1** online · 2 sessions / **0** live · 11 orders · 167 audit rows · 424 notifications · 4 power commands · 7 realtime tables · 3 triggers on `sessions` · both cron jobs active. §8 snapshot still true, and the reaper is holding presence honest a day later. |
+| Route smoke | `verify-agent-routes.ts` 19/19 against `https://zoomlite.live`; `verify-payment-routes.ts` 5/5; `tsgo --noEmit` clean |
+
+### 9.2 Drift found and fixed in this pass (documentation truth)
+
+| File | Was | Now |
+| --- | --- | --- |
+| `ENDPOINTS.md` header | Production URL given as `secure-remote-view.lovable.app` while every canonical, the sitemap and both verifiers target `zoomlite.live` | Canonical URL stated first, platform alias kept as an alias |
+| `ENDPOINTS.md` consent row | "Legacy auto-ack; the standalone agent posts an implicit accept" — **flatly contradicts the §4 consent invariant** and the code | Describes the real gate: `ConsentPrompt` → `invited → active\|declined`, 409 otherwise, audit row either way |
+| `ENDPOINTS.md` stream row | "Retained server-side… the standalone agent uses adaptive heartbeat instead" — stale since the SSE client shipped | "Live on both ends", names `StreamListener.cs`, states heartbeat remains the source of truth |
+| `ENDPOINTS.md` ops table | `/health` missing entirely; cron auth and CDP webhook state undocumented | `/health` row added; anon-key cron caveat and the CDP **503 not-configured** state written down |
+| `PROJECT-MAP.md` §4 | "There is no `consented` state" — false in practice: the value appears in heartbeat, `prune_session_ephemera()`, the web console and the native `ApiClient` live-state filters | Reworded as a legacy value that is never written but must stay in every `IN (...)` filter until a migration retires it |
+| `session.$sessionId.consent.ts:26` | Comment said `invited -> consented\|declined`; the code writes `active` | Comment corrected — no behaviour change |
+
+### 9.3 Soft spots — open, nothing changed unilaterally
+
+Ordered by risk. None of these override the Tier A→C plan; they are the gaps
+that plan does not currently name.
+
+| # | Gap | Evidence | Cost |
+| --- | --- | --- | --- |
+| S1 | **`sessions.state` has no CHECK constraint.** `power_commands` guards both `kind` and `state`; the session state machine — the thing consent, capture gating and the reaper all key off — accepts any string a bug can write. | `pg_constraint` on `public.sessions` returns **zero** check rows | One migration: `CHECK (state IN ('invited','consented','active','paused','declined','ended'))`, plus a pre-flight `SELECT DISTINCT state` so no existing row is rejected |
+| S2 | **CDP webhook is not configured in production.** An unsigned POST returns `503 Webhook not configured`, so no real webhook can be verified either — every crypto payment is confirmed only by the once-a-minute cron reconciler. Slower confirmations, and a silent single point of failure. | `verify-payment-routes.ts` → `503`; secret list has `CDP_API_KEY_NAME`/`CDP_API_KEY_PRIVATE_KEY` but no webhook signing secret | Add the signing secret; the verifier flips to `401 invalid signature`, which is the correct closed state |
+| S3 | **The fleet is running an agent older than turns 2 and 4a.** The one online device (`EC2AMAZ-5UBQG30`) has `lan` in `metadata` but **no `monitors[]` and no `encoder{}`**. So the web monitor picker (Tier A item 1) renders nothing, the bitrate ladder is unobserved and the H.264 probe has reported from zero machines — three shipped turns with no production evidence behind them. | `devices.metadata` keys, all 8 rows | Windows build + rollout (`agent/build.ps1`); nothing to change in code |
+| S4 | **`verify-agent-routes.ts` mints a real device on every run.** The enroll assertion is a genuine keyless enrollment, so each run leaves an `Unnamed device` row — 6 of the 8 devices in the table are verifier ghosts. The 24 h reaper clears them, so this is noise, not a leak, but the device count in every snapshot is inflated. | 6 rows named `Unnamed device`, `last_seen_at` within 1 s of `enrolled_at`, no session, no power command | Either tag the enrollment (`hostname: "route-verifier"`) and delete it in a `finally`, or accept the noise and say so in §8 |
+| S5 | **Two agent files are undocumented.** `agent/src/InputBlocker.cs` and `agent/src/StartupRegistration.cs` appear nowhere in this map, despite owning the dead-man input block and the HKCU Run-key persistence — both security-relevant. | `rg` over `PROJECT-MAP.md` | Two rows in §2 / a changelog entry |
+| S6 | **`prune_session_ephemera()` is still invisible.** Tier C item 10 is half-shipped: the reaper runs every minute and writes `session.reaped` rows that nobody can read without psql. | §6 item 10 | The dashboard half of item 10 |
+| S7 | **Open decisions unchanged from §8**: `devices.standing_consent` still defaults `true`; `cron/reconcile-orders` still authenticates with the published anon key. | §8 "Open decisions" | Your call, one turn each |
+
+### 9.4 What this pass deliberately did not touch
+
+No schema, no route behaviour, no C#. Every edit above is a comment or a
+document sentence that disagreed with the code, and in each case the **code
+was right**. The plan in §6 is unchanged: turn 4b is still next.
+
