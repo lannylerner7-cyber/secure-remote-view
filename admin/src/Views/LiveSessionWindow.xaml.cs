@@ -123,7 +123,10 @@ public partial class LiveSessionWindow : Window
         double srcW = src.Width, srcH = src.Height;
         if (src is System.Windows.Media.Imaging.BitmapSource bs) { srcW = bs.PixelWidth; srcH = bs.PixelHeight; }
         else if (src is System.Windows.Interop.D3DImage d3d) { srcW = d3d.PixelWidth; srcH = d3d.PixelHeight; }
-        return ContentRect.Compute(FrameImage.ActualWidth, FrameImage.ActualHeight, srcW, srcH);
+        // allowUpscale MUST equal (FrameImage.StretchDirection != DownOnly).
+        // Read it off the element itself so XAML stays the single declaration.
+        return ContentRect.Compute(FrameImage.ActualWidth, FrameImage.ActualHeight, srcW, srcH,
+            allowUpscale: FrameImage.StretchDirection != StretchDirection.DownOnly);
     }
 
     private void UpdateCursorGhost()
