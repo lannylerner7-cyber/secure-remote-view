@@ -92,10 +92,63 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 - Every new `public` table gets `GRANT`s in the same migration as its RLS.
 - Input relay is gated on `state=active AND mode=control`; `curtain_off` and
   `release_inputs` always pass (dead-man safety).
+- **Presence is derived, never asserted.** `devices.status = 'online'` is only
+  true while heartbeats arrive; `prune_session_ephemera()` flips it to
+  `offline` after 3 missed minutes and ends any live session on a device that
+  has been silent for 10. Nothing in the app may set `online` without a
+  matching `last_seen_at`.
 
 ---
 
 ## 5. Change log (rolling — newest first)
+
+### 2026-08-03 — Truth pass 2 + presence reaper (`SCOPE:DATA`, `SCOPE:PRESENCE`, `SCOPE:WEB`)
+
+Three turns in one pass: docs made to match the code, head metadata completed
+on the three non-public routes, and the reaper that closes the gap between
+"what the DB says is happening" and "what is actually happening".
+
+| Scope | File | Change |
+| --- | --- | --- |
+| `SCOPE:PRESENCE` | migration → `public.prune_session_ephemera()` | **Presence reaper**, appended to the existing every-minute job. (1) Devices with `last_seen_at` older than 3 minutes flip to `offline` — three missed beats at the slowest (60 s, SSE-healthy) cadence, so a healthy agent can never be reaped. (2) Sessions in `invited/consented/active/paused` whose device has been silent for **10** minutes are ended, with a `session.reaped` row in `audit_logs` carrying `{reason:'device_silent'}`; the window is deliberately far wider than the offline mark so a network flip can still reconnect into its own session. (3) Ghost enrollments — a token was issued, the agent never came back — are deleted after 24 h, gated on *four* conditions (no second heartbeat, no name, no session ever, no power command ever) so a quiet-but-real device cannot be swept. |
+| `SCOPE:WEB` | `src/routes/connectlive.admin.tsx`, `connectlive.payment.tsx`, `_authenticated/console.tsx` | All three had a title and nothing else. Now full `head()`: description, `og:title`/`og:description`/`og:type`/`og:url`, `twitter:card`, self-referencing canonical, `robots: noindex` retained (console gained it — it was indexable-by-default before). No `og:image`: none of the three has a meaningful cover, and a placeholder previews worse than nothing. |
+| `SCOPE:PRESENCE` | `agent/README.md` | Stale since the standalone refactor: it advertised `src/TrayIcon.cs` and "every session shows a persistent on-screen indicator". Both are gone. Rewritten to state the real UI contract (5 s splash + consent prompt + curtain overlay, nothing else) and the file table now lists what actually ships — `StreamListener`, `StartupSelfHeal`, `MonitorSelector`, `BitrateController`, `HwEncoderProbe`, `DxgiCapture`. |
+| `SCOPE:PRESENCE` | `.env.sample` | Removed `AGENT_DEPLOYMENT_KEY` and the "Agent / Watcher" heading. Enrollment has been keyless + IP-rate-limited since the enrollment overhaul; leaving the variable in the sample invited someone to wire a gate the server no longer reads. `BOOTSTRAP_TOKEN`'s comment corrected — it gates `/admin/bootstrap`, not `/enroll`. |
+| `SCOPE:WEB` | `PROJECT-MAP.md` §3, §4, §8 | Route table notes the noindex/canonical set; new presence invariant; §8 re-snapshotted below against observed rows rather than remembered ones. |
+
+**Observed data-truth issues that motivated the reaper**
+
+These were real rows, not hypotheses — the reaper is the fix, and running it
+resolved all three:
+
+- 8 devices, **all** flagged `online`; only one (`EC2AMAZ-5UBQG30`) had
+  heartbeated within the hour. `devices.status` had no writer that could ever
+  say "offline" — the agent sets it on the way up and nothing sets it on the
+  way down. After the pass: 1 online / 8 total.
+- Session `decace85-2945-4094-b2e1-9b33fc925e8c` sat `active` with a null
+  `ended_at` since 2026-08-02 14:04 on a device last seen at 15:10 — a
+  ~17-hour zombie holding `is_session_active` true on `DESKTOP`. Reaped;
+  `trg_sessions_sync_device_active` correctly flipped the device flag to false,
+  which also confirms the surviving (column-scoped) trigger works.
+- 6 "Unnamed device" rows enrolled 2026-08-02, each with `last_seen_at` within
+  a second of `enrolled_at` and no session, no power command. Ghost
+  enrollments. They are inside the 24 h grace window at time of writing, so
+  the reaper deliberately left them; they age out on their own.
+
+**Deliberately NOT changed:** `devices.standing_consent` defaults to `true`,
+which reads against the "consent is a click" invariant. It is left alone
+because the agent's `ConsentPrompt` is the real gate and the column is only the
+*opt-in* record ("Always allow" stored under `HKCU\Software\ConnectLive`) —
+flipping the default is a product decision about unattended fleets, not a bug
+fix, and it needs your call before a migration touches it.
+
+**Verification run (this pass)**
+
+- `bunx tsgo --noEmit` — clean.
+- `select public.prune_session_ephemera();` executed against the live DB:
+  devices online 8 → 1, zombie session ended with `ended_at` set, one
+  `session.reaped` audit row written, `DESKTOP.is_session_active` → false.
+- Ghost-device delete verified as a **no-op** at 10 h age (the 24 h gate holds).
 
 ### 2026-08-02 — Truth pass: docs ↔ code ↔ DB reconciliation (`SCOPE:DATA`, `SCOPE:WEB`)
 
