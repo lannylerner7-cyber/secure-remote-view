@@ -127,6 +127,17 @@ public partial class LiveSessionViewModel : ObservableObject
     // desktop.
     private DateTime _lastFrameUtc = DateTime.MinValue;
 
+    // Pixel size of the most recent JPEG-path frame. This is the rung readout
+    // for the fallback transport: when the agent's BitrateController steps
+    // down, the source arrives smaller and the picture goes soft — the bar has
+    // to say so instead of letting it look like a renderer bug.
+    private int _jpegW, _jpegH;
+
+    partial void OnCurrentFrameChanged(System.Windows.Media.ImageSource? value)
+    {
+        if (value is BitmapSource bs) { _jpegW = bs.PixelWidth; _jpegH = bs.PixelHeight; }
+    }
+
     [ObservableProperty] private string linkState = "connecting";
 
     public void Start()
