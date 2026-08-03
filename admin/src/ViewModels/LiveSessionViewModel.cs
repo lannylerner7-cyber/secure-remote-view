@@ -267,13 +267,25 @@ public partial class LiveSessionViewModel : ObservableObject
             {
                 try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
                 var p = _rtc?.Pipeline;
-                if (p == null) continue;
-                var presenting = p.IsPresenting;
+                var presenting = p?.IsPresenting == true;
                 // S11 — the bar reports the whole hop, not just the decoder:
                 // render numbers, present path, media wire path, input path.
-                var text = presenting
-                    ? $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {p.SourceWidth}x{p.SourceHeight} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}"
-                    : null;
+                // On the JPEG path there is no pipeline, but the source size
+                // still has to be visible: it is the only on-screen evidence of
+                // which adaptive rung the agent is encoding at.
+                string? text;
+                if (presenting && p != null)
+                {
+                    text = $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {SourceLabel(p.SourceWidth, p.SourceHeight)} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                }
+                else if (_jpegW > 0 && _jpegH > 0)
+                {
+                    text = $"{SourceLabel(_jpegW, _jpegH)} · jpeg · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                }
+                else
+                {
+                    text = null;
+                }
                 Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
                     VideoStats = text;
