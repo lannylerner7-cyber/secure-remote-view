@@ -114,6 +114,32 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S8 harness landed: soak driver (`SCOPE:TRANSPORT`, `SCOPE:REALTIME`)
+
+- New **`scripts/e2e-soak.ts`** — the endurance driver S8 was missing. It spawns
+  `SOAK_AGENTS` virtual agents; each one enrolls for real through
+  `/api/public/agent/enroll` (keyless, so the harness exercises the production
+  enrollment path, rate limiter included), heartbeats every 15 s, opens an
+  `active` session, and pushes JPEG frames + cursor telemetry at `SOAK_FPS` for
+  `SOAK_DURATION_S`.
+- **Latency is measured end to end, not asserted**: a per-session Realtime
+  subscriber using the console's own `postgres_changes` filters timestamps the
+  delivery of each push, and the report prints p50 / p95 / p99 / max separately
+  for frames and cursors, plus ok/err counts and error rate per hop
+  (`enroll`, `heartbeat`, `frame`, `cursor`).
+- **Exit code is a gate**: any hop above a 1 % error rate fails the run, so the
+  soak can sit in CI or a release checklist rather than being read by eye.
+- **Always cleans up** — every enrolled device and its sessions are deleted at
+  the end, and devices are tagged `os: "soak"` / `hostname: soak-*` so a killed
+  run leaves greppable rows rather than mystery fleet members.
+- First validation run (3 agents × 15 s × 2 fps, localhost): 0 % error on all
+  four hops; frame p50 1568 ms / p95 5096 ms, cursor p50 2473 ms / p95 4417 ms —
+  that is the **HTTPS+Realtime fallback path**, not the native WebRTC path, and
+  it is the baseline the render soak has to beat.
+- **Still open on S8:** the native-render half (working set, decode errors,
+  tear/colour drift, forced mid-run `switch_monitor`) needs the S3 fleet rollout
+  and a Windows box; this harness covers the server, presence and realtime hops.
+
 ### 2026-08-03 — S14 closed: agent self-update (`SCOPE:PRESENCE`)
 
 - New **`agent/src/SelfUpdate.cs`** — download → verify → swap → restart, run
@@ -831,7 +857,7 @@ unilaterally.
 
 | # | Gap | Evidence | Cost |
 | --- | --- | --- | --- |
-| S8 | **The SOAK has never run, and turn 4b is queued on top of it.** No verification run in §5 or §9 contains a sustained-motion endurance test of the native render path — no leak check, no tear check, no color-drift check, no forced mid-session resolution change. Compounded by open S3: the entire fleet runs an agent older than turns 2 and 4a, so the bitrate ladder, `monitors[]`, and the H.264 probe have zero production evidence. Turn 4b (hardware H.264) would be the fourth consecutive turn shipped with no field observation behind it. | §5/§9 verification runs list `tsgo`, route verifiers, and DB queries only; S3 row (`devices.metadata` on all 8 rows); §6 "Next up" names 4b as next | Rollout via `agent/build.ps1` (S3's own remedy) + one scripted 10-min soak: per-minute log of fps, queue depth, working set, decode errors; forced `switch_monitor` mid-run; pass/fail written into §8. **Sequencing change, near-zero code** |
+| S8 | **PARTIALLY CLOSED 2026-08-03 — soak harness landed (see §5): `scripts/e2e-soak.ts` drives N virtual agents through the real enrollment/heartbeat/frame/cursor path, measures end-to-end Realtime delivery p50/p95/p99, and exits non-zero on >1 % error per hop. First validation run (3×15 s×2 fps, localhost): 0 % errors, frame p50 1568 ms / p95 5096 ms (HTTPS + Realtime fallback baseline).** Remaining: the native-render half — sustained-motion fps, working set, decode errors, tear/colour drift, forced mid-session `switch_monitor` — still needs S3 fleet rollout on a Windows box. Original finding: no verification run in §5 or §9 contained a sustained-motion endurance test of the native render path — no leak check, no tear check, no color-drift check, no forced mid-session resolution change. Compounded by open S3: the entire fleet runs an agent older than turns 2 and 4a, so the bitrate ladder, `monitors[]`, and the H.264 probe have zero production evidence. Turn 4b (hardware H.264) would be the fourth consecutive turn shipped with no field observation behind it. | §5/§9 verification runs list `tsgo`, route verifiers, and DB queries only; S3 row (`devices.metadata` on all 8 rows); §6 "Next up" names 4b as next | Rollout via `agent/build.ps1` (S3's own remedy) + one scripted 10-min soak: per-minute log of fps, queue depth, working set, decode errors; forced `switch_monitor` mid-run; pass/fail written into §8. **Sequencing change, near-zero code** |
 | S9 | **PARTIALLY CLOSED 2026-08-03 — gateway shipped, TURN not deployed.** Original finding: TURN and an ICE-config gateway are absent from all 12 backlog items.** §2 states "RTP/VP8, STUN only"; no `agent/ice` route exists in §3; both peers hardcode a public STUN server. A commercial remote-support tool meets symmetric NAT and corporate egress filtering as a matter of course — those sessions silently degrade to the JPEG fallback, which is the exact lag the engine was built to escape, and nothing measures how often it happens. | §2 system map; §3 route table (no ice row); §6 Tiers A–C (no TURN/ICE item); §7 candidate scopes (no TURN/ICE item) | One route (`/api/public/agent/ice` + admin equivalent, device-token/JWT authed, returns STUN+TURN set), a coturn or managed-TURN deployment with per-session ephemeral credentials, and a `wire_path` telemetry field (`host/srflx/relay`) in the heartbeat so relay rate becomes a number. Tier A sized | — **Status:** `/api/public/agent/ice` now exists and all three peers consume it with STUN fallback (see §5). Remaining: deploy coturn/managed TURN and set `TURN_URLS` + `TURN_STATIC_SECRET`, and emit `wire_path` in the heartbeat.
 | S10 | **CLOSED 2026-08-03 — input rides the datachannel with REST fallback.** Original finding: agent's ondatachannel handler exists but no admin ever opened one; every click paid REST round-trip. — **Status:** `admin/src/Input/InputTransport.cs` owns the transport switch; `WebRtcClient.NegotiateAsync` opens an ordered `input` datachannel before `createOffer` and attaches it. `MouseInjector`/`KeyboardInjector` now call `InputTransport.SendAsync`; safety kinds `curtain_off` / `release_inputs` stay pinned to REST. First send failure demotes the session to REST for good, and the per-minute stats line now includes `input.path` + `dc.sent` + `rest.fallback` counters. |
 | S11 | **CLOSED 2026-08-03 — render telemetry shipped (see §5): `session_telemetry` table, per-minute rows from the native console, live-window status bar, and the console Audit tab `RenderHealthPanel`. S8 now has pass criteria to read.** Original finding: nothing measures the render path. No fps counter, no decode-to-present latency, no dropped-frame counter anywhere in `SCOPE:RENDER`. Tier C item 9 (device health panel) surfaces agent-side facts only. Without these numbers the soak (S8) has no pass criteria and turn 4b's entire justification — "sharper, lower latency than software VP8" — cannot be demonstrated, only asserted. | §6 Tier C item 9 scope text; absence of any fps/latency mention in §4, §5, §8, §9 | `RenderStats` on the admin: frames decoded/presented/dropped per second, decode-ms and upload-ms rolling averages, exposed in the live-window status bar + logged. Feeds S8's soak log directly. Small |
