@@ -233,6 +233,19 @@ public sealed class Agent
                 await DispatchPendingSessions(body, ct);
                 await DispatchPowerCommands(body, ct);
 
+                // S14 — self-update. Only when idle (no live session) and at
+                // most hourly; returns true once the replacement process has
+                // been launched, at which point this one hands over and exits.
+                if (string.IsNullOrEmpty(_currentSessionId) && SelfUpdate.DueForCheck)
+                {
+                    if (await SelfUpdate.TryUpdateAsync(_api, ct))
+                    {
+                        Log.Info("self-update: handing over to the new build");
+                        Environment.Exit(0);
+                        return;
+                    }
+                }
+
                 // Interruptible sleep: a wake nudge (wake_agent power command)
                 // cuts it short. Cadence is fast while a session is active.
                 var idleDelay = StreamListener.Healthy ? slowDelaySse : slowDelayFast;
