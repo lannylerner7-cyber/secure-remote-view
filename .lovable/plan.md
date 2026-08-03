@@ -14,7 +14,9 @@ Why it's still open: the build is a Windows-only toolchain (`dotnet publish` + I
 ### 2. No TURN server deployed (S9, half-open)
 `/api/public/agent/ice` exists and all three peers consume it, but `TURN_URLS` / `TURN_STATIC_SECRET` are unset, so the response is STUN-only. Symmetric NAT and corporate egress filtering will silently degrade those sessions to the JPEG fallback — exactly the lag the video engine was built to escape.
 
-Why it's still open: it needs a TURN relay host, not code. Google does **not** offer a public TURN service; `stun.l.google.com` is STUN-only. A TURN relay must be either a self-hosted coturn VM (Google Cloud, AWS, Azure, Hetzner, etc.) or a paid managed TURN provider (Twilio, Xirsys, Cloudflare Calls, Daily, etc.).
+Why it's still open: it needs a TURN relay host, not code. Google does **not** offer a public TURN service; `stun.l.google.com` is STUN-only. A TURN relay must be either a self-hosted coturn VM or a paid managed TURN provider.
+
+**Cloudflare Calls TURN is the cleanest fit.** It gives you a global anycast relay network and mints per-session credentials through the Cloudflare API, so `/api/public/agent/ice` can return fresh `username`/`credential` pairs for every peer without a static secret in the agent. Pricing is metered by data relayed.
 
 ### 3. Soak proves the wire, not the picture (S8, half-open)
 `scripts/e2e-soak.ts` measures enrollment/heartbeat/frame/cursor latency through Realtime and gates on error rate. It does not measure the native render half: sustained-motion fps, working set growth, decode errors, tearing, colour drift, or a forced mid-run `switch_monitor`.
@@ -69,6 +71,34 @@ Changes:
 - The HKLM Run key runs for *every* user who logs into the box. That is intended for a shared/kiosk machine, and each session enrolls against the same DPAPI-sealed `device.dat` under `%LOCALAPPDATA%`, so a second user will enroll as a second device. Worth confirming this is the behaviour you want before I ship the HKLM key — say the word and I'll drop trigger 2 and rely on the scheduled task for the multi-user case.
 - No changes to the agent C# source in this plan; it is packaging and docs only.
 
+## Cloudflare Calls TURN — what you need and how we'd wire it
+
+**What you need from Cloudflare:**
+1. A Cloudflare account.
+2. The **Calls** product enabled in the Cloudflare dashboard.
+3. A Calls app — this gives you an **App ID** and an **App Token** (the token is the secret; the ID is not secret).
+
+**What the code change looks like:**
+- Add `CLOUDFLARE_CALLS_APP_ID` and `CLOUDFLARE_CALLS_APP_TOKEN` as runtime secrets.
+- In `/api/public/agent/ice`, when those secrets are present, call Cloudflare's TURN credentials endpoint (`POST https://rtc.live.cloudflare.com/v1/turn/keys/{app_id}/credentials/generate`) with a short-lived expiry (e.g. 24 hours).
+- Return the Cloudflare TURN URLs + the minted username/credential in the `iceServers` array, alongside the existing STUN set.
+- Keep the coturn branch as a fallback so you can switch providers without a code deploy.
+
+**Why this is better than a static secret:**
+- Each agent and each admin console gets its own short-lived credential.
+- No long-lived TURN password lives in the agent binary or env.
+- Cloudflare's relay is anycast, so latency is usually lower than a single self-hosted VM.
+
+**What you pay:** Cloudflare Calls bills for relayed data; STUN is free. For a helpdesk tool this is typically small per active session.
+
+**Setup steps (you do this once in Cloudflare):**
+1. Go to **Cloudflare dashboard → Calls** (or search "Calls").
+2. Create a new Calls app.
+3. Copy the **App ID** and create an **App Token**.
+4. Paste both into the secure form when I request them.
+
+Then I update `/api/public/agent/ice` and `.env.sample` in the same turn.
+
 ## Not in this plan
 
-Code signing, TURN deployment, publishing `releases` rows, and the Windows build itself — those are infrastructure/ops actions that need to happen on your side, not code changes I can make here.
+Code signing, publishing `releases` rows, and the Windows build itself — those are infrastructure/ops actions that need to happen on your side, not code changes I can make here.
