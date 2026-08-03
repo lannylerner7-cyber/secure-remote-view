@@ -33,7 +33,26 @@ import { MonitorPicker, type MonitorEntry } from "@/components/console/MonitorPi
 
 export const Route = createFileRoute("/_authenticated/console")({
   component: AdminPage,
-  head: () => ({ meta: [{ title: "Admin — ConnectLive" }] }),
+  head: () => ({
+    meta: [
+      { title: "Technician console — ConnectLive" },
+      {
+        name: "description",
+        content:
+          "ConnectLive technician console: enrolled devices, consent-gated live sessions, remote input, power commands and payment administration.",
+      },
+      { property: "og:title", content: "Technician console — ConnectLive" },
+      {
+        property: "og:description",
+        content: "Live device fleet, consent-gated remote sessions and session history.",
+      },
+      { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://zoomlite.live/console" },
+      { name: "twitter:card", content: "summary" },
+      { name: "robots", content: "noindex" },
+    ],
+    links: [{ rel: "canonical", href: "https://zoomlite.live/console" }],
+  }),
   validateSearch: (raw: Record<string, unknown>): { tab?: Nav } => {
     const t = typeof raw.tab === "string" ? raw.tab : undefined;
     return t && (NAV_VALUES as readonly string[]).includes(t) ? { tab: t as Nav } : {};
