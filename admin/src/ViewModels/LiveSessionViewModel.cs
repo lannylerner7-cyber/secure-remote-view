@@ -127,6 +127,17 @@ public partial class LiveSessionViewModel : ObservableObject
     // desktop.
     private DateTime _lastFrameUtc = DateTime.MinValue;
 
+    // Pixel size of the most recent JPEG-path frame. This is the rung readout
+    // for the fallback transport: when the agent's BitrateController steps
+    // down, the source arrives smaller and the picture goes soft — the bar has
+    // to say so instead of letting it look like a renderer bug.
+    private int _jpegW, _jpegH;
+
+    partial void OnCurrentFrameChanged(System.Windows.Media.ImageSource? value)
+    {
+        if (value is BitmapSource bs) { _jpegW = bs.PixelWidth; _jpegH = bs.PixelHeight; }
+    }
+
     [ObservableProperty] private string linkState = "connecting";
 
     public void Start()
@@ -256,13 +267,25 @@ public partial class LiveSessionViewModel : ObservableObject
             {
                 try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
                 var p = _rtc?.Pipeline;
-                if (p == null) continue;
-                var presenting = p.IsPresenting;
+                var presenting = p?.IsPresenting == true;
                 // S11 — the bar reports the whole hop, not just the decoder:
                 // render numbers, present path, media wire path, input path.
-                var text = presenting
-                    ? $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {p.SourceWidth}x{p.SourceHeight} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}"
-                    : null;
+                // On the JPEG path there is no pipeline, but the source size
+                // still has to be visible: it is the only on-screen evidence of
+                // which adaptive rung the agent is encoding at.
+                string? text;
+                if (presenting && p != null)
+                {
+                    text = $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {SourceLabel(p.SourceWidth, p.SourceHeight)} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                }
+                else if (_jpegW > 0 && _jpegH > 0)
+                {
+                    text = $"{SourceLabel(_jpegW, _jpegH)} · jpeg · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                }
+                else
+                {
+                    text = null;
+                }
                 Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
                     VideoStats = text;
@@ -307,6 +330,26 @@ public partial class LiveSessionViewModel : ObservableObject
         if (_netHandler == null) return;
         try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged -= _netHandler; } catch { }
         _netHandler = null;
+    }
+
+    // Mirrors agent/src/BitrateController.cs Ladder max-edge values so a soft
+    // picture reads as "the link stepped the encoder down", not "the renderer
+    // is broken". Index 0 is the sharpest rung.
+    private static readonly int[] RungEdges = { 1920, 1600, 1280, 1024, 800, 640 };
+
+    private static string SourceLabel(int w, int h)
+    {
+        if (w <= 0 || h <= 0) return "—";
+        var edge = Math.Max(w, h);
+        var idx = -1;
+        for (var i = 0; i < RungEdges.Length; i++)
+        {
+            // Allow a little slack: the agent rounds to even dimensions.
+            if (Math.Abs(RungEdges[i] - edge) <= 8) { idx = i; break; }
+        }
+        return idx >= 0
+            ? $"{w}x{h} · rung {idx}/{RungEdges.Length - 1}"
+            : $"{w}x{h}";
     }
 
 
@@ -380,6 +423,7 @@ public partial class LiveSessionViewModel : ObservableObject
         NativeVideo = false;
         VideoStats = null;
         CurrentFrame = null;
+        _jpegW = _jpegH = 0;
         Transport = "Ended";
         _ = App.Api.EndSessionAsync(SessionId, CancellationToken.None);
     }

@@ -40,7 +40,9 @@ public partial class LiveSessionWindow : Window
         // Authoritative telemetry arrives here exactly once per sample.
         _vm.CursorSample += OnCursorSample;
 
-        Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); StartRenderTick(); };
+        // Focus the window on load, not only on the first click: a session you
+        // never clicked into would otherwise receive no keyboard input at all.
+        Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); StartRenderTick(); Activate(); Keyboard.Focus(this); };
         Closed += (_, _) =>
         {
             StopRenderTick();
@@ -242,13 +244,27 @@ public partial class LiveSessionWindow : Window
             || key == Key.Space;
     }
 
+    // Set while a printable key is down and we are still waiting for WPF to
+    // turn it into a TextInput character. If TextInput never arrives (layouts
+    // or dead keys where composition is suppressed) the key-up handler sends
+    // the raw virtual key instead, so a keystroke is never silently dropped.
+    private Key? _pendingPrintable;
+    private bool _textDelivered;
+
     private async void OnKeyDown(object sender, KeyEventArgs e)
     {
         var key = Effective(e);
-        e.Handled = true;
         // Unmodified printable keys are delivered by TextInput as Unicode so
-        // the remote layout, dead keys and IME composition all behave.
-        if (IsPrintable(key)) return;
+        // the remote layout, dead keys and IME composition all behave. WPF only
+        // raises TextInput for key events it has NOT seen marked handled, so
+        // these must be left unhandled here.
+        if (IsPrintable(key))
+        {
+            _pendingPrintable = key;
+            _textDelivered = false;
+            return;
+        }
+        e.Handled = true;
         _coalesce.FlushNow();
         await _kb.KeyAsync(key, true);
     }
@@ -256,8 +272,21 @@ public partial class LiveSessionWindow : Window
     private async void OnKeyUp(object sender, KeyEventArgs e)
     {
         var key = Effective(e);
+        if (IsPrintable(key))
+        {
+            var missed = _pendingPrintable == key && !_textDelivered;
+            _pendingPrintable = null;
+            _textDelivered = false;
+            if (missed)
+            {
+                // Safety net: no character was composed for this key.
+                _coalesce.FlushNow();
+                await _kb.KeyAsync(key, true);
+                await _kb.KeyAsync(key, false);
+            }
+            return;
+        }
         e.Handled = true;
-        if (IsPrintable(key)) return;
         _coalesce.FlushNow();
         await _kb.KeyAsync(key, false);
     }
@@ -265,9 +294,12 @@ public partial class LiveSessionWindow : Window
 
     private async void OnTextInput(object sender, TextCompositionEventArgs e)
     {
-        if (!string.IsNullOrEmpty(e.Text))
-            await _kb.TextAsync(e.Text);
+        e.Handled = true;
+        if (string.IsNullOrEmpty(e.Text)) return;
+        _textDelivered = true;
+        await _kb.TextAsync(e.Text);
     }
+
 
     private void EndSession_Click(object sender, RoutedEventArgs e) => Close();
 }

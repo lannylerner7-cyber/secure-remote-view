@@ -114,6 +114,33 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — Native console: keyboard dead + picture soft (`SCOPE:INPUT` / `SCOPE:RENDER`)
+
+- **Typing did nothing in `ConnectLiveAdmin.exe` while the web console typed
+  fine.** `LiveSessionWindow.OnKeyDown` set `e.Handled = true` for *every* key
+  and then returned early for printable ones, expecting `TextInput` to carry the
+  character. WPF never raises `TextInput` for a key event that was already
+  marked handled, so letters, digits, punctuation and space were dropped
+  entirely; only non-printables (Enter, Tab, arrows, Ctrl/Alt combos) reached
+  the agent. **Fix:** `e.Handled` is now set only for non-printable keys; a
+  `_pendingPrintable` stamp cleared by `OnTextInput` lets key-up send the raw
+  `vk` down+up when no character was composed (dead keys / exotic layouts), so a
+  keystroke can never be silently lost. The window also takes keyboard focus on
+  `Loaded`, not just on first click. No change to `KeyboardInjector` /
+  `InputTransport` — the `{ vk }` / `{ text }` payloads already match
+  `agent/src/InputRelay.cs`.
+- **Soft picture.** `FrameImage` scaled with WPF's default bilinear filter and
+  unrounded layout, which smears remote text when a 1920px source is drawn into
+  a ~1100px element. Now `RenderOptions.BitmapScalingMode="HighQuality"` (Fant)
+  with `StretchDirection="DownOnly"`, `UseLayoutRounding` and
+  `SnapsToDevicePixels` on the host grid.
+- **Rung is now readable.** `VideoStats` renders the source size as
+  `1280x720 · rung 2/5` (edges mirrored from `agent/src/BitrateController.cs`)
+  and, on the JPEG fallback path where there is no `VideoPipeline`, reports the
+  decoded frame's own pixel size. A soft picture now says whether the agent
+  stepped the encoder down or whether the presenter is at fault.
+
+
 ### 2026-08-03 — S12 closed: admin D3D device-lost survival (`SCOPE:RENDER`)
 
 - **What was actually broken.** `D3DImageHost` recovered from exactly one of the

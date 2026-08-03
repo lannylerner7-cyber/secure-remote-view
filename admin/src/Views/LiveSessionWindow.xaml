@@ -87,15 +87,23 @@
             </DockPanel>
         </Border>
 
-        <Grid Background="Black">
+        <Grid Background="Black" UseLayoutRounding="True" SnapsToDevicePixels="True"
+              Focusable="True" FocusVisualStyle="{x:Null}">
+            <!-- HighQuality (Fant) is the correct downscale filter for remote
+                 desktop text; the default bilinear pass smears 1920px sources
+                 into a ~1100px element. DownOnly keeps a small source crisp
+                 rather than blowing it up. -->
             <Image x:Name="FrameImage" Source="{Binding CurrentFrame}"
-                   Stretch="Uniform"
+                   Stretch="Uniform" StretchDirection="DownOnly"
+                   RenderOptions.BitmapScalingMode="HighQuality"
+                   UseLayoutRounding="True" SnapsToDevicePixels="True"
                    MouseMove="Frame_MouseMove"
                    MouseLeftButtonDown="Frame_MouseDown"
                    MouseLeftButtonUp="Frame_MouseUp"
                    MouseRightButtonDown="Frame_MouseRightDown"
                    MouseRightButtonUp="Frame_MouseRightUp"
                    MouseWheel="Frame_MouseWheel" />
+
 
             <!-- Ghost cursor overlay driven by CursorPollPump.
                  The window's SizeChanged handler keeps offsets in sync with
