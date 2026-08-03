@@ -174,7 +174,7 @@ public sealed class ApiClient
 
     // Runs a request, and on a single 401 wipes local creds + re-enrolls (once,
     // guarded by _enrollLock so parallel loops don't stampede), then retries.
-    // A second 401 marks the deployment key as revoked and backs off 60s.
+    // A second 401 marks the enrollment as revoked and backs off 60s.
     // Callers must not dispose the returned response before consuming it.
     private async Task<HttpResponseMessage> SendAuthedAsync(Func<HttpRequestMessage> build, CancellationToken ct)
     {
