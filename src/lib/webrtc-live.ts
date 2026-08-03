@@ -25,8 +25,32 @@
 import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
 
-/** STUN-only. No TURN / external relay service. */
+/** Fallback only. The live set comes from the ICE gateway (S9), which adds
+ *  TURN when the deployment has a relay configured. */
 const STUN_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+
+/**
+ * S9 — fetch the ICE server set from the authenticated gateway. Never throws:
+ * a failure keeps the hardcoded STUN set so a relay outage cannot take the
+ * session offline, it only removes the relay path.
+ */
+async function fetchIceServers(): Promise<RTCIceServer[]> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return STUN_SERVERS;
+    const resp = await fetch(API_ROUTES.agentIce, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) return STUN_SERVERS;
+    const body = (await resp.json()) as { iceServers?: RTCIceServer[]; turn?: boolean };
+    if (!Array.isArray(body.iceServers) || body.iceServers.length === 0) return STUN_SERVERS;
+    console.info(`[webrtc] ice gateway: ${body.iceServers.length} server set(s), turn=${!!body.turn}`);
+    return body.iceServers;
+  } catch {
+    return STUN_SERVERS;
+  }
+}
 const WEB_CLIENT_KEY = "connectlive.web_client_id";
 const CURSOR_KEY = (sessionId: string) => `connectlive.sig_cursor.${sessionId}`;
 const HEARTBEAT_MS = 15_000;
