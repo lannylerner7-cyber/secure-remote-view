@@ -114,6 +114,56 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S12 closed: admin D3D device-lost survival (`SCOPE:RENDER`)
+
+- **What was actually broken.** `D3DImageHost` recovered from exactly one of the
+  four ways a technician's D3D9Ex device dies:
+  1. TDR / GPU hang — handled before this turn (`TestCooperativeLevel` → rebuild).
+  2. **Driver update / reinstall** — `D3DERR_DEVICEREMOVED` also invalidates the
+     `IDirect3D9Ex` *factory*; the old code kept it and every `CreateDeviceEx`
+     retry failed against a dead driver, so the session fell to bitmap for good.
+  3. **RDP attach/detach, screen lock, laptop dGPU↔iGPU flip** — WPF drops the
+     front buffer and produces **no HRESULT at all**; nothing in the polling path
+     could ever see it. `Image.IsFrontBufferAvailableChanged` is now subscribed
+     and rebuilds device + surface when the buffer returns.
+  4. **Endless thrash** — a permanently sick GPU strobed between D3D and bitmap
+     forever. A guard retires the D3D path after
+     `MaxLossesPerWindow` (5) losses inside `LossWindowMs` (10 s); the caller
+     then stays on the `WriteableBitmap` presenter for the session. A degraded
+     picture beats a strobing one.
+- **Also fixed:** `ReleaseSurface` called `Dispatcher.Invoke` unconditionally —
+  reachable from the UI thread itself via the new front-buffer handler, which
+  would have deadlocked; it now checks `CheckAccess()` first.
+- **Observability.** `DeviceLost(reason)` / `DeviceRecovered` events plus
+  `DeviceLosses`, `DeviceRecoveries`, `LastLossReason`, and `HealthLine()`.
+  `VideoPipeline` subscribes both edges: the session log gets
+  "GPU device lost (…) — rebuilding the present path" / "GPU device recovered",
+  the pill demotes off `UsingD3D` immediately, the per-minute stats line carries
+  `losses=`/`recovered=`/`lastloss=`, and S11 telemetry `render_path` now reads
+  e.g. `d3d lost2/rec2` so a GPU reset on the technician's box is visible in the
+  web console's Audit tab without a new column.
+- **Evidence harness (the S12 ask).** `admin/spikes/d3d-present` gained an
+  automated mode against the *shipping* host — no parallel implementation:
+
+  ```text
+  dotnet run --project admin/spikes/d3d-present -- --auto
+  ```
+
+  It drives class 1 (`SimulateDeviceLossForTest`), class 2
+  (`SimulateDeviceLossForTest(removed: true)`), class 3
+  (`SimulateFrontBufferLossForTest`), the G3 park→resume ×3 no-device-churn
+  check, and class 4 (thrash guard), asserting after each that frames present
+  again and the device count rose by exactly the losses caused. Writes
+  `s12-evidence.txt` next to the exe and exits 0 (pass) / 1 (fail). On a host
+  with no usable D3D it reports SKIP rather than a false failure — the bitmap
+  presenter is the contract fallback there.
+- Interactive buttons added for the same three classes so a technician box can
+  be exercised by hand alongside `dxcap -forcetdr`.
+- Files: `admin/src/Media/D3DImageHost.cs`, `admin/src/Media/VideoPipeline.cs`,
+  `admin/src/Media/WebRtcClient.cs`, `admin/spikes/d3d-present/SpikeWindow.cs`.
+
+
+
 ### 2026-08-03 — S8 harness landed: soak driver (`SCOPE:TRANSPORT`, `SCOPE:REALTIME`)
 
 - New **`scripts/e2e-soak.ts`** — the endurance driver S8 was missing. It spawns
