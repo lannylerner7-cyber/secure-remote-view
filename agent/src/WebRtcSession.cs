@@ -124,7 +124,7 @@ public sealed class WebRtcSession : IDisposable
         // BuildPeer falls back to STUN if this hasn't landed yet.
         _ = Task.Run(async () =>
         {
-            var cfg = await App.Api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
+            var cfg = await _api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
             if (cfg == null) return;
             var list = new List<RTCIceServer>();
             foreach (var s in cfg.IceServers!)
