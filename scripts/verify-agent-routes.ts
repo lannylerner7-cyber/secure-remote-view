@@ -47,9 +47,16 @@ async function hit(
 
   // Open auto-enrollment (no deployment key since the enrollment overhaul).
   // 200 = a machine token was minted, 429 = IP rate limit tripped.
+  //
+  // This is a REAL enrollment — it leaves a real device row behind. We tag it
+  // `hostname: "route-verifier"`, which the enroll route also copies into
+  // `display_name`. That name makes the row INVISIBLE to the ordinary 24 h
+  // nameless-ghost sweep, so the reaper carries a dedicated clause that
+  // deletes `hostname = 'route-verifier'` rows after 1 h. Changing this string
+  // without changing `prune_session_ephemera()` leaks a device row per run.
   await hit("POST", "/api/public/agent/enroll", [200, 429, 503], {
     headers: { "content-type": "application/json" },
-    body: "{}",
+    body: JSON.stringify({ hostname: "route-verifier", os: "route-verifier" }),
   });
 
 

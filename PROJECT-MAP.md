@@ -36,6 +36,8 @@ Used in every changelog entry below and in commit-style notes.
    ├ ScreenCapture.cs    ──jpeg───────►  /agent/session/:id/frame ────┼► Media/FrameFallbackPump
    ├ CursorPump.cs       ──x,y────────►  /agent/session/:id/cursor ───┼► Media/CursorPollPump
    ├ InputRelay.cs       ◄─poll────────  /agent/session/:id/inputs ◄──┼─ Input/MouseInjector
+   │   └ InputBlocker.cs  (curtain: LL hooks swallow physical input)  │
+   ├ StartupRegistration.cs ← StartupSelfHeal.cs  (HKCU Run key)      │
    └ WebRtcSession.cs    ◄─signal──────  /agent/session/:id/signal ◄──┼─ Media/WebRtcClient
                               └── RTP/VP8, STUN only ─────────────────┴► Media/VideoPipeline
                                                                           → FrameConvert
@@ -89,7 +91,10 @@ additionally carry `robots: noindex` and a self-referencing canonical.
   writes, but heartbeat, `prune_session_ephemera()`, the web console and
   `admin/src/Api/ApiClient.cs` all still include it in their "live" filters, so
   it must stay in those `IN (...)` lists until a migration retires it.
-  `sessions.state` has **no CHECK constraint** — see §9.
+  `sessions.state` and `sessions.mode` are now guarded by validated CHECK
+  constraints (`sessions_state_check`, `sessions_mode_check`) — the six states
+  above and `view`/`control`. Widening the vocabulary is a migration, not a
+  string edit.
 - Decode **off** the UI thread, present **on** it, drop the **oldest** frame.
 - Colour is BT.601 limited range. A hue drift means someone changed the
   matrix — revert, don't tune.
@@ -106,6 +111,20 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 ---
 
 ## 5. Change log (rolling — newest first)
+
+### 2026-08-03 — Gap merge S1 / S4 / S5 (`SCOPE:DATA`, `SCOPE:PRESENCE`)
+
+Closing §9.3 soft spots one at a time, each validated three times before the
+next was started.
+
+| Scope | File / object | Change |
+| --- | --- | --- |
+| `SCOPE:DATA` | migration → `public.sessions` | **S1 closed.** `sessions_state_check` (`invited\|consented\|active\|paused\|declined\|ended`) and `sessions_mode_check` (`view\|control`), both `convalidated = true`. Pre-flight showed the only live values were `ended` / `view` / `control`, and all state+mode write sites in `src/`, `agent/src/` and `admin/src/` fall inside the vocabulary, so nothing had to change in code. The state machine consent, capture gating and the reaper all key off can no longer be handed an arbitrary string. Widening it is now a migration, not a string edit. |
+| `SCOPE:PRESENCE` | `scripts/verify-agent-routes.ts` | **S4, half 1.** The enroll assertion is a real keyless enrollment, so it now tags itself `hostname: "route-verifier"`. Note the trap this walked into first: the enroll route copies `hostname` into `display_name`, which makes the row *invisible* to the 24 h nameless-ghost sweep — a naive tag would have leaked a permanent row per run instead of a temporary one. |
+| `SCOPE:PRESENCE` | migration → `public.prune_session_ephemera()` | **S4, half 2.** New clause 4 deletes `hostname = 'route-verifier'` rows after 1 h, still gated on "never in a session, never got a power command" so a real machine carrying the reserved hostname cannot be deleted mid-session. Clauses 1–3 re-verified byte-for-byte; `SECURITY DEFINER` + `search_path=public` preserved. Verified against live rows: the two real devices and the NULL-hostname legacy ghosts all evaluate **false** against the new predicate. |
+| `SCOPE:PRESENCE` | `agent/src/InputBlocker.cs`, `agent/src/StartupRegistration.cs` | **S5 closed.** Both now appear in the §2 system map. `InputBlocker` is the curtain: `WH_MOUSE_LL`/`WH_KEYBOARD_LL` hooks on a dedicated STA message-pump thread that swallow physical input while engaged, passing admin `SendInput` through on a `dwExtraInfo` magic (`CLIV`). It fails **open** — `ProcessExit`, unhandled exception, `SessionSwitch` (lock / Ctrl+Alt+Del / RDP disconnect), a 5 s input-pump watchdog and heartbeat loss all release it, so a crashed agent can never leave a user locked out of their own keyboard. `StartupRegistration` owns the HKCU Run key (`"<exe>" /background`), written by the agent itself rather than the installer because an elevated installer writes to the wrong user hive on silent deployments; it is idempotent and refuses to write unless the exe is running from the installed directory, so a dev run out of `dist\` cannot clobber a real machine's autostart. |
+
+
 
 ### 2026-08-03 — Truth pass 2 + presence reaper (`SCOPE:DATA`, `SCOPE:PRESENCE`, `SCOPE:WEB`)
 
@@ -554,11 +573,11 @@ that plan does not currently name.
 
 | # | Gap | Evidence | Cost |
 | --- | --- | --- | --- |
-| S1 | **`sessions.state` has no CHECK constraint.** `power_commands` guards both `kind` and `state`; the session state machine — the thing consent, capture gating and the reaper all key off — accepts any string a bug can write. | `pg_constraint` on `public.sessions` returns **zero** check rows | One migration: `CHECK (state IN ('invited','consented','active','paused','declined','ended'))`, plus a pre-flight `SELECT DISTINCT state` so no existing row is rejected |
+| ~~S1~~ | ~~**`sessions.state` has no CHECK constraint.**~~ **CLOSED.** Migration adds `sessions_state_check` (`invited\|consented\|active\|paused\|declined\|ended`) and `sessions_mode_check` (`view\|control`), both `convalidated = true`. Pre-flight confirmed the only live values were `ended` (state) and `view`/`control` (mode), and all 12 state/mode write sites across `src/`, `agent/` and `admin/` fall inside the vocabulary. | `pg_get_constraintdef` on `public.sessions` now returns both rows | Done — one migration, no code change |
 | S2 | **CDP webhook is not configured in production.** An unsigned POST returns `503 Webhook not configured`, so no real webhook can be verified either — every crypto payment is confirmed only by the once-a-minute cron reconciler. Slower confirmations, and a silent single point of failure. | `verify-payment-routes.ts` → `503`; secret list has `CDP_API_KEY_NAME`/`CDP_API_KEY_PRIVATE_KEY` but no webhook signing secret | Add the signing secret; the verifier flips to `401 invalid signature`, which is the correct closed state |
 | S3 | **The fleet is running an agent older than turns 2 and 4a.** The one online device (`EC2AMAZ-5UBQG30`) has `lan` in `metadata` but **no `monitors[]` and no `encoder{}`**. So the web monitor picker (Tier A item 1) renders nothing, the bitrate ladder is unobserved and the H.264 probe has reported from zero machines — three shipped turns with no production evidence behind them. | `devices.metadata` keys, all 8 rows | Windows build + rollout (`agent/build.ps1`); nothing to change in code |
-| S4 | **`verify-agent-routes.ts` mints a real device on every run.** The enroll assertion is a genuine keyless enrollment, so each run leaves an `Unnamed device` row — 6 of the 8 devices in the table are verifier ghosts. The 24 h reaper clears them, so this is noise, not a leak, but the device count in every snapshot is inflated. | 6 rows named `Unnamed device`, `last_seen_at` within 1 s of `enrolled_at`, no session, no power command | Either tag the enrollment (`hostname: "route-verifier"`) and delete it in a `finally`, or accept the noise and say so in §8 |
-| S5 | **Two agent files are undocumented.** `agent/src/InputBlocker.cs` and `agent/src/StartupRegistration.cs` appear nowhere in this map, despite owning the dead-man input block and the HKCU Run-key persistence — both security-relevant. | `rg` over `PROJECT-MAP.md` | Two rows in §2 / a changelog entry |
+| ~~S4~~ | ~~**`verify-agent-routes.ts` mints a real device on every run.**~~ **CLOSED.** The enrollment now tags `hostname: "route-verifier"` and `prune_session_ephemera()` clause 4 sweeps that tag after 1 h (gated on no session / no power command). The 7 pre-existing NULL-hostname ghosts are untouched by the new clause and still age out under the 24 h rule. | Post-fix run: 19/19 passing, new row `route-verifier` present and matching the sweep predicate; both real devices evaluate `false` | Done |
+| ~~S5~~ | ~~**Two agent files are undocumented.**~~ **CLOSED.** `InputBlocker.cs` and `StartupRegistration.cs` are in the §2 map with a changelog entry covering the curtain's fail-open release paths and the install-dir guard on the Run key. | `rg` over `PROJECT-MAP.md` now hits both | Done |
 | S6 | **`prune_session_ephemera()` is still invisible.** Tier C item 10 is half-shipped: the reaper runs every minute and writes `session.reaped` rows that nobody can read without psql. | §6 item 10 | The dashboard half of item 10 |
 | S7 | **Open decisions unchanged from §8**: `devices.standing_consent` still defaults `true`; `cron/reconcile-orders` still authenticates with the published anon key. | §8 "Open decisions" | Your call, one turn each |
 
