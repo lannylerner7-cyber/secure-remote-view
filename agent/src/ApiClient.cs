@@ -284,6 +284,10 @@ public sealed class ApiClient
             lan = new { subnet_v4 = subnet, mac, ipv4 },
             monitors,
             selected_monitor = selectedMonitor,
+            // S14 — build version, so the fleet's build spread is a number
+            // and a staged rollout has something to target. Merged into
+            // devices.metadata.agent_version by the heartbeat route.
+            version = AgentVersion,
             encoder = new
             {
                 // Wire codec actually in use today. Hardcoded rather than
@@ -303,6 +307,32 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);
     }
+
+    /// S14 — newest published build for this product/channel, or null when
+    /// nothing is published (204) or the call fails. Never throws: an update
+    /// check must not be able to take the presence loop down.
+    public async Task<ReleaseManifest?> GetReleaseAsync(string product, string channel, CancellationToken ct)
+    {
+        try
+        {
+            using var resp = await SendAuthedAsync(
+                () => new HttpRequestMessage(HttpMethod.Get,
+                    $"/api/public/agent/release?product={product}&channel={channel}"), ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            if (resp.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            return JsonSerializer.Deserialize<ReleaseManifest>(json);
+        }
+        catch { return null; }
+    }
+
+    /// Assembly version of the running agent ("1.9.1"). Reported on every
+    /// heartbeat and compared against the release manifest.
+    public static string AgentVersion =>
+        typeof(ApiClient).Assembly.GetName().Version is { } v
+            ? $"{v.Major}.{v.Minor}.{v.Build}"
+            : "0.0.0";
 
     // ---- Power commands (WoL relay + local actions) --------------------
 
