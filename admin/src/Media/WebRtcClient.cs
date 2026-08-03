@@ -175,6 +175,7 @@ public sealed class WebRtcClient : IDisposable
         {
             if (c == null) return;
             // Trickle: post the instant it is gathered, on the signal fast path.
+            NoteCandidate(c.candidate);
             T($"local candidate gathered type={CandidateType(c.candidate)} mid={c.sdpMid}");
             try
             {
