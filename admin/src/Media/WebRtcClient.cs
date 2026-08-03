@@ -303,8 +303,11 @@ public sealed class WebRtcClient : IDisposable
         if (pc == null) return;
         try
         {
-            pc.SendVideoRtcpFeedback(new RTCPFeedback(pc.VideoLocalTrack?.Ssrc ?? 0,
-                pc.VideoRemoteTrack?.Ssrc ?? 0, PSFBFeedbackTypesEnum.PLI));
+            // SIPSorcery 6.2.4 has no SendVideoRtcpFeedback; the media type is
+            // an explicit argument on SendRtcpFeedback.
+            pc.SendRtcpFeedback(SDPMediaTypesEnum.video,
+                new RTCPFeedback(pc.VideoLocalTrack?.Ssrc ?? 0,
+                    pc.VideoRemoteTrack?.Ssrc ?? 0, PSFBFeedbackTypesEnum.PLI));
             T("PLI sent (keyframe request)");
         }
         catch (Exception ex) { T("PLI failed: " + ex.Message); }
