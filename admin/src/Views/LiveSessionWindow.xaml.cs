@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -51,6 +52,10 @@ public partial class LiveSessionWindow : Window
             _coalesce.Stop();
             _vm.Stop();
         };
+        // Losing focus mid-keystroke means the matching key-up never reaches
+        // us; drop the pending stamps so a later press of the same key cannot
+        // fire a spurious raw-key fallback.
+        Deactivated += (_, _) => _awaitingText.Clear();
         // Tunnelled key events so the live surface wins over WPF focus
         // navigation (Tab, arrows, Alt menus) before it can swallow them.
         PreviewKeyDown += OnKeyDown;
@@ -123,7 +128,10 @@ public partial class LiveSessionWindow : Window
         double srcW = src.Width, srcH = src.Height;
         if (src is System.Windows.Media.Imaging.BitmapSource bs) { srcW = bs.PixelWidth; srcH = bs.PixelHeight; }
         else if (src is System.Windows.Interop.D3DImage d3d) { srcW = d3d.PixelWidth; srcH = d3d.PixelHeight; }
-        return ContentRect.Compute(FrameImage.ActualWidth, FrameImage.ActualHeight, srcW, srcH);
+        // allowUpscale MUST equal (FrameImage.StretchDirection != DownOnly).
+        // Read it off the element itself so XAML stays the single declaration.
+        return ContentRect.Compute(FrameImage.ActualWidth, FrameImage.ActualHeight, srcW, srcH,
+            allowUpscale: FrameImage.StretchDirection != StretchDirection.DownOnly);
     }
 
     private void UpdateCursorGhost()
@@ -244,12 +252,14 @@ public partial class LiveSessionWindow : Window
             || key == Key.Space;
     }
 
-    // Set while a printable key is down and we are still waiting for WPF to
-    // turn it into a TextInput character. If TextInput never arrives (layouts
-    // or dead keys where composition is suppressed) the key-up handler sends
-    // the raw virtual key instead, so a keystroke is never silently dropped.
-    private Key? _pendingPrintable;
-    private bool _textDelivered;
+    // Printable keys whose TextInput character has not arrived yet, in press
+    // order. A single field was not enough: with fast overlapping typing (B
+    // pressed before A is released) one slot loses track of which key is still
+    // unaccounted for, and the fallback silently stops firing. WPF delivers
+    // TextInput immediately after the KeyDown that produced it, so the newest
+    // entry is always the one a character belongs to.
+    private readonly List<Key> _awaitingText = new();
+    private const int AwaitingTextCap = 16;
 
     private async void OnKeyDown(object sender, KeyEventArgs e)
     {
@@ -260,8 +270,10 @@ public partial class LiveSessionWindow : Window
         // these must be left unhandled here.
         if (IsPrintable(key))
         {
-            _pendingPrintable = key;
-            _textDelivered = false;
+            _awaitingText.Add(key);
+            // Never let a pathological layout that emits no TextInput at all
+            // grow this without bound; the oldest entry is the least useful.
+            if (_awaitingText.Count > AwaitingTextCap) _awaitingText.RemoveAt(0);
             return;
         }
         e.Handled = true;
@@ -274,9 +286,16 @@ public partial class LiveSessionWindow : Window
         var key = Effective(e);
         if (IsPrintable(key))
         {
-            var missed = _pendingPrintable == key && !_textDelivered;
-            _pendingPrintable = null;
-            _textDelivered = false;
+            // Anything still pending for this key means no character was ever
+            // composed for it (dead keys, exotic layouts). Drop every stale
+            // entry for the key and send it raw exactly once.
+            var missed = false;
+            for (var i = _awaitingText.Count - 1; i >= 0; i--)
+            {
+                if (_awaitingText[i] != key) continue;
+                _awaitingText.RemoveAt(i);
+                missed = true;
+            }
             if (missed)
             {
                 // Safety net: no character was composed for this key.
@@ -296,7 +315,9 @@ public partial class LiveSessionWindow : Window
     {
         e.Handled = true;
         if (string.IsNullOrEmpty(e.Text)) return;
-        _textDelivered = true;
+        // This character settles the most recent pending key, so its fallback
+        // must not fire on key-up.
+        if (_awaitingText.Count > 0) _awaitingText.RemoveAt(_awaitingText.Count - 1);
         await _kb.TextAsync(e.Text);
     }
 
