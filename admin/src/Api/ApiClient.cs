@@ -130,6 +130,8 @@ public sealed class ApiClient
         return result;
     }
 
+    // ---------- Supabase REST helpers ----------
+
     private HttpRequestMessage NewSupabase(HttpMethod method, string path)
     {
         var req = new HttpRequestMessage(method, $"{_config.SupabaseUrl}{path}");
