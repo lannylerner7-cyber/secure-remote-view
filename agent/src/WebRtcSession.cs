@@ -288,6 +288,27 @@ public sealed class WebRtcSession : IDisposable
             catch (Exception ex) { Log.Warn($"webrtc rtcp handler: {ex.Message}"); }
         };
 
+        // RFC 3550 §6.4.1 RTT: now − LSR − DLSR, all in the middle-32 NTP
+        // format (16.16 fixed-point seconds). A zero LSR means the receiver
+        // has not seen one of our sender reports yet, so there is nothing to
+        // measure against — report 0 and let loss alone drive the ladder.
+        static double EstimateRttMs(uint lsr, uint dlsr)
+        {
+            if (lsr == 0) return 0;
+            var now = DateTime.UtcNow;
+            var epoch = new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            double seconds = (now - epoch).TotalSeconds;
+            uint nowMiddle = (uint)(((ulong)(seconds * 65536.0)) & 0xFFFFFFFFUL);
+            long delta = (long)nowMiddle - lsr - dlsr;
+            if (delta <= 0) return 0;
+            double ms = delta * 1000.0 / 65536.0;
+            // Anything past a few seconds is a wrapped or bogus timestamp, not
+            // a real round trip; discard rather than crash the ladder down.
+            return ms > 5000 ? 0 : ms;
+        }
+
+
+
 
         _pc.onicecandidate += async (c) =>
         {
