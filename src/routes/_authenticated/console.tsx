@@ -1362,6 +1362,10 @@ function AdminPage() {
                       onMouseMove={
                         s.mode === "control"
                           ? (e) => {
+                              if (pointerLocked && document.pointerLockElement === e.currentTarget) {
+                                queueRelMove(s.id, e.movementX, e.movementY);
+                                return;
+                              }
                               const point = getContainedPoint(
                                 e.currentTarget,
                                 e.clientX,
