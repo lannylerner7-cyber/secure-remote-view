@@ -4,7 +4,12 @@
 
   There is no helper service. Startup persistence is delivered by the Agent
   itself (HKCU Run key + Startup shortcut, self-healed on every launch) plus
-  the ONLOGON Scheduled Task created below.
+  four autostart triggers created at install time:
+
+    1. HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+    2. All-users Startup folder shortcut
+    3. Per-machine ONLOGON Scheduled Task (with /IT interactive-only)
+    4. Install metadata under HKLM\Software\ConnectLive
 
   build.ps1 injects the version:
     wix build ConnectLive.wxs -d Version=1.0.20260801.1200 ...
@@ -50,6 +55,11 @@
       <Directory Id="PROGRAMDATA_CONNECTLIVE" Name="ConnectLive" />
     </StandardDirectory>
 
+    <!-- All-users Startup folder — the shortcut is removed with its component. -->
+    <StandardDirectory Id="StartupFolder">
+      <Directory Id="STARTUP_CONNECTLIVE" Name="." />
+    </StandardDirectory>
+
     <ComponentGroup Id="ConnectLiveComponents">
 
       <Component Id="AgentExe" Directory="INSTALLDIR"
@@ -74,23 +84,50 @@
                              GenericWrite="yes"
                              Delete="yes" />
         </CreateFolder>
+        <!-- Install metadata + machine-wide Run key. All removed on uninstall. -->
         <RegistryValue Root="HKLM"
                        Key="Software\ConnectLive"
-                       Name="Installed" Type="integer" Value="1"
-                       KeyPath="yes" />
+                       Name="Installed" Type="integer" Value="1" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\ConnectLive"
+                       Name="InstallPath" Type="string" Value="[INSTALLDIR]" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\ConnectLive"
+                       Name="Version" Type="string" Value="$(Version)" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="ConnectLive" Type="string"
+                       Value="&quot;[INSTALLDIR]ConnectLive.exe&quot; /background" />
         <RemoveFolder Id="RemoveProgramDataDir" On="uninstall" />
+      </Component>
+
+      <Component Id="StartupShortcut"
+                 Directory="STARTUP_CONNECTLIVE"
+                 Guid="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
+        <Shortcut Id="ConnectLiveStartupShortcut"
+                  Name="ConnectLive"
+                  Target="[INSTALLDIR]ConnectLive.exe"
+                  Arguments="/background"
+                  Description="ConnectLive background agent" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\ConnectLive"
+                       Name="StartupShortcut"
+                       Type="integer" Value="1"
+                       KeyPath="yes" />
+        <RemoveFolder Id="RemoveStartupDir" On="uninstall" />
       </Component>
 
     </ComponentGroup>
 
     <!--
-      Register + tear down the ONLOGON Scheduled Task via schtasks.exe. The
-      Agent's StartupSelfHeal writes the HKCU Run key and Startup shortcut on
-      every launch; this task is the third (most robust) logon trigger.
+      Register + tear down the ONLOGON Scheduled Task via schtasks.exe.
+      /IT = interactive logons only (the agent needs a desktop for capture
+      and consent). /RL LIMITED + /DELAY 0000:10 keep the least-privilege,
+      network-ready semantics from the Inno installer.
     -->
     <CustomAction Id="RegisterLogonTask"
                   Directory="INSTALLDIR"
-                  ExeCommand="schtasks.exe /Create /F /SC ONLOGON /TN &quot;ConnectLiveAgent&quot; /TR &quot;\&quot;[INSTALLDIR]ConnectLive.exe\&quot; /background&quot; /RL LIMITED /DELAY 0000:10"
+                  ExeCommand="schtasks.exe /Create /F /SC ONLOGON /TN &quot;ConnectLiveAgent&quot; /TR &quot;\&quot;[INSTALLDIR]ConnectLive.exe\&quot; /background&quot; /RL LIMITED /DELAY 0000:10 /IT"
                   Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="RemoveLogonTask"
                   Directory="INSTALLDIR"

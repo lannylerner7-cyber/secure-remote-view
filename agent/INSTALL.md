@@ -25,7 +25,7 @@ Enrollments are throttled per source IP (backed by `login_attempts`) so a burst 
 
 ## Enterprise deployment (Inno / MSI / Intune / GPO / Jamf)
 
-Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\ConnectLive.exe` produced by `build.ps1` and installs the Agent with an ONLOGON scheduled task, firewall rules, and autostart registration in one step:
+Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\ConnectLive.exe` produced by `build.ps1` and installs the Agent with four autostart triggers, a firewall rule, and install metadata in one step:
 
 ```cmd
 iscc agent\packaging\inno\ConnectLiveSetup.iss
@@ -33,6 +33,28 @@ ConnectLiveSetup.exe /VERYSILENT
 ```
 
 The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same single binary; none of them push a deployment key. **Sign the installer with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
+
+### Autostart triggers created at install time
+
+Both the Inno and MSI installers create the same four triggers, all launching `ConnectLive.exe /background`:
+
+| # | Trigger | Where to look |
+| --- | --- | --- |
+| 1 | HKCU Run key | `reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive` |
+| 2 | HKLM Run key | `reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive` |
+| 3 | All-users Startup shortcut | `shell:common startup` (path varies by Windows language) or `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp` |
+| 4 | ONLOGON Scheduled Task | `schtasks /Query /TN ConnectLiveAgent` |
+
+Verify commands:
+
+```cmd
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
+reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
+reg query "HKLM\Software\ConnectLive"
+schtasks /Query /TN ConnectLiveAgent
+```
+
+`StartupSelfHeal.cs` remains as belt-and-braces: on every launch it re-asserts the HKCU Run key and Startup shortcut in case Group Policy or a cleanup tool removed them.
 
 ---
 
@@ -75,11 +97,13 @@ Run the packaged installer — there is no service to register:
 ConnectLiveSetup.exe /VERYSILENT
 ```
 
-It copies `ConnectLive.exe` to `C:\Program Files\ConnectLive\`, creates the
-ONLOGON scheduled task, and launches the Agent with `/background` as the
-original (non-elevated) user. The Agent itself then re-asserts its autostart on
-every run via `StartupSelfHeal` — Run key, Startup shortcut, and scheduled task
-— so removing one of them does not stop it coming back after reboot.
+It copies `ConnectLive.exe` to `C:\Program Files\ConnectLive\`, creates four
+identical autostart triggers (HKCU Run key, HKLM Run key, all-users Startup
+folder shortcut, and an ONLOGON scheduled task), and launches the Agent with
+`/background` as the original (non-elevated) user. The Agent itself then
+re-asserts its autostart on every run via `StartupSelfHeal` — Run key, Startup
+shortcut, and scheduled task — so removing one of them does not stop it coming
+back after reboot.
 
 Per-user state (DPAPI-encrypted device token, last session id) lives in
 `%LOCALAPPDATA%\ConnectLive\`; legacy `%ProgramData%\ConnectLive` stores are
@@ -160,9 +184,10 @@ Every session now negotiates a WebRTC peer connection alongside the existing HTT
   sub-100 ms latency               ~500 ms, 100% reliable
 ```
 
-- **ICE servers**: hardcoded Google STUN (`stun:stun.l.google.com:19302`).
-  No TURN and no external relay service — if ICE cannot complete, the HTTPS
-  frame stream carries the session.
+- **ICE servers**: hardcoded Google STUN (`stun:stun.l.google.com:19302`) plus
+  Cloudflare Calls TURN credentials minted per request on `GET /api/public/agent/ice`.
+  If the ICE gateway is unreachable or unconfigured, callers fall back to STUN
+  and the HTTPS frame stream carries the session.
 - **Signaling**: JSON offer/answer/ICE rows in `session_signals`. Agent polls
   `GET /api/public/agent/session/{id}/signal` every 500 ms; admin uses
   Supabase Realtime.

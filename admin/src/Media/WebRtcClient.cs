@@ -24,7 +24,8 @@ namespace ConnectLive.Admin.Media;
 ///
 /// Phase 4 (robustness): a decode stall asks for a keyframe first (RTCP PLI);
 /// only if that keeps failing does the admin — which owns the offer per ruling
-/// R1 — restart ICE by re-offering. STUN-only; no TURN.
+/// R1 — restart ICE by re-offering. ICE servers come from /api/public/agent/ice
+/// (STUN + Cloudflare/TURN when configured), with a hardcoded STUN fallback.
 ///
 /// Persistence: outbound signals ride PushSignalReliableAsync (idempotent
 /// attempt_id + backoff); a 15s bind_admin heartbeat keeps ownership, and a
