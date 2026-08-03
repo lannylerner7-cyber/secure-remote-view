@@ -24,12 +24,12 @@ public sealed class KeyboardInjector
     public Task KeyAsync(int vk, bool down, CancellationToken ct = default)
         => vk <= 0
             ? Task.CompletedTask
-            : App.Api.PushInputAsync(_sessionId, down ? "keydown" : "keyup", new { vk }, ct);
+            : InputTransport.SendAsync(_sessionId, down ? "keydown" : "keyup", new { vk }, ct);
 
     /// <summary>WPF Key → Win32 virtual-key code.</summary>
     public Task KeyAsync(Key key, bool down, CancellationToken ct = default)
         => KeyAsync(KeyInterop.VirtualKeyFromKey(key), down, ct);
 
     public Task TextAsync(string text, CancellationToken ct = default)
-        => App.Api.PushInputAsync(_sessionId, "text", new { text }, ct);
+        => InputTransport.SendAsync(_sessionId, "text", new { text }, ct);
 }
