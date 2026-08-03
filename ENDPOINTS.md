@@ -1,6 +1,8 @@
 # ConnectLive — Endpoint Audit
 
-Production base URL: `https://secure-remote-view.lovable.app`
+Canonical production URL: `https://zoomlite.live` (this is what `head()`
+canonicals, `sitemap.xml` and `scripts/verify-agent-routes.ts` all target).
+Platform alias: `https://secure-remote-view.lovable.app`
 Stable preview: `https://project--13b47594-1b4d-46c6-a939-da4132e55c1c-dev.lovable.app`
 
 Everything under `/api/public/*` bypasses site auth, so each handler does its
@@ -20,9 +22,9 @@ signature).
 | POST | `/api/public/agent/session/{sessionId}/signal` | WebRTC offer/answer/ICE publish. | device token |
 | GET | `/api/public/agent/session/{sessionId}/signal` | WebRTC signal poll (fallback transport). | device token |
 | POST | `/api/public/agent/session/{sessionId}/reconnect` | Rebinds a stored session after reboot / soft restart. | device token |
-| POST | `/api/public/agent/session/{sessionId}/consent` | Legacy auto-ack; the standalone agent posts an implicit accept. | device token |
-| POST | `/api/public/agent/power/{cmdId}/ack` | Acknowledges a queued power command (restart, shutdown, wake, restart_stream). | device token |
-| GET | `/api/public/agent/stream` | SSE wake channel. Retained server-side for LAN relay peers; the standalone agent uses adaptive heartbeat instead. | device token |
+| POST | `/api/public/agent/session/{sessionId}/consent` | The end user's answer to the on-screen `ConsentPrompt`. `invited → active` on accept, `invited → declined` otherwise; any other current state is a 409. Writes `session.consent_granted` / `session.consent_declined` to `audit_logs`. Never auto-acked. | device token |
+| POST | `/api/public/agent/power/{cmdId}/ack` | Acknowledges a queued power command (restart, shutdown, wake, restart_stream, switch_monitor). | device token |
+| GET | `/api/public/agent/stream` | SSE wake channel — **live on both ends**. Client is `agent/src/StreamListener.cs`, which nudges the heartbeat loop on `event: wake` for sub-second revival. Heartbeat stays the source of truth; SSE only shortens the latency. | device token |
 
 Retired: `/api/public/agent/pair` (meeting-code pairing) — removed with the
 auto-enrollment overhaul.
@@ -49,9 +51,10 @@ Everything else the web console does goes straight through the Supabase client
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
 | GET | `/api/public/health` | Uptime probe. | none |
+| GET | `/health` | Standalone Docker/Coolify liveness probe (`src/routes/health.ts`) — no auth, no DB touch. | none |
 | GET | `/api/public/stats/orders` | Aggregate, non-PII order counters for the landing page. | none |
-| POST | `/api/public/cron/reconcile-orders` | Scheduled crypto-payment reconciliation. | cron secret |
-| POST | `/api/public/webhooks/cdp` | Coinbase CDP payment webhook. | signature verified |
+| POST | `/api/public/cron/reconcile-orders` | Scheduled crypto-payment reconciliation. Currently authenticated with the Supabase **anon key** as bearer, not a dedicated secret (open decision, PROJECT-MAP §8). | cron secret |
+| POST | `/api/public/webhooks/cdp` | Coinbase CDP payment webhook. Returns **503 `Webhook not configured`** until the CDP webhook signing secret is set — until then, order confirmation rides the cron reconciler alone. | signature verified |
 
 ## Telegram notification matrix
 
