@@ -122,23 +122,39 @@ additionally carry `robots: noindex` and a self-referencing canonical.
   character. WPF never raises `TextInput` for a key event that was already
   marked handled, so letters, digits, punctuation and space were dropped
   entirely; only non-printables (Enter, Tab, arrows, Ctrl/Alt combos) reached
-  the agent. **Fix:** `e.Handled` is now set only for non-printable keys; a
-  `_pendingPrintable` stamp cleared by `OnTextInput` lets key-up send the raw
-  `vk` down+up when no character was composed (dead keys / exotic layouts), so a
-  keystroke can never be silently lost. The window also takes keyboard focus on
-  `Loaded`, not just on first click. No change to `KeyboardInjector` /
-  `InputTransport` — the `{ vk }` / `{ text }` payloads already match
-  `agent/src/InputRelay.cs`.
+  the agent. **Fix:** `e.Handled` is now set only for non-printable keys; an
+  ordered `_awaitingText` list of pending printable keys, popped by
+  `OnTextInput`, lets key-up send the raw `vk` down+up when no character was
+  composed (dead keys / exotic layouts), so a keystroke can never be silently
+  lost. It is a list rather than one slot because fast overlapping typing (B
+  pressed before A is released) loses track of the outstanding key with a
+  single field; it is capped at 16 entries and cleared on `Deactivated` so a
+  key-up swallowed by a focus change cannot fire a spurious raw key later. The
+  window also takes keyboard focus on `Loaded`, not just on first click. No
+  change to `KeyboardInjector` / `InputTransport` — the `{ vk }` / `{ text }`
+  payloads already match `agent/src/InputRelay.cs`.
 - **Soft picture.** `FrameImage` scaled with WPF's default bilinear filter and
   unrounded layout, which smears remote text when a 1920px source is drawn into
   a ~1100px element. Now `RenderOptions.BitmapScalingMode="HighQuality"` (Fant)
   with `StretchDirection="DownOnly"`, `UseLayoutRounding` and
   `SnapsToDevicePixels` on the host grid.
+- **Geometry follows `StretchDirection` (`SCOPE:RENDER` invariant).**
+  `ContentRect.Compute` assumed the picture is always scaled to fit, so
+  `DownOnly` would have broken click mapping and the ghost cursor for any
+  source smaller than the element — precisely the low-rung case (1280px and
+  below in a maximised window). `Compute` now takes `allowUpscale` (default
+  `false`, capping scale at 1.0) and `LiveSessionWindow.Rect()` derives it from
+  `FrameImage.StretchDirection`, so XAML stays the single declaration.
+  **Invariant: if you change `StretchDirection` on the live surface, the
+  `allowUpscale` policy must change with it.**
 - **Rung is now readable.** `VideoStats` renders the source size as
   `1280x720 · rung 2/5` (edges mirrored from `agent/src/BitrateController.cs`)
   and, on the JPEG fallback path where there is no `VideoPipeline`, reports the
-  decoded frame's own pixel size. A soft picture now says whether the agent
-  stepped the encoder down or whether the presenter is at fault.
+  decoded frame's own pixel size. The cached JPEG size is zeroed whenever the
+  surface becomes a non-`BitmapSource` (the WebRTC `D3DImage` swap, or teardown)
+  so a connected-but-not-yet-presenting session cannot report stale dimensions.
+  A soft picture now says whether the agent stepped the encoder down or whether
+  the presenter is at fault.
 
 
 ### 2026-08-03 — S12 closed: admin D3D device-lost survival (`SCOPE:RENDER`)
