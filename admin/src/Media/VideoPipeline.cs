@@ -357,10 +357,8 @@ public sealed class VideoPipeline : IDisposable
                $"latency={_lastLatencyMs:F0}ms size={_width}x{_height} " +
                $"path={(UsingD3D ? "d3d" : "bitmap")} loss={Interlocked.Read(ref _lossEvents)} " +
                $"gated={Interlocked.Read(ref _framesGated)} " + _d3d.HealthLine() + $" ws={ws}MB";
-
-
-               $"surfaces={_d3d.SurfaceAllocations} ws={ws}MB";
     }
+
 
     /// <summary>Session ended: flush queues, park the D3D surface, keep the device warm (G3).</summary>
     public void Dispose()
