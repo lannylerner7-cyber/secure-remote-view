@@ -356,7 +356,8 @@ public sealed class VideoPipeline : IDisposable
                $"decoded={FramesDecoded} dropped={FramesDropped} presented={FramesPresented} " +
                $"latency={_lastLatencyMs:F0}ms size={_width}x{_height} " +
                $"path={(UsingD3D ? "d3d" : "bitmap")} loss={Interlocked.Read(ref _lossEvents)} " +
-               $"gated={Interlocked.Read(ref _framesGated)} devices={_d3d.DeviceCreations} " +
+               $"gated={Interlocked.Read(ref _framesGated)} " + _d3d.HealthLine() + $" ws={ws}MB";
+
 
                $"surfaces={_d3d.SurfaceAllocations} ws={ws}MB";
     }
