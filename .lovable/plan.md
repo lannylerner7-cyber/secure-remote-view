@@ -71,6 +71,34 @@ Changes:
 - The HKLM Run key runs for *every* user who logs into the box. That is intended for a shared/kiosk machine, and each session enrolls against the same DPAPI-sealed `device.dat` under `%LOCALAPPDATA%`, so a second user will enroll as a second device. Worth confirming this is the behaviour you want before I ship the HKLM key — say the word and I'll drop trigger 2 and rely on the scheduled task for the multi-user case.
 - No changes to the agent C# source in this plan; it is packaging and docs only.
 
+## Cloudflare Calls TURN — what you need and how we'd wire it
+
+**What you need from Cloudflare:**
+1. A Cloudflare account.
+2. The **Calls** product enabled in the Cloudflare dashboard.
+3. A Calls app — this gives you an **App ID** and an **App Token** (the token is the secret; the ID is not secret).
+
+**What the code change looks like:**
+- Add `CLOUDFLARE_CALLS_APP_ID` and `CLOUDFLARE_CALLS_APP_TOKEN` as runtime secrets.
+- In `/api/public/agent/ice`, when those secrets are present, call Cloudflare's TURN credentials endpoint (`POST https://rtc.live.cloudflare.com/v1/turn/keys/{app_id}/credentials/generate`) with a short-lived expiry (e.g. 24 hours).
+- Return the Cloudflare TURN URLs + the minted username/credential in the `iceServers` array, alongside the existing STUN set.
+- Keep the coturn branch as a fallback so you can switch providers without a code deploy.
+
+**Why this is better than a static secret:**
+- Each agent and each admin console gets its own short-lived credential.
+- No long-lived TURN password lives in the agent binary or env.
+- Cloudflare's relay is anycast, so latency is usually lower than a single self-hosted VM.
+
+**What you pay:** Cloudflare Calls bills for relayed data; STUN is free. For a helpdesk tool this is typically small per active session.
+
+**Setup steps (you do this once in Cloudflare):**
+1. Go to **Cloudflare dashboard → Calls** (or search "Calls").
+2. Create a new Calls app.
+3. Copy the **App ID** and create an **App Token**.
+4. Paste both into the secure form when I request them.
+
+Then I update `/api/public/agent/ice` and `.env.sample` in the same turn.
+
 ## Not in this plan
 
-Code signing, TURN deployment, publishing `releases` rows, and the Windows build itself — those are infrastructure/ops actions that need to happen on your side, not code changes I can make here.
+Code signing, publishing `releases` rows, and the Windows build itself — those are infrastructure/ops actions that need to happen on your side, not code changes I can make here.
