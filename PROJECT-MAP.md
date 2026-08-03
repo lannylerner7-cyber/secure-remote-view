@@ -36,6 +36,8 @@ Used in every changelog entry below and in commit-style notes.
    ├ ScreenCapture.cs    ──jpeg───────►  /agent/session/:id/frame ────┼► Media/FrameFallbackPump
    ├ CursorPump.cs       ──x,y────────►  /agent/session/:id/cursor ───┼► Media/CursorPollPump
    ├ InputRelay.cs       ◄─poll────────  /agent/session/:id/inputs ◄──┼─ Input/MouseInjector
+   │   └ InputBlocker.cs  (curtain: LL hooks swallow physical input)  │
+   ├ StartupRegistration.cs ← StartupSelfHeal.cs  (HKCU Run key)      │
    └ WebRtcSession.cs    ◄─signal──────  /agent/session/:id/signal ◄──┼─ Media/WebRtcClient
                               └── RTP/VP8, STUN only ─────────────────┴► Media/VideoPipeline
                                                                           → FrameConvert
