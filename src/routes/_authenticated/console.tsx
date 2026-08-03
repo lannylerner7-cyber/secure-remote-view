@@ -736,7 +736,7 @@ function AdminPage() {
 
   // Flush any queued move before an ordered event so a click never lands ahead
   // of the move that positioned it.
-  function flushMoveNow() {
+  function flushMoveNow(sessionId?: string) {
     if (moveRafRef.current !== null) {
       cancelAnimationFrame(moveRafRef.current);
       moveRafRef.current = null;
@@ -744,6 +744,15 @@ function AdminPage() {
     const m = pendingMoveRef.current;
     pendingMoveRef.current = null;
     if (m) void sendInput(m.sessionId, m.kind, m.payload);
+    // Drain the pointer-lock accumulator too, otherwise a click can land
+    // before the delta that aimed it.
+    const acc = pointerLockRelRef.current;
+    const dxOut = Math.round(acc.dx);
+    const dyOut = Math.round(acc.dy);
+    acc.dx -= dxOut;
+    acc.dy -= dyOut;
+    if (sessionId && (dxOut !== 0 || dyOut !== 0))
+      void sendInput(sessionId, "mousemove_rel", { dx: dxOut, dy: dyOut });
   }
 
   // Natural size of whichever layer is currently visible. WebRTC video and the
