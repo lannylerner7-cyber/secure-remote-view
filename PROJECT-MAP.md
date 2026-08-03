@@ -112,6 +112,30 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S10 closed: input over the WebRTC datachannel (`SCOPE:INPUT`)
+
+- New **`admin/src/Input/InputTransport.cs`** owns the transport switch. It
+  attaches to the peer's `input` datachannel, sends UTF-8 JSON envelopes
+  (`{ kind, ...payload }`, identical to the REST shape), and falls back to
+  `App.Api.PushInputAsync` on any of: channel closed, channel errored, one
+  failed send (the session is then permanently demoted so late deltas cannot
+  arrive out of order over two transports).
+- Safety kinds — `curtain_off`, `release_inputs` — always take REST: they
+  must land precisely when the media pipe is broken, which is exactly when
+  the datachannel is untrustworthy.
+- **`admin/src/Media/WebRtcClient.NegotiateAsync`** now `createDataChannel("input", { ordered: true })`
+  BEFORE `createOffer`, so SDP advertises the SCTP m-line, then hands the
+  channel to `InputTransport.Attach`. Teardown calls `InputTransport.Detach`.
+- **`MouseInjector` / `KeyboardInjector`** route every event through
+  `InputTransport.SendAsync`. Wire shapes unchanged (`mousemove`,
+  `mousemove_rel`, `mousedown`, `mouseup`, `wheel`, `keydown`, `keyup`,
+  `text`) so the agent's `InputRelay.Apply` switch does not need to know
+  which pipe delivered the event.
+- Per-minute stats line now includes `input.path=dc|rest dc.sent=… rest.fallback=… demoted=…`
+  so S8 soak has evidence for the input hop as well as the render hop.
+
+
+
 ### 2026-08-03 — S9 code half landed: ICE gateway (`SCOPE:TRANSPORT`)
 
 - New route **`GET /api/public/agent/ice`** (`src/routes/api/public/agent/ice.ts`).
