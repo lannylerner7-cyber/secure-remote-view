@@ -120,7 +120,7 @@ internal sealed class StreamListener
                 currentEvent = null;
                 continue;
             }
-            if (line.StartsWith(':', StringComparison.Ordinal)) continue; // keepalive comment
+            if (line.StartsWith(":", StringComparison.Ordinal)) continue; // keepalive comment
             if (line.StartsWith("event:", StringComparison.Ordinal))
             {
                 currentEvent = line.Substring(6).Trim();

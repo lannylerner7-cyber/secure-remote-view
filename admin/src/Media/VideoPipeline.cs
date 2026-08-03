@@ -41,7 +41,7 @@ public sealed class VideoPipeline : IDisposable
     private readonly D3DImageHost _d3d = new();
 
     private Thread? _worker;
-    private VideoEncoder? _decoder;
+    private VpxVideoEncoder? _decoder;
     private byte[]? _bgra;
     private int _width, _height;
     private WriteableBitmap? _bitmap;
@@ -185,7 +185,7 @@ public sealed class VideoPipeline : IDisposable
 
     private void DecodeLoop()
     {
-        try { _decoder = new VideoEncoder(); }
+        try { _decoder = new VpxVideoEncoder(); }
         catch (Exception ex)
         {
             Diagnostic?.Invoke("VP8 decoder unavailable: " + ex.Message);
