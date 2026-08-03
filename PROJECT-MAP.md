@@ -401,6 +401,13 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
 - ~~**Multi-monitor picker**~~ — shipped in the native console (turn 2); the
   browser console is Tier A item 1.
 - **Clipboard + file drop channel** over a WebRTC data channel.
+- **ICE gateway + TURN relay** with `wire_path` telemetry — promoted to Tier A
+  item 4 (S9); the current "STUN only" posture cannot cross symmetric NAT.
+- **Input over the datachannel** — Tier B 3a (S10); receive side already ships.
+- **Render telemetry (`RenderStats`)** — Tier C 13 (S11); pass criteria for the
+  soak and the only way to prove turn 4b.
+- **Agent auto-update** — Tier C 14 (S14); the rollout bottleneck behind S3.
+- **RTP depacketize / jitter buffer audit** — S13, verification-first.
 - **Session recording** (consented, watermarked) to storage for audit.
 - **Unattended/standing-consent policy** surfaced in the admin UI with an
   audit entry each time it is used.
