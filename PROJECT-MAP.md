@@ -670,7 +670,7 @@ surprise.
 | Every route has real head metadata | 11 web routes, each with a unique title + description; the 3 non-public ones also `noindex` + self-canonical |
 | Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `api/public/health`, plus the standalone unauthenticated `/health` probe for Coolify |
 | Known dead code | `admin/src/Input/MouseInjector.MoveRelAsync` is defined but never called — the WPF console has no pointer-capture toggle yet (the browser console does). Intentional: it is the seam for that turn, not a regression. |
-| Packaging docs | `agent/packaging/{jamf,intune,gpo}` documented a `DeploymentKey` registry/ADMX/MSI-property gate that no longer exists in `agent/src` (removed in the enrollment overhaul). Fixed 08-03: ADMX/ADML and the Jamf configuration profile deleted, all four READMEs + `intune-app.json` + `wrap-intune.ps1` + `install-gpo.ps1` rewritten around keyless enrollment. Diff against this row on the next audit. |
+| Packaging / autostart | Inno + MSI installers now create four identical `/background` triggers at install time (HKCU Run, HKLM Run, all-users Startup shortcut, ONLOGON scheduled task with `/IT`), record `HKLM\Software\ConnectLive` `{InstallPath,Version}`, and clean up all four on uninstall. `StartupSelfHeal.cs` remains as belt-and-brades. `agent/INSTALL.md` and `agent/packaging/inno/README.md` list the verify commands. |
 
 **Database**
 
