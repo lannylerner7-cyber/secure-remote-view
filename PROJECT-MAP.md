@@ -112,6 +112,13 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — Gap merge S6 / S7-consent (`SCOPE:PRESENCE`, `SCOPE:CONSENT`)
+
+| Scope | File / object | Change |
+| --- | --- | --- |
+| `SCOPE:PRESENCE` | `src/components/console/ReaperPanel.tsx`, `src/routes/_authenticated/console.tsx` | **S6 closed.** The reaper's `session.reaped` audit rows were technically readable (super-admin RLS covers `audit_logs`) but drowned in the raw feed and printed as an opaque UUID, so nobody could tell *which* machine dropped. New `ReaperPanel` at the top of the Audit tab filters the last 10 reap events out of the `audit` state that's already streamed via `postgres_changes`, resolves `device_id` → `display_name` against the loaded devices list, and highlights the event amber in the raw log below. No new query, no new policy, no new realtime subscription — everything reads state already in memory, so a super-admin opening the tab sees the existing `EC2AMAZ-5UBQG30 / device_silent` row on first paint. |
+| `SCOPE:CONSENT` | migration → `public.devices.standing_consent` | **S7 closed.** Column default flipped `true` → `false`. Existing 8 rows are untouched because a default only fires on `INSERT` without an explicit value; nothing in `src/routes/api/public/agent/enroll.ts` sends `standing_consent`, so every future enrollment lands opt-out. Consent must now be granted per session or explicitly toggled on the device page — the safer posture for a remote-support tool, and it removes the last "silently on" default from the trust chain. |
+
 ### 2026-08-03 — Gap merge S2 / S7-cron (`SCOPE:PAYMENTS`)
 
 | Scope | File / object | Change |
