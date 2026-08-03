@@ -67,7 +67,7 @@ auth — every handler authenticates itself.
 | `agent/session.$id.reconnect` | device token | resume after network flip |
 | `agent/power.$cmdId.ack` | device token | wake/restart acknowledgement |
 | `agent/stream` | device token | SSE wake channel — **live**; client is `agent/src/StreamListener.cs` |
-| `agent/ice` | device token **or** technician JWT | S9 ICE set: STUN always, TURN when `TURN_URLS` is set |
+| `agent/ice` | device token **or** technician JWT | S9 ICE set: STUN always, TURN via Cloudflare Calls when configured, then coturn/static fallbacks |
 | `agent/release` | device token **or** technician JWT | S14 release manifest from `public.releases`; 204 when nothing published |
 | `admin/bootstrap` | BOOTSTRAP_TOKEN | first admin provisioning |
 | `auth/login` | rate-limited, `login_attempts` lockout | admin sign-in |
