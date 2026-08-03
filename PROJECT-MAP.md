@@ -202,10 +202,12 @@ Re-indexed 2026-08-02 into three tiers. One item per turn, as before.
    resolution step forces an IDR through the existing `RequestKeyFrame()` and
    resets the encoder reference chain (same seam the monitor switch uses). The
    HTTPS JPEG fallback gets the same ladder on its quality/interval.
-3. `SCOPE:INPUT` / `SCOPE:CAPTURE` — **Relative-motion pointer mode** for
-   games/CAD, plus **hardware H.264 (NVENC/QSV/AMF)** with VP8 fallback
-   *(turn 4)*. Largest job: touches encode on the agent and decode in
-   `admin/src/Media/VideoPipeline.cs`.
+3. `SCOPE:INPUT` / `SCOPE:CAPTURE` — ~~Relative-motion pointer mode~~ shipped
+   (turn 3). **Hardware H.264 (NVENC/QSV/AMF)** with VP8 fallback is split in
+   two: discovery shipped as **turn 4a** (`agent/src/HwEncoderProbe.cs`,
+   heartbeat `encoder` block); the encoder/decoder swap is **turn 4b** and
+   touches encode on the agent plus decode in
+   `admin/src/Media/VideoPipeline.cs`. Largest remaining job in Tier A.
 
 ### Tier B — new capability
 
