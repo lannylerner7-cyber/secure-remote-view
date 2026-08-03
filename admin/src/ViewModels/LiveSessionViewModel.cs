@@ -135,7 +135,12 @@ public partial class LiveSessionViewModel : ObservableObject
 
     partial void OnCurrentFrameChanged(System.Windows.Media.ImageSource? value)
     {
+        // Only a BitmapSource is a JPEG-path frame. When the WebRTC pipeline
+        // swaps in a D3DImage (or the surface is cleared) the cached size must
+        // go with it, or a connected-but-not-yet-presenting session would
+        // report the last fallback frame's dimensions as if they were live.
         if (value is BitmapSource bs) { _jpegW = bs.PixelWidth; _jpegH = bs.PixelHeight; }
+        else { _jpegW = _jpegH = 0; }
     }
 
     [ObservableProperty] private string linkState = "connecting";
