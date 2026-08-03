@@ -86,7 +86,49 @@ public sealed class ApiClient
 
     public void Logout() => _auth.Clear();
 
-    // ---------- Supabase REST helpers ----------
+    // ---------- ICE gateway (S9) ----------
+
+    public sealed record IceServerInfo(List<string> Urls, string? Username, string? Credential);
+
+    /// <summary>
+    /// Fetch the ICE set from /api/public/agent/ice using the technician JWT.
+    /// Returns an empty list on any failure so the caller keeps its STUN
+    /// fallback — a relay outage must not prevent a direct connection.
+    /// </summary>
+    public async Task<List<IceServerInfo>> GetIceServersAsync(CancellationToken ct)
+    {
+        var result = new List<IceServerInfo>();
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{_config.BaseUrl}/api/public/agent/ice");
+            if (_auth.Current != null && !string.IsNullOrEmpty(_auth.Current.AccessToken))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _auth.Current.AccessToken);
+            using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return result;
+            using var doc = await JsonDocument.ParseAsync(
+                await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), cancellationToken: ct).ConfigureAwait(false);
+            if (!doc.RootElement.TryGetProperty("iceServers", out var servers)
+                || servers.ValueKind != JsonValueKind.Array) return result;
+
+            foreach (var s in servers.EnumerateArray())
+            {
+                var urls = new List<string>();
+                if (s.TryGetProperty("urls", out var u))
+                {
+                    if (u.ValueKind == JsonValueKind.String && u.GetString() is { Length: > 0 } one) urls.Add(one);
+                    else if (u.ValueKind == JsonValueKind.Array)
+                        foreach (var e in u.EnumerateArray())
+                            if (e.ValueKind == JsonValueKind.String && e.GetString() is { Length: > 0 } m) urls.Add(m);
+                }
+                if (urls.Count == 0) continue;
+                string? user = s.TryGetProperty("username", out var un) && un.ValueKind == JsonValueKind.String ? un.GetString() : null;
+                string? cred = s.TryGetProperty("credential", out var cr) && cr.ValueKind == JsonValueKind.String ? cr.GetString() : null;
+                result.Add(new IceServerInfo(urls, user, cred));
+            }
+        }
+        catch { /* fallback to STUN */ }
+        return result;
+    }
 
     private HttpRequestMessage NewSupabase(HttpMethod method, string path)
     {
