@@ -114,6 +114,36 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 5. Change log (rolling — newest first)
 
+### 2026-08-03 — S14 groundwork: release manifest + fleet version (`SCOPE:PRESENCE`)
+
+- New table **`public.releases`** (product `agent|admin`, channel
+  `stable|beta`, version, download_url, sha256, notes, min_supported_version,
+  mandatory, published, published_at; unique per product+channel+version).
+  Signed-in technicians read `published = true` rows; the service role writes.
+  Nothing is exposed to `anon` — download URLs and checksums are not
+  open-internet data.
+- New route **`GET /api/public/agent/release`** (`?product=&channel=`), authed
+  by device token *or* technician JWT, returning the newest published row or
+  **204** when the channel is empty. Registered in `src/shared/api-routes.ts`
+  as `agentRelease` and smoke-tested (401 unauthenticated) by
+  `scripts/verify-agent-routes.ts`.
+- **Agent** — `ApiClient.AgentVersion` (assembly `major.minor.build`) now rides
+  every heartbeat as `version`; the heartbeat route merges it into
+  `devices.metadata.agent_version` with the same non-clobbering discipline as
+  `lan`/`monitors`/`encoder`, so the fleet's build spread is finally a number
+  (this is what S3 could never answer). `ApiClient.GetReleaseAsync` +
+  `ReleaseManifest.IsNewerThan` give the standalone agent a swap-free update
+  check; the download/verify/restart step is still open.
+- **Native admin** — `ApiClient.GetReleaseAsync` for the console's own update
+  banner and to tell the technician which agent zip the fleet expects.
+- **`.env.sample`** — the stale `TURN_SERVER_*` names are replaced with the
+  ones `agent/ice` actually reads: `TURN_URLS`, `TURN_STATIC_SECRET`, and the
+  static `TURN_USERNAME`/`TURN_PASSWORD` fallback.
+- **§3** gains the missing `agent/ice` and `agent/release` rows; `ENDPOINTS.md`
+  gains the release row.
+
+
+
 ### 2026-08-03 — S11 closed: render telemetry (`SCOPE:RENDER`)
 
 - New table **`public.session_telemetry`** (session_id, admin_client_id, fps,
