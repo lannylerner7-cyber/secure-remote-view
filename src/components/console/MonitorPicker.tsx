@@ -23,19 +23,19 @@ export function readMonitors(device: Device | null | undefined): {
 } {
   const meta = (device?.metadata ?? {}) as Record<string, unknown>;
   const raw = Array.isArray(meta.monitors) ? (meta.monitors as unknown[]) : [];
-  const monitors: MonitorEntry[] = raw
-    .map((m, i) => {
-      const o = (m ?? {}) as Record<string, unknown>;
-      const name = typeof o.device_name === "string" ? o.device_name : null;
-      if (!name) return null;
-      return {
-        index: typeof o.index === "number" ? o.index : i,
-        device_name: name,
-        label: typeof o.label === "string" ? o.label : null,
-        primary: o.primary === true,
-      } satisfies MonitorEntry;
-    })
-    .filter((m): m is MonitorEntry => m !== null);
+  const monitors: MonitorEntry[] = raw.flatMap((m, i) => {
+    const o = (m ?? {}) as Record<string, unknown>;
+    const name = typeof o.device_name === "string" ? o.device_name : null;
+    if (!name) return [];
+    const entry: MonitorEntry = {
+      index: typeof o.index === "number" ? o.index : i,
+      device_name: name,
+      label: typeof o.label === "string" ? o.label : null,
+      primary: o.primary === true,
+    };
+    return [entry];
+  });
+
   const selectedRaw = typeof meta.selected_monitor === "string" ? meta.selected_monitor : null;
   const selected =
     selectedRaw && monitors.some((m) => m.device_name === selectedRaw)
