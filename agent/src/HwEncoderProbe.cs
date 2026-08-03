@@ -236,7 +236,8 @@ public static class HwEncoderProbe
         IntPtr str = IntPtr.Zero;
         try
         {
-            int hr = attrs.GetAllocatedString(MFT_FRIENDLY_NAME_Attribute, out str, out _);
+            var key = MFT_FRIENDLY_NAME_Attribute;
+            int hr = attrs.GetAllocatedString(ref key, out str, out _);
             if (hr < 0 || str == IntPtr.Zero) return "";
             return Marshal.PtrToStringUni(str) ?? "";
         }
@@ -298,15 +299,15 @@ public static class HwEncoderProbe
     {
         [PreserveSig] int GetItem(ref Guid key, IntPtr value);
         [PreserveSig] int GetItemType(ref Guid key, out int type);
-        [PreserveSig] int CompareItem(ref Guid key, IntPtr value, out bool result);
-        [PreserveSig] int Compare(IntPtr theirs, int matchType, out bool result);
+        [PreserveSig] int CompareItem(ref Guid key, IntPtr value, out int result);
+        [PreserveSig] int Compare(IntPtr theirs, int matchType, out int result);
         [PreserveSig] int GetUINT32(ref Guid key, out uint value);
         [PreserveSig] int GetUINT64(ref Guid key, out ulong value);
         [PreserveSig] int GetDouble(ref Guid key, out double value);
         [PreserveSig] int GetGUID(ref Guid key, out Guid value);
         [PreserveSig] int GetStringLength(ref Guid key, out uint length);
         [PreserveSig] int GetString(ref Guid key, IntPtr value, uint size, IntPtr length);
-        [PreserveSig] int GetAllocatedString(Guid key, out IntPtr value, out uint length);
+        [PreserveSig] int GetAllocatedString(ref Guid key, out IntPtr value, out uint length);
         // Remaining IMFAttributes members are never called from managed code
         // here; leaving them undeclared is safe because nothing dispatches to
         // a slot past this one.
