@@ -53,7 +53,6 @@ public static class BitrateController
 
     private static readonly object _gate = new();
     private static int _rung;
-    private static int _badStreak;
     private static DateTime _cleanSince = DateTime.MinValue;
     private static DateTime _lastChangeUtc = DateTime.MinValue;
 
@@ -81,7 +80,6 @@ public static class BitrateController
         {
             changed = _rung != 0;
             _rung = 0;
-            _badStreak = 0;
             _cleanSince = DateTime.MinValue;
             _lastChangeUtc = DateTime.MinValue;
         }
@@ -144,7 +142,6 @@ public static class BitrateController
         bool climb = false;
         lock (_gate)
         {
-            _badStreak = 0;
             if (_rung == 0) { _cleanSince = DateTime.MinValue; return; }
             // Never climb inside 10 s of the last change: that is the window in
             // which the previous step's effect is still in flight.
@@ -193,7 +190,6 @@ public static class BitrateController
         {
             changed = _rung != target;
             _rung = target;
-            _badStreak = 0;
             _cleanSince = DateTime.MinValue;
             _lastChangeUtc = DateTime.UtcNow;
         }
