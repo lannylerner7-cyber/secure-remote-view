@@ -371,7 +371,54 @@ helper functions, and leaked-password protection disabled in auth settings.
   absolute mapping through a letterboxed video can't match.
 - Verification: `bunx tsgo --noEmit` clean. WPF change is a one-line addition
   reviewed against the existing `PushInputAsync` signature.
-- Next: Tier A item 3 continuation — **hardware H.264 (NVENC/QSV/AMF) with VP8
-  fallback** (turn 4). Encoder swap on the agent + decoder swap in
-  `admin/src/Media/VideoPipeline.cs`.
+
+### Turn 4a — hardware H.264 discovery (`SCOPE:CAPTURE`), 2026-08-03
+
+Hardware H.264 is a two-stage job and this is stage one: **find the silicon,
+report it, change nothing on the wire.**
+
+- `agent/src/HwEncoderProbe.cs` (new): enumerates Media Foundation's
+  `MFT_CATEGORY_VIDEO_ENCODER` for `MFVideoFormat_H264` with
+  `MFT_ENUM_FLAG_HARDWARE | SYNCMFT | ASYNCMFT | SORTANDFILTER`, reads each
+  MFT's `MFT_FRIENDLY_NAME_Attribute`, and classifies the winner as
+  `nvenc` / `qsv` / `amf` / `hw` / `none`. Pure P/Invoke against `mfplat.dll`
+  — no new package, no native payload, single-file publish contract intact.
+  Every failure path (Windows N without the media pack, locked-down container,
+  MFStartup failure) resolves to "none" and leaves software VP8 running.
+  Probes once per process and caches.
+- `agent/src/Agent.cs`: `HwEncoderProbe.LogCapability()` at the top of
+  `RunAsync`, so every field log states the machine's encode ceiling whether
+  or not a session is ever opened on it.
+- `agent/src/ApiClient.cs` heartbeat: new `encoder { wire_codec, hw_h264,
+  hw_vendor, hw_name }` block.
+- `src/routes/api/public/agent/heartbeat.ts`: persists it into
+  `devices.metadata.encoder` + `encoder_updated_at`, using the same
+  merge-don't-clobber discipline as the `lan` and `monitors` blocks — an older
+  agent that omits `encoder` must not erase what a newer build reported.
+
+**Deliberately NOT in this turn.** Both peers stay VP8-pinned. The codec
+guardrail comments in `agent/src/WebRtcSession.cs` and
+`admin/src/Media/WebRtcClient.cs` are unchanged and still describe reality.
+`wire_codec` is reported as the literal `"VP8"` rather than derived, because a
+telemetry field that can silently disagree with the guardrail is worse than no
+field. Negotiating H.264 before an `IVideoEncoder` exists that can produce it
+would hand the admin a stream nothing encodes.
+
+**Why staged.** `SIPSorceryMedia.Encoders` ships software VP8 only, and
+`SIPSorceryMedia.Windows` is a *capture* end-point — neither contains a
+hardware H.264 `IVideoEncoder`. Stage two therefore has to wrap the MFT this
+probe selects (`IMFTransform` set up output-type-first per the MF H.264
+encoder contract, NV12 in, Annex-B out) and pair it with an H.264 depacketise
++ decode branch in `admin/src/Media/VideoPipeline.cs`, which currently calls
+`DecodeVideo(..., VideoCodecsEnum.VP8)` unconditionally. That is a genuine
+encoder implementation, not a package swap, and it lands against a fleet where
+this probe has already told us how many machines can use it.
+
+- Verification: `bunx tsgo --noEmit` clean for the route change. The agent
+  change is additive and every entry point is wrapped so a probe failure
+  cannot affect enrollment, heartbeat or capture.
+- Next (turn 4b): MFT-backed `IVideoEncoder` on the agent, H.264 decode branch
+  in `VideoPipeline.cs`, and codec negotiation that prefers H.264 only when
+  `HwEncoderProbe.HardwareH264Available` — VP8 stays the guaranteed fallback.
+
 
