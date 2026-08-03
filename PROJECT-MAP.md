@@ -589,7 +589,7 @@ that plan does not currently name.
 | ~~S4~~ | ~~**`verify-agent-routes.ts` mints a real device on every run.**~~ **CLOSED.** The enrollment now tags `hostname: "route-verifier"` and `prune_session_ephemera()` clause 4 sweeps that tag after 1 h (gated on no session / no power command). The 7 pre-existing NULL-hostname ghosts are untouched by the new clause and still age out under the 24 h rule. | Post-fix run: 19/19 passing, new row `route-verifier` present and matching the sweep predicate; both real devices evaluate `false` | Done |
 | ~~S5~~ | ~~**Two agent files are undocumented.**~~ **CLOSED.** `InputBlocker.cs` and `StartupRegistration.cs` are in the §2 map with a changelog entry covering the curtain's fail-open release paths and the install-dir guard on the Run key. | `rg` over `PROJECT-MAP.md` now hits both | Done |
 | S6 | **`prune_session_ephemera()` is still invisible.** Tier C item 10 is half-shipped: the reaper runs every minute and writes `session.reaped` rows that nobody can read without psql. | §6 item 10 | The dashboard half of item 10 |
-| S7 | **Open decisions unchanged from §8**: `devices.standing_consent` still defaults `true`; `cron/reconcile-orders` still authenticates with the published anon key. | §8 "Open decisions" | Your call, one turn each |
+| S7 | **Half closed.** ~~`cron/reconcile-orders` authenticates with the published anon key~~ — it now requires the `x-cron-secret` token stored in `public.cron_tokens` (service-role only, RLS on with no policies), compared with `timingSafeEqual`. **Still open:** `devices.standing_consent` defaults `true`. | `verify-payment-routes.ts` cron check still `401`; §8 "Open decisions" | Consent default is your call, one turn |
 
 ### 9.4 What this pass deliberately did not touch
 
