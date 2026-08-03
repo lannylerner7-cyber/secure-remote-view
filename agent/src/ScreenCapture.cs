@@ -105,7 +105,11 @@ public static class ScreenCapture
 
         while (!ct.IsCancellationRequested)
         {
-            int delayMs = 33; // ~30 FPS target during motion
+            // Read the ladder once per frame: rung changes land on the very
+            // next capture without restarting the loop.
+            var rung = BitrateController.Current;
+            int motionDelayMs = rung.FrameDelayMs;
+            int delayMs = motionDelayMs;
             try
             {
                 var target = MonitorSelector.Resolve();
@@ -198,7 +202,7 @@ public static class ScreenCapture
                 }
 
 
-                int maxEdge = _maxEdge;
+                int maxEdge = rung.MaxEdge;
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(rawBmp.Width, rawBmp.Height));
                 // VP8 uses I420 2x2 chroma blocks. Keep both dimensions even;
                 // odd scaled heights (for example 539) shift the chroma planes.
@@ -239,7 +243,7 @@ public static class ScreenCapture
                 if (unchanged && idleCount < 20)
                 {
                     idleCount++;
-                    delayMs = idleCount >= 3 ? 100 : 33;
+                    delayMs = idleCount >= 3 ? 100 : motionDelayMs;
                     // Keepalive push while idle (throttled to IdleTeeIntervalMs).
                     TeeToWebRtc(scaledBmp, throttled: true);
                 }
@@ -248,11 +252,11 @@ public static class ScreenCapture
                     bool wasIdle = idleCount >= 3;
                     idleCount = 0;
                     lastHash = hash;
-                    delayMs = 33; // back to full speed
+                    delayMs = motionDelayMs; // back to the rung's full rate
 
                     // Update quality params if the mode changed at runtime.
-                    motionParams.Param[0] = new EncoderParameter(Encoder.Quality, _motionQuality);
-                    idleParams.Param[0] = new EncoderParameter(Encoder.Quality, _idleQuality);
+                    motionParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.MotionQuality);
+                    idleParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
 
                     // Tee the frame into the WebRTC track when a peer is connected.
                     TeeToWebRtc(scaledBmp, throttled: false);
