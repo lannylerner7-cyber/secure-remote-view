@@ -73,7 +73,9 @@ auth — every handler authenticates itself.
 
 Web routes: `/`, `/order`, `/order/$id`, `/license`, `/contact`, `/privacy`,
 `/terms`, `/refund`, `/connectlive/admin` (login), `/connectlive/payment`,
-`/_authenticated/console`. All carry unique `head()` metadata.
+`/_authenticated/console`. All carry unique `head()` metadata; the three
+non-public ones (`/connectlive/admin`, `/connectlive/payment`, `/console`)
+additionally carry `robots: noindex` and a self-referencing canonical.
 
 ---
 
