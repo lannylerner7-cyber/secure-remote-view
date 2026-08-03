@@ -49,11 +49,11 @@ async function hit(
   // 200 = a machine token was minted, 429 = IP rate limit tripped.
   //
   // This is a REAL enrollment — it leaves a real device row behind. We tag it
-  // `hostname: "route-verifier"` so `prune_session_ephemera()` can sweep it
-  // within the hour (see the verifier clause in the presence reaper), and we
-  // leave `displayName` unset so the row also matches the ordinary 24 h
-  // nameless-ghost rule as a backstop. Do NOT give this a friendly display
-  // name: a named row is invisible to both sweeps and would live forever.
+  // `hostname: "route-verifier"`, which the enroll route also copies into
+  // `display_name`. That name makes the row INVISIBLE to the ordinary 24 h
+  // nameless-ghost sweep, so the reaper carries a dedicated clause that
+  // deletes `hostname = 'route-verifier'` rows after 1 h. Changing this string
+  // without changing `prune_session_ephemera()` leaks a device row per run.
   await hit("POST", "/api/public/agent/enroll", [200, 429, 503], {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ hostname: "route-verifier", os: "route-verifier" }),
