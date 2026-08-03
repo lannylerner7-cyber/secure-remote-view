@@ -843,7 +843,8 @@ file drop) or Tier C item 9 (device health panel), whichever you want first.
 
 Carried ops (not gaps): run `admin/spikes/d3d-present -- --auto` on a real GPU
 box during the S8 soak week and paste `s12-evidence.txt` into §8; publish the
-first `releases` rows (S14); deploy TURN and set `TURN_URLS` (S9).
+first `releases` rows (S14); verify Cloudflare Calls TURN relay rate in the
+field (S9).
 
 
 ---
