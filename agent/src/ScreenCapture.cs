@@ -9,28 +9,28 @@ using System.Threading.Tasks;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Desktop capture loop. Adaptive cadence: targets ~30 FPS (33ms) during
-/// motion, backs off to ~10 FPS (100ms) when the screen is static.
-/// Normal profile: max 1920px long edge, JPEG q70 motion / q85 idle.
-/// Low-bandwidth profile (auto): 960px, q40 / q55.
+/// Desktop capture loop. Adaptive cadence: targets the current ladder rung's
+/// FPS during motion, backs off to ~10 FPS when the screen is static.
+///
+/// SCOPE:TRANSPORT — resolution, JPEG quality and frame cadence are NOT owned
+/// here any more. <see cref="BitrateController"/> owns the
+/// (targetBitrate, maxEdge, fps) triple and is driven by RTCP receiver reports
+/// on the WebRTC path plus HTTPS upload latency on the fallback path. This
+/// loop simply reads <see cref="BitrateController.Current"/> every frame, so a
+/// rung change takes effect on the very next capture with no restart.
 /// Reuses bitmap allocations across frames to minimise GC pressure.
 /// </summary>
 public static class ScreenCapture
 {
-    // Tunables — Normal (default, sharp) vs low-bandwidth Performance mode.
-    private static int _maxEdge = 1920;
-    private static long _motionQuality = 70L;
-    private static long _idleQuality = 85L;
-
-    /// <summary>True when the low-bandwidth profile is engaged.</summary>
-    public static bool PerformanceMode { get; private set; }
+    /// <summary>True when the ladder has dropped below the sharp rungs.</summary>
+    public static bool PerformanceMode => BitrateController.RungIndex >= 3;
 
     /// <summary>
     /// Longest edge, in pixels, of the frame currently being shipped.
     /// <see cref="CursorPump"/> reads this so cursor telemetry lands in the
     /// exact coordinate space of the picture the technician is looking at.
     /// </summary>
-    public static int MaxEdge => _maxEdge;
+    public static int MaxEdge => BitrateController.Current.MaxEdge;
 
     /// <summary>
     /// Periodic full refresh, in frames, used as a *safety net* only.
@@ -42,34 +42,21 @@ public static class ScreenCapture
     /// </summary>
     private const int PeriodicRefreshFrames = 300;
 
-
-    /// <summary>Switch between Normal (1920/q70-85) and Performance (960/q40-55).</summary>
-    public static void SetQualityMode(bool performance)
+    static ScreenCapture()
     {
-        int prevEdge = _maxEdge;
-        PerformanceMode = performance;
-        if (performance)
+        // A rung change alters the encoder's frame size; the admin's decoder
+        // must be handed a fresh picture rather than a delta against a frame
+        // of the previous dimensions.
+        BitrateController.Changed += _ =>
         {
-            _maxEdge = 960;
-            _motionQuality = 40L;
-            _idleQuality = 55L;
-        }
-        else
-        {
-            _maxEdge = 1920;
-            _motionQuality = 70L;
-            _idleQuality = 85L;
-        }
-        if (prevEdge != _maxEdge)
-        {
-            // Step 1 diagnostics: correlate stripe onset with a mid-stream
-            // encoder-resolution change. Uses the same monotonic clock as the
-            // WebRTC pipe log so both lines line up.
-            Log.Info($"[t={WebRtcSession.MonoClock.ElapsedMilliseconds}] capture SetQualityMode " +
-                     $"performance={performance} maxEdge {prevEdge} -> {_maxEdge}");
             _logNextTee = true;
-        }
+            ResetWebRtcTee();
+        };
     }
+
+    /// <summary>Legacy two-state switch; now pins a ladder rung.</summary>
+    public static void SetQualityMode(bool performance) => BitrateController.Pin(performance);
+
 
 
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
