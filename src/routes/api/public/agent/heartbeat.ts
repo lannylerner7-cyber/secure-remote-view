@@ -119,6 +119,32 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           };
         }
 
+        // S17 step 1 — measured encode cost. This is the fleet-wide answer to
+        // "is software VP8 the wall?", so it must survive the heartbeat rather
+        // than living only in one technician's agent log. Numbers are clamped
+        // and non-finite values dropped: a malformed payload must not poison
+        // the row. Null stays null — "not measured" is not "zero".
+        if (body.encode && typeof body.encode === "object") {
+          const en = body.encode;
+          const num = (v: unknown, max: number): number | null =>
+            typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(v, max) : null;
+          mergedMetadata = {
+            ...(mergedMetadata ?? prevMeta),
+            encode: {
+              jpeg_ms: num(en.jpeg_ms, 100_000),
+              vp8_ms: num(en.vp8_ms, 100_000),
+              cpu_pct: num(en.cpu_pct, 10_000),
+              ws_mb: num(en.ws_mb, 1_000_000),
+              peak_width: num(en.peak_width, 32_768) ?? 0,
+              peak_height: num(en.peak_height, 32_768) ?? 0,
+              rung: num(en.rung, 64) ?? 0,
+            },
+            encode_updated_at: nowIso,
+          };
+        }
+
+
+
         // S14 — agent build version. Same merge discipline: an agent that
         // predates this field must not blank out a version we already know.
         if (typeof body.version === "string" && body.version.length > 0) {
