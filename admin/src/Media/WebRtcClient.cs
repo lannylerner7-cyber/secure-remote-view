@@ -83,12 +83,25 @@ public sealed class WebRtcClient : IDisposable
 
         Pipeline.KeyFrameRequested += OnKeyFrameRequested;
         Pipeline.Diagnostic += d => T("pipeline: " + d);
+        // S16 — a dead decoder is not a stalled network. Record the reason,
+        // stop every PLI/ICE-restart escalation (they cannot help), and hand
+        // the session to the JPEG path straight away with an honest label.
+        Pipeline.NativeVideoUnavailable += reason =>
+        {
+            NativeVideoUnavailable = reason;
+            T("NATIVE VIDEO UNAVAILABLE — " + reason);
+            lock (_restartGate) { _surrendered = true; }
+            try { _onVideoStalled?.Invoke(); } catch { }
+        };
         Pipeline.FirstFrame += () =>
         {
             T($"FIRST DECODED FRAME presented ({(Pipeline.UsingD3D ? "d3d" : "bitmap")} path)");
             try { _onVideoLive?.Invoke(); } catch { }
         };
         Pipeline.Start();
+        if (!Pipeline.DecoderAvailable)
+            T("native video disabled before start: " + Pipeline.UnavailableReason);
+
 
         // Claim / refresh the binding before signalling starts.
         try
