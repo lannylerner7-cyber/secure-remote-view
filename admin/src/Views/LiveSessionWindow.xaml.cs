@@ -43,7 +43,21 @@ public partial class LiveSessionWindow : Window
 
         // Focus the window on load, not only on the first click: a session you
         // never clicked into would otherwise receive no keyboard input at all.
-        Loaded += (_, _) => { _vm.Start(); _coalesce.Start(); StartRenderTick(); Activate(); Keyboard.Focus(this); };
+        Loaded += (_, _) =>
+        {
+            // S16 — the D3D device must be associated with THIS window. The
+            // host previously fell back to Application.Current.MainWindow,
+            // which in this app is the device list and never presents video;
+            // several drivers answer that with a black or frozen surface while
+            // every upload still reports success.
+            _vm.PresentationWindow = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
+            _vm.Start();
+            _coalesce.Start();
+            StartRenderTick();
+            Activate();
+            Keyboard.Focus(this);
+        };
+
         Closed += (_, _) =>
         {
             StopRenderTick();
