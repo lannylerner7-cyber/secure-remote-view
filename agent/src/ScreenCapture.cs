@@ -120,7 +120,24 @@ public static class ScreenCapture
                 var target = MonitorSelector.Resolve();
                 var bounds = target.Bounds;
                 if (bounds.Width <= 0 || bounds.Height <= 0)
-                    bounds = new Rectangle(0, 0, 1920, 1080);
+                {
+                    // S17 — never invent 1920x1080. On a 4K box that hardcoded
+                    // fallback silently capped the whole session at 1080p and
+                    // then blamed the ladder. Ask Windows for the real virtual
+                    // desktop; only if THAT is unusable do we guess, and the
+                    // guess is logged so it can never hide again.
+                    var vs = System.Windows.Forms.SystemInformation.VirtualScreen;
+                    if (vs.Width > 0 && vs.Height > 0)
+                    {
+                        bounds = vs;
+                    }
+                    else
+                    {
+                        bounds = new Rectangle(0, 0, 1920, 1080);
+                        Log.Warn("capture: no usable monitor bounds; falling back to 1920x1080");
+                    }
+                }
+
 
                 if (!string.Equals(lastDeviceName, target.DeviceName, StringComparison.OrdinalIgnoreCase))
                 {
