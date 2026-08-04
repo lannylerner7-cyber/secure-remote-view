@@ -145,7 +145,19 @@ public partial class LiveSessionViewModel : ObservableObject
 
     [ObservableProperty] private string linkState = "connecting";
 
+    /// <summary>
+    /// S16 — HWND of the window presenting this session, supplied by the view
+    /// before <see cref="Start"/>. The D3D device is associated with it; the
+    /// old MainWindow fallback bound the device to the device list and gave a
+    /// black picture on some drivers.
+    /// </summary>
+    public IntPtr PresentationWindow { get; set; }
+
+    /// <summary>S16 — set when the native decode path retired itself; shown in the stats pill.</summary>
+    private string? _nativeUnavailable;
+
     public void Start()
+
     {
         _cts = new CancellationTokenSource();
         _framePump = new FrameFallbackPump(SessionId,
