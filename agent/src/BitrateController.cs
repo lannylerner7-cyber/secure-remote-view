@@ -38,23 +38,47 @@ public static class BitrateController
         public int FrameDelayMs => Math.Max(16, 1000 / Math.Max(1, Fps));
     }
 
-    // Index 0 is the sharpest rung and the default: a healthy LAN or fibre
-    // link should never leave it. The bottom rung is chosen to stay legible
-    // for text-heavy support work (reading a dialog) rather than to look good.
+    // S17 — the ladder now has a real ceiling above 1080p. Index 0 is the
+    // sharpest rung; the bottom rung is chosen to stay legible for text-heavy
+    // support work (reading a dialog) rather than to look good.
+    //
+    // Rungs 0 and 1 (3840 / 2560) are a CEILING RAISE, not a new default. A
+    // session opens at <see cref="DefaultRung"/> (1920 — exactly today's
+    // behaviour) and only climbs into them after a sustained clean window, so
+    // a technician on hotel Wi-Fi never starts on a 20 Mbps rung. Congestion
+    // steps back down through them in ~3 s, which is why the top two rungs are
+    // safe to expose at all.
     private static readonly Rung[] Ladder =
     {
-        new(1920, 70, 85, 30, 4000),
-        new(1600, 64, 80, 30, 2500),
-        new(1280, 58, 74, 24, 1500),
-        new(1024, 50, 66, 20,  900),
-        new( 800, 44, 58, 15,  600),
-        new( 640, 38, 50, 12,  350),
+        new(3840, 82, 92, 30, 20000),
+        new(2560, 76, 88, 30, 12000),
+        new(1920, 70, 85, 30,  4000),
+        new(1600, 64, 80, 30,  2500),
+        new(1280, 58, 74, 24,  1500),
+        new(1024, 50, 66, 20,   900),
+        new( 800, 44, 58, 15,   600),
+        new( 640, 38, 50, 12,   350),
     };
 
+    /// <summary>
+    /// Rung a fresh session opens on. Deliberately NOT 0: the 4K/2K rungs are
+    /// earned by a demonstrably clean link, never assumed. Index 2 is the
+    /// 1920px/4000kbps rung that was the top of the pre-S17 ladder, so default
+    /// behaviour is byte-for-byte what it was before the ceiling was raised.
+    /// </summary>
+    public const int DefaultRung = 2;
+
+    /// <summary>
+    /// Rung <see cref="Pin"/> drops to for legacy "performance mode" callers.
+    /// Tracks the 1024px rung it meant before the two rungs were prepended.
+    /// </summary>
+    private const int PerformancePinRung = 5;
+
     private static readonly object _gate = new();
-    private static int _rung;
+    private static int _rung = DefaultRung;
     private static DateTime _cleanSince = DateTime.MinValue;
     private static DateTime _lastChangeUtc = DateTime.MinValue;
+
 
     /// <summary>Raised after any rung change so capture can re-read tunables.</summary>
     public static event Action<Rung>? Changed;
