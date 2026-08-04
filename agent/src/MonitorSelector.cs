@@ -81,8 +81,12 @@ public static class MonitorSelector
         {
             // Session 0 / no attached display: keep the pipeline alive with a
             // sane virtual surface rather than throwing out of the capture loop.
-            list.Add(new MonitorInfo(0, @"\\.\DISPLAY1", "Display 1 — 1920×1080 (virtual)",
-                new Rectangle(0, 0, 1920, 1080), true));
+            // S17 — prefer the real virtual-desktop metrics even here; only a
+            // machine that reports no geometry at all gets the 1080p guess.
+            var vs = System.Windows.Forms.SystemInformation.VirtualScreen;
+            var virt = vs.Width > 0 && vs.Height > 0 ? vs : new Rectangle(0, 0, 1920, 1080);
+            list.Add(new MonitorInfo(0, @"\\.\DISPLAY1",
+                $"Display 1 — {virt.Width}×{virt.Height} (virtual)", virt, true));
         }
         return list;
     }

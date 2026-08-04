@@ -57,7 +57,14 @@ public static class CursorPump
                 // Screen.PrimaryScreen or a local constant.
                 var bounds = MonitorSelector.SelectedBounds;
                 if (bounds.Width <= 0 || bounds.Height <= 0)
-                    bounds = new Rectangle(0, 0, 1920, 1080);
+                {
+                    // S17 — mirror ScreenCapture exactly. If this guessed
+                    // 1920x1080 while capture used the real virtual desktop the
+                    // cursor overlay would sit in a different coordinate space
+                    // than the picture and drift across the screen.
+                    var vs = System.Windows.Forms.SystemInformation.VirtualScreen;
+                    bounds = vs.Width > 0 && vs.Height > 0 ? vs : new Rectangle(0, 0, 1920, 1080);
+                }
                 int maxEdge = Math.Max(1, ScreenCapture.MaxEdge);
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(bounds.Width, bounds.Height));
                 // Mirror ScreenCapture's even-dimension rule so the overlay's
