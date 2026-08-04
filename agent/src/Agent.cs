@@ -163,6 +163,11 @@ public sealed class Agent
         // session ever opens, which is what tells us how much of the fleet
         // would benefit from the wire-codec flip landing after this turn.
         try { HwEncoderProbe.LogCapability(); } catch { }
+        // S17 step 3 kill switch, logged next to the probe so a field machine's
+        // codec behaviour is readable from the startup log alone. Inert today —
+        // WebRtcSession still pins VP8 unconditionally.
+        try { CodecPolicy.LogPolicy(); } catch { }
+
 
 
 

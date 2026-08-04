@@ -175,6 +175,10 @@ public sealed class WebRtcSession : IDisposable
         // change that lands the hardware H.264 encoder, not before.
         BitrateController.Ceiling = BitrateController.DefaultRung;
         BitrateController.Reset();
+        // S17 step 1 — a new peer is a new measurement. The previous session's
+        // encode averages and peak geometry say nothing about this link.
+        EncodeStats.Reset();
+
 
 
         _videoEnd = new VideoEncoderEndPoint();
@@ -433,8 +437,17 @@ public sealed class WebRtcSession : IDisposable
                 _lastPushW = width;
                 _lastPushH = height;
             }
+            // S17 step 1 — time the software VP8 encode submission. This is the
+            // number that decides whether the hardware H.264 wrapper is worth
+            // building: if it stays well inside the ~33 ms frame budget at the
+            // 1920px rung, the CPU is not the wall.
+            var encodeSw = System.Diagnostics.Stopwatch.StartNew();
             enc.ExternalVideoSourceRawSample(
                 33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
+            encodeSw.Stop();
+            EncodeStats.NoteVp8Encode(
+                encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, width, height);
+
 
         }
         catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }
@@ -451,6 +464,10 @@ public sealed class WebRtcSession : IDisposable
                  $"encoded={Interlocked.Read(ref _encoded)} dropped={Interlocked.Read(ref _dropped)} " +
                  $"formatReady={_formatReady} started={_videoStarted} " +
                  $"size={_lastPushW}x{_lastPushH} pt={_negotiatedPt}");
+        // S17 step 1 — encode cost next to the pipe counters, so one log excerpt
+        // answers both "are frames flowing?" and "what did they cost?".
+        try { Log.Info($"[t={MonoClock.ElapsedMilliseconds}] {EncodeStats.Line()}"); } catch { }
+
     }
 
 

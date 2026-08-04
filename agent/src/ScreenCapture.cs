@@ -333,11 +333,21 @@ public static class ScreenCapture
                     // Use higher quality for idle keyframes, lower for motion frames.
                     var encP = wasIdle ? idleParams : motionParams;
                     using var ms = new MemoryStream();
+                    // S17 step 1 — time the ENCODE alone. The upload is measured
+                    // separately below; folding them together would make a slow
+                    // link look like a slow encoder, which is the exact
+                    // confusion the S17 decision has to avoid.
+                    var encodeSw = System.Diagnostics.Stopwatch.StartNew();
                     frame.Save(ms, jpegEnc, encP);
+                    encodeSw.Stop();
+                    EncodeStats.NoteJpegEncode(
+                        encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, w, h);
                     var uploadSw = System.Diagnostics.Stopwatch.StartNew();
                     bool posted = await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
                     uploadSw.Stop();
                     NoteUploadLatency(uploadSw.ElapsedMilliseconds);
+                    MaybeLogEncodeStats();
+
                     if (posted)
                     {
                         if (uploadFails > 0) Log.Info($"frame upload recovered after {uploadFails} failure(s)");
@@ -467,12 +477,30 @@ public static class ScreenCapture
     private static void NoteUploadLatency(long ms) => BitrateController.NoteUploadLatency(ms);
 
 
+    // ---- S17 step 1 measurement ------------------------------------------
+    // One [encode] line every 10 s while a session is streaming. Throttled to
+    // the same order as the WebRTC pipe heartbeat so a long session's log stays
+    // readable, and deliberately emitted from the capture loop so it appears
+    // even when the WebRTC peer never comes up and only JPEG is carrying.
+    private const int EncodeStatsIntervalMs = 10_000;
+    private static DateTime _lastEncodeStatsUtc = DateTime.MinValue;
+
+    private static void MaybeLogEncodeStats()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastEncodeStatsUtc).TotalMilliseconds < EncodeStatsIntervalMs) return;
+        _lastEncodeStatsUtc = now;
+        try { Log.Info($"[t={WebRtcSession.MonoClock.ElapsedMilliseconds}] {EncodeStats.Line()}"); }
+        catch { }
+    }
+
     private static ulong HashBitmap(Bitmap bmp)
     {
         var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
         var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
         try
         {
+
             int total = data.Stride * bmp.Height;
             int step = Math.Max(64, total / 4096); // ~4k samples
             ulong hash = 1469598103934665603UL; // FNV-1a offset

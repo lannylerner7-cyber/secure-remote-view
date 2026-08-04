@@ -290,15 +290,21 @@ public sealed class ApiClient
             version = AgentVersion,
             encoder = new
             {
-                // Wire codec actually in use today. Hardcoded rather than
-                // derived: the pinning guardrail on both peers says VP8, and a
-                // field that silently disagrees with the guardrail is worse
-                // than no field.
-                wire_codec = "VP8",
+                // Wire codec actually in use. Derived from CodecPolicy rather
+                // than hardcoded, so this field cannot drift away from the
+                // guardrail in WebRtcSession the way a literal would. It reads
+                // "VP8" on every build until the S17 step 3 encoder lands.
+                wire_codec = SafeWireCodecTag(),
                 hw_h264 = encoderVendor != "none",
                 hw_vendor = encoderVendor,
                 hw_name = encoderName,
             },
+            // S17 step 1 — encode cost and agent CPU, so the "is software VP8
+            // the wall?" question is answerable fleet-wide from
+            // devices.metadata instead of one technician's impression. Null
+            // fields mean "not measured this session", never "zero".
+            encode = SafeEncodePayload(),
+
         };
         using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {
@@ -307,6 +313,24 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);
     }
+
+    /// <summary>
+    /// S17 step 1 — never let a diagnostic take the presence loop down. A
+    /// heartbeat that fails because of a telemetry field would mark a healthy
+    /// machine offline, which is a far worse outcome than a missing number.
+    /// </summary>
+    private static string SafeWireCodecTag()
+    {
+        try { return CodecPolicy.WireCodecTag; }
+        catch { return "VP8"; }
+    }
+
+    private static object? SafeEncodePayload()
+    {
+        try { return EncodeStats.HeartbeatPayload(); }
+        catch { return null; }
+    }
+
 
     /// S14 — newest published build for this product/channel, or null when
     /// nothing is published (204) or the call fails. Never throws: an update
