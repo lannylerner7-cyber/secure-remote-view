@@ -1249,3 +1249,68 @@ and HEVC. None of them are worth touching before the encode/decode gap is
 closed; all three are optimisations on top of hardware codecs, not
 replacements for them.
 
+
+### 10.7 S17 step 2 / phase 1 — encode instrumentation + codec kill switch — 2026-08-04 (`SCOPE:CAPTURE`/`SCOPE:TRANSPORT`)
+
+§10.6 made hardware H.264 conditional on measurement rather than impression.
+This is that measurement, plus the switch that will govern the encoder before
+the encoder exists. **No codec behaviour changes in this build: the wire is
+still software VP8 on all three peers.**
+
+**`agent/src/EncodeStats.cs` (new)** — a measuring instrument, nothing else.
+Two interlocked adds per frame, one `TotalProcessorTime` read per 2 s window.
+Tracks, per session:
+
+| Field | Meaning |
+|---|---|
+| `jpeg_ms` | mean JPEG encode, HTTPS fallback transport |
+| `vp8_ms` | mean software VP8 encode submission, WebRTC transport |
+| `cpu_pct` | agent process CPU as % of **one** core (>100 = spilling across threads) |
+| `ws_mb` | working set |
+| `peak_width`/`peak_height` | widest geometry actually handed to an encoder |
+| `rung` | current ladder rung |
+
+Encode time excludes upload — the ladder already owns upload latency via
+`BitrateController.NoteUploadLatency`, and folding the two makes a slow link
+look like a slow encoder. Every read is failure-tolerant: a refused CPU or
+working-set read reports "not measured" (`null` in the payload, `-` in logs)
+instead of throwing. `Reset()` runs on each new peer — last session's averages
+say nothing about this one.
+
+**`agent/src/CodecPolicy.cs` (new)** — the single answer to "which codec may
+this build put on the wire?", read from `CONNECTLIVE_CODEC` = `vp8` (default)
+| `auto` | `h264`. `auto` means H.264 *only* where hardware exists, and is
+never the default: Windows always offers a **software** H.264 MFT that is
+slower than libvpx VP8, so drifting into it would be a regression. An
+unrecognised value logs a warning and stays on VP8.
+
+`AllowH264` has **no consumer yet**. Flipping the VP8 pin in `WebRtcSession`
+to read it is the first line of S17 step 3, and must land in the same change
+as the MFT wrapper and the admin Media Foundation decoder — advertising a
+codec the agent cannot encode negotiates a stream nothing can produce.
+
+**Wiring**
+
+- `ScreenCapture.cs` — times `frame.Save(...)` alone; emits `[encode]` every
+  10 s from the capture loop, so the line appears even when the WebRTC peer
+  never comes up and only JPEG is carrying.
+- `WebRtcSession.cs` — times `ExternalVideoSourceRawSample`; `[encode]` rides
+  alongside the existing 5 s `webrtc video pipe:` line, so one log excerpt
+  answers both "are frames flowing?" and "what did they cost?". `EncodeStats.Reset()`
+  on peer init.
+- `Agent.cs` — `CodecPolicy.LogPolicy()` at startup, next to
+  `HwEncoderProbe.LogCapability()`.
+- `ApiClient.cs` — heartbeat gains `encode {...}`; `encoder.wire_codec` now
+  derives from `CodecPolicy` instead of the old `"VP8"` literal, so it cannot
+  drift from the guardrail. Both are wrapped: a telemetry fault must never
+  fail a heartbeat and mark a healthy machine offline.
+
+**Invariant** — `encoder.wire_codec` is derived, never asserted. If it ever
+disagrees with what `WebRtcSession` negotiates, the fleet data is lying and
+that is the bug to fix first.
+
+**Left to wire before step 3**: read a real 4K session's `[encode]` line and
+`devices.metadata.encode` against the §10.6 decision rule — VP8 encode time
+approaching the ~33 ms frame budget, or CPU pinning a core at the 2560/3840
+rungs, is what authorises the MFT work. Admin- and web-side decode telemetry
+already exist (`VideoPipeline.StatsLine()`, S11 render telemetry).
