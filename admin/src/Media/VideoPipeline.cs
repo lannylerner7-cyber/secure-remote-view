@@ -108,9 +108,36 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>Raised (worker thread) with a one-line human-readable problem description.</summary>
     public event Action<string>? Diagnostic;
 
+    /// <summary>
+    /// S16 — the native path cannot produce pictures at all (no VP8 decoder, or
+    /// every decoded frame is unusable). Raised at most once per pipeline. The
+    /// caller must stop treating this as a transport stall — no PLI, no ICE
+    /// restart will fix it — and demote to the JPEG path immediately.
+    /// </summary>
+    public event Action<string>? NativeVideoUnavailable;
+
+    /// <summary>S16 — false once the native path has given up; the reason is in <see cref="UnavailableReason"/>.</summary>
+    public bool DecoderAvailable => !_decoderDead;
+
+    /// <summary>S16 — why the native path gave up, or null while it is healthy.</summary>
+    public string? UnavailableReason => _deadReason;
+
     public void Start()
     {
-        if (_worker != null) return;
+        if (_worker != null || _decoderDead) return;
+
+        // S16 — the decoder is created HERE, on the caller's thread, before any
+        // frame arrives. It used to be constructed inside the decode loop, so a
+        // missing libvpx native dependency killed the worker thread silently:
+        // frames queued forever, the stall watch fired a PLI every 500 ms, that
+        // escalated into ICE restarts, and the technician was told the network
+        // had stalled when in fact there was no decoder at all.
+        try { _decoder = new VpxVideoEncoder(); }
+        catch (Exception ex)
+        {
+            MarkUnavailable("VP8 decoder unavailable: " + ex.Message);
+            return;
+        }
 
         // S12 — device-lost is visible, not silent. A TDR, driver update, RDP
         // attach or dGPU/iGPU flip now says so in the session log and in the
@@ -132,6 +159,21 @@ public sealed class VideoPipeline : IDisposable
         _worker.Start();
         StartStallWatch();
     }
+
+    /// <summary>
+    /// S16 — retire the native path once, loudly. Idempotent: later failures on
+    /// the worker thread cannot re-raise it or spam the session log.
+    /// </summary>
+    private void MarkUnavailable(string reason)
+    {
+        if (_decoderDead) return;
+        _decoderDead = true;
+        _deadReason = reason;
+        lock (_qGate) _queue.Clear();
+        Diagnostic?.Invoke(reason + " — falling back to the JPEG path");
+        try { NativeVideoUnavailable?.Invoke(reason); } catch { }
+    }
+
 
 
     /// <summary>
