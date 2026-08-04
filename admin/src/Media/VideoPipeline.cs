@@ -84,7 +84,7 @@ public sealed class VideoPipeline : IDisposable
         _lastDecodedMs >= 0 && (_clock.ElapsedMilliseconds - Interlocked.Read(ref _lastDecodedMs)) < 2000;
 
     /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
-    /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
+
     public bool UsingD3D { get; private set; }
 
     /// <summary>
