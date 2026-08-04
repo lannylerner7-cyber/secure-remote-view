@@ -1146,7 +1146,18 @@ the picture's coordinate space.
 **Fix:** extended to `{ 3840, 2560, 1920, 1600, 1280, 1024, 800, 640 }`. This
 array MUST stay in lockstep with the agent ladder.
 
-Files touched: `agent/src/{BitrateController,ScreenCapture,CursorPump,MonitorSelector}.cs`,
+**Cause 6 — a raised ceiling would have killed the WebRTC path.**
+The wire codec is still software VP8 (`WebRtcSession` pins it). libvpx cannot
+encode 3840x2160 in real time on a support machine's CPU, so a clean link
+climbing to rung 0 would have replaced a soft picture with a dead one.
+**Fix:** `BitrateController.Ceiling` — the sharpest rung the ladder may climb
+into. `Reset`, `Pin` and the climb path all respect it. `WebRtcSession` sets
+`Ceiling = DefaultRung` when a peer is built and back to `0` in `Close()`, so
+the new rungs are live for the JPEG transport (what most sessions actually
+render today) and dormant for VP8. Step 2 lifts the ceiling in the same change
+that lands hardware H.264 — not before.
+
+Files touched: `agent/src/{BitrateController,ScreenCapture,CursorPump,MonitorSelector,WebRtcSession}.cs`,
 `admin/src/ViewModels/LiveSessionViewModel.cs`.
 
 S17 step 1 status: **SHIPPED**.
