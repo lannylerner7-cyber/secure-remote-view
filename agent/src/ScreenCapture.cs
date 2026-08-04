@@ -231,29 +231,65 @@ public static class ScreenCapture
                 int w = Math.Max(2, (int)(rawBmp.Width * scale) & ~1);
                 int h = Math.Max(2, (int)(rawBmp.Height * scale) & ~1);
 
-                // Reallocate scaled bitmap only when target size changes.
-                if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
+                // S17 — TRUE 1:1 PASSTHROUGH.
+                //
+                // When the rung's max edge is at or above the desktop size the
+                // old code still allocated a second full-size bitmap and blitted
+                // the whole desktop into it every frame — at 3840x2160 that is a
+                // ~33 MB copy per frame, 30 times a second, for a picture that is
+                // pixel-identical to the source. Worse, a NearestNeighbor
+                // DrawImage at 1:1 is not guaranteed to be bit-exact, so it also
+                // cost sharpness it had no right to cost.
+                //
+                // Skip it entirely. The only reason we would still need the copy
+                // at scale >= 1.0 is an odd desktop dimension (rare, but real on
+                // some scaled laptop panels), because the encoder needs even
+                // dimensions — that case falls through to the resample path with
+                // w/h rounded down to even.
+                bool oneToOne = scale >= 1.0 && w == rawBmp.Width && h == rawBmp.Height;
+                Bitmap frame;
+                if (oneToOne)
                 {
-                    scaledBmp?.Dispose();
-                    // No alpha channel — see rawBmp above.
-                    scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
-                    prevScaledW = w;
-                    prevScaledH = h;
+                    frame = rawBmp;
+                    // Release the scratch buffer: on a 4K desktop it is 33 MB of
+                    // large-object-heap that will never be read again.
+                    if (scaledBmp != null)
+                    {
+                        scaledBmp.Dispose();
+                        scaledBmp = null;
+                        prevScaledW = prevScaledH = 0;
+                    }
+                }
+                else
+                {
+                    // Reallocate scaled bitmap only when target size changes.
+                    if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
+                    {
+                        scaledBmp?.Dispose();
+                        // No alpha channel — see rawBmp above.
+                        scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
+                        prevScaledW = w;
+                        prevScaledH = h;
+                    }
+
+                    using (var g = Graphics.FromImage(scaledBmp))
+                    {
+                        // Bicubic only matters when we actually downsample.
+                        g.InterpolationMode = scale < 1.0
+                            ? System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
+                            : System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                        g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                        // Second guard against alpha blending on the downscale.
+                        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                        g.DrawImage(rawBmp, 0, 0, w, h);
+                    }
+                    frame = scaledBmp;
                 }
 
-                using (var g = Graphics.FromImage(scaledBmp))
-                {
-                    // Bicubic only matters when we actually downsample; a 1:1
-                    // blit stays on the cheap path.
-                    g.InterpolationMode = scale < 1.0
-                        ? System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
-                        : System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
-                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                    g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                    // Second guard against alpha blending on the downscale.
-                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-                    g.DrawImage(rawBmp, 0, 0, w, h);
-                }
+                // The frame the idle keepalive re-sends when nothing changed.
+                lastFrame = frame;
+
 
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
                 ulong hash = HashBitmap(scaledBmp);
