@@ -111,15 +111,28 @@ public static class FrameConvert
 
     private static void Bgr24ToBgra32(byte[] src, int width, int height, byte[] dst)
     {
-        int n = width * height;
-        int s = 0, d = 0;
-        for (int i = 0; i < n; i++)
+        int stride = src.Length / height;
+        if (stride < width * 3) stride = width * 3;
+        for (int y = 0; y < height; y++)
         {
-            dst[d++] = src[s++];   // B
-            dst[d++] = src[s++];   // G
-            dst[d++] = src[s++];   // R
-            dst[d++] = 255;        // A (opaque — the remote desktop has no alpha)
+            int s = y * stride;
+            int d = y * width * 4;
+            for (int x = 0; x < width; x++)
+            {
+                dst[d++] = src[s++];   // B
+                dst[d++] = src[s++];   // G
+                dst[d++] = src[s++];   // R
+                dst[d++] = 255;        // A (opaque — the remote desktop has no alpha)
+            }
         }
+    }
+
+    /// <summary>Luma-plane stride for a planar sample that may be row-padded.</summary>
+    private static int LumaStride(int sampleLength, int width, int height)
+    {
+        int planar = sampleLength * 2 / 3;
+        int stride = height > 0 && planar % height == 0 ? planar / height : width;
+        return stride < width ? width : stride;
     }
 
     /// <summary>
@@ -128,17 +141,17 @@ public static class FrameConvert
     /// </summary>
     public static void I420ToBgra32(byte[] src, int width, int height, byte[] dst)
     {
-        int ySize = width * height;
-        int cw = (width + 1) / 2;
+        int yStride = LumaStride(src.Length, width, height);
+        int cw = (yStride + 1) / 2;
         int ch = (height + 1) / 2;
-        int uOff = ySize;
-        int vOff = ySize + cw * ch;
+        int uOff = yStride * height;
+        int vOff = uOff + cw * ch;
 
         for (int y = 0; y < height; y++)
         {
-            int yRow = y * width;
+            int yRow = y * yStride;
             int cRow = (y >> 1) * cw;
-            int d = yRow * 4;
+            int d = y * width * 4;
             for (int x = 0; x < width; x++)
             {
                 int c = src[yRow + x] - 16;
@@ -147,18 +160,52 @@ public static class FrameConvert
                 int u = src[uOff + cRow + cx] - 128;
                 int v = src[vOff + cRow + cx] - 128;
 
-                int y298 = 298 * c;
-                int r = (y298 + 409 * v + 128) >> 8;
-                int g = (y298 - 100 * u - 208 * v + 128) >> 8;
-                int b = (y298 + 516 * u + 128) >> 8;
-
-                dst[d++] = Clamp8(b);
-                dst[d++] = Clamp8(g);
-                dst[d++] = Clamp8(r);
-                dst[d++] = 255;
+                Emit(dst, ref d, c, u, v);
             }
         }
     }
+
+    /// <summary>
+    /// NV12 (planar Y, then a single interleaved UV plane at half resolution) →
+    /// BGRA32. Hardware decoders and several libvpx wrappers emit this instead
+    /// of I420; before S16 every such frame was dropped as "unrecognised".
+    /// </summary>
+    public static void Nv12ToBgra32(byte[] src, int width, int height, byte[] dst)
+    {
+        int yStride = LumaStride(src.Length, width, height);
+        int uvOff = yStride * height;
+
+        for (int y = 0; y < height; y++)
+        {
+            int yRow = y * yStride;
+            int uvRow = uvOff + (y >> 1) * yStride;
+            int d = y * width * 4;
+            for (int x = 0; x < width; x++)
+            {
+                int c = src[yRow + x] - 16;
+                if (c < 0) c = 0;
+                int cx = (x >> 1) << 1;
+                int u = src[uvRow + cx] - 128;
+                int v = src[uvRow + cx + 1] - 128;
+
+                Emit(dst, ref d, c, u, v);
+            }
+        }
+    }
+
+    private static void Emit(byte[] dst, ref int d, int c, int u, int v)
+    {
+        int y298 = 298 * c;
+        int r = (y298 + 409 * v + 128) >> 8;
+        int g = (y298 - 100 * u - 208 * v + 128) >> 8;
+        int b = (y298 + 516 * u + 128) >> 8;
+
+        dst[d++] = Clamp8(b);
+        dst[d++] = Clamp8(g);
+        dst[d++] = Clamp8(r);
+        dst[d++] = 255;
+    }
+
 
     private static byte Clamp8(int v) => v < 0 ? (byte)0 : v > 255 ? (byte)255 : (byte)v;
 }
