@@ -433,8 +433,17 @@ public sealed class WebRtcSession : IDisposable
                 _lastPushW = width;
                 _lastPushH = height;
             }
+            // S17 step 1 — time the software VP8 encode submission. This is the
+            // number that decides whether the hardware H.264 wrapper is worth
+            // building: if it stays well inside the ~33 ms frame budget at the
+            // 1920px rung, the CPU is not the wall.
+            var encodeSw = System.Diagnostics.Stopwatch.StartNew();
             enc.ExternalVideoSourceRawSample(
                 33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
+            encodeSw.Stop();
+            EncodeStats.NoteVp8Encode(
+                encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, width, height);
+
 
         }
         catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }

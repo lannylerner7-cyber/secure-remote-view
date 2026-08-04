@@ -477,12 +477,30 @@ public static class ScreenCapture
     private static void NoteUploadLatency(long ms) => BitrateController.NoteUploadLatency(ms);
 
 
+    // ---- S17 step 1 measurement ------------------------------------------
+    // One [encode] line every 10 s while a session is streaming. Throttled to
+    // the same order as the WebRTC pipe heartbeat so a long session's log stays
+    // readable, and deliberately emitted from the capture loop so it appears
+    // even when the WebRTC peer never comes up and only JPEG is carrying.
+    private const int EncodeStatsIntervalMs = 10_000;
+    private static DateTime _lastEncodeStatsUtc = DateTime.MinValue;
+
+    private static void MaybeLogEncodeStats()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastEncodeStatsUtc).TotalMilliseconds < EncodeStatsIntervalMs) return;
+        _lastEncodeStatsUtc = now;
+        try { Log.Info($"[t={WebRtcSession.MonoClock.ElapsedMilliseconds}] {EncodeStats.Line()}"); }
+        catch { }
+    }
+
     private static ulong HashBitmap(Bitmap bmp)
     {
         var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
         var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
         try
         {
+
             int total = data.Stride * bmp.Height;
             int step = Math.Max(64, total / 4096); // ~4k samples
             ulong hash = 1469598103934665603UL; // FNV-1a offset
