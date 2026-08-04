@@ -411,7 +411,28 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
 
 
     try {
-      try { pc.setConfiguration({ iceServers: await icePromise }); } catch { /* pre-offer only */ }
+      // S16 — apply the gateway set BEFORE any transceiver exists, so ICE
+      // gathering (which starts at setLocalDescription) sees the relay. The
+      // result is recorded: a failure here is why a session ends up STUN-only.
+      const gatewaySet = await icePromise;
+      const hasTurn = gatewaySet.some((s) => {
+        const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+        return urls.some((u) => /^turns?:/i.test(String(u)));
+      });
+      try {
+        pc.setConfiguration({ iceServers: gatewaySet });
+        relayState = hasTurn ? "relay" : "none";
+      } catch (err) {
+        relayState = "none";
+        console.warn("[webrtc] ice set could not be applied — running STUN only", err);
+      }
+      if (relayState === "none") {
+        console.warn(
+          "[webrtc] no TURN relay available: direct paths only. " +
+            "Sessions behind symmetric NAT will fall back to JPEG frames.",
+        );
+      }
+
       pc.addTransceiver("video", { direction: "recvonly" });
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
