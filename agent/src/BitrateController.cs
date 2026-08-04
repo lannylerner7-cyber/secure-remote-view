@@ -212,7 +212,11 @@ public static class BitrateController
     public static void Pin(bool performance)
     {
         bool changed;
-        int target = performance ? 4 : 0;
+        // S17 — both targets moved with the two prepended rungs. "Sharp" means
+        // the old top (1920), not the new 4K ceiling: an operator toggling a
+        // two-state switch has not told us the link can carry 20 Mbps.
+        int target = performance ? PerformancePinRung : DefaultRung;
+
         lock (_gate)
         {
             changed = _rung != target;
