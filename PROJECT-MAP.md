@@ -1043,3 +1043,14 @@ Windows host and are unblocked by the source zips.
   `bin/ obj/ publish/ dist/ .vs/ *.user *.suo` and editor cruft. No secrets in
   either tree — re-verified at cut time (configs carry only the publishable
   key and public URLs).
+
+### 10.4 S16 — "live video never starts" made visible — 2026-08-03 (`SCOPE:RENDER`)
+
+Both consoles could sit on the JPEG fallback indefinitely while reporting
+nothing more useful than "Frame fallback". The three causes and their fixes:
+
+1. **Native decoder death was silent.** `VideoPipeline` created the VP8
+   decoder inside the worker loop and swallowed failures, so a missing/failed
+   `VpxVideoEncoder` produced an endless PLI storm and a frozen surface.
+   Decoder init is now hoisted into `Start()`, consecutive convert/decode
+   failures are counted (`MaxConsecutiveFailures = 60`), and cr
