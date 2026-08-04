@@ -175,6 +175,10 @@ public sealed class WebRtcSession : IDisposable
         // change that lands the hardware H.264 encoder, not before.
         BitrateController.Ceiling = BitrateController.DefaultRung;
         BitrateController.Reset();
+        // S17 step 1 — a new peer is a new measurement. The previous session's
+        // encode averages and peak geometry say nothing about this link.
+        EncodeStats.Reset();
+
 
 
         _videoEnd = new VideoEncoderEndPoint();
