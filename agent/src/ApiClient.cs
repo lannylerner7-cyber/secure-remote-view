@@ -290,15 +290,21 @@ public sealed class ApiClient
             version = AgentVersion,
             encoder = new
             {
-                // Wire codec actually in use today. Hardcoded rather than
-                // derived: the pinning guardrail on both peers says VP8, and a
-                // field that silently disagrees with the guardrail is worse
-                // than no field.
-                wire_codec = "VP8",
+                // Wire codec actually in use. Derived from CodecPolicy rather
+                // than hardcoded, so this field cannot drift away from the
+                // guardrail in WebRtcSession the way a literal would. It reads
+                // "VP8" on every build until the S17 step 3 encoder lands.
+                wire_codec = SafeWireCodecTag(),
                 hw_h264 = encoderVendor != "none",
                 hw_vendor = encoderVendor,
                 hw_name = encoderName,
             },
+            // S17 step 1 — encode cost and agent CPU, so the "is software VP8
+            // the wall?" question is answerable fleet-wide from
+            // devices.metadata instead of one technician's impression. Null
+            // fields mean "not measured this session", never "zero".
+            encode = SafeEncodePayload(),
+
         };
         using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {
