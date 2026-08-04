@@ -26,21 +26,45 @@ The roadmap is clear; the work is just large. Three things make it expensive:
 - **Bandwidth:** 20 Mbps is a LAN/fibre number. The ladder still steps down on congestion, so bad links behave exactly as today.
 - **Admin stability:** decoding H.264 through Media Foundation removes libvpx from the native admin entirely, retiring the "decoder unavailable" failure mode.
 
-## Recommended plan
+## Approved sequence (1-3), with the roadmap updated at each step
 
-Step 2 should not be built blindly. The honest sequence is:
+Each step below ends with a `PROJECT-MAP.md` update, so the map always says where we are and what is left.
 
-1. **Measure Step 1 on a real 4K session.** Required evidence:
-   - `session_telemetry` shows `source_width`/`source_height` at the monitor's native size.
-   - Sustained `fps` and `latency_ms` at rung 2 (1920px) and, on the JPEG path, at rungs 1 and 0 (2560px/3840px).
-   - `render_path = d3d`, `frames_dropped` flat, no `NativeVideoUnavailable` in the log.
-   - Agent CPU during encode, plus `HwEncoderProbe` result from the heartbeat.
-2. **Decide based on the measurement.**
-   - If the software encoder wall hits at 2560px or 3840px, proceed to Step 2 as written below.
-   - If the JPEG path holds 3840px acceptably, ship Step 3 (ladder re-tune) first and queue Step 2.
-3. **If Step 2 is justified, build it behind a kill switch.**
+### Step 1 — Make the measurement possible, then measure (build now)
 
-## Implementation (if measurement justifies it)
+The evidence S17 needs does not exist yet: nothing in the agent reports encode time or CPU. Step 1 ships the instruments, then you run one real 4K session.
+
+Code:
+- New `agent/src/EncodeStats.cs` — per-session encode timing (JPEG path and software VP8 path, separately), agent process CPU as a percentage of one core, working set, and the peak/last frame geometry actually handed to an encoder. Lock-free on the hot path; a failed CPU read reports "not measured" rather than throwing.
+- `agent/src/ScreenCapture.cs` — time the JPEG encode alone (not the upload, which the ladder already owns) and feed `EncodeStats`.
+- `agent/src/WebRtcSession.cs` — time the VP8 encode submission in `PushFrame` and feed `EncodeStats`; reset stats when a peer is built.
+- `agent/src/ApiClient.cs` — add an `encode` block to the heartbeat payload (`jpeg_ms`, `vp8_ms`, `cpu_pct`, `ws_mb`, `peak_width`, `peak_height`, `rung`), so the fleet-wide answer lands in `devices.metadata` with no new table.
+- Agent log gains one `[encode]` line per stats window, to be read alongside the admin's existing per-minute `[video]` line.
+
+Evidence to collect from one real 4K session:
+- `session_telemetry` shows `source_width`/`source_height` at the monitor's native size (proves 1:1 passthrough and unclamped bounds are live).
+- Sustained `fps` and `latency_ms` at rung 2 (1920px) and, on the JPEG path, at rungs 1 and 0 (2560px/3840px).
+- `render_path = d3d`, `frames_dropped` flat, no `NativeVideoUnavailable` in the session log.
+- Agent `cpu_pct` and `vp8_ms` while encoding, alongside the `HwEncoderProbe` result already in the heartbeat.
+
+Roadmap: new `PROJECT-MAP.md` §10.7 recording the instruments and the pass/fail criteria above.
+
+### Step 2 — Decide from the data
+
+- If `vp8_ms` exceeds the frame budget or `cpu_pct` pins at 2560px/3840px, Phase A-D below go ahead as written.
+- If the JPEG path holds 3840px acceptably, Step 3 (ladder re-tune) ships first and the MFT wrapper stays queued.
+
+Roadmap: §10.7 gains the measured numbers and the decision, written down so it is not re-litigated from memory.
+
+### Step 3 — Build hardware H.264 behind a kill switch (only if Step 2 says so)
+
+The kill switch ships in Step 1 so it is already in the field before the encoder it governs:
+- New `agent/src/CodecPolicy.cs` — reads `CONNECTLIVE_CODEC` (`vp8` | `auto` | `h264`), defaults to `vp8`. `AllowH264` additionally requires real silicon from `HwEncoderProbe`, because the software fallback MFT is slower than libvpx. Nothing consumes it in Step 1; `WebRtcSession` still pins VP8 unconditionally. When the encoder lands, the pin reads this class, so a bad MFT in the field is one environment variable away from being switched off.
+
+Then Phases A-D:
+
+## Implementation (Phases A-D, gated on Step 2)
+
 
 ### Phase A — Agent-side hardware encoder
 - New `agent/src/HwH264Encoder.cs`:
