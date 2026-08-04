@@ -22,8 +22,13 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class ScreenCapture
 {
-    /// <summary>True when the ladder has dropped below the sharp rungs.</summary>
-    public static bool PerformanceMode => BitrateController.RungIndex >= 3;
+    /// <summary>
+    /// True when the ladder has dropped below the sharp rungs. S17 — the
+    /// threshold moved with the two prepended 4K/2K rungs; index 5 is the
+    /// 1024px rung this used to mean when it read 3.
+    /// </summary>
+    public static bool PerformanceMode => BitrateController.RungIndex >= 5;
+
 
     /// <summary>
     /// Longest edge, in pixels, of the frame currently being shipped.
@@ -81,6 +86,10 @@ public static class ScreenCapture
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
         Bitmap? scaledBmp = null;
+        // S17 — the frame actually shipped last iteration. With the 1:1
+        // passthrough this is rawBmp on a native-resolution rung and scaledBmp
+        // otherwise, so the idle keepalive can no longer assume scaledBmp.
+        Bitmap? lastFrame = null;
         int prevBoundsW = 0, prevBoundsH = 0;
         int prevScaledW = 0, prevScaledH = 0;
 
@@ -115,7 +124,24 @@ public static class ScreenCapture
                 var target = MonitorSelector.Resolve();
                 var bounds = target.Bounds;
                 if (bounds.Width <= 0 || bounds.Height <= 0)
-                    bounds = new Rectangle(0, 0, 1920, 1080);
+                {
+                    // S17 — never invent 1920x1080. On a 4K box that hardcoded
+                    // fallback silently capped the whole session at 1080p and
+                    // then blamed the ladder. Ask Windows for the real virtual
+                    // desktop; only if THAT is unusable do we guess, and the
+                    // guess is logged so it can never hide again.
+                    var vs = System.Windows.Forms.SystemInformation.VirtualScreen;
+                    if (vs.Width > 0 && vs.Height > 0)
+                    {
+                        bounds = vs;
+                    }
+                    else
+                    {
+                        bounds = new Rectangle(0, 0, 1920, 1080);
+                        Log.Warn("capture: no usable monitor bounds; falling back to 1920x1080");
+                    }
+                }
+
 
                 if (!string.Equals(lastDeviceName, target.DeviceName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -146,6 +172,10 @@ public static class ScreenCapture
                 if (rawBmp == null || bounds.Width != prevBoundsW || bounds.Height != prevBoundsH)
                 {
                     rawBmp?.Dispose();
+                    // S17 — lastFrame may alias the buffer we are about to free
+                    // (1:1 passthrough). Drop the alias before the Dispose so the
+                    // idle keepalive can never tee a disposed bitmap.
+                    if (ReferenceEquals(lastFrame, rawBmp)) lastFrame = null;
                     // 32bppRgb (no alpha): DXGI hands back B8G8R8A8 surfaces whose
                     // alpha byte is meaningless (often 0) over composited windows.
                     // An ARGB target would alpha-blend those toward black and dim
@@ -187,7 +217,7 @@ public static class ScreenCapture
                         // Still keep the VP8 encoder fed (keepalive) so a static
                         // desktop never freezes the admin's decoded picture.
                         framesSinceKeyframe++;
-                        if (scaledBmp != null) TeeToWebRtc(scaledBmp, throttled: true);
+                        if (lastFrame != null) TeeToWebRtc(lastFrame, throttled: true);
                         try { await Task.Delay(100, ct); } catch { }
                         continue;
                     }
@@ -209,32 +239,70 @@ public static class ScreenCapture
                 int w = Math.Max(2, (int)(rawBmp.Width * scale) & ~1);
                 int h = Math.Max(2, (int)(rawBmp.Height * scale) & ~1);
 
-                // Reallocate scaled bitmap only when target size changes.
-                if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
+                // S17 — TRUE 1:1 PASSTHROUGH.
+                //
+                // When the rung's max edge is at or above the desktop size the
+                // old code still allocated a second full-size bitmap and blitted
+                // the whole desktop into it every frame — at 3840x2160 that is a
+                // ~33 MB copy per frame, 30 times a second, for a picture that is
+                // pixel-identical to the source. Worse, a NearestNeighbor
+                // DrawImage at 1:1 is not guaranteed to be bit-exact, so it also
+                // cost sharpness it had no right to cost.
+                //
+                // Skip it entirely. The only reason we would still need the copy
+                // at scale >= 1.0 is an odd desktop dimension (rare, but real on
+                // some scaled laptop panels), because the encoder needs even
+                // dimensions — that case falls through to the resample path with
+                // w/h rounded down to even.
+                bool oneToOne = scale >= 1.0 && w == rawBmp.Width && h == rawBmp.Height;
+                Bitmap frame;
+                if (oneToOne)
                 {
-                    scaledBmp?.Dispose();
-                    // No alpha channel — see rawBmp above.
-                    scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
-                    prevScaledW = w;
-                    prevScaledH = h;
+                    frame = rawBmp;
+                    // Release the scratch buffer: on a 4K desktop it is 33 MB of
+                    // large-object-heap that will never be read again.
+                    if (scaledBmp != null)
+                    {
+                        if (ReferenceEquals(lastFrame, scaledBmp)) lastFrame = null;
+                        scaledBmp.Dispose();
+                        scaledBmp = null;
+                        prevScaledW = prevScaledH = 0;
+                    }
+                }
+                else
+                {
+                    // Reallocate scaled bitmap only when target size changes.
+                    if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
+                    {
+                        if (ReferenceEquals(lastFrame, scaledBmp)) lastFrame = null;
+                        scaledBmp?.Dispose();
+                        // No alpha channel — see rawBmp above.
+                        scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
+                        prevScaledW = w;
+                        prevScaledH = h;
+                    }
+
+                    using (var g = Graphics.FromImage(scaledBmp))
+                    {
+                        // Bicubic only matters when we actually downsample.
+                        g.InterpolationMode = scale < 1.0
+                            ? System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
+                            : System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                        g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                        // Second guard against alpha blending on the downscale.
+                        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                        g.DrawImage(rawBmp, 0, 0, w, h);
+                    }
+                    frame = scaledBmp;
                 }
 
-                using (var g = Graphics.FromImage(scaledBmp))
-                {
-                    // Bicubic only matters when we actually downsample; a 1:1
-                    // blit stays on the cheap path.
-                    g.InterpolationMode = scale < 1.0
-                        ? System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
-                        : System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
-                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                    g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                    // Second guard against alpha blending on the downscale.
-                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-                    g.DrawImage(rawBmp, 0, 0, w, h);
-                }
+                // The frame the idle keepalive re-sends when nothing changed.
+                lastFrame = frame;
+
 
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
-                ulong hash = HashBitmap(scaledBmp);
+                ulong hash = HashBitmap(frame);
                 bool unchanged = hash == lastHash;
 
                 // Adaptive idle backoff: after 3+ unchanged frames, slow to 100ms.
@@ -245,7 +313,7 @@ public static class ScreenCapture
                     idleCount++;
                     delayMs = idleCount >= 3 ? 100 : motionDelayMs;
                     // Keepalive push while idle (throttled to IdleTeeIntervalMs).
-                    TeeToWebRtc(scaledBmp, throttled: true);
+                    TeeToWebRtc(frame, throttled: true);
                 }
                 else
                 {
@@ -259,13 +327,13 @@ public static class ScreenCapture
                     idleParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
 
                     // Tee the frame into the WebRTC track when a peer is connected.
-                    TeeToWebRtc(scaledBmp, throttled: false);
+                    TeeToWebRtc(frame, throttled: false);
 
 
                     // Use higher quality for idle keyframes, lower for motion frames.
                     var encP = wasIdle ? idleParams : motionParams;
                     using var ms = new MemoryStream();
-                    scaledBmp.Save(ms, jpegEnc, encP);
+                    frame.Save(ms, jpegEnc, encP);
                     var uploadSw = System.Diagnostics.Stopwatch.StartNew();
                     bool posted = await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
                     uploadSw.Stop();

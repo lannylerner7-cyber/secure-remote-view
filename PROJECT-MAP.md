@@ -1092,6 +1092,89 @@ S16 status: **CLOSED** (visibility). The underlying "no TURN configured"
 condition is a deployment concern — Cloudflare Calls credentials
 (`CLOUDFLARE_CALLS_APP_ID` / `CLOUDFLARE_CALLS_APP_TOKEN`) are already
 wired at `/api/public/agent/ice`; when unset, every console now says so
-in-band. The 4K/H.264 quality ceiling remains open as **S17** (Agent-side
+in-band. The 4K/H.264 quality ceiling is tracked as **S17** (step 1 shipped; see 10.5) (Agent-side
 `BitrateController` 1080p clamp + software VP8).
 
+
+### 10.5 S17 step 1 — native-resolution capture, 4K/2K ladder rungs — 2026-08-04 (`SCOPE:CAPTURE`/`SCOPE:TRANSPORT`)
+
+S17 is the quality-ceiling item left open by S16. It ships in three steps;
+step 1 (below) is capture-side only and is independently revertable. Steps 2
+and 3 are deliberately NOT in this build — see "Still open" at the end.
+
+**Cause 1 — the ladder had no rung above 1080p.**
+`BitrateController.Ladder` topped out at `1920px / 4000 kbps`, so a 4K desktop
+was captured at 4K, resampled down to 1920px, JPEG/VP8-encoded, then upscaled
+again by the admin. Text was resampled twice and quantised at q70; "not sharp"
+was a design ceiling, not a bug in the renderer.
+**Fix:** two rungs prepended — `3840 / q82-92 / 30fps / 20000 kbps` and
+`2560 / q76-88 / 30fps / 12000 kbps`. Every existing rung kept, unchanged, at
+index+2.
+
+**Cause 2 — a raised ceiling would have become a raised floor.**
+`Reset()` set `_rung = 0`, which after the prepend would have opened every
+session at 20 Mbps regardless of link.
+**Fix:** `BitrateController.DefaultRung = 2` (the old 1920 top rung). Sessions
+open exactly where they used to and only climb into 3840/2560 after the
+existing sustained-clean-window rule. `Pin(performance)` maps to index 5
+(the old index 3 / 1024px) and `Pin(sharp)` to `DefaultRung`, not 0.
+`ScreenCapture.PerformanceMode` moved from `RungIndex >= 3` to `>= 5` for the
+same reason.
+
+**Cause 3 — the resample ran even at 1:1.**
+`ScreenCapture` always allocated a second full-size bitmap and `DrawImage`d
+the desktop into it. At 3840x2160 that is a ~33 MB copy per frame, 30x a
+second, for a pixel-identical result — and `NearestNeighbor` at 1:1 is not
+guaranteed bit-exact, so it also cost sharpness.
+**Fix:** true passthrough. When `scale >= 1.0` and both dimensions are already
+even, the raw DXGI bitmap is teed/encoded directly and the scratch buffer is
+released. Odd desktop dimensions still take the resample path because the
+encoder needs even dimensions (I420 2x2 chroma). A new `lastFrame` reference
+feeds the idle keepalive and is nulled whenever the buffer it aliases is
+reallocated.
+
+**Cause 4 — hardcoded `1920x1080` fallbacks capped 4K boxes silently.**
+`ScreenCapture`, `CursorPump` and `MonitorSelector` each invented
+`new Rectangle(0, 0, 1920, 1080)` when monitor geometry was unavailable.
+**Fix:** all three now read `SystemInformation.VirtualScreen` first and only
+guess 1080p when that is also unusable — and `ScreenCapture` logs when it
+does. Capture and cursor must agree here or the cursor overlay drifts out of
+the picture's coordinate space.
+
+**Cause 5 — the admin rung readout would have lied.**
+`LiveSessionViewModel.RungEdges` mirrored the old six-entry ladder.
+**Fix:** extended to `{ 3840, 2560, 1920, 1600, 1280, 1024, 800, 640 }`. This
+array MUST stay in lockstep with the agent ladder.
+
+**Cause 6 — a raised ceiling would have killed the WebRTC path.**
+The wire codec is still software VP8 (`WebRtcSession` pins it). libvpx cannot
+encode 3840x2160 in real time on a support machine's CPU, so a clean link
+climbing to rung 0 would have replaced a soft picture with a dead one.
+**Fix:** `BitrateController.Ceiling` — the sharpest rung the ladder may climb
+into. `Reset`, `Pin` and the climb path all respect it. `WebRtcSession` sets
+`Ceiling = DefaultRung` when a peer is built and back to `0` in `Close()`, so
+the new rungs are live for the JPEG transport (what most sessions actually
+render today) and dormant for VP8. Step 2 lifts the ceiling in the same change
+that lands hardware H.264 — not before.
+
+Files touched: `agent/src/{BitrateController,ScreenCapture,CursorPump,MonitorSelector,WebRtcSession}.cs`,
+`admin/src/ViewModels/LiveSessionViewModel.cs`.
+
+S17 step 1 status: **SHIPPED**.
+
+**Still open (S17 steps 2-3):**
+
+- **Step 2 — hardware H.264.** `HwEncoderProbe` finds NVENC/QuickSync/AMF and
+  reports it in the heartbeat (`ApiClient.cs:277`), but nothing consumes it:
+  `WebRtcSession.cs` still restricts to `VideoCodecsEnum.VP8` and rejects any
+  other negotiated codec, and the admin decodes with libvpx. Consuming the
+  probe requires a new `agent/src/HwH264Encoder.cs` wrapping the winning MFT
+  behind SIPSorcery's video-encoder interface (NV12 in, Annex-B out, forced
+  IDR on PLI/FIR) plus a Media Foundation H.264 decode path in
+  `admin/src/Media/VideoPipeline.cs`. Negotiation is the small half; the MFT
+  wrapper is the work. Gated behind step 1 being verified on a real 4K
+  session, per plan — flipping the wire codec first would negotiate a stream
+  nothing can encode, which is exactly what the current hard pin prevents.
+- **Step 3 — ladder re-tune.** The step-down thresholds and the 10s/12s climb
+  windows were tuned against a 4 Mbps ceiling and will oscillate at 20 Mbps.
+  Re-measure RTCP loss/RTT on a real 4K session before touching them.

@@ -38,26 +38,79 @@ public static class BitrateController
         public int FrameDelayMs => Math.Max(16, 1000 / Math.Max(1, Fps));
     }
 
-    // Index 0 is the sharpest rung and the default: a healthy LAN or fibre
-    // link should never leave it. The bottom rung is chosen to stay legible
-    // for text-heavy support work (reading a dialog) rather than to look good.
+    // S17 — the ladder now has a real ceiling above 1080p. Index 0 is the
+    // sharpest rung; the bottom rung is chosen to stay legible for text-heavy
+    // support work (reading a dialog) rather than to look good.
+    //
+    // Rungs 0 and 1 (3840 / 2560) are a CEILING RAISE, not a new default. A
+    // session opens at <see cref="DefaultRung"/> (1920 — exactly today's
+    // behaviour) and only climbs into them after a sustained clean window, so
+    // a technician on hotel Wi-Fi never starts on a 20 Mbps rung. Congestion
+    // steps back down through them in ~3 s, which is why the top two rungs are
+    // safe to expose at all.
     private static readonly Rung[] Ladder =
     {
-        new(1920, 70, 85, 30, 4000),
-        new(1600, 64, 80, 30, 2500),
-        new(1280, 58, 74, 24, 1500),
-        new(1024, 50, 66, 20,  900),
-        new( 800, 44, 58, 15,  600),
-        new( 640, 38, 50, 12,  350),
+        new(3840, 82, 92, 30, 20000),
+        new(2560, 76, 88, 30, 12000),
+        new(1920, 70, 85, 30,  4000),
+        new(1600, 64, 80, 30,  2500),
+        new(1280, 58, 74, 24,  1500),
+        new(1024, 50, 66, 20,   900),
+        new( 800, 44, 58, 15,   600),
+        new( 640, 38, 50, 12,   350),
     };
 
+    /// <summary>
+    /// Rung a fresh session opens on. Deliberately NOT 0: the 4K/2K rungs are
+    /// earned by a demonstrably clean link, never assumed. Index 2 is the
+    /// 1920px/4000kbps rung that was the top of the pre-S17 ladder, so default
+    /// behaviour is byte-for-byte what it was before the ceiling was raised.
+    /// </summary>
+    public const int DefaultRung = 2;
+
+    /// <summary>
+    /// Rung <see cref="Pin"/> drops to for legacy "performance mode" callers.
+    /// Tracks the 1024px rung it meant before the two rungs were prepended.
+    /// </summary>
+    private const int PerformancePinRung = 5;
+
     private static readonly object _gate = new();
-    private static int _rung;
+    private static int _rung = DefaultRung;
+    // S17 — the sharpest rung the ladder is allowed to climb *into*. 0 = the
+    // full ladder including 3840/2560. WebRtcSession raises this to
+    // DefaultRung for the lifetime of a peer because the wire codec is still
+    // software VP8: encoding 4K in libvpx on the CPU would collapse the
+    // session, which is worse than the soft picture we are trying to fix.
+    // Step 2 (hardware H.264) is what earns the right to drop it back to 0.
+    private static int _ceiling;
     private static DateTime _cleanSince = DateTime.MinValue;
     private static DateTime _lastChangeUtc = DateTime.MinValue;
 
+
     /// <summary>Raised after any rung change so capture can re-read tunables.</summary>
     public static event Action<Rung>? Changed;
+
+    /// <summary>
+    /// Sharpest rung the ladder may climb into (0 = no restriction). Setting a
+    /// ceiling below the current rung steps the encoder down immediately.
+    /// </summary>
+    public static int Ceiling
+    {
+        get { lock (_gate) return _ceiling; }
+        set
+        {
+            bool changed = false;
+            var clamped = Math.Clamp(value, 0, Ladder.Length - 1);
+            lock (_gate)
+            {
+                if (_ceiling == clamped) return;
+                _ceiling = clamped;
+                if (_rung < clamped) { _rung = clamped; changed = true; }
+                _cleanSince = DateTime.MinValue;
+            }
+            if (changed) Announce("ceiling");
+        }
+    }
 
     /// <summary>Current rung index; 0 = sharpest.</summary>
     public static int RungIndex { get { lock (_gate) return _rung; } }
@@ -78,11 +131,15 @@ public static class BitrateController
         bool changed;
         lock (_gate)
         {
-            changed = _rung != 0;
-            _rung = 0;
+            // S17 — reset to DefaultRung, not 0. Opening a session on the 4K
+            // rung would push 20 Mbps at a link we know nothing about yet.
+            var target = Math.Max(DefaultRung, _ceiling);
+            changed = _rung != target;
+            _rung = target;
             _cleanSince = DateTime.MinValue;
             _lastChangeUtc = DateTime.MinValue;
         }
+
         if (changed) Announce("session reset");
     }
 
@@ -142,7 +199,7 @@ public static class BitrateController
         bool climb = false;
         lock (_gate)
         {
-            if (_rung == 0) { _cleanSince = DateTime.MinValue; return; }
+            if (_rung <= _ceiling) { _cleanSince = DateTime.MinValue; return; }
             // Never climb inside 10 s of the last change: that is the window in
             // which the previous step's effect is still in flight.
             if ((DateTime.UtcNow - _lastChangeUtc).TotalSeconds < 10) return;
@@ -185,9 +242,14 @@ public static class BitrateController
     public static void Pin(bool performance)
     {
         bool changed;
-        int target = performance ? 4 : 0;
+        // S17 — both targets moved with the two prepended rungs. "Sharp" means
+        // the old top (1920), not the new 4K ceiling: an operator toggling a
+        // two-state switch has not told us the link can carry 20 Mbps.
+        int target = performance ? PerformancePinRung : DefaultRung;
+
         lock (_gate)
         {
+            target = Math.Max(target, _ceiling);
             changed = _rung != target;
             _rung = target;
             _cleanSince = DateTime.MinValue;
