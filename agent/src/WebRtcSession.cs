@@ -168,6 +168,12 @@ public sealed class WebRtcSession : IDisposable
         // SCOPE:TRANSPORT — a new peer is a new link. Start at the top rung
         // rather than inheriting the ladder position a previous technician's
         // congested connection settled on.
+        // SCOPE:TRANSPORT — S17 ceiling. The 3840/2560 rungs exist for the
+        // JPEG path today; the WebRTC wire codec below is still software VP8,
+        // which cannot encode 4K on the CPU in real time. Hold the ladder at
+        // DefaultRung for the life of this peer. Lift this (set 0) in the same
+        // change that lands the hardware H.264 encoder, not before.
+        BitrateController.Ceiling = BitrateController.DefaultRung;
         BitrateController.Reset();
 
 
@@ -571,7 +577,13 @@ public sealed class WebRtcSession : IDisposable
     {
         if (_closed) return;
         _closed = true;
-        if (Current == this) Current = null;
+        if (Current == this)
+        {
+            Current = null;
+            // Release the S17 ceiling: with no peer the JPEG path is free to
+            // climb to the sharp rungs again.
+            try { BitrateController.Ceiling = 0; } catch { }
+        }
         try { _cts.Cancel(); } catch { }
         TearDownPeer();
 
