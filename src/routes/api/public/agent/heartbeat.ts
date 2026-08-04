@@ -42,6 +42,17 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             hw_vendor?: string;
             hw_name?: string;
           };
+          // S17 step 1 — measured encode cost for this session. Null fields
+          // mean "not measured", never "zero".
+          encode?: {
+            jpeg_ms?: number | null;
+            vp8_ms?: number | null;
+            cpu_pct?: number | null;
+            ws_mb?: number | null;
+            peak_width?: number;
+            peak_height?: number;
+            rung?: number;
+          };
           // S14 — assembly version of the running agent, so the fleet's build
           // spread is a number and staged rollout has something to target.
           version?: string;
@@ -107,6 +118,32 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             encoder_updated_at: nowIso,
           };
         }
+
+        // S17 step 1 — measured encode cost. This is the fleet-wide answer to
+        // "is software VP8 the wall?", so it must survive the heartbeat rather
+        // than living only in one technician's agent log. Numbers are clamped
+        // and non-finite values dropped: a malformed payload must not poison
+        // the row. Null stays null — "not measured" is not "zero".
+        if (body.encode && typeof body.encode === "object") {
+          const en = body.encode;
+          const num = (v: unknown, max: number): number | null =>
+            typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(v, max) : null;
+          mergedMetadata = {
+            ...(mergedMetadata ?? prevMeta),
+            encode: {
+              jpeg_ms: num(en.jpeg_ms, 100_000),
+              vp8_ms: num(en.vp8_ms, 100_000),
+              cpu_pct: num(en.cpu_pct, 10_000),
+              ws_mb: num(en.ws_mb, 1_000_000),
+              peak_width: num(en.peak_width, 32_768) ?? 0,
+              peak_height: num(en.peak_height, 32_768) ?? 0,
+              rung: num(en.rung, 64) ?? 0,
+            },
+            encode_updated_at: nowIso,
+          };
+        }
+
+
 
         // S14 — agent build version. Same merge discipline: an agent that
         // predates this field must not blank out a version we already know.
