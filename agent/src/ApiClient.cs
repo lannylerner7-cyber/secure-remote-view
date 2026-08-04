@@ -314,6 +314,24 @@ public sealed class ApiClient
         return await resp.Content.ReadAsStringAsync(ct);
     }
 
+    /// <summary>
+    /// S17 step 1 — never let a diagnostic take the presence loop down. A
+    /// heartbeat that fails because of a telemetry field would mark a healthy
+    /// machine offline, which is a far worse outcome than a missing number.
+    /// </summary>
+    private static string SafeWireCodecTag()
+    {
+        try { return CodecPolicy.WireCodecTag; }
+        catch { return "VP8"; }
+    }
+
+    private static object? SafeEncodePayload()
+    {
+        try { return EncodeStats.HeartbeatPayload(); }
+        catch { return null; }
+    }
+
+
     /// S14 — newest published build for this product/channel, or null when
     /// nothing is published (204) or the call fails. Never throws: an update
     /// check must not be able to take the presence loop down.
