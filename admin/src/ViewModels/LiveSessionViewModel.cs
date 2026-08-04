@@ -238,6 +238,21 @@ public partial class LiveSessionViewModel : ObservableObject
         _realtime.Start();
 
         _rtc = new WebRtcClient(SessionId);
+        _rtc.Pipeline.PresentationWindow = PresentationWindow;
+
+        // S16 — if the native path can never produce a picture (no VP8 decoder,
+        // or output we cannot convert), say exactly that instead of leaving the
+        // technician staring at a "stalled" pill on a JPEG stream.
+        _rtc.Pipeline.NativeVideoUnavailable += reason =>
+        {
+            _nativeUnavailable = reason;
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                NativeVideo = false;
+                Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
+                LinkState = "native video unavailable — " + reason;
+            });
+        };
 
         // The decoded surface (D3DImage, or WriteableBitmap when the D3D path
         // is unavailable) replaces the JPEG still the moment it exists.
@@ -245,6 +260,7 @@ public partial class LiveSessionViewModel : ObservableObject
         {
             Application.Current?.Dispatcher.Invoke(() => CurrentFrame = src);
         };
+
 
         _ = _rtc.StartAsync(_cts.Token,
             onVideoLive: () =>
