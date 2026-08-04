@@ -22,8 +22,13 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class ScreenCapture
 {
-    /// <summary>True when the ladder has dropped below the sharp rungs.</summary>
-    public static bool PerformanceMode => BitrateController.RungIndex >= 3;
+    /// <summary>
+    /// True when the ladder has dropped below the sharp rungs. S17 — the
+    /// threshold moved with the two prepended 4K/2K rungs; index 5 is the
+    /// 1024px rung this used to mean when it read 3.
+    /// </summary>
+    public static bool PerformanceMode => BitrateController.RungIndex >= 5;
+
 
     /// <summary>
     /// Longest edge, in pixels, of the frame currently being shipped.
