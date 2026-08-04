@@ -73,8 +73,16 @@ async function hit(
   await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], { headers: j, body: "{}" });
   await hit("GET", `/api/public/agent/session/${SID}/signal`, [401]);
   await hit("GET", "/api/public/agent/stream", [401]);
+  // V3 — power ack closes the last session-scoped route the verifier missed.
+  await hit("POST", `/api/public/agent/power/${SID}/ack`, [401], { headers: j, body: "{}" });
   // S9 — ICE gateway: unauthenticated callers must never receive TURN creds.
   await hit("GET", "/api/public/agent/ice", [401]);
+  // V1 — a technician bearer that is not a valid Supabase JWT must also be
+  // rejected, but the route must reach the verify step (401, never 500) —
+  // proof the publishable-key fallback is wired and the client constructs.
+  await hit("GET", "/api/public/agent/ice", [401], {
+    headers: { authorization: "Bearer not-a-real-jwt" },
+  });
   // S14 — release manifest: download URLs + checksums are never public.
   await hit("GET", "/api/public/agent/release?product=agent&channel=stable", [401]);
   await hit("GET", "/api/public/agent/release?product=admin&channel=stable", [401]);
