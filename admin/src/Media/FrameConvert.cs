@@ -18,17 +18,54 @@ namespace ConnectLive.Admin.Media;
 /// </summary>
 public static class FrameConvert
 {
-    public enum Shape { Unknown, I420, Bgr24, Bgra32 }
+    public enum Shape { Unknown, I420, Nv12, Bgr24, Bgra32 }
 
-    /// <summary>Infer the decoder output layout from the sample length.</summary>
-    public static Shape Classify(int sampleLength, int width, int height)
+    /// <summary>
+    /// Infer the decoder output layout from the sample length.
+    ///
+    /// S16 — this used to demand an EXACT byte count, so any decoder build that
+    /// hands back row-padded output (stride &gt; width*bpp, which several libvpx
+    /// wrappers do) failed on every single frame: the pipeline dropped 100% of
+    /// frames, never presented anything, and the only symptom the technician saw
+    /// was "video never started". Padding is now tolerated — the stride is
+    /// derived from the sample length — and the packed-planar case can be read
+    /// as either I420 or NV12 (see <paramref name="chroma"/>).
+    /// </summary>
+    public static Shape Classify(int sampleLength, int width, int height, Shape chroma = Shape.I420)
     {
-        if (width <= 0 || height <= 0) return Shape.Unknown;
+        if (width <= 0 || height <= 0 || sampleLength <= 0) return Shape.Unknown;
         long px = (long)width * height;
+
         if (sampleLength == px * 4) return Shape.Bgra32;
         if (sampleLength == px * 3) return Shape.Bgr24;
-        if (sampleLength == px * 3 / 2) return Shape.I420;
+        if (sampleLength == px * 3 / 2) return chroma == Shape.Nv12 ? Shape.Nv12 : Shape.I420;
+
+        // Row-padded packed formats: length is an exact multiple of the height
+        // and each row holds at least width pixels.
+        if (sampleLength % height == 0)
+        {
+            int stride = sampleLength / height;
+            if (stride >= width * 4) return Shape.Bgra32;
+            if (stride >= width * 3) return Shape.Bgr24;
+        }
+
+        // Padded planar: luma plane is stride*height, chroma adds half again.
+        int planar = sampleLength * 2 / 3;
+        if (planar >= px && planar % height == 0 && planar / height >= width)
+            return chroma == Shape.Nv12 ? Shape.Nv12 : Shape.I420;
+
         return Shape.Unknown;
+    }
+
+    /// <summary>Human-readable geometry for the diagnostic log when nothing matches.</summary>
+    public static string Describe(int sampleLength, int width, int height)
+    {
+        long px = (long)width * height;
+        string mod = height > 0 && sampleLength % height == 0
+            ? $", stride={sampleLength / height}"
+            : ", not row-aligned";
+        return $"{sampleLength} bytes for {width}x{height} (bgra32 wants {px * 4}, " +
+               $"bgr24 {px * 3}, i420/nv12 {px * 3 / 2}{mod})";
     }
 
     /// <summary>
@@ -36,16 +73,16 @@ public static class FrameConvert
     /// Returns false when the sample shape is not recognised — the caller drops
     /// the frame and logs rather than presenting garbage.
     /// </summary>
-    public static bool ToBgra32(byte[] src, int width, int height, byte[] dst)
+    public static bool ToBgra32(byte[] src, int width, int height, byte[] dst, Shape chroma = Shape.I420)
     {
-        if (src == null || dst == null) return false;
+        if (src == null || dst == null || width <= 0 || height <= 0) return false;
         long need = (long)width * height * 4;
         if (dst.LongLength < need) return false;
 
-        switch (Classify(src.Length, width, height))
+        switch (Classify(src.Length, width, height, chroma))
         {
             case Shape.Bgra32:
-                Buffer.BlockCopy(src, 0, dst, 0, (int)need);
+                CopyBgra32(src, width, height, dst);
                 return true;
             case Shape.Bgr24:
                 Bgr24ToBgra32(src, width, height, dst);
@@ -53,10 +90,24 @@ public static class FrameConvert
             case Shape.I420:
                 I420ToBgra32(src, width, height, dst);
                 return true;
+            case Shape.Nv12:
+                Nv12ToBgra32(src, width, height, dst);
+                return true;
             default:
                 return false;
         }
     }
+
+    /// <summary>Packed or row-padded BGRA32 → tightly packed BGRA32.</summary>
+    private static void CopyBgra32(byte[] src, int width, int height, byte[] dst)
+    {
+        int rowBytes = width * 4;
+        int stride = src.Length / height;
+        if (stride == rowBytes) { Buffer.BlockCopy(src, 0, dst, 0, rowBytes * height); return; }
+        for (int y = 0; y < height; y++)
+            Buffer.BlockCopy(src, y * stride, dst, y * rowBytes, rowBytes);
+    }
+
 
     private static void Bgr24ToBgra32(byte[] src, int width, int height, byte[] dst)
     {
