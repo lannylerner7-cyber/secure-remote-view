@@ -69,6 +69,9 @@ export interface WebRtcLive {
   candidateType: () => string | null;
   /** Raw stats for diagnostics (inbound-rtp bytes/framesDecoded). */
   stats: () => Promise<RTCStatsReport | null>;
+  /** S16 — "pending" until the ICE gateway answers, then whether a TURN relay is in play. */
+  relay: () => "pending" | "relay" | "none";
+
   sendInput: (payload: unknown) => boolean;
   close: () => void;
 }
