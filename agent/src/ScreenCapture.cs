@@ -86,6 +86,10 @@ public static class ScreenCapture
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
         Bitmap? scaledBmp = null;
+        // S17 — the frame actually shipped last iteration. With the 1:1
+        // passthrough this is rawBmp on a native-resolution rung and scaledBmp
+        // otherwise, so the idle keepalive can no longer assume scaledBmp.
+        Bitmap? lastFrame = null;
         int prevBoundsW = 0, prevBoundsH = 0;
         int prevScaledW = 0, prevScaledH = 0;
 
@@ -209,7 +213,7 @@ public static class ScreenCapture
                         // Still keep the VP8 encoder fed (keepalive) so a static
                         // desktop never freezes the admin's decoded picture.
                         framesSinceKeyframe++;
-                        if (scaledBmp != null) TeeToWebRtc(scaledBmp, throttled: true);
+                        if (lastFrame != null) TeeToWebRtc(lastFrame, throttled: true);
                         try { await Task.Delay(100, ct); } catch { }
                         continue;
                     }
@@ -292,7 +296,7 @@ public static class ScreenCapture
 
 
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
-                ulong hash = HashBitmap(scaledBmp);
+                ulong hash = HashBitmap(frame);
                 bool unchanged = hash == lastHash;
 
                 // Adaptive idle backoff: after 3+ unchanged frames, slow to 100ms.
@@ -303,7 +307,7 @@ public static class ScreenCapture
                     idleCount++;
                     delayMs = idleCount >= 3 ? 100 : motionDelayMs;
                     // Keepalive push while idle (throttled to IdleTeeIntervalMs).
-                    TeeToWebRtc(scaledBmp, throttled: true);
+                    TeeToWebRtc(frame, throttled: true);
                 }
                 else
                 {
@@ -317,13 +321,13 @@ public static class ScreenCapture
                     idleParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
 
                     // Tee the frame into the WebRTC track when a peer is connected.
-                    TeeToWebRtc(scaledBmp, throttled: false);
+                    TeeToWebRtc(frame, throttled: false);
 
 
                     // Use higher quality for idle keyframes, lower for motion frames.
                     var encP = wasIdle ? idleParams : motionParams;
                     using var ms = new MemoryStream();
-                    scaledBmp.Save(ms, jpegEnc, encP);
+                    frame.Save(ms, jpegEnc, encP);
                     var uploadSw = System.Diagnostics.Stopwatch.StartNew();
                     bool posted = await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
                     uploadSw.Stop();
