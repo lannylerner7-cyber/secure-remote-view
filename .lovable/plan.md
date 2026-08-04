@@ -1,55 +1,97 @@
-# S17 — Real 4K live broadcast: hardware H.264, native-resolution capture, input priority
+# S17 Step 2 — Hardware H.264 encode/decode path
 
-## What I verified first
+## Current state (verified)
 
-- `agent/src/WebRtcSession.cs:176` restricts the encoder to VP8 and `:213` rejects any other negotiated codec. `HwEncoderProbe` results are never read by the session — the probe only logs.
-- `agent/src/ScreenCapture.cs:33` takes `MaxEdge` straight from `BitrateController`, and `:205-206` downscales every frame to that edge. Top rung is 1920px / 4000 kbps, so best case today is 1080p, upscaled on the admin side.
-- `agent/src/DxgiCapture.cs` already captures at true desktop size and tracks resize; the clamp is purely downstream in `ScreenCapture`.
-- Admin decodes with libvpx (`VpxVideoEncoder`) and pins VP8 in `admin/src/Media/WebRtcClient.cs`.
+- S17 Step 1 is shipped. `agent/src/BitrateController.cs` has eight rungs (3840/2560/1920/1600/1280/1024/800/640), `DefaultRung = 2`, and a `Ceiling` guard.
+- `agent/src/WebRtcSession.cs:176` sets `BitrateController.Ceiling = DefaultRung` for the life of a VP8 peer, and `:184` restricts the encoder to `VideoCodecsEnum.VP8`. Any non-VP8 negotiated codec is rejected at `:219-222`.
+- `admin/src/Media/VideoPipeline.cs` is VP8-only: it constructs `VpxVideoEncoder` at `:148` and decodes with `VideoCodecsEnum.VP8` at `:276`.
+- `admin/src/Media/WebRtcClient.cs:164-168` pins the offer to a single VP8 format.
+- `src/lib/webrtc-live.ts` does not restrict codecs, so the browser will accept H.264 once the agent and admin advertise it.
+- `agent/src/HwEncoderProbe.cs` discovers NVENC/QuickSync/AMF and reports availability, but nothing consumes it. The class comments explicitly state it does not wrap the MFT or change the wire codec.
+- `PROJECT-MAP.md` §10.5 documents Step 1 and leaves Steps 2-3 open; §10.6 concludes that encode/decode is the only remaining gap versus ScreenConnect/Parsec and recommends measuring Step 1 before building Step 2.
 
-So the three claims in the request are accurate as written.
+## Why Step 2 is hard (not a vague roadmap problem)
 
-## What live broadcast will actually feel like
+The roadmap is clear; the work is just large. Three things make it expensive:
 
-Today: a 4K desktop is captured at 4K, squashed to 1920px, VP8-encoded in software at ~4 Mbps, then stretched back up on the admin. Text is soft because it was resampled twice and quantised at q70. The agent's CPU is doing the encode, so busy machines fall down the ladder and get softer still.
+1. **The MFT wrapper is the bulk of the work, not the negotiation.** `HwEncoderProbe` only enumerates encoders. A usable path needs a new `agent/src/HwH264Encoder.cs` that implements SIPSorcery's `IVideoEncoder` around an asynchronous Media Foundation Transform: NV12 in, Annex-B H.264 out, async MFT event pumping, `MFT_MESSAGE_COMMAND_FLUSH`, dynamic type negotiation, and forced IDR on PLI/FIR. That is several hundred lines of COM interop.
+2. **All three peers must change together.** Agent must advertise H.264 + VP8 and encode H.264. Admin must advertise H.264 + VP8 and decode H.264 via Media Foundation. The web console needs no codec restriction change. If any peer still pins VP8, the session falls back to software VP8. A partial change can negotiate a stream that nothing can encode.
+3. **The regression surface is black-screen, not graceful.** A broken MFT wrapper does not cleanly fall back to VP8; it can leave the admin with a connected peer that produces no decodable video and no obvious diagnostic.
 
-After the change:
+## What the change will feel like if it lands correctly
 
-- **Sharpness**: 1:1 pixels. A 3840 rung at ~20 Mbps with hardware H.264 makes small UI text readable without zooming — this is the single visible difference, and it is large.
-- **Latency**: hardware encode removes the agent's dominant CPU cost, so frame pacing stops collapsing under load. Expect steadier 30fps rather than a lower floor number.
-- **Agent load**: NVENC/QSV/AMF encode is near-free; the CPU graph on the endpoint drops sharply. On machines with no hardware encoder nothing changes — they stay on software VP8 at the current ceiling, by design.
-- **Bandwidth**: this is the real trade. 20 Mbps sustained is a LAN/fibre number. On anything worse the ladder will step down to today's rungs within a couple of seconds, so the 4K rungs are a *ceiling raise*, not a new default — the experience on a bad link is unchanged.
-- **Native admin stability**: decoding H.264 through Media Foundation removes libvpx from the admin entirely, which retires the S16 "decoder unavailable" failure mode rather than just reporting it better.
+- **Sharpness:** 1:1 pixel passthrough at 3840x2160 with a hardware H.264 encoder at ~20 Mbps makes small UI text readable without zooming. This is the single largest visible difference.
+- **Latency:** hardware encode removes the agent's dominant CPU cost, so frame pacing stops collapsing under load. Expect steadier 30 fps on busy machines.
+- **Agent load:** NVENC/QSV/AMF encode is near-free; the CPU graph on the endpoint drops sharply. Machines without hardware encoder stay on software VP8 at the current ceiling.
+- **Bandwidth:** 20 Mbps is a LAN/fibre number. The ladder still steps down on congestion, so bad links behave exactly as today.
+- **Admin stability:** decoding H.264 through Media Foundation removes libvpx from the native admin entirely, retiring the "decoder unavailable" failure mode.
 
-## My take
+## Recommended plan
 
-The ordering in the request is right and I would not reorder it. Two honest caveats:
+Step 2 should not be built blindly. The honest sequence is:
 
-1. **Capture unclamp is cheap and safe; codec swap is not.** Unclamping is a few lines and immediately visible. H.264 negotiation touches both peers, the web console, and the admin decode path, and a mistake there negotiates a stream nothing can encode — the exact failure the current hard pin exists to prevent. They must ship as separate, independently revertable steps.
-2. **Hardware H.264 without an MFT wrapper is not usable.** `HwEncoderProbe` finds the encoder but nothing wraps it as a SIPSorcery `IVideoEncoder`. That wrapper is the bulk of the work in step 2, not the negotiation itself. Any plan that says "consume the probe" and skips the wrapper will fail at runtime.
+1. **Measure Step 1 on a real 4K session.** Required evidence:
+   - `session_telemetry` shows `source_width`/`source_height` at the monitor's native size.
+   - Sustained `fps` and `latency_ms` at rung 2 (1920px) and, on the JPEG path, at rungs 1 and 0 (2560px/3840px).
+   - `render_path = d3d`, `frames_dropped` flat, no `NativeVideoUnavailable` in the log.
+   - Agent CPU during encode, plus `HwEncoderProbe` result from the heartbeat.
+2. **Decide based on the measurement.**
+   - If the software encoder wall hits at 2560px or 3840px, proceed to Step 2 as written below.
+   - If the JPEG path holds 3840px acceptably, ship Step 3 (ladder re-tune) first and queue Step 2.
+3. **If Step 2 is justified, build it behind a kill switch.**
 
-Input prioritisation is worth doing but is the smallest of the three wins here: input already runs on a separate ordered datachannel, so it is not literally queued behind frames — the gain is bounded to bufferbloat under congestion.
+## Implementation (if measurement justifies it)
 
-## Plan
+### Phase A — Agent-side hardware encoder
+- New `agent/src/HwH264Encoder.cs`:
+  - Wrap the MFT selected by `HwEncoderProbe` behind `IVideoEncoder`.
+  - Accept NV12 frames, produce Annex-B H.264 NAL units.
+  - Handle async MFT process/drain events.
+  - Force IDR on PLI/FIR with a cooldown similar to `RequestKeyFrame`.
+  - Fail gracefully: if the MFT throws during a session, mark the encoder dead and fall back to VP8 for that peer.
+- `agent/src/WebRtcSession.cs`:
+  - When `HwEncoderProbe.HardwareH264Available` and the wrapper initialises, advertise both H.264 and VP8.
+  - Accept whichever codec is negotiated.
+  - If H.264 wins, route raw samples through `HwH264Encoder`; keep VP8 path unchanged.
+  - Lift `BitrateController.Ceiling` to `0` when H.264 is active; keep `DefaultRung` for VP8 peers.
+- `agent/src/ScreenCapture.cs`:
+  - Feed NV12 to the H.264 encoder instead of BGRA when H.264 is active. Reuse the existing 1:1 passthrough path.
 
-### Step 1 — Unclamp capture, add 2560 and 3840 rungs
-- `agent/src/BitrateController.cs`: prepend `new(3840, 78, 90, 30, 20000)` and `new(2560, 74, 88, 30, 12000)` above the current top rung; keep 1920 as the third entry so existing behaviour is one step down, not gone.
-- `agent/src/ScreenCapture.cs`: skip the resample entirely when `scale >= 1.0` (currently allocates and redraws even at 1:1); remove the hardcoded `1920x1080` fallback bounds at `:118` in favour of real virtual-screen metrics.
-- Start the ladder at rung index 2 (1920) rather than 0 unless the peer signals it can take more, so nobody's hotel Wi-Fi opens on a 20 Mbps rung.
-- Admin: extend `RungEdges` in `LiveSessionViewModel.cs` to match the new ladder — it must stay in lockstep or the stats pill lies.
+### Phase B — Admin-side H.264 decode
+- `admin/src/Media/VideoPipeline.cs`:
+  - Add a Media Foundation H.264 decoder path alongside `VpxVideoEncoder`.
+  - Select decoder on the negotiated SDP format.
+  - Convert decoder output (NV12/YV12) to BGRA32 via `FrameConvert`.
+- `admin/src/Media/WebRtcClient.cs`:
+  - Advertise both VP8 and H.264 in the offer.
+  - Select decoder based on the negotiated codec.
 
-### Step 2 — Hardware H.264 path (only after step 1 is verified on a real 4K session)
-- New `agent/src/HwH264Encoder.cs`: wraps the winning MFT from `HwEncoderProbe` behind SIPSorcery's video encoder interface (NV12 in, Annex-B out, forced IDR on PLI/FIR).
-- `WebRtcSession.BuildPeer`: when `HwEncoderProbe.HardwareH264Available` and the wrapper initialises, advertise H.264 **and** VP8 and accept whichever is negotiated; otherwise keep today's VP8-only restriction untouched.
-- `admin/src/Media/WebRtcClient.cs` + `VideoPipeline.cs`: advertise both codecs, add a Media Foundation H.264 decode path alongside the existing libvpx one, select on the negotiated format.
-- `src/lib/webrtc-live.ts`: stop excluding H.264 from the browser's offer — browsers decode it in hardware already.
-- Keep the codec-pinning guardrail comments in sync across all three peers; they are load-bearing.
+### Phase C — Web console
+- `src/lib/webrtc-live.ts`:
+  - Ensure H.264 is not excluded from the offer. No other change is required; browsers decode H.264 in hardware already.
 
-### Step 3 — Re-tune the ladder
-Only once a real 4K session exists: measure RTCP loss/RTT at 20 Mbps and adjust the step-down thresholds and the 10s/12s climb windows, which were tuned for a 4 Mbps ceiling and will oscillate at 20.
+### Phase D — Guardrails and documentation
+- Add a runtime flag (environment variable or build constant) that forces VP8-only, so Step 2 can be disabled in the field without a code rollback.
+- Update `PROJECT-MAP.md` §10.5: mark Step 2 closed, remove the stale `HwEncoderProbe.cs:105` "wire codec remains VP8 this build" claim, and document the kill switch.
+- Update `agent/build.ps1` and `admin/build.ps1` to emit the new encoder-capability telemetry in the build log.
 
-### Documentation
-Record all three steps in `PROJECT-MAP.md` as S17 with the same cause/fix format used for S16, and delete the stale `HwEncoderProbe.cs:105` "wire codec remains VP8 this build" claim when step 2 lands.
+## Risks and mitigations
 
-## Out of scope for this plan
-Input/video wire prioritisation (separate item, smaller win) unless you want it folded into step 1.
+| Risk | Mitigation |
+| --- | --- |
+| Negotiated H.264 but encoder wrapper fails at runtime | Fail the wrapper init before changing the SDP codec list; keep VP8-only if init fails. |
+| Admin decodes H.264 but D3D present path chokes on new format | Keep WriteableBitmap fallback; add format-specific diagnostics. |
+| Field machine has a hardware MFT that advertises H.264 but cannot sustain 4K | Cap the ladder at 2560px for unknown-vendor MFTs; only NVENC/QSV/AMF get the 3840 rung. |
+| Regression in existing VP8 path | Build H.264 as additive; do not remove or refactor the VP8 path. The kill switch forces VP8-only. |
+| No field measurement to justify the work | Make Phase A contingent on Step 1 telemetry from a real 4K session. |
+
+## Out of scope
+
+- Input/video wire prioritisation (smaller win, separate item).
+- HEVC or AV1 codecs.
+- Content-aware rung selection.
+- Server-side frame relay for slow admins.
+
+## Decision needed
+
+Approve this plan to start with the measurement phase and then proceed to Phase A only if the data justifies it. Reject or skip if you want to stay on Step 1 and Step 3 only.
