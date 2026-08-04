@@ -1,97 +1,125 @@
-# Why native admin live video can fail to start — and the fix
+# Why live video never really starts — and what "4K-grade" actually needs
 
-Read of `PROJECT-MAP.md` plus a line-by-line trace of the admin render path
-(`WebRtcClient` → `VideoPipeline` → `FrameConvert` → `D3DImageHost`), the agent
-side (`WebRtcSession.cs`) and the signalling routes.
+Traced the whole video path against the roadmap: web console (`webrtc-live.ts`),
+native admin (`WebRtcClient` → `VideoPipeline` → `D3DImageHost`), agent
+(`WebRtcSession`, `DxgiCapture`, `ScreenCapture`, `BitrateController`) and the
+ICE gateway route.
 
-## What is NOT broken (ruled out by reading, no action)
+Verdict: the negotiation wiring is correct on all three sides (admin offers,
+agent answers, VP8 pinned both ways). Video "not starting" and "not 4K" are two
+separate problems, and neither is a missing feature — they are five concrete
+defects plus one deliberate design ceiling.
 
-- Offer direction: admin offers (`WebRtcClient.cs:160-170`), agent answers
-  (`WebRtcSession.cs:484-530`) — matches ruling R1.
-- Codec pin: admin declares VP8 pt96 RecvOnly (`WebRtcClient.cs:133-137`);
-  agent pins VP8 and only pushes after `OnVideoFormatsNegotiated`.
-- `Pipeline.Start()` is unconditional (`WebRtcClient.cs:84`); track + both RTP
-  hooks wired before negotiation; signal polling starts on both sides
-  immediately; JPEG fallback pump always starts and self-disables on
-  `NativeVideo`.
-- `IsPresenting` gating of the pill is honest.
+## Why video does not start
 
-So there is no categorical wiring bug. Video failing to start is one of four
-concrete, code-level holes.
+### 1. No TURN relay configured → JPEG forever on most networks
 
-## The four real causes, ranked
+`api/public/agent/ice.ts:122-126` returns an empty TURN list unless the
+Cloudflare Calls pair or the coturn vars are set; both peers then silently run
+STUN-only. On symmetric NAT / corporate egress, ICE never completes and every
+session falls back to JPEG — exactly the "blah blah JPEG" symptom. This is the
+single most likely cause in the field, and today nothing in either UI says
+"no relay". The roadmap even contradicts itself: S9 is marked CLOSED
+(`PROJECT-MAP.md:354`) while the Backlog still lists TURN as unfinished
+(`:579,604`).
 
-### 1. Decoder death is permanent and invisible (highest confidence)
+### 2. Web console builds the peer before ICE arrives
 
-`VideoPipeline.DecodeLoop` (`VideoPipeline.cs:186-193`) constructs
-`VpxVideoEncoder` inside the worker thread. If the native libvpx binding is
-missing or mismatched on the technician's machine it logs one line and
-`return`s — the decode thread is gone for the whole session. `Submit()` keeps
-queueing, `_lastDecodedMs` never advances, so the stall watch fires PLI every
-500 ms forever, which escalates into ICE restarts and, ~1 minute later, a
-surrender to JPEG. The technician sees "video never started / it's laggy", and
-the true cause never reaches the UI.
+`webrtc-live.ts:126` constructs `RTCPeerConnection` with the hardcoded
+`STUN_SERVERS`, and only patches in the gateway set at `:407` via
+`setConfiguration`. On browsers that have already begun gathering, the relay
+candidates never make it into the offer, so the web path is STUN-only even when
+TURN *is* configured.
 
-Fix: hoist decoder construction out of the loop into a guarded init that sets a
-`DecoderFailed` state; on failure raise a `NativeVideoUnavailable` event, skip
-the stall watch/PLI storm entirely, demote to the JPEG pump immediately, and
-surface `decoder unavailable` in the stats pill instead of a generic stall.
+### 3. Native admin: VP8 decoder death is permanent and invisible
 
-### 2. Unrecognised decoder output is a silent infinite drop
+`VideoPipeline.cs:186-193` creates `VpxVideoEncoder` inside the decode thread;
+if the native libvpx dependency is missing it logs one line and `return`s. The
+thread is gone for the session — frames queue forever, `_lastDecodedMs` never
+advances, the stall watch fires PLI every 500 ms, that escalates into ICE
+restarts, and a minute later it surrenders to JPEG. The technician sees "video
+never started"; the real cause (no decoder) never reaches the UI.
 
-`FrameConvert.Classify` (`FrameConvert.cs:24-32`) only accepts exact `w*h*4`,
-`w*h*3`, `w*h*3/2`. Any padded-stride or NV12 output from a different
-SIPSorceryMedia build fails every frame; `VideoPipeline.cs:233-238` counts the
-error but — unlike the exception path — never requests a keyframe and never
-gives up, so it too converges on the PLI/ICE-restart storm.
+### 4. Unrecognised decoder output is a silent infinite drop
 
-Fix: after N consecutive conversion failures, treat it exactly like cause 1
-(stop the PLI loop, demote to fallback, report the observed byte length and
-geometry once), and add NV12 to `Classify` since it shares the 3/2 size class
-and can be distinguished only by an explicit format hint from the sample.
+`FrameConvert.Classify` only accepts exactly `w*h*4`, `w*h*3`, `w*h*3/2`. Any
+padded-stride or NV12 output fails every frame; `VideoPipeline.cs:233-238`
+counts it but never requests a keyframe and never gives up — same PLI storm,
+same wrong diagnosis.
 
-### 3. The D3D device is bound to the wrong window
+### 5. The D3D device is bound to the wrong window
 
 `D3DImageHost.GetFocusWindow()` uses `Application.Current.MainWindow`
-(`D3DImageHost.cs:148-161`). In this app `MainWindow` is the login window then
-the device list (`App.xaml.cs:115,159`) — it is **never** reassigned to
-`LiveSessionWindow`. So the D3D9Ex device is created against a window that is
-not doing the presenting. This is tolerated by the code, but on several
-driver/compositor combinations it is exactly what produces a black or frozen
-`D3DImage` while `PushBgra` keeps returning true — "connected, pill says native
-video, picture never appears".
+(`D3DImageHost.cs:148-161`), which in this app is the login window and then the
+device list (`App.xaml.cs:115,159`) — never `LiveSessionWindow`. The D3D9Ex
+device is therefore associated with a window that is not presenting. On several
+driver/compositor combinations this is precisely what yields a black or frozen
+picture while `PushBgra` keeps reporting success.
 
-Fix: let the presenting window supply its own hwnd. `LiveSessionWindow` passes
-its `WindowInteropHelper` handle down to the pipeline/host at construction;
-`GetFocusWindow()` uses that when set and only falls back to `MainWindow` /
-desktop when it isn't.
+## Why it is not "4K-grade"
 
-### 4. No TURN relay unless the gateway is configured
+This part is not a bug — it is the current design ceiling, and the roadmap never
+promised more:
 
-`api/public/agent/ice.ts:49-126` returns an empty TURN list when neither the
-Cloudflare Calls pair nor the coturn vars are set, and both peers then silently
-run STUN-only. On symmetric NAT or filtered corporate egress ICE never
-completes and the session lives on JPEG forever. Also, the roadmap contradicts
-itself: §S9 says TURN is CLOSED, while the Backlog (`PROJECT-MAP.md:579,604`)
-still lists "ICE gateway + TURN" as the next Tier A item.
+- The agent downscales to a **1920 px max edge at the top rung**
+  (`BitrateController.cs:46` — `1920, q70/85, 30 fps, 4000 kbps`), and
+  `ScreenCapture.cs:101-118` even clamps to 1920x1080. So the best case today is
+  1080p at 4 Mbps, resampled — soft on a 4K panel no matter how good the
+  renderer is.
+- The codec is **VP8, software-encoded**. `HwEncoderProbe.cs` exists but nothing
+  consumes its result, so the NVENC/QuickSync H.264 path the roadmap sketched is
+  never taken. Software VP8 at 4 Mbps cannot carry crisp 4K text.
+- Going native (D3D) removed the *presentation* blur; it cannot recover detail
+  the encoder already threw away.
 
-Fix: no new transport code — log the resolved ICE server set once per session
-on both peers, show `relay/srflx/host` in the stats pill when known, warn
-loudly in the admin log when zero TURN servers came back, and correct the
-Backlog entry so triage isn't sent the wrong way.
+Reaching a genuinely sharp picture means raising the source ceiling and the
+encoder, in this order: unclamp capture to the real desktop size, add
+2560/3840 rungs with 8-20 Mbps budgets, and switch to hardware H.264 when
+`HwEncoderProbe` reports support (falling back to VP8 otherwise, with the pin
+negotiated identically on both peers). This is how ScreenConnect/AnyDesk-class
+products get there: relay-guaranteed transport first, hardware codec second,
+dirty-rect + adaptive ladder third.
 
-## Files to change
+## What to change
 
-- `admin/src/Media/VideoPipeline.cs` — decoder init hoist + `DecoderFailed` /
-  `NativeVideoUnavailable`, consecutive-conversion-failure give-up, stall watch
-  suppressed once native video is declared dead.
-- `admin/src/Media/FrameConvert.cs` — NV12 handling + richer failure detail.
-- `admin/src/Media/D3DImageHost.cs` — accept an explicit presenting hwnd.
-- `admin/src/Views/LiveSessionWindow.xaml.cs` — supply that hwnd.
+**Make failures visible and stop the wrong self-heal**
+- `admin/src/Media/VideoPipeline.cs` — hoist decoder construction out of the
+  loop into a guarded init; on failure raise `NativeVideoUnavailable`, suppress
+  the stall/PLI loop, demote to JPEG immediately. Same treatment after N
+  consecutive conversion failures.
+- `admin/src/Media/FrameConvert.cs` — accept NV12, report observed byte length
+  and geometry on mismatch.
+- `admin/src/Media/WebRtcClient.cs` — log the resolved ICE set; do not escalate
+  ICE restarts when the failure is decode-side.
 - `admin/src/ViewModels/LiveSessionViewModel.cs` — surface
-  `decoder unavailable` / `no TURN` in the pill and demote to JPEG at once.
-- `admin/src/Media/WebRtcClient.cs` — log the resolved ICE server set; don't
-  escalate ICE restarts when the failure is decode-side, not transport-side.
-- `PROJECT-MAP.md` — record these as S16 and fix the S9 backlog contradiction.
+  `decoder unavailable` / `no relay` in the stats pill instead of a bare stall.
 
-No agent-side, web-side or database changes.
+**Fix the two hard defects**
+- `admin/src/Media/D3DImageHost.cs` + `LiveSessionWindow.xaml.cs` — the
+  presenting window supplies its own hwnd; `MainWindow` only as fallback.
+- `src/lib/webrtc-live.ts` — await the ICE gateway before constructing the peer
+  connection; keep `setConfiguration` only as a late top-up. Show a "relay
+  unavailable" note in the console when `turn:false`.
+
+**Close the relay gap**
+- No new transport code: confirm `CLOUDFLARE_CALLS_APP_ID` /
+  `CLOUDFLARE_CALLS_APP_TOKEN` are set as secrets, and warn loudly in both
+  consoles when the gateway returns zero TURN servers.
+- `PROJECT-MAP.md` — fix the S9 contradiction, record the above as S16.
+
+**Raise the quality ceiling (S17, larger)**
+- `agent/src/ScreenCapture.cs` / `DxgiCapture.cs` — remove the 1920x1080 clamp,
+  capture at native desktop resolution.
+- `agent/src/BitrateController.cs` — add 3840 and 2560 rungs with 20/12 Mbps
+  budgets above the current top rung.
+- `agent/src/WebRtcSession.cs` + `HwEncoderProbe.cs` — negotiate H.264 when a
+  hardware encoder is present, VP8 otherwise; the admin must advertise both and
+  pin whichever the agent selects.
+
+## Sequencing question
+
+S16 (visibility + the two defects + relay) is small and makes the current
+failure explainable within one session. S17 (native-resolution capture +
+hardware H.264) is the one that actually delivers a sharp 4K picture and touches
+codec negotiation on both peers. I'd ship S16 first so S17 is debuggable, but
+they can go together if you'd rather have one build.
