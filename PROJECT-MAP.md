@@ -1043,3 +1043,7 @@ Windows host and are unblocked by the source zips.
   `bin/ obj/ publish/ dist/ .vs/ *.user *.suo` and editor cruft. No secrets in
   either tree — re-verified at cut time (configs carry only the publishable
   key and public URLs).
+
+### 10.4 S16 — "video never starts" visibility (`SCOPE:RENDER`) — 2026-08-03
+
+The
