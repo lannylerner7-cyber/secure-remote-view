@@ -1178,3 +1178,74 @@ S17 step 1 status: **SHIPPED**.
 - **Step 3 — ladder re-tune.** The step-down thresholds and the 10s/12s climb
   windows were tuned against a 4 Mbps ceiling and will oscillate at 20 Mbps.
   Re-measure RTCP loss/RTT on a real 4K session before touching them.
+
+
+### 10.6 Benchmark — how ScreenConnect / Parsec render live video, and where we stand — 2026-08-04 (`SCOPE:CAPTURE`/`SCOPE:TRANSPORT`)
+
+This section is the measuring stick for S17 steps 2-3. It records what the
+reference products actually do, so future work is compared against facts
+rather than impressions.
+
+**What the reference products do**
+
+| Stage | ScreenConnect (support-grade) | Parsec (pixel-grade) | ConnectLive today |
+| --- | --- | --- | --- |
+| Capture | Desktop Duplication + dirty-rect diffing | Desktop Duplication, full-frame, GPU-resident | DXGI Desktop Duplication + dirty-rect gating, now 1:1 passthrough (S17.1) |
+| Encode | Tile/delta image codec, CPU, tuned for text and low bandwidth | Hardware H.264/HEVC (NVENC / QuickSync / AMF), frame never leaves the GPU | Software VP8 (WebRTC path) or GDI+ JPEG (fallback path), CPU |
+| Transport | TCP relay through the server, session survives reconnects | UDP, custom BUD protocol, FEC, no relay unless required | WebRTC (STUN + Cloudflare TURN) with an HTTPS/JPEG fallback |
+| Decode | CPU image blit | Hardware decode (DXVA / Media Foundation / VideoToolbox) | libvpx software VP8 → BGRA → D3DImage (native admin) or `<video>` (web) |
+| Present | GDI blit | D3D11 swapchain, vsync-aware, no extra copy | D3D9Ex + `D3DImage`, WriteableBitmap fallback |
+| Target | legibility over fidelity — ~10-15 fps at 1080p is normal and accepted | 60 fps at 4K, sub-frame input lag | 30 fps ladder, 640-3840px |
+
+**The honest read on where we sit**
+
+- *Capture:* at parity with both. Desktop Duplication with dirty rects is the
+  same primitive ScreenConnect uses, and S17.1 removed the last redundant
+  full-frame copy.
+- *Transport:* at parity with ScreenConnect, and arguably ahead — they relay
+  everything through their server by default; we do direct WebRTC first and
+  only relay through Cloudflare TURN when NAT forces it.
+- *Present:* at parity. `D3DImage` with a device-lost recovery path (S12) is
+  the correct WPF answer.
+- *Encode/decode:* **this is the whole gap, and it is the only one.** Both
+  reference products keep the frame on the GPU end to end. We round-trip
+  through system memory and a CPU codec on both sides. That single difference
+  is what "soft picture, can't do 4K" reduces to — everything else in the
+  pipeline is already the right shape.
+
+**Verdict on the question "do we match their standard?"**
+
+Against ScreenConnect's *support* standard: after S17.1, on the JPEG path, at
+native resolution — yes, for text legibility. Against Parsec's *pixel*
+standard: no, and we cannot until the frame stops touching the CPU. There is
+no third architecture that closes it; both brands solved it the same way, so
+S17 step 2 (hardware H.264 encode on the agent + Media Foundation decode in
+the admin) is not "being different", it is reaching parity.
+
+**Sequencing decision: measure before building step 2.** Step 2 is the
+highest-risk change in the project (MFT P/Invoke, forced IDR on PLI/FIR,
+Annex-B framing, negotiation rewrite on both ends). Building it before S17.1
+is measured on real hardware risks tuning it against a problem that has
+already moved. Required evidence first, from a real 4K session:
+
+1. `session_telemetry` rows showing `source_width`/`source_height` at the
+   monitor's native size (proves the 1:1 passthrough and the unclamped
+   bounds are live).
+2. Sustained `fps` and `latency_ms` at rung 2 and, on the JPEG path, at rungs
+   1 and 0 — this tells us whether the CPU wall arrives at 2560 or 3840.
+3. `render_path` = `d3d` for the whole session, `frames_dropped` flat, and no
+   `NativeVideoUnavailable` in the session log.
+4. Agent CPU while encoding, alongside the `HwEncoderProbe` result already
+   carried in the heartbeat — this is the number that sizes the win from
+   step 2 and justifies the work.
+
+If (2) shows the software encoder wall at 2560px, step 2 goes ahead as
+written. If the JPEG path holds 3840 acceptably, step 2 stays queued and step
+3 (ladder re-tune) ships first, which is far cheaper.
+
+**Ideas deliberately parked as "different", not better** — content-aware rung
+selection (text vs video regions), server-side frame relay for slow admins,
+and HEVC. None of them are worth touching before the encode/decode gap is
+closed; all three are optimisations on top of hardware codecs, not
+replacements for them.
+
