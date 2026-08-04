@@ -114,16 +114,27 @@ public sealed class WebRtcClient : IDisposable
         // S9 — ICE gateway: STUN always, TURN when the deployment has a relay.
         // A gateway failure returns an empty list and we keep the STUN fallback.
         var iceServers = new System.Collections.Generic.List<RTCIceServer>();
+        int relayCount = 0;
         try
         {
             foreach (var s in await App.Api.GetIceServersAsync(ct).ConfigureAwait(false))
                 foreach (var url in s.Urls)
+                {
                     iceServers.Add(new RTCIceServer { urls = url, username = s.Username, credential = s.Credential });
+                    if (url.StartsWith("turn:", StringComparison.OrdinalIgnoreCase) ||
+                        url.StartsWith("turns:", StringComparison.OrdinalIgnoreCase)) relayCount++;
+                }
         }
-        catch { }
+        catch (Exception ex) { T("ice gateway failed: " + ex.Message); }
         if (iceServers.Count == 0)
             iceServers.Add(new RTCIceServer { urls = "stun:stun.l.google.com:19302" });
-        T($"ice servers: {iceServers.Count}");
+        HasRelay = relayCount > 0;
+        // S16 — "no relay" is the single most common reason a session never
+        // leaves the JPEG path: STUN alone cannot traverse symmetric NAT, so
+        // ICE never completes and nothing above this line is at fault. Say so.
+        T($"ice servers: {iceServers.Count} (turn/relay: {relayCount})");
+        if (!HasRelay) T("NO TURN RELAY CONFIGURED — direct paths only; symmetric NAT will fail");
+
 
         var cfg = new RTCConfiguration { iceServers = iceServers };
         var pc = new RTCPeerConnection(cfg);
