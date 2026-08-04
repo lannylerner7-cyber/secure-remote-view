@@ -102,11 +102,14 @@ public static class BitrateController
         bool changed;
         lock (_gate)
         {
-            changed = _rung != 0;
-            _rung = 0;
+            // S17 — reset to DefaultRung, not 0. Opening a session on the 4K
+            // rung would push 20 Mbps at a link we know nothing about yet.
+            changed = _rung != DefaultRung;
+            _rung = DefaultRung;
             _cleanSince = DateTime.MinValue;
             _lastChangeUtc = DateTime.MinValue;
         }
+
         if (changed) Announce("session reset");
     }
 
