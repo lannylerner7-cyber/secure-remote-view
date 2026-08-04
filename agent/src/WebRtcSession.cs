@@ -464,6 +464,10 @@ public sealed class WebRtcSession : IDisposable
                  $"encoded={Interlocked.Read(ref _encoded)} dropped={Interlocked.Read(ref _dropped)} " +
                  $"formatReady={_formatReady} started={_videoStarted} " +
                  $"size={_lastPushW}x{_lastPushH} pt={_negotiatedPt}");
+        // S17 step 1 — encode cost next to the pipe counters, so one log excerpt
+        // answers both "are frames flowing?" and "what did they cost?".
+        try { Log.Info($"[t={MonoClock.ElapsedMilliseconds}] {EncodeStats.Line()}"); } catch { }
+
     }
 
 
