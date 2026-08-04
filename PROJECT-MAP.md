@@ -1300,6 +1300,12 @@ codec the agent cannot encode negotiates a stream nothing can produce.
   on peer init.
 - `Agent.cs` — `CodecPolicy.LogPolicy()` at startup, next to
   `HwEncoderProbe.LogCapability()`.
+- `src/routes/api/public/agent/heartbeat.ts` — persists the `encode` block into
+  `devices.metadata.encode` (+ `encode_updated_at`) with the same merge
+  discipline as `lan`/`monitors`/`encoder`: an older agent that omits it must
+  not erase what a newer build reported. Values are clamped and non-finite
+  numbers dropped; `null` stays `null`, because "not measured" is not "zero".
+  Without this the fleet-wide answer stops at the agent log.
 - `ApiClient.cs` — heartbeat gains `encode {...}`; `encoder.wire_codec` now
   derives from `CodecPolicy` instead of the old `"VP8"` literal, so it cannot
   drift from the guardrail. Both are wrapped: a telemetry fault must never
