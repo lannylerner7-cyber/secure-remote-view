@@ -1,39 +1,45 @@
-# Codebase / route / key verification pass
+# Native Admin console: dead buttons + badly fitted live video
 
-Full read of every route file, every endpoint string in the agent and admin sources, and every environment key the code reads versus what is actually configured. Findings below, ordered by impact.
+Two separate defects, both in the WPF admin client. Findings below come from reading the actual files this session.
 
-## Findings
+## What is actually wrong
 
-### V1 — TURN is dead for every technician console (high impact, confirmed)
-`src/routes/api/public/agent/ice.ts` authenticates technicians by reading `SUPABASE_URL` + `SUPABASE_ANON_KEY`. `SUPABASE_ANON_KEY` is not set anywhere — the project ships `SUPABASE_PUBLISHABLE_KEY` instead (that is why `agent/release.ts` already reads `SUPABASE_PUBLISHABLE_KEY ?? SUPABASE_ANON_KEY`).
+**1. The live-session toolbar buttons are pushed off-screen.**
+`admin/src/Views/LiveSessionWindow.xaml` puts the whole top bar in one `DockPanel`. The left status panel (LIVE dot, device name, transport pill, link state, the long `VideoStats` readout, plus a 190px monitor picker) is declared first and is free to grow to any width. The action panel (Reconnect, Restart stream, Restart agent, Curtain, Lock, Restart, Shutdown, End session — eight buttons) is the last child, so it only gets whatever horizontal space is left. At the default 1200px window with a populated stats string there is little or none, so the buttons are clipped outside the visible area and the bar looks unresponsive.
 
-Consequence: `verifyTechnician` always returns false, so both consoles get 401 from the ICE gateway:
-- native admin (`admin/src/Media/WebRtcClient.cs` line ~148) logs `ice gateway failed` and falls back to a single Google STUN entry;
-- web console (`src/lib/webrtc-live.ts` `fetchIceServers`) falls back to `STUN_SERVERS`.
+**2. Keyboard activation of any control is swallowed.**
+The window installs `PreviewKeyDown`/`PreviewKeyUp` at window level and marks every non-printable key handled (`Views/LiveSessionWindow.xaml.cs`). That includes Enter, Space, Tab and the arrows, so nothing in the chrome can be reached or triggered by keyboard — correct while the remote surface is focused, wrong for the toolbar.
 
-So the Cloudflare Calls TURN credentials we wired in S9 are only ever reachable by the agent side, and any symmetric-NAT session silently degrades to JPEG. Fix: mirror the release-route fallback in `ice.ts`.
+**3. Device-list buttons need a click to wake up.**
+`Views/MainWindow.xaml` hosts Connect / Wake / Delete inside a `DataGridTemplateColumn`. The grid takes the first click for row/cell selection, so the button appears to ignore the first press.
 
-### V2 — Stale secrets still provisioned
-- `AGENT_DEPLOYMENT_KEY` — removed from the product during the enrollment overhaul; no code reads it. Delete.
-- `CRON_SECRET` — the cron route now validates against the `cron_tokens` table, not env. No code reads it. Delete.
+**4. The picture never fits the window.**
+The `Image` is `Stretch=Uniform` + `StretchDirection=DownOnly` with no fit/zoom control, and the window opens at a fixed 1200x720 rather than maximised. A 4K source is squeezed into roughly a 1100px-wide box; anything below the element size is drawn small and centred inside black bars. On top of that, the take-over banner and the amber status banner live in the *same* `Grid` as the video and are top-aligned, so they cover the top of the desktop image instead of sitting outside it.
 
-Both are dead credentials sitting in the environment; removing them keeps the secret surface honest.
+## What will change
 
-### V3 — Route inventory: no ghosts, one coverage hole
-Every endpoint string in `agent/` and `admin/` resolves to a real file under `src/routes/api/public/`, and every entry in `src/shared/api-routes.ts` exists. `scripts/verify-agent-routes.ts` however only probes 8 of the endpoints; the per-session family (`signal`, `inputs`, `frame`, `cursor`, `consent`, `reconnect`, `power ack`) is never touched by the verifier, so a regression there is invisible until a live session fails. Extend the verifier with an unauthenticated-probe pass (expect 401/404, not 500) for those seven.
+**Toolbar (LiveSessionWindow.xaml)**
+- Dock the action buttons first so they always reserve their width; the status panel takes the remainder and clips with an ellipsis instead of squeezing the buttons out.
+- Split the bar into two rows when narrow (status row + actions row) so all eight buttons stay reachable at any window size.
+- Group the destructive power actions (Lock / Restart / Shutdown) behind a single "Power" dropdown to cut the bar down from eight controls to five.
+- Give every button a sensible `MinWidth`, tooltip and keyboard-reachable focus.
 
-### V4 — Missing head metadata
-`src/routes/_authenticated/route.tsx` has no `head()`. Every other page route defines one. It is the console shell, so a `noindex` head is the right fix rather than a marketing title.
+**Key interception (LiveSessionWindow.xaml.cs)**
+- Only intercept keys when the video surface (the `Grid`/`Image`) holds focus. When focus is in the toolbar, let WPF handle Tab/Enter/Space normally.
+- Clicking the picture returns focus to the surface, exactly as it does today.
 
-### V5 — Keys that are correctly absent
-`TURN_URLS` / `TURN_STATIC_SECRET` / `TURN_USERNAME` / `TURN_PASSWORD` are the coturn fallback path and are intentionally unset while Cloudflare is configured. `SUPABASE_SERVICE_ROLE_KEY` appears only in `scripts/e2e-wake.ts`, a local operator script — not a runtime dependency. No action.
+**Video fit**
+- Move the banners out of the video `Grid` into their own docked rows, so the picture is never covered.
+- Add a Fit / 1:1 toggle in the bar: Fit uses `Uniform` with upscale allowed (so a 1280px rung fills the window instead of floating in the middle); 1:1 keeps `DownOnly` native pixels inside a scroll viewer for pixel-accurate work.
+- Keep `ContentRect.Compute`'s `allowUpscale` argument driven off the element's live `StretchDirection`, which is already how `Rect()` reads it — so clicks, wheel and the ghost cursor stay correct in both modes without touching the input maths.
+- Open the live window maximised so the default experience uses the whole display.
 
-## What to change
+**Device list (MainWindow.xaml)**
+- Make the action cells respond on the first click (single-click cell activation on the template column).
 
-1. `src/routes/api/public/agent/ice.ts` — read `SUPABASE_PUBLISHABLE_KEY ?? SUPABASE_ANON_KEY`; log once (not per request) when neither is present so the failure is diagnosable instead of silent.
-2. Delete secrets `AGENT_DEPLOYMENT_KEY` and `CRON_SECRET`.
-3. `scripts/verify-agent-routes.ts` — add the seven session-scoped routes to the probe table with expected-status assertions.
-4. `src/routes/_authenticated/route.tsx` — add `head()` with a console title and `robots: noindex`.
-5. `PROJECT-MAP.md` — new §10.8 recording V1 as a shipped fix, the two retired secrets, and the widened route verifier, so the ICE-auth key name is pinned as an invariant.
+## Technical notes
 
-No agent or admin C# changes are required: both already handle an empty ICE set gracefully, and they start using TURN the moment the gateway stops returning 401.
+- Files touched: `admin/src/Views/LiveSessionWindow.xaml`, `admin/src/Views/LiveSessionWindow.xaml.cs`, `admin/src/Views/MainWindow.xaml`, and a small style addition in `admin/src/App.xaml`.
+- No transport, WebRTC, capture or ViewModel command changes. `PowerCommandCommand`, `ToggleControlCommand`, `RestartStreamCommand`, `RestartAgentCommand` and `ReconnectAgentCommand` already exist and are correctly wired — they were simply unclickable.
+- `PROJECT-MAP.md` gets a short entry recording the toolbar layout and Fit/1:1 invariants (the `allowUpscale` ↔ `StretchDirection` coupling is already documented in `ContentRect.cs` and must stay true).
+- This is XAML/code-behind only; the project still needs a Windows build to verify visually, so a fresh sanitized Admin zip can be cut afterwards if you want it.
