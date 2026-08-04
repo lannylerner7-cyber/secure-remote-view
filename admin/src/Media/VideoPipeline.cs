@@ -413,6 +413,9 @@ public sealed class VideoPipeline : IDisposable
             {
                 try { Thread.Sleep(500); } catch { return; }
                 if (ct.IsCancellationRequested) return;
+                // S16 — a retired native path is NOT a transport stall. Keyframe
+                // requests here were the PLI storm that masked the real cause.
+                if (_decoderDead) return;
                 var last = Interlocked.Read(ref _lastDecodedMs);
                 if (Interlocked.Read(ref _framesIn) == 0) continue;
                 if (last < 0 || _clock.ElapsedMilliseconds - last > StallMs)
@@ -420,6 +423,7 @@ public sealed class VideoPipeline : IDisposable
                     try { KeyFrameRequested?.Invoke(); } catch { }
                 }
             }
+
         })
         { IsBackground = true, Name = "connectlive-video-stallwatch" };
         t.Start();
