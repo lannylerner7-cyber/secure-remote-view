@@ -84,7 +84,20 @@ public sealed class VideoPipeline : IDisposable
         _lastDecodedMs >= 0 && (_clock.ElapsedMilliseconds - Interlocked.Read(ref _lastDecodedMs)) < 2000;
 
     /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
+    /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
     public bool UsingD3D { get; private set; }
+
+    /// <summary>
+    /// S16 — HWND of the window that actually presents this video. Set it
+    /// before <see cref="Start"/>; without it the D3D device binds to
+    /// <c>MainWindow</c>, which is not the presenting window in this app.
+    /// </summary>
+    public IntPtr PresentationWindow
+    {
+        get => _d3d.PresentationWindow;
+        set => _d3d.PresentationWindow = value;
+    }
+
 
     /// <summary>S12 — D3D device-lost events seen this session (0 on a healthy box).</summary>
     public int D3DDeviceLosses => _d3d.DeviceLosses;
