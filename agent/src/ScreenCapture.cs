@@ -172,6 +172,10 @@ public static class ScreenCapture
                 if (rawBmp == null || bounds.Width != prevBoundsW || bounds.Height != prevBoundsH)
                 {
                     rawBmp?.Dispose();
+                    // S17 — lastFrame may alias the buffer we are about to free
+                    // (1:1 passthrough). Drop the alias before the Dispose so the
+                    // idle keepalive can never tee a disposed bitmap.
+                    if (ReferenceEquals(lastFrame, rawBmp)) lastFrame = null;
                     // 32bppRgb (no alpha): DXGI hands back B8G8R8A8 surfaces whose
                     // alpha byte is meaningless (often 0) over composited windows.
                     // An ARGB target would alpha-blend those toward black and dim
@@ -259,6 +263,7 @@ public static class ScreenCapture
                     // large-object-heap that will never be read again.
                     if (scaledBmp != null)
                     {
+                        if (ReferenceEquals(lastFrame, scaledBmp)) lastFrame = null;
                         scaledBmp.Dispose();
                         scaledBmp = null;
                         prevScaledW = prevScaledH = 0;
@@ -269,6 +274,7 @@ public static class ScreenCapture
                     // Reallocate scaled bitmap only when target size changes.
                     if (scaledBmp == null || w != prevScaledW || h != prevScaledH)
                     {
+                        if (ReferenceEquals(lastFrame, scaledBmp)) lastFrame = null;
                         scaledBmp?.Dispose();
                         // No alpha channel — see rawBmp above.
                         scaledBmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
