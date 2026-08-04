@@ -54,6 +54,13 @@ public sealed class WebRtcClient : IDisposable
     /// <summary>The native video pipeline. The window binds its surface directly.</summary>
     public VideoPipeline Pipeline { get; } = new();
 
+    /// <summary>S16 — true when the ICE gateway handed us at least one TURN server.</summary>
+    public bool HasRelay { get; private set; }
+
+    /// <summary>S16 — set once the native decode path has retired itself; null while healthy.</summary>
+    public string? NativeVideoUnavailable { get; private set; }
+
+
     /// <summary>Number of admin-initiated ICE restarts this session (Phase 4 evidence).</summary>
     public int IceRestarts => _restarts;
 
