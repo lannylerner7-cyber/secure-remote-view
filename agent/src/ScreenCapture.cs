@@ -333,11 +333,21 @@ public static class ScreenCapture
                     // Use higher quality for idle keyframes, lower for motion frames.
                     var encP = wasIdle ? idleParams : motionParams;
                     using var ms = new MemoryStream();
+                    // S17 step 1 — time the ENCODE alone. The upload is measured
+                    // separately below; folding them together would make a slow
+                    // link look like a slow encoder, which is the exact
+                    // confusion the S17 decision has to avoid.
+                    var encodeSw = System.Diagnostics.Stopwatch.StartNew();
                     frame.Save(ms, jpegEnc, encP);
+                    encodeSw.Stop();
+                    EncodeStats.NoteJpegEncode(
+                        encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, w, h);
                     var uploadSw = System.Diagnostics.Stopwatch.StartNew();
                     bool posted = await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
                     uploadSw.Stop();
                     NoteUploadLatency(uploadSw.ElapsedMilliseconds);
+                    MaybeLogEncodeStats();
+
                     if (posted)
                     {
                         if (uploadFails > 0) Log.Info($"frame upload recovered after {uploadFails} failure(s)");
