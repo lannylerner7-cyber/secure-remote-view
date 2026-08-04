@@ -209,7 +209,7 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>Submit one depacketised VP8 frame. Never blocks the RTP thread.</summary>
     public void Submit(byte[] encodedFrame)
     {
-        if (_disposed || encodedFrame == null || encodedFrame.Length == 0) return;
+        if (_disposed || _decoderDead || encodedFrame == null || encodedFrame.Length == 0) return;
         Interlocked.Increment(ref _framesIn);
 
         if (_awaitingKeyFrame)
@@ -238,17 +238,13 @@ public sealed class VideoPipeline : IDisposable
 
     private void DecodeLoop()
     {
-        try { _decoder = new VpxVideoEncoder(); }
-        catch (Exception ex)
-        {
-            Diagnostic?.Invoke("VP8 decoder unavailable: " + ex.Message);
-            return;
-        }
-
+        // S16 — the decoder is already built by Start(); this thread only runs
+        // when there is one.
         var ct = _cts.Token;
         while (!ct.IsCancellationRequested)
         {
             try { _signal.Wait(ct); } catch { return; }
+            if (_decoderDead) return;
             (byte[] data, long enqueuedMs) item;
             lock (_qGate)
             {
@@ -270,6 +266,7 @@ public sealed class VideoPipeline : IDisposable
         {
             if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
                 Diagnostic?.Invoke("VP8 decode error: " + ex.Message);
+            if (NoteFailure($"VP8 decode keeps failing ({ex.Message})")) return;
             KeyFrameRequested?.Invoke();
             return;
         }
@@ -283,19 +280,47 @@ public sealed class VideoPipeline : IDisposable
             EnsureBuffers(w, h);
             if (_bgra == null) continue;
 
-            if (!FrameConvert.ToBgra32(s.Sample, w, h, _bgra))
+            if (!FrameConvert.ToBgra32(s.Sample, w, h, _bgra, _chroma))
             {
-                if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
-                    Diagnostic?.Invoke($"unrecognised decoder output ({s.Sample.Length} bytes for {w}x{h})");
-                continue;
+                // S16 — before giving up, try the other chroma reading once.
+                // Packed I420 and NV12 have identical byte counts, so a decoder
+                // that emits NV12 used to fail here on every single frame.
+                var alt = _chroma == FrameConvert.Shape.I420 ? FrameConvert.Shape.Nv12 : FrameConvert.Shape.I420;
+                if (FrameConvert.ToBgra32(s.Sample, w, h, _bgra, alt))
+                {
+                    _chroma = alt;
+                    Diagnostic?.Invoke($"decoder output re-read as {alt} ({s.Sample.Length} bytes for {w}x{h})");
+                }
+                else
+                {
+                    if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
+                        Diagnostic?.Invoke("unrecognised decoder output: " + FrameConvert.Describe(s.Sample.Length, w, h));
+                    NoteFailure("decoder output is not a layout we can present: " +
+                                FrameConvert.Describe(s.Sample.Length, w, h));
+                    continue;
+                }
             }
 
+            Interlocked.Exchange(ref _consecutiveFailures, 0);
             Interlocked.Increment(ref _framesDecoded);
             Interlocked.Exchange(ref _lastDecodedMs, _clock.ElapsedMilliseconds);
             Present(w, h, enqueuedMs);
             TickFps();
         }
     }
+
+    /// <summary>
+    /// S16 — count one unusable frame. Returns true once the native path has
+    /// been retired, so the caller stops asking for keyframes that cannot help.
+    /// </summary>
+    private bool NoteFailure(string reason)
+    {
+        if (_decoderDead) return true;
+        if (Interlocked.Increment(ref _consecutiveFailures) < MaxConsecutiveFailures) return false;
+        MarkUnavailable(reason);
+        return true;
+    }
+
 
     // Mid-session resolution change: resize in place, never tear the pipeline down.
     private void EnsureBuffers(int w, int h)
