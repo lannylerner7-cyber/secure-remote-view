@@ -123,10 +123,17 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   // Starts on the STUN fallback; the gateway set (STUN + TURN when deployed)
   // is applied via setConfiguration before the first offer, i.e. before ICE
   // gathering begins at setLocalDescription.
+  //
+  // S16 — the apply is now verified. If setConfiguration is unavailable or
+  // rejects the set, the session silently ran STUN-only and every symmetric-NAT
+  // network fell back to JPEG with no explanation; `relay()` below reports the
+  // truth so the console can say "no relay" instead of "connecting" forever.
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
   const icePromise = fetchIceServers();
+  let relayState: "pending" | "relay" | "none" = "pending";
   let dc: RTCDataChannel | null = pc.createDataChannel("inputs", { ordered: true });
   dc.onclose = () => { dc = null; };
+
 
   let selectedCandidateType: string | null = null;
   const connectTimeoutMs = CONNECT_TIMEOUT_MS;
