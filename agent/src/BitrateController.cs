@@ -76,12 +76,41 @@ public static class BitrateController
 
     private static readonly object _gate = new();
     private static int _rung = DefaultRung;
+    // S17 — the sharpest rung the ladder is allowed to climb *into*. 0 = the
+    // full ladder including 3840/2560. WebRtcSession raises this to
+    // DefaultRung for the lifetime of a peer because the wire codec is still
+    // software VP8: encoding 4K in libvpx on the CPU would collapse the
+    // session, which is worse than the soft picture we are trying to fix.
+    // Step 2 (hardware H.264) is what earns the right to drop it back to 0.
+    private static int _ceiling;
     private static DateTime _cleanSince = DateTime.MinValue;
     private static DateTime _lastChangeUtc = DateTime.MinValue;
 
 
     /// <summary>Raised after any rung change so capture can re-read tunables.</summary>
     public static event Action<Rung>? Changed;
+
+    /// <summary>
+    /// Sharpest rung the ladder may climb into (0 = no restriction). Setting a
+    /// ceiling below the current rung steps the encoder down immediately.
+    /// </summary>
+    public static int Ceiling
+    {
+        get { lock (_gate) return _ceiling; }
+        set
+        {
+            bool changed = false;
+            var clamped = Math.Clamp(value, 0, Ladder.Length - 1);
+            lock (_gate)
+            {
+                if (_ceiling == clamped) return;
+                _ceiling = clamped;
+                if (_rung < clamped) { _rung = clamped; changed = true; }
+                _cleanSince = DateTime.MinValue;
+            }
+            if (changed) Announce("ceiling");
+        }
+    }
 
     /// <summary>Current rung index; 0 = sharpest.</summary>
     public static int RungIndex { get { lock (_gate) return _rung; } }
@@ -104,8 +133,9 @@ public static class BitrateController
         {
             // S17 — reset to DefaultRung, not 0. Opening a session on the 4K
             // rung would push 20 Mbps at a link we know nothing about yet.
-            changed = _rung != DefaultRung;
-            _rung = DefaultRung;
+            var target = Math.Max(DefaultRung, _ceiling);
+            changed = _rung != target;
+            _rung = target;
             _cleanSince = DateTime.MinValue;
             _lastChangeUtc = DateTime.MinValue;
         }
@@ -169,7 +199,7 @@ public static class BitrateController
         bool climb = false;
         lock (_gate)
         {
-            if (_rung == 0) { _cleanSince = DateTime.MinValue; return; }
+            if (_rung <= _ceiling) { _cleanSince = DateTime.MinValue; return; }
             // Never climb inside 10 s of the last change: that is the window in
             // which the previous step's effect is still in flight.
             if ((DateTime.UtcNow - _lastChangeUtc).TotalSeconds < 10) return;
@@ -219,6 +249,7 @@ public static class BitrateController
 
         lock (_gate)
         {
+            target = Math.Max(target, _ceiling);
             changed = _rung != target;
             _rung = target;
             _cleanSince = DateTime.MinValue;
