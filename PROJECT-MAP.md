@@ -1320,3 +1320,51 @@ that is the bug to fix first.
 approaching the ~33 ms frame budget, or CPU pinning a core at the 2560/3840
 rungs, is what authorises the MFT work. Admin- and web-side decode telemetry
 already exist (`VideoPipeline.StatsLine()`, S11 render telemetry).
+
+---
+
+## §10.8 — Codebase / route / key verification pass (V1–V5)
+
+Full sweep of every route file, every endpoint string in `agent/` and
+`admin/`, and every environment key the code reads versus what is provisioned.
+
+**V1 — TURN was dead for every technician console (FIXED).**
+`src/routes/api/public/agent/ice.ts` verified technician bearers with a client
+built from `SUPABASE_URL` + `SUPABASE_ANON_KEY`. `SUPABASE_ANON_KEY` is not set
+on this project — the deployed name is `SUPABASE_PUBLISHABLE_KEY` (which is why
+`agent/release.ts` already read both). `verifyTechnician` therefore always
+returned false, both consoles got 401 from the ICE gateway, and every session
+ran on Google STUN only: the Cloudflare Calls TURN credentials wired in S9 were
+reachable by the agent side alone, so symmetric-NAT sessions silently degraded
+to the JPEG fallback.
+
+Fix: read `SUPABASE_PUBLISHABLE_KEY ?? SUPABASE_ANON_KEY`, and log once (module
+flag, not per request) when neither is present.
+
+**Invariant** — the ICE gateway's technician auth reads the *publishable* key
+name first. A rename that drops it does not break loudly; it degrades video
+quality silently. `scripts/verify-agent-routes.ts` now probes `/agent/ice` with
+a bogus bearer and asserts 401 (never 500), proving the client still constructs.
+
+**V2 — stale secrets retired.** `AGENT_DEPLOYMENT_KEY` (removed with the
+enrollment overhaul) and `CRON_SECRET` (the cron route validates against
+`public.cron_tokens`, not env) are read by no code and have been deleted from
+the environment.
+
+**V3 — route inventory.** No ghosts: every endpoint string in the agent and
+admin sources resolves to a real file under `src/routes/api/public/`, and every
+entry in `src/shared/api-routes.ts` exists. The verifier's one hole —
+`/api/public/agent/power/{cmdId}/ack` — is now probed; the rest of the
+session-scoped family was already covered.
+
+**V4 — `src/routes/_authenticated/route.tsx`** gained a `head()` with a console
+title, description, og tags, and `robots: noindex, nofollow`. It is the
+authenticated shell and must never be indexed.
+
+**V5 — keys correctly absent.** `TURN_URLS` / `TURN_STATIC_SECRET` /
+`TURN_USERNAME` / `TURN_PASSWORD` are the coturn fallback and stay unset while
+Cloudflare is configured. `SUPABASE_SERVICE_ROLE_KEY` appears only in
+`scripts/e2e-wake.ts`, an operator script — not a runtime dependency.
+
+No agent or admin C# changes were required: both already handle an empty ICE
+set gracefully and start using TURN the moment the gateway stops returning 401.
