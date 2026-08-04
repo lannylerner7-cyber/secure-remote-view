@@ -42,6 +42,17 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             hw_vendor?: string;
             hw_name?: string;
           };
+          // S17 step 1 — measured encode cost for this session. Null fields
+          // mean "not measured", never "zero".
+          encode?: {
+            jpeg_ms?: number | null;
+            vp8_ms?: number | null;
+            cpu_pct?: number | null;
+            ws_mb?: number | null;
+            peak_width?: number;
+            peak_height?: number;
+            rung?: number;
+          };
           // S14 — assembly version of the running agent, so the fleet's build
           // spread is a number and staged rollout has something to target.
           version?: string;
