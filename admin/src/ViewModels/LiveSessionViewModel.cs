@@ -376,7 +376,13 @@ public partial class LiveSessionViewModel : ObservableObject
     // Mirrors agent/src/BitrateController.cs Ladder max-edge values so a soft
     // picture reads as "the link stepped the encoder down", not "the renderer
     // is broken". Index 0 is the sharpest rung.
-    private static readonly int[] RungEdges = { 1920, 1600, 1280, 1024, 800, 640 };
+    //
+    // S17 — MUST stay in lockstep with the agent ladder, including the two
+    // prepended 4K/2K rungs. If these drift the stats pill reports the wrong
+    // rung number, which is worse than reporting none: it sends the technician
+    // looking for a network fault that is not there.
+    private static readonly int[] RungEdges = { 3840, 2560, 1920, 1600, 1280, 1024, 800, 640 };
+
 
     private static string SourceLabel(int w, int h)
     {
