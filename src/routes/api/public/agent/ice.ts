@@ -32,13 +32,30 @@ const TTL_SECONDS = 12 * 60 * 60;
 
 type IceServer = { urls: string | string[]; username?: string; credential?: string };
 
+/**
+ * V1 — the publishable key is the deployed name; SUPABASE_ANON_KEY is the
+ * legacy alias and is not set on this project. Reading only the legacy name
+ * made every technician console 401 here and silently lose TURN. Warn once so
+ * a future rename is diagnosable instead of invisible.
+ */
+let warnedMissingKey = false;
+
 async function verifyTechnician(request: Request): Promise<boolean> {
   const auth = request.headers.get("authorization");
   const token = auth?.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : null;
   if (!token) return false;
   const url = process.env["SUPABASE_URL"];
-  const anon = process.env["SUPABASE_ANON_KEY"];
-  if (!url || !anon) return false;
+  const anon =
+    process.env["SUPABASE_PUBLISHABLE_KEY"] ?? process.env["SUPABASE_ANON_KEY"];
+  if (!url || !anon) {
+    if (!warnedMissingKey) {
+      warnedMissingKey = true;
+      console.error(
+        "[ice] technician auth disabled: SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (or SUPABASE_ANON_KEY) must be set — consoles will fall back to STUN-only",
+      );
+    }
+    return false;
+  }
   const client = createClient(url, anon, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
