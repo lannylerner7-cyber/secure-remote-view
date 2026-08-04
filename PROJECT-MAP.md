@@ -1053,4 +1053,45 @@ nothing more useful than "Frame fallback". The three causes and their fixes:
    decoder inside the worker loop and swallowed failures, so a missing/failed
    `VpxVideoEncoder` produced an endless PLI storm and a frozen surface.
    Decoder init is now hoisted into `Start()`, consecutive convert/decode
-   failures are counted (`MaxConsecutiveFailures = 60`), and cr
+   failures are counted (`MaxConsecutiveFailures = 60`), and crossing the
+   threshold fires `VideoPipeline.NativeVideoUnavailable(reason)` exactly
+   once. `WebRtcClient` reacts by surrendering to JPEG and setting
+   `HasRelay/NativeVideoUnavailable` state the ViewModel reads back into the
+   stats pill (`… · decoder unavailable · …`), instead of leaving the
+   technician staring at "stalled".
+
+2. **Stride-padded / NV12 decoder output was dropped as "Unknown".**
+   `FrameConvert.Classify` now tolerates a padded row pitch and understands
+   NV12 in addition to I420, so a healthy decode is no longer discarded as
+   an unrecognised shape.
+
+3. **The D3D surface bound to the wrong HWND.** `D3DImageHost.GetFocusWindow`
+   fell back to `Application.MainWindow`, which stays as the Device List
+   window; certain drivers refused to present into a hidden HWND and the
+   surface stayed black. `LiveSessionWindow` now captures its own handle via
+   `WindowInteropHelper.EnsureHandle()` on `Loaded` and passes it through
+   `LiveSessionViewModel.PresentationWindow` → `VideoPipeline.PresentationWindow`
+   → `D3DImageHost.PresentationWindow` before `Start()`.
+
+4. **Web console applied the ICE gateway set after ICE gathering began.**
+   `startWebRtcLive` created the `RTCPeerConnection` with the STUN-only
+   fallback and awaited `fetchIceServers()` only later, racing
+   `setLocalDescription`. It now awaits the gateway set first, calls
+   `setConfiguration` before `addTransceiver`, records `relayState`
+   (`"pending" | "relay" | "none"`), and exposes it via `WebRtcLive.relay()`.
+   The console pill reads `Frame fallback (… · no relay)` with a tooltip
+   naming the exact cause — "no relay — direct paths only, symmetric NAT
+   will fail" — instead of a bare "Frame fallback".
+
+Files touched: `admin/src/Media/{VideoPipeline,FrameConvert,D3DImageHost,WebRtcClient}.cs`,
+`admin/src/Views/LiveSessionWindow.xaml.cs`,
+`admin/src/ViewModels/LiveSessionViewModel.cs`,
+`src/lib/webrtc-live.ts`, `src/routes/_authenticated/console.tsx`.
+
+S16 status: **CLOSED** (visibility). The underlying "no TURN configured"
+condition is a deployment concern — Cloudflare Calls credentials
+(`CLOUDFLARE_CALLS_APP_ID` / `CLOUDFLARE_CALLS_APP_TOKEN`) are already
+wired at `/api/public/agent/ice`; when unset, every console now says so
+in-band. The 4K/H.264 quality ceiling remains open as **S17** (Agent-side
+`BitrateController` 1080p clamp + software VP8).
+
