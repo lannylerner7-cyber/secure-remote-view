@@ -1305,15 +1305,21 @@ function AdminPage() {
           // Candidate type turns the LAN-vs-cross-network test into a direct
           // read: host = LAN, srflx = NAT-traversed direct path.
           const iceKind = rtcRef.current?.candidateType?.() ?? null;
+          // S16 — a deployment with no TURN relay cannot traverse symmetric NAT,
+          // so the session sits on JPEG frames forever. Name it in the pill
+          // instead of leaving "Frame fallback" looking like an agent problem.
+          const relay = rtcRef.current?.relay?.() ?? "pending";
+          const noRelay = relay === "none" && !videoDecoding;
           const videoLabel = `WebRTC video${iceKind ? ` · ${iceKind}` : ""}${videoFps ? ` · ${videoFps} fps` : ""}`;
           const transportLabel = {
             connecting: "Connecting",
             video: videoLabel,
             negotiating: `WebRTC negotiating${iceKind ? ` · ${iceKind}` : ""} · no frames yet`,
-            live: `Frame fallback (${fpsCounterRef.current.fps} fps)`,
+            live: `Frame fallback (${fpsCounterRef.current.fps} fps)${noRelay ? " · no relay" : ""}`,
             reconnecting: "Reconnecting",
-            polling: "Frame fallback (polling)",
+            polling: `Frame fallback (polling)${noRelay ? " · no relay" : ""}`,
           }[transport];
+
 
           return (
             <div
@@ -1339,7 +1345,7 @@ function AdminPage() {
                       </div>
                     </div>
                     <span
-                      title={`WebRTC: ${rtcState}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                      title={`WebRTC: ${rtcState}. ICE relay: ${relay === "relay" ? "TURN available" : relay === "none" ? "none — direct paths only, symmetric NAT will fail" : "resolving"}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
                       className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
                     >
                       <span

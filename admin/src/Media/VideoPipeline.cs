@@ -32,6 +32,9 @@ public sealed class VideoPipeline : IDisposable
 {
     private const int MaxQueue = 3;               // ~3-frame jitter buffer
     private const int StallMs = 1500;             // no decoded frame for this long → ask for a keyframe
+    /// <summary>S16 — consecutive unusable frames before the native path gives up instead of PLI-storming.</summary>
+    private const int MaxConsecutiveFailures = 60;
+
 
     private readonly Queue<(byte[] data, long enqueuedMs)> _queue = new();
     private readonly object _qGate = new();
@@ -46,6 +49,14 @@ public sealed class VideoPipeline : IDisposable
     private int _width, _height;
     private WriteableBitmap? _bitmap;
     private volatile bool _disposed;
+
+    // S16 — native-path health. Everything about "video never started" that used
+    // to be invisible now lives in these three fields and is surfaced to the UI.
+    private volatile bool _decoderDead;
+    private string? _deadReason;
+    private FrameConvert.Shape _chroma = FrameConvert.Shape.I420;
+    private int _consecutiveFailures;
+
 
     // ---- G2 counters -----------------------------------------------------
     private long _framesIn, _framesDecoded, _framesDropped, _framesPresented, _decodeErrors;
@@ -73,7 +84,20 @@ public sealed class VideoPipeline : IDisposable
         _lastDecodedMs >= 0 && (_clock.ElapsedMilliseconds - Interlocked.Read(ref _lastDecodedMs)) < 2000;
 
     /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
+
     public bool UsingD3D { get; private set; }
+
+    /// <summary>
+    /// S16 — HWND of the window that actually presents this video. Set it
+    /// before <see cref="Start"/>; without it the D3D device binds to
+    /// <c>MainWindow</c>, which is not the presenting window in this app.
+    /// </summary>
+    public IntPtr PresentationWindow
+    {
+        get => _d3d.PresentationWindow;
+        set => _d3d.PresentationWindow = value;
+    }
+
 
     /// <summary>S12 — D3D device-lost events seen this session (0 on a healthy box).</summary>
     public int D3DDeviceLosses => _d3d.DeviceLosses;
@@ -97,9 +121,36 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>Raised (worker thread) with a one-line human-readable problem description.</summary>
     public event Action<string>? Diagnostic;
 
+    /// <summary>
+    /// S16 — the native path cannot produce pictures at all (no VP8 decoder, or
+    /// every decoded frame is unusable). Raised at most once per pipeline. The
+    /// caller must stop treating this as a transport stall — no PLI, no ICE
+    /// restart will fix it — and demote to the JPEG path immediately.
+    /// </summary>
+    public event Action<string>? NativeVideoUnavailable;
+
+    /// <summary>S16 — false once the native path has given up; the reason is in <see cref="UnavailableReason"/>.</summary>
+    public bool DecoderAvailable => !_decoderDead;
+
+    /// <summary>S16 — why the native path gave up, or null while it is healthy.</summary>
+    public string? UnavailableReason => _deadReason;
+
     public void Start()
     {
-        if (_worker != null) return;
+        if (_worker != null || _decoderDead) return;
+
+        // S16 — the decoder is created HERE, on the caller's thread, before any
+        // frame arrives. It used to be constructed inside the decode loop, so a
+        // missing libvpx native dependency killed the worker thread silently:
+        // frames queued forever, the stall watch fired a PLI every 500 ms, that
+        // escalated into ICE restarts, and the technician was told the network
+        // had stalled when in fact there was no decoder at all.
+        try { _decoder = new VpxVideoEncoder(); }
+        catch (Exception ex)
+        {
+            MarkUnavailable("VP8 decoder unavailable: " + ex.Message);
+            return;
+        }
 
         // S12 — device-lost is visible, not silent. A TDR, driver update, RDP
         // attach or dGPU/iGPU flip now says so in the session log and in the
@@ -121,6 +172,21 @@ public sealed class VideoPipeline : IDisposable
         _worker.Start();
         StartStallWatch();
     }
+
+    /// <summary>
+    /// S16 — retire the native path once, loudly. Idempotent: later failures on
+    /// the worker thread cannot re-raise it or spam the session log.
+    /// </summary>
+    private void MarkUnavailable(string reason)
+    {
+        if (_decoderDead) return;
+        _decoderDead = true;
+        _deadReason = reason;
+        lock (_qGate) _queue.Clear();
+        Diagnostic?.Invoke(reason + " — falling back to the JPEG path");
+        try { NativeVideoUnavailable?.Invoke(reason); } catch { }
+    }
+
 
 
     /// <summary>
@@ -156,7 +222,7 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>Submit one depacketised VP8 frame. Never blocks the RTP thread.</summary>
     public void Submit(byte[] encodedFrame)
     {
-        if (_disposed || encodedFrame == null || encodedFrame.Length == 0) return;
+        if (_disposed || _decoderDead || encodedFrame == null || encodedFrame.Length == 0) return;
         Interlocked.Increment(ref _framesIn);
 
         if (_awaitingKeyFrame)
@@ -185,17 +251,13 @@ public sealed class VideoPipeline : IDisposable
 
     private void DecodeLoop()
     {
-        try { _decoder = new VpxVideoEncoder(); }
-        catch (Exception ex)
-        {
-            Diagnostic?.Invoke("VP8 decoder unavailable: " + ex.Message);
-            return;
-        }
-
+        // S16 — the decoder is already built by Start(); this thread only runs
+        // when there is one.
         var ct = _cts.Token;
         while (!ct.IsCancellationRequested)
         {
             try { _signal.Wait(ct); } catch { return; }
+            if (_decoderDead) return;
             (byte[] data, long enqueuedMs) item;
             lock (_qGate)
             {
@@ -217,6 +279,7 @@ public sealed class VideoPipeline : IDisposable
         {
             if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
                 Diagnostic?.Invoke("VP8 decode error: " + ex.Message);
+            if (NoteFailure($"VP8 decode keeps failing ({ex.Message})")) return;
             KeyFrameRequested?.Invoke();
             return;
         }
@@ -230,19 +293,47 @@ public sealed class VideoPipeline : IDisposable
             EnsureBuffers(w, h);
             if (_bgra == null) continue;
 
-            if (!FrameConvert.ToBgra32(s.Sample, w, h, _bgra))
+            if (!FrameConvert.ToBgra32(s.Sample, w, h, _bgra, _chroma))
             {
-                if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
-                    Diagnostic?.Invoke($"unrecognised decoder output ({s.Sample.Length} bytes for {w}x{h})");
-                continue;
+                // S16 — before giving up, try the other chroma reading once.
+                // Packed I420 and NV12 have identical byte counts, so a decoder
+                // that emits NV12 used to fail here on every single frame.
+                var alt = _chroma == FrameConvert.Shape.I420 ? FrameConvert.Shape.Nv12 : FrameConvert.Shape.I420;
+                if (FrameConvert.ToBgra32(s.Sample, w, h, _bgra, alt))
+                {
+                    _chroma = alt;
+                    Diagnostic?.Invoke($"decoder output re-read as {alt} ({s.Sample.Length} bytes for {w}x{h})");
+                }
+                else
+                {
+                    if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
+                        Diagnostic?.Invoke("unrecognised decoder output: " + FrameConvert.Describe(s.Sample.Length, w, h));
+                    NoteFailure("decoder output is not a layout we can present: " +
+                                FrameConvert.Describe(s.Sample.Length, w, h));
+                    continue;
+                }
             }
 
+            Interlocked.Exchange(ref _consecutiveFailures, 0);
             Interlocked.Increment(ref _framesDecoded);
             Interlocked.Exchange(ref _lastDecodedMs, _clock.ElapsedMilliseconds);
             Present(w, h, enqueuedMs);
             TickFps();
         }
     }
+
+    /// <summary>
+    /// S16 — count one unusable frame. Returns true once the native path has
+    /// been retired, so the caller stops asking for keyframes that cannot help.
+    /// </summary>
+    private bool NoteFailure(string reason)
+    {
+        if (_decoderDead) return true;
+        if (Interlocked.Increment(ref _consecutiveFailures) < MaxConsecutiveFailures) return false;
+        MarkUnavailable(reason);
+        return true;
+    }
+
 
     // Mid-session resolution change: resize in place, never tear the pipeline down.
     private void EnsureBuffers(int w, int h)
@@ -335,6 +426,9 @@ public sealed class VideoPipeline : IDisposable
             {
                 try { Thread.Sleep(500); } catch { return; }
                 if (ct.IsCancellationRequested) return;
+                // S16 — a retired native path is NOT a transport stall. Keyframe
+                // requests here were the PLI storm that masked the real cause.
+                if (_decoderDead) return;
                 var last = Interlocked.Read(ref _lastDecodedMs);
                 if (Interlocked.Read(ref _framesIn) == 0) continue;
                 if (last < 0 || _clock.ElapsedMilliseconds - last > StallMs)
@@ -342,6 +436,7 @@ public sealed class VideoPipeline : IDisposable
                     try { KeyFrameRequested?.Invoke(); } catch { }
                 }
             }
+
         })
         { IsBackground = true, Name = "connectlive-video-stallwatch" };
         t.Start();
@@ -355,8 +450,12 @@ public sealed class VideoPipeline : IDisposable
         return $"[video] fps={_fps:F1} queue={QueueDepth} in={Interlocked.Read(ref _framesIn)} " +
                $"decoded={FramesDecoded} dropped={FramesDropped} presented={FramesPresented} " +
                $"latency={_lastLatencyMs:F0}ms size={_width}x{_height} " +
-               $"path={(UsingD3D ? "d3d" : "bitmap")} loss={Interlocked.Read(ref _lossEvents)} " +
-               $"gated={Interlocked.Read(ref _framesGated)} " + _d3d.HealthLine() + $" ws={ws}MB";
+               $"path={(_decoderDead ? "unavailable" : UsingD3D ? "d3d" : "bitmap")} " +
+               $"chroma={_chroma} loss={Interlocked.Read(ref _lossEvents)} " +
+               $"gated={Interlocked.Read(ref _framesGated)} " +
+               (_deadReason != null ? $"dead=\"{_deadReason}\" " : "") +
+               _d3d.HealthLine() + $" ws={ws}MB";
+
     }
 
 

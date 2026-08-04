@@ -69,6 +69,9 @@ export interface WebRtcLive {
   candidateType: () => string | null;
   /** Raw stats for diagnostics (inbound-rtp bytes/framesDecoded). */
   stats: () => Promise<RTCStatsReport | null>;
+  /** S16 — "pending" until the ICE gateway answers, then whether a TURN relay is in play. */
+  relay: () => "pending" | "relay" | "none";
+
   sendInput: (payload: unknown) => boolean;
   close: () => void;
 }
@@ -123,10 +126,17 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   // Starts on the STUN fallback; the gateway set (STUN + TURN when deployed)
   // is applied via setConfiguration before the first offer, i.e. before ICE
   // gathering begins at setLocalDescription.
+  //
+  // S16 — the apply is now verified. If setConfiguration is unavailable or
+  // rejects the set, the session silently ran STUN-only and every symmetric-NAT
+  // network fell back to JPEG with no explanation; `relay()` below reports the
+  // truth so the console can say "no relay" instead of "connecting" forever.
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
   const icePromise = fetchIceServers();
+  let relayState: "pending" | "relay" | "none" = "pending";
   let dc: RTCDataChannel | null = pc.createDataChannel("inputs", { ordered: true });
   dc.onclose = () => { dc = null; };
+
 
   let selectedCandidateType: string | null = null;
   const connectTimeoutMs = CONNECT_TIMEOUT_MS;
@@ -404,7 +414,28 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
 
 
     try {
-      try { pc.setConfiguration({ iceServers: await icePromise }); } catch { /* pre-offer only */ }
+      // S16 — apply the gateway set BEFORE any transceiver exists, so ICE
+      // gathering (which starts at setLocalDescription) sees the relay. The
+      // result is recorded: a failure here is why a session ends up STUN-only.
+      const gatewaySet = await icePromise;
+      const hasTurn = gatewaySet.some((s) => {
+        const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+        return urls.some((u) => /^turns?:/i.test(String(u)));
+      });
+      try {
+        pc.setConfiguration({ iceServers: gatewaySet });
+        relayState = hasTurn ? "relay" : "none";
+      } catch (err) {
+        relayState = "none";
+        console.warn("[webrtc] ice set could not be applied — running STUN only", err);
+      }
+      if (relayState === "none") {
+        console.warn(
+          "[webrtc] no TURN relay available: direct paths only. " +
+            "Sessions behind symmetric NAT will fall back to JPEG frames.",
+        );
+      }
+
       pc.addTransceiver("video", { direction: "recvonly" });
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -421,6 +452,8 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     onState: (cb) => { listeners.add(cb); },
     candidateType: () => selectedCandidateType,
     stats: async () => { try { return await pc.getStats(); } catch { return null; } },
+    relay: () => relayState,
+
     sendInput: (payload) => {
       if (dc && dc.readyState === "open") {
         try { dc.send(JSON.stringify(payload)); return true; } catch { return false; }

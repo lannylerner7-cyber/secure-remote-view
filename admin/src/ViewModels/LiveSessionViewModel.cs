@@ -145,7 +145,19 @@ public partial class LiveSessionViewModel : ObservableObject
 
     [ObservableProperty] private string linkState = "connecting";
 
+    /// <summary>
+    /// S16 — HWND of the window presenting this session, supplied by the view
+    /// before <see cref="Start"/>. The D3D device is associated with it; the
+    /// old MainWindow fallback bound the device to the device list and gave a
+    /// black picture on some drivers.
+    /// </summary>
+    public IntPtr PresentationWindow { get; set; }
+
+    /// <summary>S16 — set when the native decode path retired itself; shown in the stats pill.</summary>
+    private string? _nativeUnavailable;
+
     public void Start()
+
     {
         _cts = new CancellationTokenSource();
         _framePump = new FrameFallbackPump(SessionId,
@@ -226,6 +238,21 @@ public partial class LiveSessionViewModel : ObservableObject
         _realtime.Start();
 
         _rtc = new WebRtcClient(SessionId);
+        _rtc.Pipeline.PresentationWindow = PresentationWindow;
+
+        // S16 — if the native path can never produce a picture (no VP8 decoder,
+        // or output we cannot convert), say exactly that instead of leaving the
+        // technician staring at a "stalled" pill on a JPEG stream.
+        _rtc.Pipeline.NativeVideoUnavailable += reason =>
+        {
+            _nativeUnavailable = reason;
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                NativeVideo = false;
+                Transport = _realtimeHealthy ? "Realtime frames" : "Frame fallback";
+                LinkState = "native video unavailable — " + reason;
+            });
+        };
 
         // The decoded surface (D3DImage, or WriteableBitmap when the D3D path
         // is unavailable) replaces the JPEG still the moment it exists.
@@ -233,6 +260,7 @@ public partial class LiveSessionViewModel : ObservableObject
         {
             Application.Current?.Dispatcher.Invoke(() => CurrentFrame = src);
         };
+
 
         _ = _rtc.StartAsync(_cts.Token,
             onVideoLive: () =>
@@ -285,12 +313,20 @@ public partial class LiveSessionViewModel : ObservableObject
                 }
                 else if (_jpegW > 0 && _jpegH > 0)
                 {
-                    text = $"{SourceLabel(_jpegW, _jpegH)} · jpeg · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                    // S16 — on the JPEG path, name the reason. "decoder
+                    // unavailable" and "no relay" are the two answers that used
+                    // to be missing, and they are the two that decide whether
+                    // this is a client problem or a network problem.
+                    var why = _nativeUnavailable ?? (_rtc != null && !_rtc.HasRelay ? "no relay (STUN only)" : null);
+                    text = $"{SourceLabel(_jpegW, _jpegH)} · jpeg" +
+                           (why != null ? $" · {why}" : "") +
+                           $" · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
                 }
                 else
                 {
-                    text = null;
+                    text = _nativeUnavailable;
                 }
+
                 Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
                     VideoStats = text;

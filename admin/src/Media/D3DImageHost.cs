@@ -145,8 +145,19 @@ public sealed class D3DImageHost : IDisposable
         catch (Exception ex) { Fail(ex.Message); return false; }
     }
 
-    private static IntPtr GetFocusWindow()
+    /// <summary>
+    /// S16 — the window this device is associated with. The presenting window
+    /// (the live-session window) MUST set this: <c>Application.Current.MainWindow</c>
+    /// in this app is the login window and then the device list, never the
+    /// session window, and a D3D9Ex device bound to a window that is not
+    /// presenting yields a black or frozen picture on several driver and
+    /// compositor combinations while every upload still reports success.
+    /// </summary>
+    public IntPtr PresentationWindow { get; set; }
+
+    private IntPtr GetFocusWindow()
     {
+        if (PresentationWindow != IntPtr.Zero) return PresentationWindow;
         try
         {
             var w = Application.Current?.MainWindow;
@@ -159,6 +170,7 @@ public sealed class D3DImageHost : IDisposable
         catch { }
         return IntPtr.Zero; // desktop window is acceptable for an offscreen device
     }
+
 
     private bool EnsureSurface(int width, int height)
     {

@@ -54,6 +54,13 @@ public sealed class WebRtcClient : IDisposable
     /// <summary>The native video pipeline. The window binds its surface directly.</summary>
     public VideoPipeline Pipeline { get; } = new();
 
+    /// <summary>S16 — true when the ICE gateway handed us at least one TURN server.</summary>
+    public bool HasRelay { get; private set; }
+
+    /// <summary>S16 — set once the native decode path has retired itself; null while healthy.</summary>
+    public string? NativeVideoUnavailable { get; private set; }
+
+
     /// <summary>Number of admin-initiated ICE restarts this session (Phase 4 evidence).</summary>
     public int IceRestarts => _restarts;
 
@@ -76,12 +83,25 @@ public sealed class WebRtcClient : IDisposable
 
         Pipeline.KeyFrameRequested += OnKeyFrameRequested;
         Pipeline.Diagnostic += d => T("pipeline: " + d);
+        // S16 — a dead decoder is not a stalled network. Record the reason,
+        // stop every PLI/ICE-restart escalation (they cannot help), and hand
+        // the session to the JPEG path straight away with an honest label.
+        Pipeline.NativeVideoUnavailable += reason =>
+        {
+            NativeVideoUnavailable = reason;
+            T("NATIVE VIDEO UNAVAILABLE — " + reason);
+            lock (_restartGate) { _surrendered = true; }
+            try { _onVideoStalled?.Invoke(); } catch { }
+        };
         Pipeline.FirstFrame += () =>
         {
             T($"FIRST DECODED FRAME presented ({(Pipeline.UsingD3D ? "d3d" : "bitmap")} path)");
             try { _onVideoLive?.Invoke(); } catch { }
         };
         Pipeline.Start();
+        if (!Pipeline.DecoderAvailable)
+            T("native video disabled before start: " + Pipeline.UnavailableReason);
+
 
         // Claim / refresh the binding before signalling starts.
         try
@@ -114,16 +134,27 @@ public sealed class WebRtcClient : IDisposable
         // S9 — ICE gateway: STUN always, TURN when the deployment has a relay.
         // A gateway failure returns an empty list and we keep the STUN fallback.
         var iceServers = new System.Collections.Generic.List<RTCIceServer>();
+        int relayCount = 0;
         try
         {
             foreach (var s in await App.Api.GetIceServersAsync(ct).ConfigureAwait(false))
                 foreach (var url in s.Urls)
+                {
                     iceServers.Add(new RTCIceServer { urls = url, username = s.Username, credential = s.Credential });
+                    if (url.StartsWith("turn:", StringComparison.OrdinalIgnoreCase) ||
+                        url.StartsWith("turns:", StringComparison.OrdinalIgnoreCase)) relayCount++;
+                }
         }
-        catch { }
+        catch (Exception ex) { T("ice gateway failed: " + ex.Message); }
         if (iceServers.Count == 0)
             iceServers.Add(new RTCIceServer { urls = "stun:stun.l.google.com:19302" });
-        T($"ice servers: {iceServers.Count}");
+        HasRelay = relayCount > 0;
+        // S16 — "no relay" is the single most common reason a session never
+        // leaves the JPEG path: STUN alone cannot traverse symmetric NAT, so
+        // ICE never completes and nothing above this line is at fault. Say so.
+        T($"ice servers: {iceServers.Count} (turn/relay: {relayCount})");
+        if (!HasRelay) T("NO TURN RELAY CONFIGURED — direct paths only; symmetric NAT will fail");
+
 
         var cfg = new RTCConfiguration { iceServers = iceServers };
         var pc = new RTCPeerConnection(cfg);
