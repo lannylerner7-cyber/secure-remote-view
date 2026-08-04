@@ -313,12 +313,20 @@ public partial class LiveSessionViewModel : ObservableObject
                 }
                 else if (_jpegW > 0 && _jpegH > 0)
                 {
-                    text = $"{SourceLabel(_jpegW, _jpegH)} · jpeg · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                    // S16 — on the JPEG path, name the reason. "decoder
+                    // unavailable" and "no relay" are the two answers that used
+                    // to be missing, and they are the two that decide whether
+                    // this is a client problem or a network problem.
+                    var why = _nativeUnavailable ?? (_rtc != null && !_rtc.HasRelay ? "no relay (STUN only)" : null);
+                    text = $"{SourceLabel(_jpegW, _jpegH)} · jpeg" +
+                           (why != null ? $" · {why}" : "") +
+                           $" · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
                 }
                 else
                 {
-                    text = null;
+                    text = _nativeUnavailable;
                 }
+
                 Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
                     VideoStats = text;
