@@ -1368,3 +1368,45 @@ Cloudflare is configured. `SUPABASE_SERVICE_ROLE_KEY` appears only in
 
 No agent or admin C# changes were required: both already handle an empty ICE
 set gracefully and start using TURN the moment the gateway stops returning 401.
+
+---
+
+## §10.9 — Where we are / what is left — 2026-08-04 (`SCOPE:ROADMAP`)
+
+Rolling status board. Update this section with every change so the next pass
+starts from truth instead of memory.
+
+**Wired and verified (closed)**
+
+| Item | State |
+| --- | --- |
+| S8 soak harness (`scripts/e2e-soak.ts`) | closed |
+| S9 ICE gateway (Cloudflare Calls TURN) | closed — technician path fixed in V1 |
+| S10 input over WebRTC datachannel | closed |
+| S11 render telemetry | closed |
+| S12 admin D3D device-lost survival | closed |
+| S13 jitter-buffer audit / S15 contracts | closed |
+| S14 agent self-update + versioned installer | closed |
+| S16 stride/NV12 hardening, JPEG fallback signal, ICE await on web | closed |
+| S17 step 1 — native-resolution capture, 2560/3840 rungs, ceiling guard | closed (§10.5) |
+| S17 step 2 phase 1 — `EncodeStats` + `CodecPolicy` kill switch + heartbeat `encode` payload | closed (§10.7) |
+| V1–V5 route / key / metadata verification | closed (§10.8) |
+| Sanitized agent + admin source zips | re-cut 2026-08-04 |
+
+**Open / next**
+
+1. **S17 step 2 phase 2 — measurement window.** Run real 4K sessions and read
+   `devices.metadata.encode` against the §10.6 decision rule (mean VP8 encode
+   time approaching the ~33 ms frame budget, or a pinned core at the 2560/3840
+   rungs). No MFT work starts until this evidence exists.
+2. **S17 step 2 phase 3 — hardware H.264** (conditional on phase 2): agent-side
+   MFT `IVideoEncoder` wrapper (NV12 in / Annex-B out, IDR on PLI), admin-side
+   Media Foundation decoder, web console codec preference. Ships behind
+   `CodecPolicy` with VP8 as the default fallback.
+3. **S3 fleet verification** — remains the oldest unclosed audit item.
+4. **Release** — re-run `scripts/verify-agent-routes.ts` (24/24) and
+   `RELEASE-CHECKLIST.md` before each packaged drop.
+
+**Invariant** — nothing here is marked closed on intent. A row moves to the
+closed table only after the code exists in the repo and the matching probe,
+telemetry line, or checklist step passes.
