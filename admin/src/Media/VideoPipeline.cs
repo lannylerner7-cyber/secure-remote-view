@@ -50,6 +50,14 @@ public sealed class VideoPipeline : IDisposable
     private WriteableBitmap? _bitmap;
     private volatile bool _disposed;
 
+    // S16 — native-path health. Everything about "video never started" that used
+    // to be invisible now lives in these three fields and is surfaced to the UI.
+    private volatile bool _decoderDead;
+    private string? _deadReason;
+    private FrameConvert.Shape _chroma = FrameConvert.Shape.I420;
+    private int _consecutiveFailures;
+
+
     // ---- G2 counters -----------------------------------------------------
     private long _framesIn, _framesDecoded, _framesDropped, _framesPresented, _decodeErrors;
     // S13 — loss gating
