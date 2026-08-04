@@ -32,6 +32,9 @@ public sealed class VideoPipeline : IDisposable
 {
     private const int MaxQueue = 3;               // ~3-frame jitter buffer
     private const int StallMs = 1500;             // no decoded frame for this long → ask for a keyframe
+    /// <summary>S16 — consecutive unusable frames before the native path gives up instead of PLI-storming.</summary>
+    private const int MaxConsecutiveFailures = 60;
+
 
     private readonly Queue<(byte[] data, long enqueuedMs)> _queue = new();
     private readonly object _qGate = new();
