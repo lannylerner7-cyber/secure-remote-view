@@ -105,9 +105,10 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
     const html = shell(
       `Your ConnectLive access is ready`,
       `<p style="font-size:14px;line-height:1.6;margin:0 0 10px">Hi ${escapeHtml(name)}, order <strong>#${short}</strong> (${escapeHtml(plan)}) is now provisioned.</p>
-       <p style="font-size:14px;line-height:1.6;margin:0 0 10px">Use the link below to get your agent installer, the admin console installer, and your sign-in details.</p>
+       <p style="font-size:14px;line-height:1.6;margin:0 0 10px">Use the link below to get your agent installer, the admin console installer, your Meeting ID and your sign-in details.</p>
        <p style="margin:18px 0"><a href="${escapeHtml(link)}" style="background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;display:inline-block">Open your access page</a></p>
        <p style="font-size:12px;color:#6b7280;line-height:1.6;margin:0;word-break:break-all">${escapeHtml(link)}</p>
+       <p style="font-size:13px;line-height:1.6;margin:12px 0 0;padding:12px;background:#EFF6FF;border-radius:8px;color:#1E3A8A"><strong>Video setup guides are included.</strong> The same page carries step-by-step video walkthroughs for installing the agent, enrolling your devices with the Meeting ID, and running your first live session.</p>
        <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:12px 0 0">Keep this link private — it is tied to your order.</p>`,
       "Sent because your ConnectLive order was provisioned.",
     );
@@ -117,9 +118,13 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
       ``,
       `Access link: ${link}`,
       ``,
+      `Video setup guides are included on that page: installation, device enrollment with your`,
+      `Meeting ID, and running your first live session.`,
+      ``,
       `Order status: ${track}`,
       `Support: ${SITE}/contact`,
     ].join("\n");
+
 
     return { subject: `Your ConnectLive access is ready — #${short}`, html, text };
   }
