@@ -293,12 +293,6 @@ public sealed class WebRtcClient : IDisposable
                 if (delta < 0x8000) lastSeq = seq;
             }
             else lastSeq = seq;
-
-            // Gate B tap — strictly passive, debug-flag gated.
-            if (_capture != null)
-            {
-                try { _capture.Write(pkt.GetBytes()); } catch { }
-            }
         };
 
 
