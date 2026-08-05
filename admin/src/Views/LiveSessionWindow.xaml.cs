@@ -312,8 +312,17 @@ public partial class LiveSessionWindow : Window
     private readonly List<Key> _awaitingText = new();
     private const int AwaitingTextCap = 16;
 
+    /// <summary>
+    /// Keys are only forwarded to the remote machine while the live surface
+    /// owns focus. Without this gate the window-level tunnelled handlers
+    /// marked Enter/Space/Tab/arrows handled everywhere, which killed keyboard
+    /// operation of the toolbar (and of the Power menu) entirely.
+    /// </summary>
+    private bool StageHasFocus => Stage.IsKeyboardFocusWithin;
+
     private async void OnKeyDown(object sender, KeyEventArgs e)
     {
+        if (!StageHasFocus) return;
         var key = Effective(e);
         // Unmodified printable keys are delivered by TextInput as Unicode so
         // the remote layout, dead keys and IME composition all behave. WPF only
@@ -334,6 +343,7 @@ public partial class LiveSessionWindow : Window
 
     private async void OnKeyUp(object sender, KeyEventArgs e)
     {
+        if (!StageHasFocus) return;
         var key = Effective(e);
         if (IsPrintable(key))
         {
@@ -364,6 +374,7 @@ public partial class LiveSessionWindow : Window
 
     private async void OnTextInput(object sender, TextCompositionEventArgs e)
     {
+        if (!StageHasFocus) return;
         e.Handled = true;
         if (string.IsNullOrEmpty(e.Text)) return;
         // This character settles the most recent pending key, so its fallback
@@ -371,6 +382,7 @@ public partial class LiveSessionWindow : Window
         if (_awaitingText.Count > 0) _awaitingText.RemoveAt(_awaitingText.Count - 1);
         await _kb.TextAsync(e.Text);
     }
+
 
 
     private void EndSession_Click(object sender, RoutedEventArgs e) => Close();
