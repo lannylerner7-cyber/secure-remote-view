@@ -9,8 +9,20 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-# S25 - Authenticode signing (see docs/SIGNING.md).
-. (Join-Path $root "..\tools\CodeSign.ps1")
+# S25 - Authenticode signing (see docs/SIGNING.md). CodeSign.ps1 lives at
+# repo\tools\ in the source tree and beside this script inside a standalone zip.
+$signHelper = @(
+    (Join-Path $root "..\tools\CodeSign.ps1"),
+    (Join-Path $root "tools\CodeSign.ps1"),
+    (Join-Path $root "CodeSign.ps1")
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if ($signHelper) {
+    . $signHelper
+} else {
+    Write-Warning "CodeSign.ps1 not found - building UNSIGNED (see docs\SIGNING.md)."
+    function Invoke-ConnectLiveSign { param([string[]]$Paths, [switch]$Skip) }
+}
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAdmin.csproj
