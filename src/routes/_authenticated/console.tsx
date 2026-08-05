@@ -326,19 +326,44 @@ function AdminPage() {
       }
     });
 
+    // S22 — clipboard arriving from the remote machine. We mirror it into the
+    // technician's own clipboard when the browser allows it (needs a secure
+    // context and clipboard-write permission); otherwise the toast still shows
+    // the text so it can be copied by hand.
+    const offClip = live.onClipboard((text) => {
+      if (rtcRef.current !== live) return;
+      const preview = text.length > 90 ? `${text.slice(0, 90)}…` : text;
+      void navigator.clipboard
+        ?.writeText(text)
+        .then(() => toast.success("Clipboard received", { description: preview }))
+        .catch(() =>
+          toast.info("Clipboard received", {
+            description: preview,
+            duration: 10_000,
+          }),
+        );
+    });
+
     const filesTick = window.setInterval(() => {
-      if (rtcRef.current === live) setFilesReady(live.filesReady());
+      if (rtcRef.current !== live) return;
+      setFilesReady(live.filesReady());
+      setClipReady(live.clipboardReady());
+      setRecording(live.recording());
     }, 1000);
 
     return () => {
       offFile();
+      offClip();
       window.clearInterval(filesTick);
       if (rtcRef.current === live) rtcRef.current = null;
       setRtcState("idle");
       setFilesReady(false);
+      setClipReady(false);
+      setRecording(false);
       live.close();
     };
   }, [liveId]);
+
 
 
   // Mount the WebRTC <video> element into the live surface. The element is
