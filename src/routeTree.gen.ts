@@ -41,6 +41,7 @@ import { Route as ApiPublicAgentSessionSessionIdSignalRouteImport } from './rout
 import { Route as ApiPublicAgentSessionSessionIdReconnectRouteImport } from './routes/api/public/agent/session.$sessionId.reconnect'
 import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './routes/api/public/agent/session.$sessionId.inputs'
 import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './routes/api/public/agent/session.$sessionId.frame'
+import { Route as ApiPublicAgentSessionSessionIdFileRouteImport } from './routes/api/public/agent/session.$sessionId.file'
 import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './routes/api/public/agent/session.$sessionId.cursor'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
 import { Route as ApiPublicAgentPowerCmdIdAckRouteImport } from './routes/api/public/agent/power.$cmdId.ack'
@@ -209,6 +210,12 @@ const ApiPublicAgentSessionSessionIdFrameRoute =
     path: '/api/public/agent/session/$sessionId/frame',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicAgentSessionSessionIdFileRoute =
+  ApiPublicAgentSessionSessionIdFileRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/file',
+    path: '/api/public/agent/session/$sessionId/file',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAgentSessionSessionIdCursorRoute =
   ApiPublicAgentSessionSessionIdCursorRouteImport.update({
     id: '/api/public/agent/session/$sessionId/cursor',
@@ -259,6 +266,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
+  '/api/public/agent/session/$sessionId/file': typeof ApiPublicAgentSessionSessionIdFileRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/reconnect': typeof ApiPublicAgentSessionSessionIdReconnectRoute
@@ -295,6 +303,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
+  '/api/public/agent/session/$sessionId/file': typeof ApiPublicAgentSessionSessionIdFileRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/reconnect': typeof ApiPublicAgentSessionSessionIdReconnectRoute
@@ -333,6 +342,7 @@ export interface FileRoutesById {
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
+  '/api/public/agent/session/$sessionId/file': typeof ApiPublicAgentSessionSessionIdFileRoute
   '/api/public/agent/session/$sessionId/frame': typeof ApiPublicAgentSessionSessionIdFrameRoute
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/reconnect': typeof ApiPublicAgentSessionSessionIdReconnectRoute
@@ -371,6 +381,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
+    | '/api/public/agent/session/$sessionId/file'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/reconnect'
@@ -407,6 +418,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
+    | '/api/public/agent/session/$sessionId/file'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/reconnect'
@@ -444,6 +456,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
+    | '/api/public/agent/session/$sessionId/file'
     | '/api/public/agent/session/$sessionId/frame'
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/reconnect'
@@ -480,6 +493,7 @@ export interface RootRouteChildren {
   ApiPublicAgentPowerCmdIdAckRoute: typeof ApiPublicAgentPowerCmdIdAckRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
   ApiPublicAgentSessionSessionIdCursorRoute: typeof ApiPublicAgentSessionSessionIdCursorRoute
+  ApiPublicAgentSessionSessionIdFileRoute: typeof ApiPublicAgentSessionSessionIdFileRoute
   ApiPublicAgentSessionSessionIdFrameRoute: typeof ApiPublicAgentSessionSessionIdFrameRoute
   ApiPublicAgentSessionSessionIdInputsRoute: typeof ApiPublicAgentSessionSessionIdInputsRoute
   ApiPublicAgentSessionSessionIdReconnectRoute: typeof ApiPublicAgentSessionSessionIdReconnectRoute
@@ -712,6 +726,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentSessionSessionIdFrameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/session/$sessionId/file': {
+      id: '/api/public/agent/session/$sessionId/file'
+      path: '/api/public/agent/session/$sessionId/file'
+      fullPath: '/api/public/agent/session/$sessionId/file'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/agent/session/$sessionId/cursor': {
       id: '/api/public/agent/session/$sessionId/cursor'
       path: '/api/public/agent/session/$sessionId/cursor'
@@ -781,6 +802,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiPublicAgentSessionSessionIdConsentRoute,
   ApiPublicAgentSessionSessionIdCursorRoute:
     ApiPublicAgentSessionSessionIdCursorRoute,
+  ApiPublicAgentSessionSessionIdFileRoute:
+    ApiPublicAgentSessionSessionIdFileRoute,
   ApiPublicAgentSessionSessionIdFrameRoute:
     ApiPublicAgentSessionSessionIdFrameRoute,
   ApiPublicAgentSessionSessionIdInputsRoute:
