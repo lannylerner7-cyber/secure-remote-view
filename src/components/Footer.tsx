@@ -41,6 +41,14 @@ export function Footer() {
           </Link>
         </nav>
       </div>
+
+      <div className="mx-auto mt-6 max-w-6xl border-t border-white/10 pt-4 text-center text-[11px] leading-relaxed text-white/40 md:text-left">
+        <p>
+          CONNECTLIVE LLC — EIN 42-4280821 · Name control CONN · Registered U.S. limited liability
+          company. Tax records on file for periods 2021–2026.
+        </p>
+      </div>
     </footer>
+
   );
 }
