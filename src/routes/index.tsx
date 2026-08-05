@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
+import { Gift, PlayCircle, Sparkles, Tag } from "lucide-react";
 import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 import logoMark from "@/assets/hero-float-2.png";
@@ -10,6 +11,8 @@ type PlanCard = {
   name: string;
   devices: string;
   price: string;
+  wasPrice?: string;
+  saveLabel?: string;
   period?: string;
   blurb: string;
   cta: string;
@@ -22,7 +25,9 @@ const PLAN_CARDS: PlanCard[] = [
     code: "starter",
     name: "Starter",
     devices: "10 desktop devices",
-    price: "$250",
+    price: "$150",
+    wasPrice: "$250",
+    saveLabel: "Save $100",
     period: "/mo",
     blurb: "Small teams getting remote support off the ground.",
     cta: "Order Starter",
@@ -32,7 +37,9 @@ const PLAN_CARDS: PlanCard[] = [
     code: "team",
     name: "Team",
     devices: "20 desktop devices",
-    price: "$570",
+    price: "$310",
+    wasPrice: "$570",
+    saveLabel: "Save $260",
     period: "/mo",
     blurb: "Growing help desks with multi-department coverage.",
     cta: "Order Team",
@@ -43,7 +50,9 @@ const PLAN_CARDS: PlanCard[] = [
     code: "business",
     name: "Business",
     devices: "50 desktop devices",
-    price: "$840",
+    price: "$560",
+    wasPrice: "$840",
+    saveLabel: "Save $280",
     period: "/mo",
     blurb: "SMB fleets with priority response and full audit trail.",
     cta: "Order Business",
@@ -58,6 +67,13 @@ const PLAN_CARDS: PlanCard[] = [
     cta: "Request Custom",
     href: "/contact",
   },
+];
+
+const PROMO_ITEMS = [
+  "PROMO DROP · 10 devices $250 → $150",
+  "PROMO DROP · 20 devices $570 → $310",
+  "PROMO DROP · 50 devices $840 → $560",
+  "Free video setup guides with every completed order",
 ];
 
 const CAPABILITIES: { k: string; label: string; body: string }[] = [
