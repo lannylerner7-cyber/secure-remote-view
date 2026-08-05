@@ -4,9 +4,7 @@
  * sent / skipped / error per order.
  */
 import { loadSmtpSettings, sendMail } from "./smtp.server";
-
-const SITE = "https://connectliveagent.com";
-const BRAND = "#4F7CFF";
+import { emailShell, escapeHtml, SITE, BRAND } from "./email-shell.server";
 
 export type OrderEmailKind = "order_received" | "order_confirmed" | "access_ready";
 
@@ -28,23 +26,11 @@ export type OrderEmailData = {
 const money = (v: number | string | null | undefined) =>
   v === null || v === undefined ? "—" : `$${Number(v).toFixed(2)}`;
 
-const escapeHtml = (v: string) =>
-  v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
+/** Branded shell with the ConnectLive logo in both the header and the footer. */
 function shell(title: string, inner: string, footerNote: string) {
-  return `<!doctype html><html><body style="margin:0;padding:24px;background:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#111827">
-<div style="max-width:560px;margin:0 auto;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
-  <div style="background:#0B1220;padding:18px 24px;color:#ffffff;font-size:16px;font-weight:bold">ConnectLive</div>
-  <div style="padding:24px">
-    <h1 style="margin:0 0 12px;font-size:19px;color:#111827">${escapeHtml(title)}</h1>
-    ${inner}
-  </div>
-  <div style="padding:16px 24px;background:#f9fafb;font-size:12px;color:#6b7280;line-height:1.6">
-    ${footerNote}<br/>
-    <a href="${SITE}" style="color:${BRAND};text-decoration:none">${SITE.replace("https://", "")}</a>
-  </div>
-</div></body></html>`;
+  return emailShell(title, inner, { eyebrow: "Orders", footerNote });
 }
+
 
 function row(label: string, value: string) {
   return `<tr><td style="padding:6px 0;color:#6b7280;font-size:13px">${escapeHtml(label)}</td><td style="padding:6px 0;font-size:13px;text-align:right;font-weight:bold">${escapeHtml(value)}</td></tr>`;
