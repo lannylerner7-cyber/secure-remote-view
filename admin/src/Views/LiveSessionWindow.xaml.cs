@@ -42,6 +42,8 @@ public partial class LiveSessionWindow : Window
         _mouse = new MouseInjector(sessionId);
         _kb = new KeyboardInjector(sessionId);
         _coalesce = new InputCoalescer(_mouse);
+        _capture = new PointerCapture(Stage);
+
 
         // Authoritative telemetry arrives here exactly once per sample.
         _vm.CursorSample += OnCursorSample;
