@@ -23,6 +23,7 @@ import { Route as ConnectlivePaymentRouteImport } from './routes/connectlive.pay
 import { Route as ConnectliveAdminRouteImport } from './routes/connectlive.admin'
 import { Route as AuthenticatedPaymentsRouteImport } from './routes/_authenticated/payments'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
+import { Route as PublicAgentPortalRouteImport } from './routes/public.agent.portal'
 import { Route as PublicAgentLoginRouteImport } from './routes/public.agent.login'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
@@ -112,6 +113,11 @@ const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   id: '/console',
   path: '/console',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const PublicAgentPortalRoute = PublicAgentPortalRouteImport.update({
+  id: '/public/agent/portal',
+  path: '/public/agent/portal',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const PublicAgentLoginRoute = PublicAgentLoginRouteImport.update({
   id: '/public/agent/login',
@@ -238,6 +244,7 @@ export interface FileRoutesByFullPath {
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/public/agent/login': typeof PublicAgentLoginRoute
+  '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -273,6 +280,7 @@ export interface FileRoutesByTo {
   '/order': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/public/agent/login': typeof PublicAgentLoginRoute
+  '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -310,6 +318,7 @@ export interface FileRoutesById {
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/public/agent/login': typeof PublicAgentLoginRoute
+  '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -347,6 +356,7 @@ export interface FileRouteTypes {
     | '/order/'
     | '/api/public/health'
     | '/public/agent/login'
+    | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -382,6 +392,7 @@ export interface FileRouteTypes {
     | '/order'
     | '/api/public/health'
     | '/public/agent/login'
+    | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -418,6 +429,7 @@ export interface FileRouteTypes {
     | '/order/'
     | '/api/public/health'
     | '/public/agent/login'
+    | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -453,6 +465,7 @@ export interface RootRouteChildren {
   OrderIndexRoute: typeof OrderIndexRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
   PublicAgentLoginRoute: typeof PublicAgentLoginRoute
+  PublicAgentPortalRoute: typeof PublicAgentPortalRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
@@ -572,6 +585,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/console'
       preLoaderRoute: typeof AuthenticatedConsoleRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/public/agent/portal': {
+      id: '/public/agent/portal'
+      path: '/public/agent/portal'
+      fullPath: '/public/agent/portal'
+      preLoaderRoute: typeof PublicAgentPortalRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/public/agent/login': {
       id: '/public/agent/login'
@@ -744,6 +764,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrderIndexRoute: OrderIndexRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
   PublicAgentLoginRoute: PublicAgentLoginRoute,
+  PublicAgentPortalRoute: PublicAgentPortalRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
