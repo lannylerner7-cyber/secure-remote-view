@@ -46,7 +46,7 @@ export function RenderHealthPanel({ sessionId }: { sessionId?: string | null }) 
       </div>
       {rows.length === 0 ? (
         <p className="text-xs text-white/40">
-          No render telemetry yet — it appears a minute into a native live session.
+          No render telemetry yet — the first sample lands about 15 seconds into a native live session.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -55,7 +55,9 @@ export function RenderHealthPanel({ sessionId }: { sessionId?: string | null }) 
               <tr className="text-left">
                 <th className="py-1 pr-3 font-normal">When</th>
                 <th className="py-1 pr-3 font-normal">fps</th>
+                <th className="py-1 pr-3 font-normal">bitrate</th>
                 <th className="py-1 pr-3 font-normal">latency</th>
+
                 <th className="py-1 pr-3 font-normal">queue</th>
                 <th className="py-1 pr-3 font-normal">dropped</th>
                 <th className="py-1 pr-3 font-normal">size</th>
@@ -72,6 +74,10 @@ export function RenderHealthPanel({ sessionId }: { sessionId?: string | null }) 
                     {new Date(r.created_at).toLocaleTimeString()}
                   </td>
                   <td className="py-1 pr-3">{num(r.fps as number | null)}</td>
+                  <td className="py-1 pr-3">
+                    {num(r.bitrate_kbps as number | null, " kbps")}
+                  </td>
+
                   <td className="py-1 pr-3">
                     {num(r.latency_ms as number | null, " ms")}
                   </td>

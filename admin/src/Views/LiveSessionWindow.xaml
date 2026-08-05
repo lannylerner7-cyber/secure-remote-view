@@ -64,8 +64,15 @@
                         </MenuItem>
                     </Menu>
 
+                    <!-- S18 — one-click capture of the render/transport reading
+                         so a real-session measurement can be pasted back. -->
+                    <Button Content="Copy stats" Command="{Binding CopyDiagnosticsCommand}"
+                            Background="#334155" Margin="4,2" MinWidth="90"
+                            ToolTip="Copy the full fps / bitrate / latency / path reading for this session to the clipboard" />
+
                     <Button Content="End session" Click="EndSession_Click"
                             Background="#334155" Margin="4,2" MinWidth="96" />
+
                 </WrapPanel>
 
                 <!-- Fill child: status readouts. Clipped, never expanding past
@@ -96,10 +103,13 @@
                     <TextBlock Text="{Binding LinkState}" Foreground="#22C55E"
                                VerticalAlignment="Center" FontSize="11"
                                TextTrimming="CharacterEllipsis" MaxWidth="220" />
-                    <!-- G2 measurement: fps / latency / queue depth / source size. -->
+                    <!-- S18 HUD: fps / bitrate / latency / queue / drops / source size.
+                         Widened for the two extra fields; still trimmed, never
+                         allowed to push the docked actions off the bar. -->
                     <TextBlock Text="{Binding VideoStats}" Foreground="{StaticResource TextMuted}"
                                Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11"
-                               TextTrimming="CharacterEllipsis" MaxWidth="420"
+                               TextTrimming="CharacterEllipsis" MaxWidth="560"
+
                                ToolTip="{Binding VideoStats}" />
 
                     <!-- SCOPE:CAPTURE — monitor picker. Hidden on single-display

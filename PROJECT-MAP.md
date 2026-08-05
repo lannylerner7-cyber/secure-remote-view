@@ -1486,7 +1486,7 @@ Nothing here is closed on intent; every row is tagged
 
 | # | Gap | Evidence | Tag | Cost / priority |
 |---|---|---|---|---|
-| S18 | **No native-path latency or fps number exists.** Every figure in this doc is the JPEG+Realtime fallback on localhost (frame p50 1568 ms / p95 5096 ms). Zero measured glass-to-glass, sustained fps, or fps-under-motion for the native VP8→D3D path. `session_telemetry` + `WebRtcClient.StatsLoop` write the columns; nobody has read them from a real session. | §5 S8; §10.9 open 1; §10.11; S11 | unmeasured | **P0, ~no code.** One Windows host, one real session under sustained motion. Unblocks S17-P2, S20 and all rung tuning. |
+| S18 | **No native-path latency or fps number exists.** Every figure in this doc is the JPEG+Realtime fallback on localhost (frame p50 1568 ms / p95 5096 ms). Zero measured glass-to-glass, sustained fps, or fps-under-motion for the native VP8→D3D path. | §5 S8; §10.9 open 1; §10.11; S11 | **INSTRUMENTED 08-05 — reading still owed** | **Instrumentation shipped (§10.12).** Remaining: one Windows host, one real session under sustained motion, paste the `Copy stats` line back. Unblocks S17-P2, S20 and all rung tuning. |
 | S19 | **The pointer lags the hand.** The ghost cursor follows decoded video, so every motion pays the full round trip. Enterprise RMMs draw the technician cursor locally at input time and reconcile. Relative mode is regressed: `mousemove_rel` works from the browser and `agent/src/InputRelay.cs:88` honours it, but admin `MouseInjector.MoveRelAsync` was deleted 08-05 (re-add condition at `MouseInjector.cs:32`). | §2; §10.10; §10.11 | **CLOSED 08-05** | **Shipped.** (a) local cursor draw + reconcile, hide OS cursor over the stage; (b) re-add `MoveRelAsync` behind a pointer-capture toggle. |
 | S20 | **Nothing paces presents to the display** — motion micro-judders even at good fps. Render invariants cover correctness, not smoothness. Distinct from the encoder: H.264 (S17-P3) raises the ceiling, pacing makes whatever fps you have look even. | §4; §10.9 1–2; S12 | not addressed | **P1.** Present on a vsync/`CompositionTarget.Rendering` cadence with a 1–2 frame smoothing buffer; measure judder via S18. `Media/VideoPipeline.cs`, `Media/D3DImageHost.cs`. |
 | S21 | **No file transfer.** Table-stakes RMM (push a driver, pull a log). The input datachannel is the pattern to mirror. | §2/§3; S10 | asserted absent | **P1.** Ordered/reliable file datachannel, chunked + SHA-256 (reuse S14 checksum discipline), progress UI, per-transfer owner approval. |
@@ -1528,3 +1528,46 @@ unless capture is engaged (no double-fire in normal mode). Absolute and
 relative moves never interleave — `TryPointFor` uses a locally integrated
 normalised point while captured.
 
+
+---
+
+## §10.12 — S18 Session Health HUD — instrumentation shipped — 2026-08-05 (`SCOPE:ADMIN`, `SCOPE:WEB`, `SCOPE:DB`)
+
+S18 was never a code gap in the usual sense: fps and latency were already
+counted, but nothing on the technician's glass said *how much data the link
+delivered*, and the first telemetry row only landed 60 s in — so a short
+measurement session wrote nothing at all. Both are now fixed.
+
+**Wire bitrate (`admin/src/Media/VideoPipeline.cs`).** `_bytesIn` /
+`_bytesWindow` are incremented in `Submit`, at the wire, *before* any gating or
+drop decision, so the number reads what arrived rather than what survived.
+`TickFps` converts the window to kbps on the exact same span that produces fps
+(`bytes * 8 / span_ms` is kbit/s by definition), so the two figures always
+describe the same second. Exposed as `BitrateKbps` / `BytesReceived` and added
+to `StatsLine()`.
+
+**First sample at 15 s (`admin/src/Media/WebRtcClient.cs`).** `StatsLoop`
+delays 15 s once, then settles to the 60 s cadence. A session a technician ends
+after half a minute now leaves a durable row.
+
+**On-glass HUD (`admin/src/ViewModels/LiveSessionViewModel.cs`).** `VideoStats`
+carries `fps · kbps · ms · queue · drop · size · path · wire · input`. fps alone
+cannot separate "the link starved us" from "the decoder fell behind"; bitrate
+and drop count together can.
+
+**`Copy stats` (`LiveSessionWindow.xaml` → `CopyDiagnosticsCommand`).** Puts
+session id, device, UTC timestamp, the full `StatsLine()`, wire path, ICE
+restart count and the input-transport line on the clipboard. This is the
+measurement path: the reading S18 still owes comes from a human on a real
+Windows host, and asking them to dig `admin.log` out of `%LOCALAPPDATA%` is
+exactly how that measurement never happens.
+
+**Persistence.** `session_telemetry.bitrate_kbps` (numeric, nullable) added by
+migration; the admin writes it straight through PostgREST in
+`ApiClient.PushTelemetryAsync`, so no server route changed. The web console's
+`RenderHealthPanel` shows a `bitrate` column and its empty-state copy now says
+15 seconds, not a minute.
+
+**Still open on S18:** the number itself. Run one real session under sustained
+motion at a high rung, hit `Copy stats`, and record the result here — S17-P2
+(hardware H.264) and S20 (present pacing) both stay unjustified until it exists.

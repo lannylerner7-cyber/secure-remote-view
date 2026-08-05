@@ -1,0 +1,1 @@
+ALTER TABLE public.session_telemetry ADD COLUMN IF NOT EXISTS bitrate_kbps numeric;

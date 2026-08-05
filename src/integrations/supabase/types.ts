@@ -701,6 +701,7 @@ export type Database = {
       session_telemetry: {
         Row: {
           admin_client_id: string | null
+          bitrate_kbps: number | null
           created_at: string
           fps: number | null
           frames_decoded: number | null
@@ -720,6 +721,7 @@ export type Database = {
         }
         Insert: {
           admin_client_id?: string | null
+          bitrate_kbps?: number | null
           created_at?: string
           fps?: number | null
           frames_decoded?: number | null
@@ -739,6 +741,7 @@ export type Database = {
         }
         Update: {
           admin_client_id?: string | null
+          bitrate_kbps?: number | null
           created_at?: string
           fps?: number | null
           frames_decoded?: number | null

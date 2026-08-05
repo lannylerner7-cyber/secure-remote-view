@@ -309,7 +309,11 @@ public partial class LiveSessionViewModel : ObservableObject
                 string? text;
                 if (presenting && p != null)
                 {
-                    text = $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {SourceLabel(p.SourceWidth, p.SourceHeight)} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                    // S18 — bitrate and dropped frames belong on the glass next
+                    // to fps: fps alone cannot tell "the link starved us" from
+                    // "the decoder fell behind".
+                    text = $"{p.Fps:F0} fps · {p.BitrateKbps:F0} kbps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · drop {p.FramesDropped} · {SourceLabel(p.SourceWidth, p.SourceHeight)} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+
                 }
                 else if (_jpegW > 0 && _jpegH > 0)
                 {
@@ -500,6 +504,31 @@ public partial class LiveSessionViewModel : ObservableObject
             }
         }, CancellationToken.None);
     }
+
+    /// <summary>
+    /// S18 — put the full render/transport reading on the clipboard. The
+    /// measurement this roadmap item needs comes from a technician on a real
+    /// Windows host; asking them to dig a log file out of %LOCALAPPDATA% is how
+    /// that measurement never happens. One click, one paste.
+    /// </summary>
+    [RelayCommand]
+    private void CopyDiagnostics()
+    {
+        var p = _rtc?.Pipeline;
+        var line = p != null
+            ? p.StatsLine() + $" wire={_rtc?.WirePath ?? "unknown"} restarts={_rtc?.IceRestarts ?? 0}"
+            : $"[video] no native pipeline · {VideoStats ?? "no reading"}";
+        var text = $"session={SessionId} device={Device.DisplayName} at={DateTime.UtcNow:O}\n" +
+                   line + "\n" +
+                   ConnectLive.Admin.Input.InputTransport.StatsLine();
+        try
+        {
+            Clipboard.SetText(text);
+            StatusMessage = "Diagnostics copied to the clipboard.";
+        }
+        catch (Exception ex) { SurfaceError("Could not copy diagnostics: " + ex.Message); }
+    }
+
 
     private void StopCurtainHeartbeat()
     {

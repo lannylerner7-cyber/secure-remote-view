@@ -69,15 +69,25 @@ public sealed class VideoPipeline : IDisposable
     private double _lastLatencyMs;
     private long _fpsWindowStart;
     private long _fpsWindowFrames;
+    // S18 — wire bitrate. Bytes are counted where they arrive (Submit, network
+    // thread) and converted to kbps on the same window that produces fps, so
+    // the two numbers always describe the same second of the session.
+    private long _bytesIn;
+    private long _bytesWindow;
+    private double _bitrateKbps;
 
     public long FramesDecoded => Interlocked.Read(ref _framesDecoded);
     public long FramesDropped => Interlocked.Read(ref _framesDropped);
     public long FramesPresented => Interlocked.Read(ref _framesPresented);
     public double Fps => _fps;
+    /// <summary>S18 — received encoded video bitrate over the last fps window.</summary>
+    public double BitrateKbps => _bitrateKbps;
+    public long BytesReceived => Interlocked.Read(ref _bytesIn);
     public double LastLatencyMs => _lastLatencyMs;
     public int QueueDepth { get { lock (_qGate) return _queue.Count; } }
     public int SourceWidth => _width;
     public int SourceHeight => _height;
+
 
     /// <summary>True only while decoded frames are actually reaching the screen (Phase 6 pill honesty).</summary>
     public bool IsPresenting =>
@@ -224,6 +234,11 @@ public sealed class VideoPipeline : IDisposable
     {
         if (_disposed || _decoderDead || encodedFrame == null || encodedFrame.Length == 0) return;
         Interlocked.Increment(ref _framesIn);
+        // S18 — count bytes at the wire, before any gating/drop decision, so
+        // the bitrate reads what the link delivered rather than what survived.
+        Interlocked.Add(ref _bytesIn, encodedFrame.Length);
+        Interlocked.Add(ref _bytesWindow, encodedFrame.Length);
+
 
         if (_awaitingKeyFrame)
         {
@@ -411,8 +426,11 @@ public sealed class VideoPipeline : IDisposable
         var span = now - _fpsWindowStart;
         if (span < 1000) return;
         _fps = _fpsWindowFrames * 1000.0 / span;
+        var bytes = Interlocked.Exchange(ref _bytesWindow, 0);
+        _bitrateKbps = bytes * 8.0 / span;   // bytes/ms * 8 == kbit/s
         _fpsWindowStart = now;
         _fpsWindowFrames = 0;
+
     }
 
     // Phase 4 — keyframe FIRST. The caller escalates to an ICE restart only if
@@ -450,8 +468,10 @@ public sealed class VideoPipeline : IDisposable
         return $"[video] fps={_fps:F1} queue={QueueDepth} in={Interlocked.Read(ref _framesIn)} " +
                $"decoded={FramesDecoded} dropped={FramesDropped} presented={FramesPresented} " +
                $"latency={_lastLatencyMs:F0}ms size={_width}x{_height} " +
+               $"bitrate={_bitrateKbps:F0}kbps bytes={Interlocked.Read(ref _bytesIn)} " +
                $"path={(_decoderDead ? "unavailable" : UsingD3D ? "d3d" : "bitmap")} " +
                $"chroma={_chroma} loss={Interlocked.Read(ref _lossEvents)} " +
+
                $"gated={Interlocked.Read(ref _framesGated)} " +
                (_deadReason != null ? $"dead=\"{_deadReason}\" " : "") +
                _d3d.HealthLine() + $" ws={ws}MB";
