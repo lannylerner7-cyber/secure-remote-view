@@ -143,14 +143,17 @@ function Home() {
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-navy-900 font-sans text-navy-050 antialiased">
       {/* Ambient motion background */}
-      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="aurora-a absolute -left-24 top-[-10%] h-[46rem] w-[46rem] rounded-full bg-navy-400/20 blur-[120px]" />
-        <div className="aurora-b absolute -right-32 top-[25%] h-[38rem] w-[38rem] rounded-full bg-emerald-400/10 blur-[130px]" />
-        <div className="aurora-a absolute bottom-[-15%] left-[30%] h-[34rem] w-[34rem] rounded-full bg-navy-200/10 blur-[140px]" />
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <div className="mesh-pan absolute inset-[-20%] opacity-70" />
+        <div className="aurora-a absolute -left-24 top-[-10%] h-[46rem] w-[46rem] rounded-full bg-navy-400/30 blur-[120px]" />
+        <div className="aurora-b absolute -right-32 top-[25%] h-[38rem] w-[38rem] rounded-full bg-emerald-400/15 blur-[130px]" />
+        <div className="aurora-c absolute bottom-[-15%] left-[30%] h-[34rem] w-[34rem] rounded-full bg-navy-200/15 blur-[140px]" />
+        <div className="grid-pan absolute inset-0 opacity-[0.14]" />
+        <div className="sheen absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-white/[0.05] to-transparent" />
       </div>
 
       {/* Promo marquee */}
-      <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-r from-navy-700 via-navy-600 to-navy-700">
+      <div className="relative z-10 overflow-hidden border-b border-white/10 bg-gradient-to-r from-navy-700 via-navy-600 to-navy-700">
         <div className="marquee-track whitespace-nowrap py-2">
           {[0, 1].map((dup) => (
             <div key={dup} className="flex shrink-0 items-center">
@@ -174,7 +177,7 @@ function Home() {
       </div>
 
       {/* Top bar */}
-      <header className="border-b border-white/10 backdrop-blur-sm">
+      <header className="relative z-10 border-b border-white/10 backdrop-blur-sm">
 
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
@@ -204,10 +207,10 @@ function Home() {
       </header>
 
       {/* Bento grid */}
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
+      <main className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
           {/* Hero tile */}
-          <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-navy-800 p-6 sm:p-10 lg:col-span-7">
+          <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-navy-800/80 backdrop-blur-xl p-6 sm:p-10 lg:col-span-7">
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:linear-gradient(to_right,#3b6fa0_1px,transparent_1px),linear-gradient(to_bottom,#3b6fa0_1px,transparent_1px)] [background-size:44px_44px]"
