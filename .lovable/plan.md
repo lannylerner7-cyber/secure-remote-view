@@ -31,7 +31,7 @@ No per-customer builds and no bundled key file. One installer for everyone.
 
 `/api/public/agent/enroll` gains license logic:
 
-1. Look up the license by key. Unknown key → refuse with a clear reason.
+1. Look up the license by Meeting ID. Unknown ID → refuse and let the agent re-prompt.
 2. Count active devices. Under the limit and subscription live → enroll as normal, `status = active`.
 3. **At or over the limit, or subscription expired → the device is still created, but marked `blocked`.** It appears in the customer portal with a "needs a seat" badge, and heartbeats return `blocked` so the agent goes quiet (no capture, no sessions) while retrying periodically.
 4. When the customer frees a seat or upgrades, the next heartbeat flips it to `active` automatically — no reinstall.
@@ -48,26 +48,27 @@ Separate login page and separate console from the technician console, using the 
 - **Devices + seats**: seats used vs. available, the device list with hostname / OS / last seen / status, delete to free a seat, blocked devices called out with a one-click "activate into free seat".
 - **Subscription**: plan name, seat count, start date, renewal date, days remaining, plus a prominent expired/expiring banner.
 - **In-app upgrade & renewal**: buy more seats or renew through the existing crypto checkout; on payment confirmation the license's seat limit and expiry update and blocked devices activate.
-- Download section with their key and keyed installer.
+- **Profile**: their Meeting ID front and centre with a copy button, plus the plain agent download (same installer for everyone).
 
 The technician console (`/console`) is untouched except that devices now display which license they belong to.
 
 ## Technical details
 
 Database (one migration):
-- `licenses` — `id`, `user_id`, `key` (unique, random), `plan_code`, `seat_limit`, `status` (`active`/`expired`/`suspended`), `issued_at`, `expires_at`, timestamps. RLS: a customer reads only their own; admins read all; service role full.
+- `licenses` — `id`, `user_id`, `meeting_id` (unique, short readable code), `plan_code`, `seat_limit`, `status` (`active`/`expired`/`suspended`), `issued_at`, `expires_at`, timestamps. RLS: a customer reads only their own; admins read all; service role full.
 - `devices` gains `license_id` (nullable, so existing rows survive) and `status` gains a `blocked` value. Existing unlicensed devices keep working for admins.
 - `license_events` — audit trail of seat grants, deletions, upgrades, renewals.
 - `orders` gains `license_id` so a renewal payment can be attributed.
 - GRANTs for `authenticated` + `service_role` on every new table.
 
 Backend:
-- `enroll.ts`: accept `licenseKey`, resolve license, enforce seats/expiry, set `license_id` and `active`/`blocked`.
+- `enroll.ts`: accept `meetingId`, resolve the license, enforce seats/expiry, set `license_id` and `active`/`blocked`. Meeting-ID guessing is rate-limited per IP alongside the existing enroll throttle.
 - `heartbeat.ts`: return `{ licenseState: "active" | "blocked" | "expired" }`; the agent stops capture and skips invites unless active.
 - New server functions in `src/lib/licenses.functions.ts`: `getMyLicense`, `listMyDevices`, `deleteMyDevice`, `activateBlockedDevice`, `startUpgradeOrder`.
-- Order confirmation path (`webhooks/cdp.ts` + reconcile cron) creates or extends the license on first paid order and on renewals.
+- Order confirmation path (`webhooks/cdp.ts` + reconcile cron) creates the license (and its Meeting ID) on first paid order, and extends it on renewals.
 
 Agent (C#):
-- `LicenseStore.cs` reads the embedded/adjacent `connectlive.license` and sends the key on enroll.
+- `MeetingIdStore.cs` — DPAPI-encrypted `meeting.dat` in the existing hidden config folder, with read/write/clear helpers.
+- `MeetingIdPrompt.xaml` — small first-run-only dialog; shown before the splash, skipped entirely when `meeting.dat` exists.
+- `ApiClient.EnrollIfNeededAsync` sends the Meeting ID and persists it only after the server accepts it; a rejected ID clears the file and re-prompts.
 - `Agent.cs` honours a `blocked`/`expired` heartbeat by staying dormant and logging the reason.
-- Inno Setup script packages the license file alongside the exe.
