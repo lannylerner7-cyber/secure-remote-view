@@ -9,7 +9,7 @@
  *   6. Assert REST fallback returns matching rows.
  *   7. Tear down.
  *
- *   Run:  API_BASE=https://zoomlite.live bun scripts/e2e-smoke.ts
+ *   Run:  API_BASE=https://connectliveagent.com bun scripts/e2e-smoke.ts
  *   (defaults to localhost:8080)
  */
 import { createClient } from "@supabase/supabase-js";

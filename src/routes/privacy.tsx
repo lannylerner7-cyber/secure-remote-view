@@ -62,7 +62,7 @@ function Page() {
       </ul>
       <h2>Contact</h2>
       <p>
-        Questions? Reach us at <a href="mailto:privacy@zoomlite.live">privacy@zoomlite.live</a>.
+        Questions? Reach us at <a href="mailto:privacy@connectliveagent.com">privacy@connectliveagent.com</a>.
       </p>
     </LegalShell>
   );

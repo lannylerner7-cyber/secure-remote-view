@@ -25,7 +25,7 @@ function Page() {
       </p>
       <h2>How to request</h2>
       <p>
-        Email <a href="mailto:billing@zoomlite.live">billing@zoomlite.live</a> from the address on
+        Email <a href="mailto:billing@connectliveagent.com">billing@connectliveagent.com</a> from the address on
         your order, include your order ID, and the wallet address to refund to.
       </p>
       <h2>Timing</h2>

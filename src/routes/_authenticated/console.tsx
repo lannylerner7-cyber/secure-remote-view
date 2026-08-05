@@ -48,11 +48,11 @@ export const Route = createFileRoute("/_authenticated/console")({
         content: "Live device fleet, consent-gated remote sessions and session history.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:url", content: "https://zoomlite.live/console" },
+      { property: "og:url", content: "https://connectliveagent.com/console" },
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
     ],
-    links: [{ rel: "canonical", href: "https://zoomlite.live/console" }],
+    links: [{ rel: "canonical", href: "https://connectliveagent.com/console" }],
   }),
   validateSearch: (raw: Record<string, unknown>): { tab?: Nav } => {
     const t = typeof raw.tab === "string" ? raw.tab : undefined;

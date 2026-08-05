@@ -17,11 +17,11 @@ export const Route = createFileRoute("/connectlive/payment")({
         content: "Super-admin access to ConnectLive order and payment reconciliation.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:url", content: "https://zoomlite.live/connectlive/payment" },
+      { property: "og:url", content: "https://connectliveagent.com/connectlive/payment" },
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
     ],
-    links: [{ rel: "canonical", href: "https://zoomlite.live/connectlive/payment" }],
+    links: [{ rel: "canonical", href: "https://connectliveagent.com/connectlive/payment" }],
   }),
 });
 

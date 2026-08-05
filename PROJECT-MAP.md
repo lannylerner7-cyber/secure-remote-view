@@ -502,7 +502,7 @@ fix, and it needs your call before a migration touches it.
 **Verification run (this pass)**
 
 - TypeScript: clean, no diagnostics.
-- `scripts/verify-agent-routes.ts` → 19/19 against `https://zoomlite.live` (enroll issues a token; every device-token route 401s unauthenticated; login lockout active; PostgREST rejects keyless calls).
+- `scripts/verify-agent-routes.ts` → 19/19 against `https://connectliveagent.com` (enroll issues a token; every device-token route 401s unauthenticated; login lockout active; PostgREST rejects keyless calls).
 - `scripts/verify-payment-routes.ts` → 5/5 (`stats/orders`, unsigned CDP webhook rejected, cron requires secret, `/order` + `/license` render).
 - DB: `power_commands_kind_check` confirmed to contain `switch_monitor`.
 - Agent tree: no `MainWindow`/`NotifyIcon` references remain (`admin/` hits are the technician console, which is meant to have a window).
@@ -914,13 +914,13 @@ against the file it names, then the DB re-queried rather than remembered.
 | Transport | VP8 pin + non-VP8 reject (`WebRtcSession.cs:158,193`); RR parsed **before** the PLI/FIR early-return (:262-275); RTT per RFC 3550 §6.4.1 (:295-307); PLI/FIR → `RequestKeyFrame` |
 | Render | `PredictiveCursor` driven from the render loop and gated on `InputAuthoritative` (`LiveSessionWindow.xaml.cs:77,131`); `VideoPipeline` is VP8-only as documented |
 | Live DB | 8 devices / **1** online · 2 sessions / **0** live · 11 orders · 167 audit rows · 424 notifications · 4 power commands · 7 realtime tables · 3 triggers on `sessions` · both cron jobs active. §8 snapshot still true, and the reaper is holding presence honest a day later. |
-| Route smoke | `verify-agent-routes.ts` 19/19 against `https://zoomlite.live`; `verify-payment-routes.ts` 5/5; `tsgo --noEmit` clean |
+| Route smoke | `verify-agent-routes.ts` 19/19 against `https://connectliveagent.com`; `verify-payment-routes.ts` 5/5; `tsgo --noEmit` clean |
 
 ### 9.2 Drift found and fixed in this pass (documentation truth)
 
 | File | Was | Now |
 | --- | --- | --- |
-| `ENDPOINTS.md` header | Production URL given as `secure-remote-view.lovable.app` while every canonical, the sitemap and both verifiers target `zoomlite.live` | Canonical URL stated first, platform alias kept as an alias |
+| `ENDPOINTS.md` header | Production URL given as `secure-remote-view.lovable.app` while every canonical, the sitemap and both verifiers target `connectliveagent.com` | Canonical URL stated first, platform alias kept as an alias |
 | `ENDPOINTS.md` consent row | "Legacy auto-ack; the standalone agent posts an implicit accept" — **flatly contradicts the §4 consent invariant** and the code | Describes the real gate: `ConsentPrompt` → `invited → active\|declined`, 409 otherwise, audit row either way |
 | `ENDPOINTS.md` stream row | "Retained server-side… the standalone agent uses adaptive heartbeat instead" — stale since the SSE client shipped | "Live on both ends", names `StreamListener.cs`, states heartbeat remains the source of truth |
 | `ENDPOINTS.md` ops table | `/health` missing entirely; cron auth and CDP webhook state undocumented | `/health` row added; anon-key cron caveat and the CDP **503 not-configured** state written down |
@@ -1015,7 +1015,7 @@ Run immediately before packaging the Agent / Admin source zips.
 | Payment / order routes | `bun run scripts/verify-payment-routes.ts` | **5/5 passing** |
 
 Note (ops, not a code gap): running the agent verifier against its default
-`BASE=https://zoomlite.live` returns 404 for `/api/public/agent/ice` and
+`BASE=https://connectliveagent.com` returns 404 for `/api/public/agent/ice` and
 `/api/public/agent/release` — the published deployment predates S9/S14. Both
 routes are mounted and gated (401) on the current build; publish to clear it.
 

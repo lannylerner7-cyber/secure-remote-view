@@ -70,7 +70,7 @@ values
 ## 5. Post-publish verification
 
 ```bash
-BASE=https://zoomlite.live bun run scripts/verify-agent-routes.ts   # expect 22/22
+BASE=https://connectliveagent.com bun run scripts/verify-agent-routes.ts   # expect 22/22
 bun run scripts/verify-payment-routes.ts                            # expect 5/5
 ```
 

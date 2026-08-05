@@ -22,14 +22,14 @@ function Page() {
       <ul>
         <li>
           <strong>Sales & billing:</strong>{" "}
-          <a href="mailto:billing@zoomlite.live">billing@zoomlite.live</a>
+          <a href="mailto:billing@connectliveagent.com">billing@connectliveagent.com</a>
         </li>
         <li>
-          <strong>Support:</strong> <a href="mailto:support@zoomlite.live">support@zoomlite.live</a>
+          <strong>Support:</strong> <a href="mailto:support@connectliveagent.com">support@connectliveagent.com</a>
         </li>
         <li>
           <strong>Privacy & security:</strong>{" "}
-          <a href="mailto:privacy@zoomlite.live">privacy@zoomlite.live</a>
+          <a href="mailto:privacy@connectliveagent.com">privacy@connectliveagent.com</a>
         </li>
       </ul>
       <p>

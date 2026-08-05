@@ -17,11 +17,11 @@ export const Route = createFileRoute("/connectlive/admin")({
         content: "Secure sign-in for ConnectLive technicians and support staff.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:url", content: "https://zoomlite.live/connectlive/admin" },
+      { property: "og:url", content: "https://connectliveagent.com/connectlive/admin" },
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
     ],
-    links: [{ rel: "canonical", href: "https://zoomlite.live/connectlive/admin" }],
+    links: [{ rel: "canonical", href: "https://connectliveagent.com/connectlive/admin" }],
   }),
 });
 
