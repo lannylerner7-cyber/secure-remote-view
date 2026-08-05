@@ -364,6 +364,65 @@ function AdminPage() {
     };
   }, [liveId]);
 
+  /** S22 — push the technician's local clipboard to the remote machine. */
+  async function pushClipboard() {
+    const live = rtcRef.current;
+    if (!live?.clipboardReady()) {
+      toast.error("Clipboard channel is not connected");
+      return;
+    }
+    let text = "";
+    try {
+      text = (await navigator.clipboard?.readText()) ?? "";
+    } catch {
+      toast.error("Clipboard blocked", {
+        description: "Allow clipboard access for this site, then try again.",
+      });
+      return;
+    }
+    if (!text.trim()) {
+      toast.info("Local clipboard is empty");
+      return;
+    }
+    if (live.sendClipboard(text)) toast.success("Clipboard sent to the remote machine");
+    else toast.error("Clipboard send failed");
+  }
+
+  /** S24 — start/stop a local WEBM recording of the live video track. */
+  async function toggleRecording(sessionId: string) {
+    const live = rtcRef.current;
+    if (!live) return;
+    if (live.recording()) {
+      const result = await live.stopRecording();
+      setRecording(false);
+      if (!result) {
+        toast.error("Recording produced no footage");
+        return;
+      }
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `connectlive-${sessionId.slice(0, 8)}-${Date.now()}.webm`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      toast.success("Recording saved", {
+        description: `${Math.round(result.durationMs / 1000)}s · ${(result.blob.size / 1048576).toFixed(1)} MB`,
+      });
+      return;
+    }
+    if (!live.canRecord()) {
+      toast.error("Recording needs the live video stream", {
+        description: "Wait for the WebRTC video to start, then record.",
+      });
+      return;
+    }
+    if (live.startRecording()) {
+      setRecording(true);
+      toast.success("Recording started");
+    } else {
+      toast.error("Recording could not start in this browser");
+    }
+  }
 
 
   // Mount the WebRTC <video> element into the live surface. The element is
