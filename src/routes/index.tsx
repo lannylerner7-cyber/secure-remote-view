@@ -1,10 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
-import { Gift, PlayCircle, Sparkles, Tag } from "lucide-react";
+import { Gift, Mail, PlayCircle, Sparkles, Tag } from "lucide-react";
+import { subscribeNewsletter } from "@/lib/newsletter.functions";
 import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 import logoMark from "@/assets/hero-float-2.png";
+
 
 type PlanCard = {
   code: string;
