@@ -649,6 +649,11 @@ public sealed class WebRtcClient : IDisposable
         try { ConnectLive.Admin.Input.InputTransport.Detach(); } catch { }
         // Step 9 — files channel must also detach so any in-flight send falls back cleanly.
         try { FileTransport.Detach(); } catch { }
+        // S22 — drop the clipboard channel so a stale reference cannot apply
+        // text from a dead session. S24 — finalise any in-flight recording.
+        try { ClipboardTransport.Detach(); } catch { }
+        try { StopRecording(); } catch { }
+
         try { _pc?.close(); } catch { }
         _pc = null;
         try { Pipeline.KeyFrameRequested -= OnKeyFrameRequested; } catch { }
