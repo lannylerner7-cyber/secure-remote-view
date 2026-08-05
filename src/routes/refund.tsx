@@ -26,7 +26,7 @@ function Page() {
       </p>
       <h2>Asking for one</h2>
       <p>
-        Email <a href="mailto:billing@connectliveagent.com">billing@connectliveagent.com</a> from
+        Email <a href="mailto:support@connectliveagent.com">support@connectliveagent.com</a> from
         the address on the order. Include the order ID and the wallet that should receive the
         funds — that's the whole process.
       </p>

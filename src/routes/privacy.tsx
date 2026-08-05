@@ -60,7 +60,7 @@ function Page() {
       </ul>
       <h2>Getting in touch about your data</h2>
       <p>
-        Write to <a href="mailto:privacy@connectliveagent.com">privacy@connectliveagent.com</a> and
+        Write to <a href="mailto:support@connectliveagent.com">support@connectliveagent.com</a> and
         a human will answer — usually the same day.
       </p>
     </LegalShell>
