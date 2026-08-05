@@ -12,6 +12,13 @@ type Plan = {
   amount_usd: number;
 };
 
+/** Pre-promo list prices, shown struck through next to the discounted price. */
+const WAS_PRICE: Record<string, string> = {
+  starter: "250",
+  team: "570",
+  business: "840",
+};
+
 export const Route = createFileRoute("/order/")({
   component: OrderPage,
   head: () => ({
