@@ -29,9 +29,17 @@ One installer for everyone — no per-customer builds, no bundled key file.
 - If the file is gone (reimage, profile wipe) the prompt reappears once and the machine rejoins the same license.
 - On a `blocked` or `expired` heartbeat the agent stays dormant — no capture, no session — and keeps heartbeating so it wakes the moment a seat opens.
 
-## 3. Order flow and emails
+## 3. Order flow and emails (self-hosted SMTP)
 
-Email needs a verified sender on `connectliveagent.com`; that setup is the gate for this section. Two branded templates:
+Emails go out through **your own SMTP server**, configured in the admin panel the same way Telegram is today — no third-party email service, no domain-verification dance.
+
+**SMTP settings panel** (in the payments / admin settings area, mirroring the Telegram card):
+- Host, port, username, password, from-name, from-address, encryption (None / STARTTLS / SSL-TLS).
+- Password stored server-side only, never sent back to the browser once saved (write-only field, "•••••• saved" indicator).
+- **Send test** button — dispatches a test email to the signed-in admin's address and reports success / SMTP error verbatim.
+- Values live in a new `smtp_settings` singleton table (one row, admin-only RLS). The sender is a server function that reads the row and pipes through `nodemailer`.
+
+Two branded templates (rendered server-side, plain HTML + text alternative):
 
 **Order received** — on order submit, to the email on the order.
 - Subject: `Your ConnectLive order is received — #<short id>`
@@ -39,11 +47,11 @@ Email needs a verified sender on `connectliveagent.com`; that setup is the gate 
 
 **Order confirmed** — when payment is confirmed (webhook or manual mark-paid).
 - Subject: `Payment confirmed — your ConnectLive access is on the way`
-- Payment confirmed, "your software and sign-in details arrive within 24–48 hours", an explicit "check your spam/junk folder and mark us as safe" line, support contact.
+- "Your software and sign-in details arrive within 24–48 hours", explicit "check your spam/junk folder and mark us as safe" line, support contact.
 
-Nothing further is automated. You send the agent installer link, the admin console link, the portal URL, and the customer's password yourself once you provision them.
+If SMTP isn't configured yet, order submission still succeeds; the email attempt is logged as `skipped: no_smtp` on the order so you can see it in the admin view. Nothing else is automated — you send the installer links, portal URL, and password yourself once you provision the customer.
 
-Tracking: the public order page becomes the status surface — received → payment detected → confirmed → access sent — with the 24–48 hour message on the confirmed state. Linked from both emails, no login needed.
+Tracking: the public order page is the status surface — received → payment detected → confirmed → access sent. Linked from both emails, no login needed.
 
 ## 4. Admin-issued customer accounts
 
