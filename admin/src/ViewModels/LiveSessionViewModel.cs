@@ -920,7 +920,7 @@ public partial class LiveSessionViewModel : ObservableObject
 
     [RelayCommand]
     private async Task RefreshFiles() => await RefreshFilesAsync(CancellationToken.None);
-    }
+
 
     [RelayCommand]
     private async Task UnlockPassword()
