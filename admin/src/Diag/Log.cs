@@ -50,6 +50,10 @@ public static class Log
         catch { /* diagnostics must never throw */ }
     }
 
+    public static void Info(string message) => Write($"INFO {message}");
+
+    public static void Warn(string message) => Write($"WARN {message}");
+
     public static void Error(string context, Exception ex)
         => Write($"ERROR {context}: {ex.GetType().Name}: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
 }
