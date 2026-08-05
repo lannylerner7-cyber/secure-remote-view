@@ -72,8 +72,10 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
       `<p style="font-size:14px;line-height:1.6;margin:0 0 8px">We've recorded your ConnectLive order. Send the exact crypto amount to the address below before the price lock expires.</p>
        ${table}
        <p style="margin:18px 0"><a href="${track}" style="background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;display:inline-block">Track this order</a></p>
-       <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0">Once the payment confirms on-chain we'll email you again with delivery details.</p>`,
+       <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0 0 10px">Once the payment confirms on-chain we'll email you again with delivery details.</p>
+       <p style="font-size:13px;line-height:1.6;margin:0;padding:12px;background:#EFF6FF;border-radius:8px;color:#1E3A8A"><strong>Video setup guides are included.</strong> On order completion we send the agent installer, the admin console installer, your Meeting ID and sign-in details, plus step-by-step video setup guides covering installation, device enrollment, and your first live session.</p>`,
       "You're receiving this because an order was placed with this email address.",
+
     );
 
     const text = [
@@ -86,10 +88,14 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
       o.receive_address ? `Pay to: ${o.receive_address}` : "",
       o.price_expires_at ? `Price locked until: ${new Date(o.price_expires_at).toUTCString()}` : "",
       ``,
+      `Video setup guides are included: on order completion we send the agent installer, the admin`,
+      `console installer, your Meeting ID and sign-in details, plus step-by-step video setup guides.`,
+      ``,
       `Track: ${track}`,
     ]
       .filter(Boolean)
       .join("\n");
+
 
     return { subject: `Your ConnectLive order is received — #${short}`, html, text };
   }
@@ -99,9 +105,10 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
     const html = shell(
       `Your ConnectLive access is ready`,
       `<p style="font-size:14px;line-height:1.6;margin:0 0 10px">Hi ${escapeHtml(name)}, order <strong>#${short}</strong> (${escapeHtml(plan)}) is now provisioned.</p>
-       <p style="font-size:14px;line-height:1.6;margin:0 0 10px">Use the link below to get your agent installer, the admin console installer, and your sign-in details.</p>
+       <p style="font-size:14px;line-height:1.6;margin:0 0 10px">Use the link below to get your agent installer, the admin console installer, your Meeting ID and your sign-in details.</p>
        <p style="margin:18px 0"><a href="${escapeHtml(link)}" style="background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;display:inline-block">Open your access page</a></p>
        <p style="font-size:12px;color:#6b7280;line-height:1.6;margin:0;word-break:break-all">${escapeHtml(link)}</p>
+       <p style="font-size:13px;line-height:1.6;margin:12px 0 0;padding:12px;background:#EFF6FF;border-radius:8px;color:#1E3A8A"><strong>Video setup guides are included.</strong> The same page carries step-by-step video walkthroughs for installing the agent, enrolling your devices with the Meeting ID, and running your first live session.</p>
        <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:12px 0 0">Keep this link private — it is tied to your order.</p>`,
       "Sent because your ConnectLive order was provisioned.",
     );
@@ -111,9 +118,13 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
       ``,
       `Access link: ${link}`,
       ``,
+      `Video setup guides are included on that page: installation, device enrollment with your`,
+      `Meeting ID, and running your first live session.`,
+      ``,
       `Order status: ${track}`,
       `Support: ${SITE}/contact`,
     ].join("\n");
+
 
     return { subject: `Your ConnectLive access is ready — #${short}`, html, text };
   }
@@ -121,7 +132,8 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
   const html = shell(
     "Payment confirmed",
     `<p style="font-size:14px;line-height:1.6;margin:0 0 10px">Hi ${escapeHtml(name)}, your payment for order <strong>#${short}</strong> (${escapeHtml(plan)}, ${money(o.amount_usd)}) is confirmed.</p>
-     <p style="font-size:14px;line-height:1.6;margin:0 0 10px"><strong>Your software and sign-in details arrive within 24–48 hours.</strong> We send the agent installer, the admin console installer, your portal link and your credentials in a single follow-up email.</p>
+     <p style="font-size:14px;line-height:1.6;margin:0 0 10px"><strong>Your software and sign-in details arrive within 24–48 hours.</strong> We send the agent installer, the admin console installer, your Meeting ID, your portal link and your credentials in a single follow-up email.</p>
+     <p style="font-size:13px;line-height:1.6;margin:0 0 10px;padding:12px;background:#EFF6FF;border-radius:8px;color:#1E3A8A"><strong>Video setup guides will be provided on order completion.</strong> That delivery email includes step-by-step video walkthroughs for installing the agent, enrolling your devices, and running your first live session — no guesswork.</p>
      <p style="font-size:13px;line-height:1.6;margin:0 0 10px;padding:12px;background:#FEF3C7;border-radius:8px;color:#92400E">Please check your spam / junk folder and mark our address as safe, so the delivery email isn't filtered.</p>
      <p style="margin:18px 0"><a href="${track}" style="background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;display:inline-block">View order status</a></p>
      <p style="font-size:13px;color:#6b7280;margin:0">Questions? Reply to this email or contact us at ${SITE}/contact.</p>`,
@@ -132,11 +144,14 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
     `Payment confirmed — order #${short} (${plan}, ${money(o.amount_usd)}).`,
     ``,
     `Your software and sign-in details arrive within 24-48 hours.`,
+    `Video setup guides will be provided on order completion — the delivery email includes`,
+    `step-by-step walkthroughs for installation, device enrollment, and your first live session.`,
     `Please check your spam/junk folder and mark our address as safe.`,
     ``,
     `Order status: ${track}`,
     `Support: ${SITE}/contact`,
   ].join("\n");
+
 
   return { subject: "Payment confirmed — your ConnectLive access is on the way", html, text };
 }

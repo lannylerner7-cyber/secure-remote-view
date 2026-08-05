@@ -156,3 +156,43 @@
     color: var(--color-foreground);
   }
 }
+
+/* --- Promo marquee + ambient motion background ------------------------- */
+@keyframes cl-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes cl-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(6%, -4%, 0) scale(1.15); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes cl-drift-alt {
+  0%   { transform: translate3d(0, 0, 0) scale(1.1); }
+  50%  { transform: translate3d(-7%, 5%, 0) scale(0.95); }
+  100% { transform: translate3d(0, 0, 0) scale(1.1); }
+}
+
+@utility marquee-track {
+  display: inline-flex;
+  min-width: 200%;
+  animation: cl-marquee 26s linear infinite;
+}
+
+@utility aurora-a {
+  animation: cl-drift 18s ease-in-out infinite;
+}
+
+@utility aurora-b {
+  animation: cl-drift-alt 24s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track,
+  .aurora-a,
+  .aurora-b {
+    animation: none !important;
+  }
+}

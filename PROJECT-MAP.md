@@ -2022,3 +2022,12 @@ whatever the operator saves in `smtp_settings.from_address`.
 
 Open items unchanged: code-signing certificate purchase, and a Windows-host
 build + soak run.
+
+### §10.28 — Promo pricing, motion layout, consent removal (2026-08-05e)
+
+- **Pricing:** `public.plans` promo rates live — Starter $250 → $150, Team $570 → $310, Business $840 → $560. Homepage + order page show strikethrough "was" pricing and a scrolling promo marquee.
+- **Motion:** `cl-marquee` / `cl-drift` in `src/styles.css`; ambient aurora background on `src/routes/index.tsx`.
+- **Video setup guides:** stated on homepage bento panel, order page delivery notice, and all three order emails (`order_received`, `order_confirmed`, `access_ready`) in `src/lib/order-emails.server.ts`.
+- **Consent removed from agent:** `agent/src/ConsentPrompt.cs` deleted; `Agent.HandleInvite` auto-accepts invites (`SubmitConsentAsync(..., true)`) — authorisation is account-level via Meeting ID enrollment and enforced server-side. Server route `session/$sessionId/consent` unchanged (still the invited → active transition).
+- **Copy:** homepage "consent-based" wording replaced with "authorised" to match the new model.
+- **Verification:** tsgo clean · agent routes 25/25 · payment routes 5/5 · homepage renders with zero console errors.

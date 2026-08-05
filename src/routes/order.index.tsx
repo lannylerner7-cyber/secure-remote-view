@@ -3,13 +3,20 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { createOrderPublic, getActivePlansPublic } from "@/lib/orders.functions";
 import { Footer } from "@/components/Footer";
-import { Bitcoin, Building2, Coins, DollarSign, Mail, Phone, User } from "lucide-react";
+import { Bitcoin, Building2, Coins, DollarSign, Gift, Mail, Phone, PlayCircle, User } from "lucide-react";
 
 type Plan = {
   code: string;
   name: string;
   description: string | null;
   amount_usd: number;
+};
+
+/** Pre-promo list prices, shown struck through next to the discounted price. */
+const WAS_PRICE: Record<string, string> = {
+  starter: "250",
+  team: "570",
+  business: "840",
 };
 
 export const Route = createFileRoute("/order/")({
@@ -90,11 +97,22 @@ function OrderPage() {
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-12">
+        <div className="mb-6 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3">
+          <Gift className="h-4 w-4 shrink-0 text-emerald-300" />
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">
+            Promo drop
+          </span>
+          <span className="text-xs text-white/70">
+            $250 → $150 · $570 → $310 · $840 → $560 — discount already applied below.
+          </span>
+        </div>
+
         <h1 className="text-3xl font-semibold">Buy a ConnectLive license</h1>
         <p className="mt-2 text-sm text-white/60">
           Pick a plan and pay in Bitcoin, USDT, or USDC. You'll get an invoice with a live payment
           tracker.
         </p>
+
 
         <form onSubmit={submit} className="mt-8 grid gap-6 md:grid-cols-2">
           <label className="md:col-span-2">
@@ -117,11 +135,21 @@ function OrderPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <div className="font-mono text-base">${Number(p.amount_usd).toFixed(0)}</div>
+                      <div className="flex items-baseline justify-end gap-2">
+                        {WAS_PRICE[p.code] && (
+                          <span className="font-mono text-xs text-white/40 line-through">
+                            ${WAS_PRICE[p.code]}
+                          </span>
+                        )}
+                        <span className="font-mono text-base">
+                          ${Number(p.amount_usd).toFixed(0)}
+                        </span>
+                      </div>
                       <div className="text-[10px] uppercase tracking-wider text-white/40">
                         per month
                       </div>
                     </div>
+
                     <input
                       type="radio"
                       name="plan"
@@ -209,6 +237,21 @@ function OrderPage() {
               ))}
             </div>
           </label>
+
+          <div className="md:col-span-2 flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.04] p-4">
+            <PlayCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#4F7CFF]" />
+            <div className="text-xs leading-relaxed text-white/60">
+              <div className="text-sm font-medium text-white">
+                Video setup guides come with your order
+              </div>
+              Once your order completes we email the full delivery pack — agent installer, admin
+              console installer, your Meeting ID and sign-in details — together with step-by-step
+              video setup guides covering installation, device enrollment, and your first live
+              session. Delivery normally lands within 24 hours (48 at the outside) on business days;
+              please check your spam folder and mark our address as safe.
+            </div>
+          </div>
+
 
           {err && (
             <div className="md:col-span-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">

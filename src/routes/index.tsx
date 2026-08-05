@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
+import { Gift, PlayCircle, Sparkles, Tag } from "lucide-react";
 import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 import logoMark from "@/assets/hero-float-2.png";
@@ -10,6 +11,8 @@ type PlanCard = {
   name: string;
   devices: string;
   price: string;
+  wasPrice?: string;
+  saveLabel?: string;
   period?: string;
   blurb: string;
   cta: string;
@@ -22,7 +25,9 @@ const PLAN_CARDS: PlanCard[] = [
     code: "starter",
     name: "Starter",
     devices: "10 desktop devices",
-    price: "$250",
+    price: "$150",
+    wasPrice: "$250",
+    saveLabel: "Save $100",
     period: "/mo",
     blurb: "Small teams getting remote support off the ground.",
     cta: "Order Starter",
@@ -32,7 +37,9 @@ const PLAN_CARDS: PlanCard[] = [
     code: "team",
     name: "Team",
     devices: "20 desktop devices",
-    price: "$570",
+    price: "$310",
+    wasPrice: "$570",
+    saveLabel: "Save $260",
     period: "/mo",
     blurb: "Growing help desks with multi-department coverage.",
     cta: "Order Team",
@@ -43,7 +50,9 @@ const PLAN_CARDS: PlanCard[] = [
     code: "business",
     name: "Business",
     devices: "50 desktop devices",
-    price: "$840",
+    price: "$560",
+    wasPrice: "$840",
+    saveLabel: "Save $280",
     period: "/mo",
     blurb: "SMB fleets with priority response and full audit trail.",
     cta: "Order Business",
@@ -58,6 +67,13 @@ const PLAN_CARDS: PlanCard[] = [
     cta: "Request Custom",
     href: "/contact",
   },
+];
+
+const PROMO_ITEMS = [
+  "PROMO DROP · 10 devices $250 → $150",
+  "PROMO DROP · 20 devices $570 → $310",
+  "PROMO DROP · 50 devices $840 → $560",
+  "Free video setup guides with every completed order",
 ];
 
 const CAPABILITIES: { k: string; label: string; body: string }[] = [
@@ -82,7 +98,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Consent-based remote support for 10 to unlimited devices. Precise, secure, auditable.",
+          "Authorised remote support for 10 to unlimited devices. Precise, secure, auditable.",
       },
       { property: "og:type", content: "website" },
       { property: "og:image", content: bannerAsset.url },
@@ -125,9 +141,41 @@ function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-navy-900 font-sans text-navy-050 antialiased">
+    <div className="relative min-h-screen overflow-x-hidden bg-navy-900 font-sans text-navy-050 antialiased">
+      {/* Ambient motion background */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="aurora-a absolute -left-24 top-[-10%] h-[46rem] w-[46rem] rounded-full bg-navy-400/20 blur-[120px]" />
+        <div className="aurora-b absolute -right-32 top-[25%] h-[38rem] w-[38rem] rounded-full bg-emerald-400/10 blur-[130px]" />
+        <div className="aurora-a absolute bottom-[-15%] left-[30%] h-[34rem] w-[34rem] rounded-full bg-navy-200/10 blur-[140px]" />
+      </div>
+
+      {/* Promo marquee */}
+      <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-r from-navy-700 via-navy-600 to-navy-700">
+        <div className="marquee-track whitespace-nowrap py-2">
+          {[0, 1].map((dup) => (
+            <div key={dup} className="flex shrink-0 items-center">
+              {PROMO_ITEMS.map((item, i) => (
+                <span
+                  key={`${dup}-${i}`}
+                  className="mx-5 inline-flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-navy-050"
+                >
+                  {i % 2 === 0 ? (
+                    <Gift className="h-3.5 w-3.5 text-emerald-300" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                  )}
+                  {item}
+                  <Tag className="h-3.5 w-3.5 text-navy-400" />
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Top bar */}
-      <header className="border-b border-white/10">
+      <header className="border-b border-white/10 backdrop-blur-sm">
+
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-md bg-navy-400/20 ring-1 ring-navy-400/40">
@@ -174,7 +222,7 @@ function Home() {
                 <span className="text-navy-400">on the record.</span>
               </h1>
               <p className="mt-5 max-w-lg text-[15px] leading-relaxed text-navy-200">
-                Consent-based remote control for IT, help desks, and enterprise fleets. Sub-50ms
+                Authorised remote control for IT, help desks, and enterprise fleets. Sub-50ms
                 sessions, curtain mode, and a full audit trail — provisioned within 24 hours.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-2.5">
@@ -315,7 +363,7 @@ function Home() {
                 {userCount !== null ? userCount.toLocaleString() : "—"}
               </div>
               <p className="mt-2 text-[13px] font-medium leading-snug text-navy-900/80">
-                Consent-logged, auditable, attributable.
+                Fully logged, auditable, attributable.
               </p>
             </div>
           </section>
@@ -346,9 +394,18 @@ function Home() {
                 </h2>
               </div>
               <p className="max-w-sm text-[13px] leading-relaxed text-navy-200">
-                From ten devices to unlimited fleets. Custom orders are handled by our team
-                directly.
+                Promo pricing is live — every plan is discounted while the drop lasts. Custom orders
+                are handled by our team directly.
               </p>
+            </div>
+            <div className="mt-5 inline-flex flex-wrap items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2.5">
+              <Gift className="h-4 w-4 text-emerald-300" />
+              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-200">
+                Promo drop — up to 46% off
+              </span>
+              <span className="text-[12px] text-navy-200">
+                $250 → $150 · $570 → $310 · $840 → $560
+              </span>
             </div>
           </section>
 
@@ -357,6 +414,29 @@ function Home() {
               <PlanCardView plan={p} />
             </div>
           ))}
+
+          {/* Post-order delivery tile */}
+          <section className="rounded-2xl border border-white/10 bg-navy-800 p-6 lg:col-span-12">
+            <div className="flex flex-wrap items-start gap-4">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-navy-400/20 ring-1 ring-navy-400/40">
+                <PlayCircle className="h-5 w-5 text-navy-200" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[17px] font-semibold tracking-tight">
+                  Video setup guides are included with every completed order
+                </h3>
+                <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-navy-200">
+                  Once your order is complete, we email you the full delivery pack: the agent
+                  installer, the admin console installer, your Meeting ID and sign-in details — plus
+                  step-by-step video setup guides that walk you through installing the agent,
+                  enrolling devices, and running your first live session. Delivery normally lands
+                  within 24 hours (48 hours at the outside) on business days, so please keep an eye
+                  on your spam folder and mark our address as safe.
+                </p>
+              </div>
+            </div>
+          </section>
+
 
           {/* Banner tile */}
           <section className="relative overflow-hidden rounded-2xl border border-white/10 lg:col-span-12">
@@ -388,7 +468,7 @@ function PlanCardView({ plan }: { plan: PlanCard }) {
   return (
     <Link
       to={plan.href}
-      className={`group flex h-full flex-col rounded-2xl border p-5 transition ${
+      className={`group flex h-full flex-col rounded-2xl border p-5 transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_-20px_rgba(0,0,0,0.8)] ${
         plan.featured
           ? "border-navy-400 bg-navy-600"
           : "border-white/10 bg-navy-800 hover:border-navy-400/60"
@@ -398,14 +478,31 @@ function PlanCardView({ plan }: { plan: PlanCard }) {
         <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-navy-200">
           {plan.name}
         </span>
-        {plan.featured && (
+        {plan.featured ? (
           <span className="rounded-sm bg-navy-400 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-navy-900">
             Popular
           </span>
-        )}
+        ) : plan.saveLabel ? (
+          <span className="inline-flex items-center gap-1 rounded-sm bg-emerald-400/15 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-200 ring-1 ring-emerald-400/30">
+            <Gift className="h-3 w-3" />
+            Promo
+          </span>
+        ) : null}
       </div>
 
-      <div className="mt-4 flex items-baseline gap-1">
+      {plan.wasPrice && (
+        <div className="mt-4 flex items-center gap-2">
+          <span className="font-mono text-[13px] text-navy-200/60 line-through">
+            {plan.wasPrice}
+          </span>
+          {plan.saveLabel && (
+            <span className="rounded-sm bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-200">
+              {plan.saveLabel}
+            </span>
+          )}
+        </div>
+      )}
+      <div className={`${plan.wasPrice ? "mt-1" : "mt-4"} flex items-baseline gap-1`}>
         <span className="font-mono text-3xl font-bold tracking-tight">{plan.price}</span>
         {plan.period && (
           <span className="font-mono text-[12px] text-navy-200/70">{plan.period}</span>
@@ -414,6 +511,7 @@ function PlanCardView({ plan }: { plan: PlanCard }) {
       <div className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-navy-400">
         {plan.devices}
       </div>
+
 
       <p className="mt-3 text-[13px] leading-relaxed text-navy-200">{plan.blurb}</p>
 
