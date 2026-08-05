@@ -74,6 +74,11 @@ function AdminPage() {
   const rtcRef = useRef<WebRtcLive | null>(null);
   /** S21 — true while the reliable `files` DataChannel is open. */
   const [filesReady, setFilesReady] = useState(false);
+  /** S22 — true while the `clip` DataChannel is open. */
+  const [clipReady, setClipReady] = useState(false);
+  /** S24 — true while a local recording of the live track is running. */
+  const [recording, setRecording] = useState(false);
+
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const mouseButtonDownRef = useRef(false);
   // rAF pointer-move coalescer: only the latest position is flushed per frame.
