@@ -73,13 +73,16 @@ public partial class LiveSessionWindow : Window
             StopRenderTick();
             _vm.CursorSample -= OnCursorSample;
             _predict.Reset();
+            EndCapture();
             _coalesce.Stop();
             _vm.Stop();
         };
         // Losing focus mid-keystroke means the matching key-up never reaches
         // us; drop the pending stamps so a later press of the same key cannot
         // fire a spurious raw-key fallback.
-        Deactivated += (_, _) => _awaitingText.Clear();
+        // Losing activation while captured must also free the physical cursor,
+        // otherwise the technician cannot reach any other window.
+        Deactivated += (_, _) => { _awaitingText.Clear(); EndCapture(); };
         // Tunnelled key events so the live surface wins over WPF focus
         // navigation (Tab, arrows, Alt menus) before it can swallow them.
         PreviewKeyDown += OnKeyDown;
@@ -89,9 +92,63 @@ public partial class LiveSessionWindow : Window
         // Recompute the content rect on element resize AND whenever the source
         // changes size mid-session (Phase 4 resolution change).
         FrameImage.SizeChanged += (_, _) => UpdateCursorGhost();
+        // The capture anchor is the centre of the live surface, so it moves
+        // whenever the surface does.
+        Stage.SizeChanged += (_, _) => _capture.Recenter();
+        LocationChanged += (_, _) => _capture.Recenter();
         _vm.PropertyChanged += Vm_PropertyChanged;
         SyncPredictionGate();
+        SyncLocalCursor();
     }
+
+    // ---------------------------------------------------------------------
+    // S19 — local cursor draw + pointer capture
+    //
+    // (a) While this console is authoritative the OS cursor is hidden over the
+    //     stage and the orange ghost — drawn from LOCAL input by
+    //     PredictiveCursor — is the only pointer on screen. That is what makes
+    //     the pointer track the hand instead of the decoded video.
+    // (b) Capture mode parks the physical cursor on the surface centre and
+    //     streams relative motion, so the remote pointer is unbounded.
+    // ---------------------------------------------------------------------
+
+    private void SyncLocalCursor()
+    {
+        var hide = _capture.Engaged || _vm.InputAuthoritative;
+        var c = hide ? Cursors.None : Cursors.Arrow;
+        Stage.Cursor = c;
+        FrameImage.Cursor = c;
+    }
+
+    private void Capture_Changed(object sender, RoutedEventArgs e)
+    {
+        if (CaptureToggle.IsChecked == true)
+        {
+            Keyboard.Focus(Stage);
+            if (!_capture.Engage())
+            {
+                // Surface not realised yet (or no presentation source): fail
+                // visibly rather than leaving a toggle that lies.
+                CaptureToggle.IsChecked = false;
+                return;
+            }
+        }
+        else
+        {
+            _capture.Release();
+        }
+        SyncLocalCursor();
+    }
+
+    /// <summary>Release capture from anywhere (Esc/F8, deactivate, close).</summary>
+    private void EndCapture()
+    {
+        if (!_capture.Engaged) return;
+        _capture.Release();
+        CaptureToggle.IsChecked = false;
+        SyncLocalCursor();
+    }
+
 
     private void OnCursorSample(double nx, double ny, bool visible)
         => _predict.Observe(nx, ny, visible);
