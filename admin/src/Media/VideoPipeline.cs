@@ -69,15 +69,25 @@ public sealed class VideoPipeline : IDisposable
     private double _lastLatencyMs;
     private long _fpsWindowStart;
     private long _fpsWindowFrames;
+    // S18 — wire bitrate. Bytes are counted where they arrive (Submit, network
+    // thread) and converted to kbps on the same window that produces fps, so
+    // the two numbers always describe the same second of the session.
+    private long _bytesIn;
+    private long _bytesWindow;
+    private double _bitrateKbps;
 
     public long FramesDecoded => Interlocked.Read(ref _framesDecoded);
     public long FramesDropped => Interlocked.Read(ref _framesDropped);
     public long FramesPresented => Interlocked.Read(ref _framesPresented);
     public double Fps => _fps;
+    /// <summary>S18 — received encoded video bitrate over the last fps window.</summary>
+    public double BitrateKbps => _bitrateKbps;
+    public long BytesReceived => Interlocked.Read(ref _bytesIn);
     public double LastLatencyMs => _lastLatencyMs;
     public int QueueDepth { get { lock (_qGate) return _queue.Count; } }
     public int SourceWidth => _width;
     public int SourceHeight => _height;
+
 
     /// <summary>True only while decoded frames are actually reaching the screen (Phase 6 pill honesty).</summary>
     public bool IsPresenting =>
