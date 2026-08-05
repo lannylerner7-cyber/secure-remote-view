@@ -303,6 +303,7 @@ public partial class LiveSessionViewModel : ObservableObject
         StartLinkWatchdog(_cts.Token);
         StartVideoStats(_cts.Token);
         StartNetworkWatch();
+        StartFileTransfer(_cts.Token);
     }
 
     // ---- G2 on-screen measurement ----------------------------------------
