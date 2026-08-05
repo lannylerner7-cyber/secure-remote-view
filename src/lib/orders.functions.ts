@@ -173,7 +173,9 @@ export const setOrderAccessLink = createServerFn({ method: "POST" })
       .update({ access_link: data.access_link, access_link_sent_at: new Date().toISOString() })
       .eq("id", data.id);
     if (error) throw new Error(error.message);
-    // TODO: fire "access ready" email once domain configured.
+    // Delivery email. Never throws — SMTP being down must not fail the update.
+    const { sendOrderEmailById } = await import("./order-emails.server");
+    await sendOrderEmailById("access_ready", data.id);
     return { ok: true };
   });
 
