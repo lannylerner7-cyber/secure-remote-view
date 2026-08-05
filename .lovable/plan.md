@@ -153,5 +153,7 @@ The roadmap's §10 status board lists 32 files under `admin/src/**`. Everything 
 5. Admin customer management.
 6. Customer portal at `/public/agent/login`.
 7. Agent Meeting-ID prompt and dormancy.
-8. `session-files` bucket + `session_files` / `session_secrets` tables; DataChannel `files` transport with HTTP fallback; Files tab in admin session drawer; `packageSessionFiles` encrypted-zip download; verify-and-cache password flow.
-9. `PROJECT-MAP.md` and `ENDPOINTS.md` updated with the new routes, tables, storage bucket, SMTP settings, and licensing rules.
+8. `session-files` bucket + `session_files` / `session_secrets` tables; `files` DataChannel transport with HTTP fallback; Files tab in the **web** console session drawer; `packageSessionFiles` encrypted-zip download; verify-and-cache password flow.
+9. Native admin console pass (§7): domain swap, `FileTransport.cs`, Files panel, ApiClient/Models additions, then the verify-only read of every remaining `admin/src` file.
+10. Agent `FileTransfer.cs` and the second `ondatachannel` branch; rebuild both installers.
+11. `PROJECT-MAP.md` and `ENDPOINTS.md` updated with the new routes, tables, storage bucket, SMTP settings, licensing rules, and a §7 native-console entry in the status board.
