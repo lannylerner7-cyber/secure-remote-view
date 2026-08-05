@@ -440,6 +440,54 @@ function Home() {
             </div>
           </section>
 
+          {/* Newsletter tile */}
+          <section className="rounded-2xl border border-white/10 bg-navy-700 p-6 backdrop-blur-xl lg:col-span-12">
+            <div className="flex flex-wrap items-end justify-between gap-6">
+              <div className="min-w-[260px] flex-1">
+                <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-navy-400">
+                  <Mail className="h-3.5 w-3.5" />
+                  Newsletter
+                </span>
+                <h3 className="mt-3 text-xl font-semibold tracking-tight sm:text-2xl">
+                  Release notes, promo drops, setup guides.
+                </h3>
+                <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-navy-200">
+                  One email when there's something worth reading — never a schedule for its own sake.
+                  Unsubscribe any time by replying.
+                </p>
+              </div>
+              <form onSubmit={subscribe} className="flex w-full max-w-md flex-wrap items-center gap-2">
+                <input
+                  type="email"
+                  required
+                  value={newsletterEmail}
+                  onChange={(e) => setNewsletterEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  aria-label="Email address"
+                  maxLength={254}
+                  className="min-w-0 flex-1 rounded-md border border-white/15 bg-navy-900/60 px-3 py-2.5 font-mono text-[12px] text-navy-050 placeholder:text-navy-200/40 focus:border-navy-400 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={newsletterState === "sending"}
+                  className="rounded-md bg-navy-050 px-4 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-navy-800 transition hover:bg-white disabled:opacity-60"
+                >
+                  {newsletterState === "sending" ? "Sending…" : "Subscribe"}
+                </button>
+                {newsletterMsg && (
+                  <p
+                    role="status"
+                    className={`w-full font-mono text-[11px] ${
+                      newsletterState === "error" ? "text-red-300" : "text-emerald-300"
+                    }`}
+                  >
+                    {newsletterMsg}
+                  </p>
+                )}
+              </form>
+            </div>
+          </section>
+
 
           {/* Banner tile */}
           <section className="relative overflow-hidden rounded-2xl border border-white/10 lg:col-span-12">
