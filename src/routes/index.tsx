@@ -4,7 +4,7 @@ import { Footer } from "@/components/Footer";
 import heroFloat1 from "@/assets/hero-float-1.png";
 import heroFloat2 from "@/assets/hero-float-2.png";
 import heroFloat3 from "@/assets/hero-float-3.png";
-import videoAsset from "@/assets/connectlive.mp4.asset.json";
+import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 
 type PlanCard = {
