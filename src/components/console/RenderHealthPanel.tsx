@@ -55,7 +55,9 @@ export function RenderHealthPanel({ sessionId }: { sessionId?: string | null }) 
               <tr className="text-left">
                 <th className="py-1 pr-3 font-normal">When</th>
                 <th className="py-1 pr-3 font-normal">fps</th>
+                <th className="py-1 pr-3 font-normal">bitrate</th>
                 <th className="py-1 pr-3 font-normal">latency</th>
+
                 <th className="py-1 pr-3 font-normal">queue</th>
                 <th className="py-1 pr-3 font-normal">dropped</th>
                 <th className="py-1 pr-3 font-normal">size</th>
