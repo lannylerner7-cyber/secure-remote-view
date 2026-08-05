@@ -232,7 +232,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
               : "target",
         }));
 
-        if (powerCommands.length > 0) {
+        if (licensed && powerCommands.length > 0) {
           const ids = powerCommands.map((c) => c.id);
           await ctx.admin
             .from("power_commands")
