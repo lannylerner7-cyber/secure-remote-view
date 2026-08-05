@@ -70,6 +70,9 @@ export type FileTransferEvent =
   | { kind: "sent"; name: string; size: number }
   | { kind: "error"; name: string; message: string };
 
+/** S24 — one finished local recording of the live track. */
+export type RecordingResult = { blob: Blob; mimeType: string; durationMs: number };
+
 export interface WebRtcLive {
   video: HTMLVideoElement;
   state: () => WebRtcState;
@@ -88,8 +91,27 @@ export interface WebRtcLive {
   sendFile: (file: File) => Promise<boolean>;
   /** Subscribe to inbound/outbound transfer events. */
   onFile: (cb: (ev: FileTransferEvent) => void) => () => void;
+
+  // ---- S22 — clipboard sync ---------------------------------------------
+  /** True when the `clip` channel is open. */
+  clipboardReady: () => boolean;
+  /** Push text to the remote clipboard (capped at 256 KiB). */
+  sendClipboard: (text: string) => boolean;
+  /** Subscribe to clipboard text arriving from the agent. */
+  onClipboard: (cb: (text: string) => void) => () => void;
+
+  // ---- S24 — local session recording ------------------------------------
+  /** True when MediaRecorder can capture the current track. */
+  canRecord: () => boolean;
+  recording: () => boolean;
+  /** Begin recording the live video track. Returns false when unavailable. */
+  startRecording: () => boolean;
+  /** Stop and resolve the finished recording (null when nothing was captured). */
+  stopRecording: () => Promise<RecordingResult | null>;
+
   close: () => void;
 }
+
 
 
 
