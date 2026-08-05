@@ -240,7 +240,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        Keyboard.Focus(this);
+        Keyboard.Focus(Stage);
         if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _predict.Predict(x, y);
