@@ -121,6 +121,11 @@ function Home() {
   const navigate = useNavigate();
   const [userCount, setUserCount] = useState<number | null>(null);
   const [orderId, setOrderId] = useState("");
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [newsletterState, setNewsletterState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [newsletterMsg, setNewsletterMsg] = useState("");
+  const doSubscribe = useServerFn(subscribeNewsletter);
+
 
   useEffect(() => {
     let alive = true;
