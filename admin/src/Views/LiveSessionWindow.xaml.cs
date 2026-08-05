@@ -26,6 +26,11 @@ public partial class LiveSessionWindow : Window
     private readonly PredictiveCursor _predict = new();
     private EventHandler? _renderTick;
 
+    // S19(b) — pointer capture (relative motion). Created after
+    // InitializeComponent so the surface element exists.
+    private readonly PointerCapture _capture;
+
+
     public LiveSessionWindow(string sessionId, DeviceItem device)
     {
         InitializeComponent();
