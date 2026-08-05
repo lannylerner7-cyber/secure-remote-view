@@ -2048,3 +2048,59 @@ build + soak run.
 - **Consent removed from agent:** `agent/src/ConsentPrompt.cs` deleted; `Agent.HandleInvite` auto-accepts invites (`SubmitConsentAsync(..., true)`) — authorisation is account-level via Meeting ID enrollment and enforced server-side. Server route `session/$sessionId/consent` unchanged (still the invited → active transition).
 - **Copy:** homepage "consent-based" wording replaced with "authorised" to match the new model.
 - **Verification:** tsgo clean · agent routes 25/25 · payment routes 5/5 · homepage renders with zero console errors.
+
+---
+
+## §10.29 — Homepage ambient motion re-layer — 2026-08-05 (`SCOPE:WEB`)
+
+The aurora background added in §10.28 was invisible: it painted *behind* the
+page's own opaque navy fill, so the only motion the user ever saw was the promo
+marquee. Fixed by restacking, not by adding more effects on top of a hidden
+layer.
+
+| Layer | z | Source |
+| --- | --- | --- |
+| Base navy fill | `z-0` | `src/routes/index.tsx` root |
+| Rotating gradient mesh | `z-0` | `mesh-pan` utility (`cl-mesh`, 48s) |
+| Three drifting auroras | `z-0` | `aurora-a` / `aurora-b` / `aurora-c` (`cl-drift`, `cl-drift-alt`, `cl-drift-slow`) |
+| Panning grid | `z-0` | `grid-pan` (`cl-grid-pan`, 14s, radial mask) |
+| Slow light sweep | `z-0` | `sheen` (`cl-sheen`, 16s) |
+| Header, marquee, main | `z-10` | content lifted above the motion field |
+
+Content tiles carry `backdrop-blur-xl` so the motion bleeds through the bento
+cards instead of being occluded by them. All seven keyframe utilities are
+disabled under `@media (prefers-reduced-motion: reduce)` in `src/styles.css`.
+No route, data, or behaviour change. `tsgo --noEmit` clean.
+
+---
+
+## §11 — Open items (authoritative — supersedes every earlier status footer)
+
+This table is the single place the remaining state lives. Earlier boards
+(§10.9) and per-section "Still outstanding" footers are historical and are
+annotated as superseded where they contradict this.
+
+| # | Item | Why it is still open | Buildable here? |
+| --- | --- | --- | --- |
+| S3 | Fleet verification (enroll → wake → live on real machines) | Needs a live Windows fleet | No — environment-bound |
+| S17-P3 | Hardware H.264 encode/decode | `agent/src/HwH264Encoder.cs` does not exist; `CodecPolicy.AllowH264` is a switch with no consumer, by design (see the class doc comment) | Partly — needs a Windows host to validate the MFT |
+| S18 | Real 4K latency/throughput readings | Instrumentation shipped (`EncodeStats.cs`, `session_telemetry`, HUD); no measurement taken | No — needs a live session |
+| S20 | Present pacing / vsync alignment | No `CompositionTarget.Rendering` pacing loop in `admin/src/Media`; frames present as they arrive | **Yes** |
+| S24-b | Recording retention / upload policy | Recording writes locally only (`IvfWriter` native, browser download on web); nothing uploads, expires, or audits it | **Yes** |
+| S25-b | Code-signing certificate | `tools/CodeSign.ps1` + `docs/SIGNING.md` shipped and wired into both build scripts; the certificate is a procurement step | No — procurement |
+| — | Windows-host build + soak run | `scripts/e2e-soak.ts` exists and is unrun against real agents | No — environment-bound |
+
+**Not open, despite what older sections imply:** S8, S9, S10, S11, S12, S13,
+S14, S15, S19, S21, S22, S23, licensing/Meeting-ID, customer portal, SMTP and
+order emails, session files (all three peers), clipboard sync (all three
+peers), monitor picker (web + native), consent removal.
+
+### Verification snapshot for this pass — 2026-08-05
+
+| Check | Result |
+| --- | --- |
+| Stale identifiers (`zoomlite`, `secure-remote-view`, `AGENT_DEPLOYMENT_KEY`, `ConsentPrompt`, `TODO`, `FIXME`) across `src`, `agent/src`, `admin/src` | zero hits |
+| `$250` / `$570` / `$840` in page source | intentional strikethrough "was" prices (§10.28), not stale copy |
+| Route targets vs `src/routeTree.gen.ts` | every `Link`/`navigate()` destination resolves |
+| Cross-peer parity (clipboard, files, monitor picker, recording, input DC, ICE/TURN, telemetry) | complete; only deliberate asymmetries (WEBM web / IVF native) |
+| `consented` legacy state retained in live filters | present in `heartbeat.ts` and `admin/src/Api/ApiClient.cs` per §4 |
