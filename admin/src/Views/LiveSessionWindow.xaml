@@ -64,8 +64,15 @@
                         </MenuItem>
                     </Menu>
 
+                    <!-- S18 — one-click capture of the render/transport reading
+                         so a real-session measurement can be pasted back. -->
+                    <Button Content="Copy stats" Command="{Binding CopyDiagnosticsCommand}"
+                            Background="#334155" Margin="4,2" MinWidth="90"
+                            ToolTip="Copy the full fps / bitrate / latency / path reading for this session to the clipboard" />
+
                     <Button Content="End session" Click="EndSession_Click"
                             Background="#334155" Margin="4,2" MinWidth="96" />
+
                 </WrapPanel>
 
                 <!-- Fill child: status readouts. Clipped, never expanding past
