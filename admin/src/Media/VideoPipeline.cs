@@ -42,6 +42,8 @@ public sealed class VideoPipeline : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly D3DImageHost _d3d = new();
+    /// <summary>S20 — releases one decoded frame per composition tick so motion is even.</summary>
+    private readonly PresentPacer _pacer;
 
     private Thread? _worker;
     private VpxVideoEncoder? _decoder;
@@ -96,6 +98,20 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
 
     public bool UsingD3D { get; private set; }
+
+    public VideoPipeline()
+    {
+        _pacer = new PresentPacer(PresentPaced);
+    }
+
+    /// <summary>S20 — mean absolute deviation between presents (ms). Lower is smoother.</summary>
+    public double JudderMs => _pacer.JudderMs;
+
+    /// <summary>S20 — presents per second actually reaching the compositor.</summary>
+    public double PaceFps => _pacer.PaceFps;
+
+    /// <summary>S20 — true while presents ride the display's composition cadence.</summary>
+    public bool PacedPresent => _pacer.Paced;
 
     /// <summary>
     /// S16 — HWND of the window that actually presents this video. Set it
@@ -488,6 +504,7 @@ public sealed class VideoPipeline : IDisposable
                $"chroma={_chroma} loss={Interlocked.Read(ref _lossEvents)} " +
 
                $"gated={Interlocked.Read(ref _framesGated)} " +
+               _pacer.StatsFragment() + " " +
                (_deadReason != null ? $"dead=\"{_deadReason}\" " : "") +
                _d3d.HealthLine() + $" ws={ws}MB";
 
@@ -504,6 +521,7 @@ public sealed class VideoPipeline : IDisposable
         try { _signal.Release(); } catch { }
         try { _decoder?.Dispose(); } catch { }
         _decoder = null;
+        try { _pacer.Dispose(); } catch { }
         try { _d3d.Park(); } catch { }
         try { _d3d.Dispose(); } catch { }
         _bgra = null;
