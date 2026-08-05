@@ -178,6 +178,15 @@ public sealed class Agent
         while (!ct.IsCancellationRequested)
         {
             try { await _api.EnrollIfNeededAsync(ct); break; }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // The user dismissed the Meeting-ID prompt. Do not re-open it
+                // in a loop — stay resident and dormant so the next foreground
+                // launch (or a restart) can activate the machine.
+                Log.Warn("enroll: Meeting ID prompt cancelled — agent dormant until activated");
+                _splashStatus("Activation required — enter your Meeting ID");
+                return;
+            }
             catch (Exception ex)
             {
                 Log.Warn($"enroll retry: {ex.Message}");
