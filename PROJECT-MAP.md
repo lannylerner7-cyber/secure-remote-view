@@ -1571,3 +1571,36 @@ migration; the admin writes it straight through PostgREST in
 **Still open on S18:** the number itself. Run one real session under sustained
 motion at a high rung, hit `Copy stats`, and record the result here — S17-P2
 (hardware H.264) and S20 (present pacing) both stay unjustified until it exists.
+
+---
+
+## §10.13 — Commercial surface split + responsive pass — 2026-08-05 (SCOPE:WEB)
+
+**Pricing (DB, authoritative).** `public.plans` re-priced to a monthly desktop
+subscription ladder: `starter` = 10 desktop devices / **$250 mo**, `team` = 20
+devices / **$570 mo**, `business` = 50 devices / **$840 mo**. `custom` stays a
+`/contact` funnel. The homepage plan cards now render price + `/month` + device
+count and are sourced from the same tiers; `/order` reads live rows from
+`getActivePlansPublic`, so the DB is the single source of truth — never hardcode
+prices in a second place.
+
+**Payments split from the technician console.** `Payments` is gone from
+`/console` (nav button, panel mount, `PaymentsPanel` import, and the
+`payments` member of `NAV_VALUES`). The panel now lives on its own authenticated
+route `src/routes/_authenticated/payments.tsx` (`/payments`, `noindex`), gated on
+`admin | super_admin` with an explicit "not a payments administrator" state.
+`/connectlive/payment` signs in and lands on `/payments`; `/connectlive/admin`
+still lands on `/console`. Cross-links exist both ways. The native admin's
+`Payments (web)` toolbar button and `OpenPayments_Click` handler were removed —
+payments are a browser-side, separately-authenticated surface now.
+
+**Responsive.** `/console` sidebar is `lg:` only; below that a scrollable pill
+nav strip carries the same destinations and the header collapses to a
+`grid-cols-[minmax(0,1fr)_auto]` row with a mobile sign-out. `/order` coin
+selector stacks to one column under `sm:`, the submit row wraps, and both home
+and order render at 768/390 with `scrollWidth == viewport` (no overflow).
+
+**Iconography.** Order form fields carry lucide glyphs (user / mail / phone /
+building), coin tiles carry brand-tinted icons (BTC `#F7931A`, USDT `#26A17B`,
+USDC `#2775CA`), and the footer policy row is icon-led (shield / file /
+rotate / mail) with the project blurb trimmed to one line.

@@ -31,7 +31,7 @@ function PaymentLoginPage() {
     <AdminLoginCard
       title="Payment admin sign in"
       subtitle="Sign in with a super-admin technician ID. Non-admins will be routed to the dashboard."
-      onSuccess={() => navigate({ to: "/console", search: { tab: "payments" } })}
+      onSuccess={() => navigate({ to: "/payments" })}
     />
   );
 }

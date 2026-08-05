@@ -1,0 +1,3 @@
+UPDATE public.plans SET name='10 Desktop Devices — Monthly', description='Monthly remote-support subscription for up to 10 desktop devices.', amount_usd=250.00 WHERE code='starter';
+UPDATE public.plans SET name='20 Desktop Devices — Monthly', description='Monthly remote-support subscription for up to 20 desktop devices.', amount_usd=570.00 WHERE code='team';
+UPDATE public.plans SET name='50 Desktop Devices — Monthly', description='Monthly remote-support subscription for up to 50 desktop devices, priority support.', amount_usd=840.00 WHERE code='business';

@@ -11,6 +11,8 @@ type PlanCard = {
   code: string;
   name: string;
   devices: string;
+  price: string;
+  period?: string;
   blurb: string;
   cta: string;
   href: string;
@@ -21,7 +23,9 @@ const PLAN_CARDS: PlanCard[] = [
   {
     code: "starter",
     name: "Starter",
-    devices: "10 devices",
+    devices: "10 desktop devices",
+    price: "$250",
+    period: "/month",
     blurb: "Small teams getting remote support off the ground.",
     cta: "Order Starter",
     href: "/order",
@@ -29,7 +33,9 @@ const PLAN_CARDS: PlanCard[] = [
   {
     code: "team",
     name: "Team",
-    devices: "20 devices",
+    devices: "20 desktop devices",
+    price: "$570",
+    period: "/month",
     blurb: "Growing help desks with multi-department coverage.",
     cta: "Order Team",
     href: "/order",
@@ -38,7 +44,9 @@ const PLAN_CARDS: PlanCard[] = [
   {
     code: "business",
     name: "Business",
-    devices: "50 devices",
+    devices: "50 desktop devices",
+    price: "$840",
+    period: "/month",
     blurb: "SMB fleets with priority response and full audit trail.",
     cta: "Order Business",
     href: "/order",
@@ -47,11 +55,13 @@ const PLAN_CARDS: PlanCard[] = [
     code: "custom",
     name: "Custom",
     devices: "Unlimited devices",
+    price: "Talk to us",
     blurb: "Enterprise fleets — manual order handled by our team.",
     cta: "Request Custom",
     href: "/contact",
   },
 ];
+
 
 const FEATURE_STRIP = [
   "Consent-based",
@@ -445,7 +455,14 @@ function PlanCardView({ plan, index }: { plan: PlanCard; index: number }) {
         )}
       </div>
 
-      <div className="relative z-10 mt-3 text-2xl font-semibold tracking-tight">{plan.devices}</div>
+      <div className="relative z-10 mt-3 flex items-baseline gap-1">
+        <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
+        {plan.period && <span className="text-[13px] text-white/50">{plan.period}</span>}
+      </div>
+      <div className="relative z-10 mt-1 text-[13px] font-medium text-[#B8CCFF]">
+        {plan.devices}
+      </div>
+
       <p className="relative z-10 mt-2 text-[13px] leading-relaxed text-white/70">{plan.blurb}</p>
 
       <div className="relative z-10 mt-6 inline-flex items-center gap-1 text-[13px] font-semibold text-white group-hover:gap-2">

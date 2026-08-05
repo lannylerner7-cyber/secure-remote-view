@@ -20,8 +20,6 @@
                                VerticalAlignment="Center" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
-                    <Button Content="Payments (web)" Click="OpenPayments_Click"
-                            Background="Transparent" Foreground="{StaticResource Accent}" />
                     <Button Content="Orders (web)" Click="OpenOrders_Click"
                             Background="Transparent" Foreground="{StaticResource Accent}" Margin="4,0" />
                     <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="4,0" />

@@ -6,7 +6,6 @@ import { sendTelegramNotify } from "@/lib/notify.functions";
 import { getMyRole, type AppRole } from "@/lib/admins.functions";
 
 import { NotificationBell } from "@/components/NotificationBell";
-import { PaymentsPanel } from "@/components/PaymentsPanel";
 import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 import {
@@ -147,9 +146,6 @@ function AdminPage() {
     fetchRole()
       .then((r) => {
         setRole(r.role);
-        if (nav === "payments" && r.role !== "admin" && r.role !== "super_admin") {
-          setNav("dashboard");
-        }
       })
       .catch(() => setRole(null));
     const ch = supabase
@@ -1007,8 +1003,8 @@ function AdminPage() {
   return (
     <div className="min-h-screen bg-[#0B1220] text-white">
       <div className="flex min-h-screen">
-        {/* Sidebar */}
-        <aside className="flex w-60 flex-col border-r border-white/10 bg-[#0F172A] p-4">
+        {/* Sidebar (desktop) */}
+        <aside className="hidden w-60 shrink-0 flex-col border-r border-white/10 bg-[#0F172A] p-4 lg:flex">
           <div className="mb-6 flex items-center gap-2 px-2">
             <span className="inline-block h-3 w-3 rounded-full bg-[#4F7CFF]" />
             <span className="font-semibold">ConnectLive</span>
@@ -1019,9 +1015,6 @@ function AdminPage() {
             <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
             <NavBtn id="audit" label="Audit log" />
             {role === "super_admin" && <NavBtn id="team" label="Team" />}
-            {(role === "super_admin" || role === "admin") && (
-              <NavBtn id="payments" label="Payments" />
-            )}
             {role === "super_admin" && <NavBtn id="settings" label="Settings" />}
           </nav>
           <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/50">
@@ -1041,28 +1034,64 @@ function AdminPage() {
         </aside>
 
         {/* Main */}
-        <div className="flex-1">
-          <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-            <h1 className="text-lg font-semibold capitalize">{nav}</h1>
-            <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-white/10 px-4 py-3 sm:px-6 sm:py-4">
+            <h1 className="truncate text-base font-semibold capitalize sm:text-lg">{nav}</h1>
+            <div className="flex shrink-0 items-center gap-3">
               <NotificationBell userId={userId} />
               {role !== "viewer" && (
-                <span className="text-xs text-white/50">
-                  Devices auto-enroll via Deployment Key — click <b>Connect</b> on any online
-                  device.
+                <span className="hidden text-xs text-white/50 xl:inline">
+                  Devices auto-enroll — click <b>Connect</b> on any online device.
                 </span>
               )}
+              <button
+                onClick={signOut}
+                className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/5 lg:hidden"
+              >
+                Sign out
+              </button>
             </div>
           </header>
 
+          {/* Nav strip (tablet + mobile) */}
+          <div className="flex gap-1.5 overflow-x-auto border-b border-white/10 px-3 py-2 lg:hidden">
+            {(
+              [
+                ["dashboard", "Dashboard"],
+                ["devices", "Devices"],
+                ["sessions", "Sessions"],
+                ["audit", "Audit"],
+                ...(role === "super_admin"
+                  ? ([
+                      ["team", "Team"],
+                      ["settings", "Settings"],
+                    ] as const)
+                  : []),
+              ] as ReadonlyArray<readonly [Nav, string]>
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setNav(id)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs transition ${
+                  nav === id
+                    ? "bg-[#4F7CFF]/20 text-white"
+                    : "text-white/60 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {reconnecting.length > 0 && (
-            <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-xs text-amber-200">
+            <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200 sm:px-6">
               <span className="mr-2 inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
               {reconnecting.length} device{reconnecting.length > 1 ? "s" : ""} reconnecting…
             </div>
           )}
 
-          <main className="p-6">
+          <main className="p-4 sm:p-6">
+
             {nav === "dashboard" && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -1219,9 +1248,6 @@ function AdminPage() {
 
             {nav === "team" && role === "super_admin" && <TeamPanel />}
 
-            {nav === "payments" && (role === "super_admin" || role === "admin") && (
-              <PaymentsPanel isSuperAdmin={role === "super_admin"} />
-            )}
           </main>
         </div>
       </div>

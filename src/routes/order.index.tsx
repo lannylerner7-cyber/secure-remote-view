@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { createOrderPublic, getActivePlansPublic } from "@/lib/orders.functions";
 import { Footer } from "@/components/Footer";
+import { Bitcoin, Building2, Coins, DollarSign, Mail, Phone, User } from "lucide-react";
 
 type Plan = {
   code: string;
@@ -115,7 +116,12 @@ function OrderPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="font-mono text-base">${Number(p.amount_usd).toFixed(2)}</div>
+                    <div className="text-right">
+                      <div className="font-mono text-base">${Number(p.amount_usd).toFixed(0)}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-white/40">
+                        per month
+                      </div>
+                    </div>
                     <input
                       type="radio"
                       name="plan"
@@ -149,6 +155,7 @@ function OrderPage() {
           <Field
             label="Full name"
             required
+            icon={<User className="h-4 w-4" />}
             value={form.full_name}
             onChange={(v) => setForm({ ...form, full_name: v })}
           />
@@ -156,28 +163,31 @@ function OrderPage() {
             label="Email"
             required
             type="email"
+            icon={<Mail className="h-4 w-4" />}
             value={form.email}
             onChange={(v) => setForm({ ...form, email: v })}
           />
           <Field
             label="Phone (optional)"
+            icon={<Phone className="h-4 w-4" />}
             value={form.phone}
             onChange={(v) => setForm({ ...form, phone: v })}
           />
           <Field
             label="Company (optional)"
+            icon={<Building2 className="h-4 w-4" />}
             value={form.company}
             onChange={(v) => setForm({ ...form, company: v })}
           />
 
           <label className="md:col-span-2">
             <div className="mb-1 text-xs uppercase tracking-wider text-white/50">Pay with</div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {(
                 [
-                  { k: "BTC", label: "Bitcoin", sub: "BTC" },
-                  { k: "USDT_ERC20", label: "Tether", sub: "USDT · ERC-20" },
-                  { k: "USDC_ERC20", label: "USD Coin", sub: "USDC · ERC-20" },
+                  { k: "BTC", label: "Bitcoin", sub: "BTC", Icon: Bitcoin, tint: "text-[#F7931A]" },
+                  { k: "USDT_ERC20", label: "Tether", sub: "USDT · ERC-20", Icon: Coins, tint: "text-[#26A17B]" },
+                  { k: "USDC_ERC20", label: "USD Coin", sub: "USDC · ERC-20", Icon: DollarSign, tint: "text-[#2775CA]" },
                 ] as const
               ).map((c) => (
                 <button
@@ -190,8 +200,11 @@ function OrderPage() {
                       : "border-white/10 bg-white/5 hover:border-white/25"
                   }`}
                 >
-                  <div className="font-medium">{c.label}</div>
-                  <div className="text-[11px] text-white/50">{c.sub}</div>
+                  <div className="flex items-center gap-2 font-medium">
+                    <c.Icon className={`h-4 w-4 shrink-0 ${c.tint}`} />
+                    {c.label}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-white/50">{c.sub}</div>
                 </button>
               ))}
             </div>
@@ -203,12 +216,12 @@ function OrderPage() {
             </div>
           )}
 
-          <div className="md:col-span-2 flex items-center justify-between text-xs text-white/50">
+          <div className="md:col-span-2 flex flex-col items-start gap-3 text-xs text-white/50 sm:flex-row sm:items-center sm:justify-between">
             <span>Price is locked for 15 minutes after you create the invoice.</span>
             <button
               type="submit"
               disabled={submitting || !form.plan_code}
-              className="rounded-lg bg-[#4F7CFF] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#3E67E0] disabled:opacity-50"
+              className="w-full rounded-lg bg-[#4F7CFF] px-5 py-3 sm:w-auto text-sm font-semibold text-white transition hover:bg-[#3E67E0] disabled:opacity-50"
             >
               {submitting ? "Creating…" : "Continue to invoice →"}
             </button>
@@ -226,24 +239,29 @@ function Field({
   value,
   onChange,
   required,
+  icon,
   type = "text",
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   required?: boolean;
+  icon?: React.ReactNode;
   type?: string;
 }) {
   return (
     <label className="block">
       <div className="mb-1 text-xs uppercase tracking-wider text-white/50">{label}</div>
-      <input
-        type={type}
-        required={required}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-[#4F7CFF]"
-      />
+      <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 focus-within:border-[#4F7CFF]">
+        {icon && <span className="shrink-0 text-white/40">{icon}</span>}
+        <input
+          type={type}
+          required={required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full min-w-0 bg-transparent py-2.5 text-sm text-white outline-none"
+        />
+      </div>
     </label>
   );
 }

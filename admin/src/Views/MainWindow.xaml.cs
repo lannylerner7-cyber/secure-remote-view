@@ -15,9 +15,6 @@ public partial class MainWindow : Window
         Closed += (_, _) => (DataContext as DevicesViewModel)?.StopPolling();
     }
 
-    private void OpenPayments_Click(object sender, RoutedEventArgs e)
-        => OpenBrowser($"{App.Config.BaseUrl}/console?tab=payments");
-
     private void OpenOrders_Click(object sender, RoutedEventArgs e)
         => OpenBrowser($"{App.Config.BaseUrl}/order");
 
