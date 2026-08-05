@@ -505,6 +505,31 @@ public partial class LiveSessionViewModel : ObservableObject
         }, CancellationToken.None);
     }
 
+    /// <summary>
+    /// S18 — put the full render/transport reading on the clipboard. The
+    /// measurement this roadmap item needs comes from a technician on a real
+    /// Windows host; asking them to dig a log file out of %LOCALAPPDATA% is how
+    /// that measurement never happens. One click, one paste.
+    /// </summary>
+    [RelayCommand]
+    private void CopyDiagnostics()
+    {
+        var p = _rtc?.Pipeline;
+        var line = p != null
+            ? p.StatsLine() + $" wire={_rtc?.WirePath ?? "unknown"} restarts={_rtc?.IceRestarts ?? 0}"
+            : $"[video] no native pipeline · {VideoStats ?? "no reading"}";
+        var text = $"session={SessionId} device={Device.DisplayName} at={DateTime.UtcNow:O}\n" +
+                   line + "\n" +
+                   ConnectLive.Admin.Input.InputTransport.StatsLine();
+        try
+        {
+            Clipboard.SetText(text);
+            StatusMessage = "Diagnostics copied to the clipboard.";
+        }
+        catch (Exception ex) { SurfaceError("Could not copy diagnostics: " + ex.Message); }
+    }
+
+
     private void StopCurtainHeartbeat()
     {
         try { _curtainCts?.Cancel(); } catch { }
