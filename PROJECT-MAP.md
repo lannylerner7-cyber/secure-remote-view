@@ -465,7 +465,7 @@ resolved all three:
   the reaper deliberately left them; they age out on their own.
 
 **Deliberately NOT changed** *(historical — the `ConsentPrompt` gate referenced
-below no longer exists; see §10.28 and §4)**:** `devices.standing_consent` defaults to `true`,
+below no longer exists; see §10.28 and §4)*: `devices.standing_consent` defaults to `true`,
 which reads against the "consent is a click" invariant. It is left alone
 because the agent's `ConsentPrompt` is the real gate and the column is only the
 *opt-in* record ("Always allow" stored under `HKCU\Software\ConnectLive`) —
