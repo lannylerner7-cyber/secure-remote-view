@@ -280,6 +280,15 @@ function PortalPage() {
 
         <SchedulePanel />
         <TelegramPanel />
+
+        <section className={card}>
+          <h2 className="mb-1 text-sm font-semibold">Contact us</h2>
+          <p className="mb-4 text-xs text-white/60">
+            Send the support team a message — you'll get an instant confirmation and a reply by
+            email.
+          </p>
+          <ContactForm source="portal" />
+        </section>
       </main>
     </div>
   );
