@@ -58,6 +58,17 @@ public partial class LiveSessionViewModel : ObservableObject
     // HTTP fallback pumps still run but the Realtime pipe is our fast path.
     private volatile bool _realtimeHealthy;
 
+    // ---- Step 9 — in-session file transfer --------------------------------
+    [ObservableProperty] private bool filesPanelOpen;
+    [ObservableProperty] private bool filesBusy;
+    [ObservableProperty] private string? filesStatus;
+    [ObservableProperty] private long sessionBytesUsed;
+    [ObservableProperty] private bool hasCachedPassword;
+    [ObservableProperty] private string passwordEmail = "";
+    [ObservableProperty] private string passwordPlain = "";
+    public ObservableCollection<SessionFileItem> Files { get; } = new();
+    private CancellationTokenSource? _filesCts;
+
 
     // Latest cursor sample (normalised 0..1) bound by LiveSessionWindow.
     [ObservableProperty] private double cursorNormX;
