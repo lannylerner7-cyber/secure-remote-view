@@ -23,12 +23,18 @@
 param(
     [switch]$SkipInno,
     [switch]$SkipMsi,
+    [switch]$SkipSign,
     [string]$Version
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+
+# S25 - Authenticode signing. Credentials come from CODESIGN_* environment
+# variables; see docs/SIGNING.md. Unconfigured = unsigned build + warning,
+# configured = failure to sign is fatal.
+. (Join-Path $root "..\tools\CodeSign.ps1")
 
 # -- 0. Version ----------------------------------------------------------------
 # MSI ProductVersion must be 4 numeric fields. A moving version guarantees each
@@ -106,6 +112,12 @@ if (Test-Path assets/icon.ico) {
     Write-Warning "assets\icon.ico not found - installers will use the default icon."
 }
 
+# -- 3b. Sign the agent binary (S25) -------------------------------------------
+# The exe must be signed BEFORE the installers embed it, otherwise the payload
+# extracted onto the endpoint is unsigned even when the installer is not.
+
+Invoke-ConnectLiveSign -Paths @("dist/ConnectLive.exe") -Skip:$SkipSign
+
 # -- 4. Build Inno Setup installer ---------------------------------------------
 
 if (-not $SkipInno) {
@@ -149,6 +161,11 @@ if (-not $SkipMsi) {
     } finally { Pop-Location }
 }
 
+# -- 5b. Sign the installers (S25) ---------------------------------------------
+# Signed after build, before zipping, so the archive carries signed installers.
+
+Invoke-ConnectLiveSign -Paths @("dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi") -Skip:$SkipSign
+
 # -- 6. Package the installer(s) for distribution ------------------------------
 
 Write-Host "==> Creating distribution ZIP..."
@@ -176,9 +193,14 @@ Write-Host "  Installers (ship ONE of these to IT staff):"
 if (Test-Path dist/ConnectLiveSetup.exe) { Write-Host "    dist\ConnectLiveSetup.exe   <- interactive install" }
 if (Test-Path dist/ConnectLiveAgent.msi) { Write-Host "    dist\ConnectLiveAgent.msi   <- silent / Intune / GPO" }
 Write-Host ""
-Write-Host "  Sign before wide rollout:"
-Write-Host "    signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a dist\ConnectLiveSetup.exe"
-Write-Host "    signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a dist\ConnectLiveAgent.msi"
+Write-Host "  Signing:"
+if ($SkipSign) {
+    Write-Host "    SKIPPED (-SkipSign) - do not distribute this build."
+} elseif ($env:CODESIGN_THUMBPRINT -or $env:CODESIGN_PFX -or $env:CODESIGN_SUBJECT) {
+    Write-Host "    Authenticode signed + timestamped (see docs\SIGNING.md)."
+} else {
+    Write-Host "    UNSIGNED - set CODESIGN_* env vars before a public release (docs\SIGNING.md)."
+}
 
 # -- 8. Release manifest (S14) --------------------------------------------------
 # Self-update refuses any release row without a sha256, so the checksum below is
