@@ -237,6 +237,18 @@ public sealed class WebRtcSession : IDisposable
         _pc.ondatachannel += (dc) =>
         {
             Log.Info($"webrtc dc open: {dc.label}");
+
+            // ---- Step 10 — file exchange channel --------------------------
+            // The peer (web console or native admin) opens a second reliable
+            // ordered channel labelled "files". It never carries input, so it
+            // is routed straight to FileTransfer and MUST NOT fall through to
+            // the InputRelay parser below.
+            if (dc.label == "files")
+            {
+                FileTransfer.Attach(_api, _sessionId, dc);
+                return;
+            }
+
             // Ingress coalescer: consecutive `mousemove` messages collapse to
             // the latest before hitting the input pump. Any other kind (click,
             // key, wheel, text, curtain_*) flushes the pending move first to
