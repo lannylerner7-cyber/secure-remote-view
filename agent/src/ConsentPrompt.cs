@@ -92,11 +92,18 @@ public static class ConsentPrompt
     public static Task<bool> AskAsync(string technician, string mode, CancellationToken ct,
                                       TimeSpan? timeout = null)
     {
+        if (!PromptOnConnect())
+        {
+            Log.Info("consent: connect prompt disabled by policy — session accepted silently");
+            return Task.FromResult(true);
+        }
+
         if (HasStandingConsent())
         {
             Log.Info("consent: standing consent on file — auto-accepted");
             return Task.FromResult(true);
         }
+
 
         var app = Application.Current;
         if (app is null)
