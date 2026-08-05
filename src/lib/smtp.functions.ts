@@ -66,7 +66,7 @@ export const saveSmtpSettings = createServerFn({ method: "POST" })
     await assertSuperAdmin(context as never);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const patch: Record<string, unknown> = {
+    const patch = {
       host: data.host.trim(),
       port: data.port,
       username: data.username.trim(),
@@ -77,8 +77,8 @@ export const saveSmtpSettings = createServerFn({ method: "POST" })
       enabled: data.enabled,
       updated_at: new Date().toISOString(),
       updated_by: context.userId,
+      ...(data.password && data.password.length > 0 ? { password: data.password } : {}),
     };
-    if (data.password && data.password.length > 0) patch.password = data.password;
 
     const { error } = await supabaseAdmin.from("smtp_settings").update(patch).eq("id", true);
     if (error) throw new Error(error.message);
@@ -86,7 +86,7 @@ export const saveSmtpSettings = createServerFn({ method: "POST" })
     await supabaseAdmin.from("audit_logs").insert({
       actor: context.userId,
       event: "smtp.settings_saved",
-      detail: { host: patch.host, enabled: data.enabled, encryption: data.encryption },
+      detail: { host: data.host.trim(), enabled: data.enabled, encryption: data.encryption },
     });
     return { ok: true };
   });
