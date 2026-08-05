@@ -49,7 +49,6 @@ public sealed class WebRtcClient : IDisposable
     private DateTime _lastRestartUtc = DateTime.MinValue;
     private int _pliBurst;
     private int _restarts;
-    private RtpCapture? _capture;
 
     /// <summary>The native video pipeline. The window binds its surface directly.</summary>
     public VideoPipeline Pipeline { get; } = new();
@@ -78,8 +77,8 @@ public sealed class WebRtcClient : IDisposable
         _cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var ct = _cts.Token;
 
-        _capture = RtpCapture.CreateIfEnabled(_sessionId);
-        if (_capture != null) T("RTP capture harness armed -> " + _capture.Path);
+
+
 
         Pipeline.KeyFrameRequested += OnKeyFrameRequested;
         Pipeline.Diagnostic += d => T("pipeline: " + d);
@@ -293,12 +292,6 @@ public sealed class WebRtcClient : IDisposable
                 if (delta < 0x8000) lastSeq = seq;
             }
             else lastSeq = seq;
-
-            // Gate B tap — strictly passive, debug-flag gated.
-            if (_capture != null)
-            {
-                try { _capture.Write(pkt.GetBytes()); } catch { }
-            }
         };
 
 
@@ -555,8 +548,6 @@ public sealed class WebRtcClient : IDisposable
         _pc = null;
         try { Pipeline.KeyFrameRequested -= OnKeyFrameRequested; } catch { }
         try { Pipeline.Dispose(); } catch { }
-        try { _capture?.Dispose(); } catch { }
-        _capture = null;
         Log.Write("[webrtc] closed — pipeline flushed, D3D surface parked");
     }
 
