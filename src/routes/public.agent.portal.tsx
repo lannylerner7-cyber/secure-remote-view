@@ -6,8 +6,16 @@ import {
   getMyPortal,
   removeMyDevice,
   changeMyPassword,
+  getMyAlertSettings,
+  saveMyAlertSettings,
+  sendMyTelegramTest,
+  listMyBookings,
+  requestSupportSession,
   type PortalOverview,
+  type PortalAlertSettings,
+  type SupportBooking,
 } from "@/lib/portal.functions";
+
 
 export const Route = createFileRoute("/public/agent/portal")({
   ssr: false,
