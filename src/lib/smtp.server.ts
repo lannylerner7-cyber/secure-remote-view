@@ -226,6 +226,8 @@ export type MailMessage = {
   subject: string;
   html: string;
   text: string;
+  /** Optional per-message Reply-To, e.g. `Jane <jane@example.com>`. */
+  replyTo?: string;
   /** Extra RFC 5322 headers (e.g. List-Unsubscribe). Values are single-line. */
   headers?: Record<string, string>;
 };
