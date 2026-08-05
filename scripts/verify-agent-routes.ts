@@ -68,6 +68,9 @@ async function hit(
   await hit("POST", `/api/public/agent/session/${SID}/consent`, [401], { headers: j, body: "{}" });
   await hit("POST", `/api/public/agent/session/${SID}/frame`, [401], { headers: j, body: "{}" });
   await hit("POST", `/api/public/agent/session/${SID}/cursor`, [401], { headers: j, body: "{}" });
+  // Step 8 — file chunk fallback must reject unauthenticated devices too.
+  await hit("POST", `/api/public/agent/session/${SID}/file?fileId=abc&seq=0`, [401], { body: "" });
+
   await hit("GET", `/api/public/agent/session/${SID}/inputs`, [401]);
   await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], { headers: j, body: "{}" });
   await hit("POST", `/api/public/agent/session/${SID}/signal`, [401], { headers: j, body: "{}" });
