@@ -90,11 +90,22 @@ function OrderPage() {
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-12">
+        <div className="mb-6 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3">
+          <Gift className="h-4 w-4 shrink-0 text-emerald-300" />
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">
+            Promo drop
+          </span>
+          <span className="text-xs text-white/70">
+            $250 → $150 · $570 → $310 · $840 → $560 — discount already applied below.
+          </span>
+        </div>
+
         <h1 className="text-3xl font-semibold">Buy a ConnectLive license</h1>
         <p className="mt-2 text-sm text-white/60">
           Pick a plan and pay in Bitcoin, USDT, or USDC. You'll get an invoice with a live payment
           tracker.
         </p>
+
 
         <form onSubmit={submit} className="mt-8 grid gap-6 md:grid-cols-2">
           <label className="md:col-span-2">
