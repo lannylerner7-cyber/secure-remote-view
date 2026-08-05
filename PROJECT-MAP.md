@@ -1899,3 +1899,11 @@ chip, and **Send clipboard** / **Record session** buttons. Native console gained
 **Send clipboard** and a **Record / Stop recording** button that turns red while
 capturing (`SendClipboardCommand`, `ToggleRecordingCommand`).
 
+
+**TURN health check — 2026-08-05.** Live re-verified: Cloudflare mint returns
+`201 Created` on both `credentials/generate-ice-servers` (primary) and
+`credentials/generate` (legacy fallback), each carrying `username` +
+`credential` and the full `turn:`/`turns:` relay set (3478 udp/tcp, 5349 tls,
+53 udp, 80 tcp, 443 tls). No 401s. `/api/public/agent/ice` still returns 401 to
+unauthenticated callers, as designed — relay minutes are billable.
+Open item remains **S25 — code signing**.
