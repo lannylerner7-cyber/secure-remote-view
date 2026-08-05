@@ -34,7 +34,20 @@ Set-Location $root
 # S25 - Authenticode signing. Credentials come from CODESIGN_* environment
 # variables; see docs/SIGNING.md. Unconfigured = unsigned build + warning,
 # configured = failure to sign is fatal.
-. (Join-Path $root "..\tools\CodeSign.ps1")
+# CodeSign.ps1 lives at repo\tools\ in the source tree and next to this script
+# (or in .\tools\) inside a standalone packaging zip. Probe all three.
+$signHelper = @(
+    (Join-Path $root "..\tools\CodeSign.ps1"),
+    (Join-Path $root "tools\CodeSign.ps1"),
+    (Join-Path $root "CodeSign.ps1")
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if ($signHelper) {
+    . $signHelper
+} else {
+    Write-Warning "CodeSign.ps1 not found - building UNSIGNED (see docs\SIGNING.md)."
+    function Invoke-ConnectLiveSign { param([string[]]$Paths, [switch]$Skip) }
+}
 
 # -- 0. Version ----------------------------------------------------------------
 # MSI ProductVersion must be 4 numeric fields. A moving version guarantees each
