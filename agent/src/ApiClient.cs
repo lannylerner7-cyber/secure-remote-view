@@ -50,6 +50,18 @@ public sealed class ApiClient
     private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
     private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
     private static readonly string SessionPath = Path.Combine(ConfigDir, "session.dat");
+    private static readonly string LicensePath = Path.Combine(ConfigDir, "license.dat");
+
+    /// <summary>Delegate that yields a Meeting ID for enrollment. The App
+    /// wires this to <see cref="MeetingIdPrompt"/> on foreground launches and
+    /// leaves it null on headless (/BACKGROUND, /WAKE) launches — those must
+    /// never surface UI, so they defer enrollment until a foreground run.</summary>
+    public Func<string?, string?>? MeetingIdProvider { get; set; }
+
+    /// <summary>Last license verdict returned by enroll/heartbeat. Consumed by
+    /// the splash and dormancy logic; null until the first successful call.</summary>
+    public LicenseState? License { get; private set; }
+    public event Action<LicenseState>? OnLicenseChanged;
 
     private readonly HttpClient _http;
     public string ApiBaseUrl { get; }
