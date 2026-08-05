@@ -546,9 +546,8 @@ public partial class LiveSessionWindow : Window
         base.OnDrop(e);
         if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && _vm != null)
         {
-            // The file dialog command is the same public entry point.
             _vm.FilesPanelOpen = true;
-            _ = _vm.SendFiles();
+            _ = _vm.SendPathsAsync(paths);
         }
     }
 }
