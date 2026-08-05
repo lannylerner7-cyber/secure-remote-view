@@ -371,19 +371,28 @@ function Home() {
             </div>
           </section>
 
-          {/* Capabilities tiles */}
-          {CAPABILITIES.map((c) => (
-            <section
-              key={c.k}
-              className="rounded-2xl border border-white/10 bg-navy-800 p-5 transition hover:border-navy-400/60 lg:col-span-3"
-            >
-              <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-navy-400">
-                {c.k}
-              </span>
-              <h3 className="mt-3 text-[16px] font-semibold tracking-tight">{c.label}</h3>
-              <p className="mt-2 text-[13px] leading-relaxed text-navy-200">{c.body}</p>
+          {/* Edge-clean product motion — no card chrome */}
+          {SHOWCASE.map((v) => (
+            <section key={v.src} className="lg:col-span-6">
+              <div className="overflow-hidden rounded-2xl">
+                <video
+                  src={v.src}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                  aria-label={v.caption}
+                  referrerPolicy="no-referrer"
+                  className="block h-full w-full object-cover"
+                />
+              </div>
+              <p className="mt-3 px-1 font-mono text-[11px] uppercase tracking-[0.18em] text-navy-200/70">
+                {v.caption}
+              </p>
             </section>
           ))}
+
 
           {/* Plans header */}
           <section id="plans" className="rounded-2xl border border-white/10 bg-navy-700 p-6 lg:col-span-12">
