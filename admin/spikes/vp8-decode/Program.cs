@@ -55,7 +55,7 @@ internal static class Program
                           $"({frames.Count(f => f.KeyFrame)} keyframes)");
         if (frames.Count == 0) { Console.Error.WriteLine("[spike1] FAIL — no complete frames"); return 1; }
 
-        using var decoder = new VideoEncoder();
+        using var decoder = new VpxVideoEncoder();
         int written = 0, decoded = 0, orangeOk = 0;
 
         foreach (var f in frames)
