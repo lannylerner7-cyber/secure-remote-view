@@ -53,6 +53,9 @@ Everything else the web console does goes straight through the Supabase client
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
 | GET | `/api/public/health` | Uptime probe. | none |
+| GET | `/robots.txt` | Crawl policy; disallows console/portal/checkout/API, points at the sitemap. | none |
+| GET | `/sitemap.xml` | Six indexable public pages. | none |
+| GET/POST | `/api/public/newsletter/unsubscribe` | One-click unsubscribe (RFC 8058). HMAC token over the address; GET renders a confirmation page, POST answers the `List-Unsubscribe-Post` call. | HMAC token |
 | GET | `/health` | Standalone Docker/Coolify liveness probe (`src/routes/health.ts`) — no auth, no DB touch. | none |
 | GET | `/api/public/stats/orders` | Aggregate, non-PII order counters for the landing page. | none |
 | POST | `/api/public/cron/reconcile-orders` | Scheduled crypto-payment reconciliation. Currently authenticated with the Supabase **anon key** as bearer, not a dedicated secret (open decision, PROJECT-MAP §8). | cron secret |

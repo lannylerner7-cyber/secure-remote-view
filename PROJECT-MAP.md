@@ -2092,6 +2092,7 @@ annotated as superseded where they contradict this.
 | ~~S20~~ | ~~Present pacing / vsync alignment~~ | **SHIPPED 2026-08-05 (§10.30)** — `admin/src/Media/PresentPacer.cs` releases one decoded frame per `CompositionTarget.Rendering` tick behind a 1–2 frame cushion; judder is measured and on the HUD. Only the on-hardware judder reading is still owed (blocked with S18) | done |
 | S24-b | Recording retention / upload policy | Recording writes locally only (`IvfWriter` native, browser download on web); nothing uploads, expires, or audits it | **Yes** |
 | S25-b | Code-signing certificate | `tools/CodeSign.ps1` + `docs/SIGNING.md` shipped and wired into both build scripts; the certificate is a procurement step | No — procurement |
+| SEO/mail | ~~Sitemap, robots, canonicals on public pages, newsletter one-click unsubscribe~~ | **SHIPPED 2026-08-05 (§10.32)** | done |
 | — | Windows-host build + soak run | `scripts/e2e-soak.ts` exists and is unrun against real agents | No — environment-bound |
 
 **Not open, despite what older sections imply:** S8, S9, S10, S11, S12, S13,
@@ -2159,3 +2160,29 @@ homepage: subscribe → row written → welcome email accepted by
 `smtp.gmail.com:587` (STARTTLS), `welcome_sent_at` stamped. Both showcase videos
 reach `readyState 4` and play. No unsafe `target="_blank"` and no plain-`http://`
 URLs remain in `src/`.
+
+
+---
+
+## §10.32 — Audit pass: SEO surface + email compliance — 2026-08-05 (`SCOPE:WEB`)
+
+**Method.** Roadmap §11 head-to-head against the tree: stale-identifier sweep
+(`zoomlite`, `secure-remote-view`, `AGENT_DEPLOYMENT_KEY`, `ConsentPrompt`,
+`TODO`, `FIXME`) across `src`, `agent/src`, `admin/src` — zero hits outside
+`scripts/*` localhost defaults, which are intentional; `verify-agent-routes`
+25/25; `verify-payment-routes` 5/5; `tsgo --noEmit` clean; `head()` present on
+all 16 route files.
+
+**Three real gaps found (all web, none in agent/admin):**
+
+| Gap | Evidence | Fix shipped |
+| --- | --- | --- |
+| No `sitemap.xml`, no `robots.txt` | `ENDPOINTS.md` claimed a sitemap targeting `connectliveagent.com`; `public/` held only favicons and no route served either file | `src/routes/sitemap[.]xml.ts` (6 indexable pages, lastmod/changefreq/priority) and `src/routes/robots[.]txt.ts` (disallows `/console`, `/payments`, `/connectlive/`, `/public/agent/`, `/api/`; points at the sitemap) |
+| Canonicals only on noindex routes | `connectlive/admin`, `connectlive/payment`, `public/agent/login`, `/console` had them; every *indexable* page (`/`, `/order`, `/contact`, `/privacy`, `/terms`, `/refund`) had none | canonical `link` added to all six leaf `head()` blocks, `www.connectliveagent.com` apex form |
+| Newsletter had no unsubscribe mechanism | `newsletter_subscribers.unsubscribed_at` existed but nothing ever set it; mail said "reply with unsubscribe"; no `List-Unsubscribe` header — Gmail/Yahoo bulk-sender rules require one-click | `src/lib/newsletter-unsub.server.ts` (HMAC token over the address, service-role key, constant-time compare), `src/routes/api/public/newsletter/unsubscribe.ts` (GET link + RFC 8058 POST), `MailMessage.headers` support in `smtp.server.ts`, `List-Unsubscribe` + `List-Unsubscribe-Post` on the welcome mail, unsubscribe link in the HTML and text footers |
+
+**Verified live:** `/robots.txt` 200 text/plain, `/sitemap.xml` 200
+application/xml, unsubscribe with a forged token → 400 and no row touched.
+
+**Unchanged by design.** No agent or admin code touched in this pass; §11 open
+items are untouched by these fixes.
