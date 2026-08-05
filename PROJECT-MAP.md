@@ -1698,4 +1698,30 @@ dormancy UX when the heartbeat reports `blocked`/`expired`.
 
 ---
 
-## §10.17 — Step 7:
+## §10.17 — Step 7: Agent Meeting-ID prompt + dormancy — 2026-08-05 (`SCOPE:AGENT`)
+
+The Agent now owns the customer-side of licensing end-to-end. First run
+prompts once, remembers the ID forever, and stays enrolled through every
+license state (active / blocked / expired) so a machine revives the instant a
+seat frees or a subscription renews.
+
+| File | Change |
+|---|---|
+| `agent/src/MeetingIdPrompt.cs` | New WPF modal matched to the splash's brand tokens. Uppercase 16-char input, Enter/Escape wired, inline error re-shown on `invalid_meeting_id` server response. `MeetingIdPrompt.Ask(error?)` is thread-safe (marshals to the WPF dispatcher) and returns null on cancel. |
+| `agent/src/ApiClient.cs` | `EnrollIfNeededAsync` now sends `meetingId`, loops on HTTP 403 `invalid_meeting_id` back to the prompt with a clear error, persists the ID under DPAPI-encrypted `%LOCALAPPDATA%\ConnectLive\license.dat` (Hidden|System), and exposes `LicenseState` + `OnLicenseChanged`. `HeartbeatAsync` parses `license.{state,reason,meeting_id,expires_at}` on every response and raises the same event. `EnrollResponse` gained `[JsonPropertyName]` attributes; the local device-creds file was split into its own POCO (`StoredCreds`, case-insensitive read) so pre-existing `device.dat` blobs deserialize unchanged. |
+| `agent/src/App.xaml.cs` | Wires `api.MeetingIdProvider = MeetingIdPrompt.Ask` only on foreground launches — `/BACKGROUND` and `/WAKE` starts stay silent and defer enrollment. `OnLicenseChanged` updates the splash status while it is still visible (`Licensed — Meeting XXXX`, `Subscription expired — renew to resume support`, `All seats in use — remove a device in your portal`, `Device not activated on this license`). |
+| `agent/src/Agent.cs` | Enroll retry loop catches `OperationCanceledException` when the user dismisses the prompt: sets `Activation required — enter your Meeting ID` on the splash and stays resident/dormant instead of hammering the prompt in a loop. |
+
+Dormancy contract: heartbeat keeps flowing in every state so the server always
+knows the machine's presence and can flip it live the moment
+`evaluateLicense` returns `active`. Frames, cursor, inputs, power commands
+already gate on `licensed` in `heartbeat.ts` — the agent side is purely UX.
+
+Route/keys inventory: no new endpoints. The enroll and heartbeat contracts
+introduced in §10.15 are consumed as designed. `meeting.dat` (DPAPI machine
+scope) is the fourth file in the hidden `ConnectLive` config folder, joining
+`device.dat`, `session.dat`, `config.json`.
+
+**Next:** Native Admin Console side of licensing (Customers panel, seat
+management, portal password reset from within the console).
+
