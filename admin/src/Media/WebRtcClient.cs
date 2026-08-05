@@ -78,8 +78,8 @@ public sealed class WebRtcClient : IDisposable
         _cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var ct = _cts.Token;
 
-        _capture = RtpCapture.CreateIfEnabled(_sessionId);
-        if (_capture != null) T("RTP capture harness armed -> " + _capture.Path);
+
+
 
         Pipeline.KeyFrameRequested += OnKeyFrameRequested;
         Pipeline.Diagnostic += d => T("pipeline: " + d);
