@@ -468,7 +468,7 @@ function PlanCardView({ plan }: { plan: PlanCard }) {
   return (
     <Link
       to={plan.href}
-      className={`group flex h-full flex-col rounded-2xl border p-5 transition ${
+      className={`group flex h-full flex-col rounded-2xl border p-5 transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_-20px_rgba(0,0,0,0.8)] ${
         plan.featured
           ? "border-navy-400 bg-navy-600"
           : "border-white/10 bg-navy-800 hover:border-navy-400/60"
@@ -478,14 +478,31 @@ function PlanCardView({ plan }: { plan: PlanCard }) {
         <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-navy-200">
           {plan.name}
         </span>
-        {plan.featured && (
+        {plan.featured ? (
           <span className="rounded-sm bg-navy-400 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-navy-900">
             Popular
           </span>
-        )}
+        ) : plan.saveLabel ? (
+          <span className="inline-flex items-center gap-1 rounded-sm bg-emerald-400/15 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-200 ring-1 ring-emerald-400/30">
+            <Gift className="h-3 w-3" />
+            Promo
+          </span>
+        ) : null}
       </div>
 
-      <div className="mt-4 flex items-baseline gap-1">
+      {plan.wasPrice && (
+        <div className="mt-4 flex items-center gap-2">
+          <span className="font-mono text-[13px] text-navy-200/60 line-through">
+            {plan.wasPrice}
+          </span>
+          {plan.saveLabel && (
+            <span className="rounded-sm bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-200">
+              {plan.saveLabel}
+            </span>
+          )}
+        </div>
+      )}
+      <div className={`${plan.wasPrice ? "mt-1" : "mt-4"} flex items-baseline gap-1`}>
         <span className="font-mono text-3xl font-bold tracking-tight">{plan.price}</span>
         {plan.period && (
           <span className="font-mono text-[12px] text-navy-200/70">{plan.period}</span>
@@ -494,6 +511,7 @@ function PlanCardView({ plan }: { plan: PlanCard }) {
       <div className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-navy-400">
         {plan.devices}
       </div>
+
 
       <p className="mt-3 text-[13px] leading-relaxed text-navy-200">{plan.blurb}</p>
 
