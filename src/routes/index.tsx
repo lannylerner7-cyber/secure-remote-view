@@ -76,12 +76,18 @@ const PROMO_ITEMS = [
   "Free video setup guides with every completed order",
 ];
 
-const CAPABILITIES: { k: string; label: string; body: string }[] = [
-  { k: "01", label: "Instant onboarding", body: "Get your team up and running in minutes with a guided setup — no complex configuration." },
-  { k: "02", label: "Effortless collaboration", body: "Work together on any screen, from any place, as if you were sitting side by side." },
-  { k: "03", label: "Reliable everywhere", body: "Consistent performance across offices, home networks, and travel days you didn't plan for." },
-  { k: "04", label: "Human-first support", body: "Real people on standby to help your team when it matters — not tickets in a queue." },
+/** Ambient product motion, rendered without card chrome so the edges stay clean. */
+const SHOWCASE: { src: string; caption: string }[] = [
+  {
+    src: "https://www.google.com/chrome/static/videos/whats-new/sidebyside/sidebyside.webm",
+    caption: "How live feels",
+  },
+  {
+    src: "https://www.google.com/chrome/static/videos/whats-new/144/pdfannotations.webm",
+    caption: "How writing on a document feels",
+  },
 ];
+
 
 
 export const Route = createFileRoute("/")({
