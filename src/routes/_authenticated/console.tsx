@@ -1640,7 +1640,19 @@ function AdminPage() {
                     {!videoDecoding && liveFrame?.updated_at && (
                       <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>
                     )}
+                    {/* S21 — transfer path at a glance: direct datachannel vs
+                        the archive/HTTP fallback. */}
+                    <span className="flex items-center gap-1">
+                      ·
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${
+                          filesReady ? "bg-emerald-400" : "bg-white/30"
+                        }`}
+                      />
+                      <span>{filesReady ? "files direct" : "files via archive"}</span>
+                    </span>
                   </div>
+
 
                   {s.mode === "control" && s.device_id && (
                     <>
