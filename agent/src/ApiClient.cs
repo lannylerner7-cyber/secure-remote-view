@@ -512,7 +512,41 @@ public sealed class ApiClient
         catch { return false; }
     }
 
+    // ---- Step 10: session file chunk upload (DataChannel fallback) -----
+    //
+    // Mirrors src/routes/api/public/agent/session.$sessionId.file.ts. Chunks
+    // land as discrete part objects; the eof=1 request stitches them, enforces
+    // the 500 MiB / 5 GiB quotas and writes the session_files manifest row.
+    public async Task<bool> UploadSessionFileChunkAsync(
+        string sessionId, string fileId, int seq, bool eof,
+        string name, string mime, string sha256, long totalSize,
+        byte[] chunk, CancellationToken ct)
+    {
+        try
+        {
+            var path = $"/api/public/agent/session/{sessionId}/file" +
+                       $"?fileId={Uri.EscapeDataString(fileId)}&seq={seq}" + (eof ? "&eof=1" : "");
+            using var resp = await SendAuthedAsync(() =>
+            {
+                var req = new HttpRequestMessage(HttpMethod.Post, path)
+                {
+                    Content = new ByteArrayContent(chunk ?? Array.Empty<byte>()),
+                };
+                req.Content.Headers.ContentType =
+                    new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                req.Headers.Add("X-File-Name", name);
+                req.Headers.Add("X-File-Mime", mime);
+                req.Headers.Add("X-File-Sha256", sha256);
+                req.Headers.Add("X-File-Size", totalSize.ToString());
+                return req;
+            }, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
     // ---- Cursor telemetry (Phase-1: decoupled from frame stream) -------
+
 
     public async Task<bool> PostCursorAsync(string sessionId, int x, int y, int w, int h, string kind, bool visible, CancellationToken ct)
     {
