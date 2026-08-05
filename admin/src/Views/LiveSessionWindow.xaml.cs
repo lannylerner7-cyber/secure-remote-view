@@ -151,6 +151,33 @@ public partial class LiveSessionWindow : Window
             allowUpscale: FrameImage.StretchDirection != StretchDirection.DownOnly);
     }
 
+    /// <summary>
+    /// Fit ⇄ 1:1. Fit scales the desktop to the window (upscale allowed);
+    /// 1:1 presents native pixels inside a scroll viewer. ContentRect derives
+    /// allowUpscale from the Image's live StretchDirection, so the input and
+    /// ghost-cursor geometry follow this switch with no extra state.
+    /// </summary>
+    private void ViewMode_Changed(object sender, RoutedEventArgs e)
+    {
+        var oneToOne = OneToOneToggle.IsChecked == true;
+        if (oneToOne)
+        {
+            FrameImage.Stretch = Stretch.None;
+            FrameImage.StretchDirection = StretchDirection.DownOnly;
+            FrameScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+            FrameScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        }
+        else
+        {
+            FrameImage.Stretch = Stretch.Uniform;
+            FrameImage.StretchDirection = StretchDirection.Both;
+            FrameScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            FrameScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        }
+        UpdateCursorGhost();
+        Keyboard.Focus(Stage);
+    }
+
     private void UpdateCursorGhost()
     {
         // Sample() advances prediction expiry and the fade, so it must be
@@ -166,13 +193,20 @@ public partial class LiveSessionWindow : Window
         if (!r.IsValid) { CursorGhost.Visibility = Visibility.Collapsed; return; }
         // Offset by the letterbox bars, not by the raw element size.
         var (x, y) = r.ToElement(nx, ny);
-        Canvas.SetLeft(CursorGhost, x - 1);
-        Canvas.SetTop(CursorGhost, y - 1);
+        // The overlay canvas is a sibling of the ScrollViewer, so image-space
+        // has to be mapped into canvas-space or the ghost ignores the scroll
+        // offset in 1:1 mode.
+        Point onCanvas;
+        try { onCanvas = FrameImage.TransformToVisual(CursorLayer).Transform(new Point(x, y)); }
+        catch { CursorGhost.Visibility = Visibility.Collapsed; return; }
+        Canvas.SetLeft(CursorGhost, onCanvas.X - 1);
+        Canvas.SetTop(CursorGhost, onCanvas.Y - 1);
         // Predicted = the technician's own hand (solid); telemetry = the remote
         // machine's pointer (dimmed), so the two are never confused on screen.
         CursorGhost.Opacity = _predict.IsPredicting ? 1.0 : 0.75;
         CursorGhost.Visibility = Visibility.Visible;
     }
+
 
 
     private (double x, double y) ToAbs(MouseEventArgs e)

@@ -41,6 +41,18 @@
                   CanUserAddRows="False" CanUserDeleteRows="False"
                   IsReadOnly="True"
                   SelectionMode="Single">
+            <!-- Cells must not swallow the first click: without this the grid
+                 takes the initial press for cell focus and Connect / Wake /
+                 Delete appear dead until the row is already selected. -->
+            <DataGrid.CellStyle>
+                <Style TargetType="DataGridCell">
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="Foreground" Value="White" />
+                </Style>
+            </DataGrid.CellStyle>
+
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Device" Binding="{Binding DisplayName}" Width="*" />
                 <DataGridTextColumn Header="Host" Binding="{Binding Hostname}" Width="140" />
