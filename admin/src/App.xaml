@@ -15,9 +15,19 @@
                 <Setter Property="Foreground" Value="White" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Padding" Value="12,6" />
+                <Setter Property="MinHeight" Value="28" />
                 <Setter Property="FontFamily" Value="Segoe UI" />
                 <Setter Property="Cursor" Value="Hand" />
             </Style>
+
+            <!-- Top-level menu headers sit on the dark toolbar; the drop-down
+                 itself keeps the system popup chrome so it stays legible. -->
+            <Style TargetType="Menu">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="FontFamily" Value="Segoe UI" />
+            </Style>
+
             <Style TargetType="TextBox">
                 <Setter Property="Background" Value="{StaticResource BgPrimary}" />
                 <Setter Property="Foreground" Value="White" />
