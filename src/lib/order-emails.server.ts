@@ -72,8 +72,10 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
       `<p style="font-size:14px;line-height:1.6;margin:0 0 8px">We've recorded your ConnectLive order. Send the exact crypto amount to the address below before the price lock expires.</p>
        ${table}
        <p style="margin:18px 0"><a href="${track}" style="background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;display:inline-block">Track this order</a></p>
-       <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0">Once the payment confirms on-chain we'll email you again with delivery details.</p>`,
+       <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0 0 10px">Once the payment confirms on-chain we'll email you again with delivery details.</p>
+       <p style="font-size:13px;line-height:1.6;margin:0;padding:12px;background:#EFF6FF;border-radius:8px;color:#1E3A8A"><strong>Video setup guides are included.</strong> On order completion we send the agent installer, the admin console installer, your Meeting ID and sign-in details, plus step-by-step video setup guides covering installation, device enrollment, and your first live session.</p>`,
       "You're receiving this because an order was placed with this email address.",
+
     );
 
     const text = [
