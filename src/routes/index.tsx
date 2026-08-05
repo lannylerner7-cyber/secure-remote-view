@@ -364,7 +364,7 @@ function Home() {
               className="h-56 w-full object-cover sm:h-72"
               loading="lazy"
             />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-navy-900 via-navy-900/50 to-transparent" />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-navy-900 via-navy-900/85 to-navy-900/25" />
             <div className="absolute bottom-0 left-0 p-6 sm:p-8">
               <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-navy-400">
                 Enterprise ready
