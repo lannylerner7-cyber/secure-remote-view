@@ -455,7 +455,14 @@ function PlanCardView({ plan, index }: { plan: PlanCard; index: number }) {
         )}
       </div>
 
-      <div className="relative z-10 mt-3 text-2xl font-semibold tracking-tight">{plan.devices}</div>
+      <div className="relative z-10 mt-3 flex items-baseline gap-1">
+        <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
+        {plan.period && <span className="text-[13px] text-white/50">{plan.period}</span>}
+      </div>
+      <div className="relative z-10 mt-1 text-[13px] font-medium text-[#B8CCFF]">
+        {plan.devices}
+      </div>
+
       <p className="relative z-10 mt-2 text-[13px] leading-relaxed text-white/70">{plan.blurb}</p>
 
       <div className="relative z-10 mt-6 inline-flex items-center gap-1 text-[13px] font-semibold text-white group-hover:gap-2">
