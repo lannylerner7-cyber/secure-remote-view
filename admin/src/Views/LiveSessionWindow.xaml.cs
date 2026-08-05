@@ -455,6 +455,15 @@ public partial class LiveSessionWindow : Window
     {
         if (!StageHasFocus) return;
         var key = Effective(e);
+        // S19(b) escape hatch — Esc or F8 always frees the physical cursor,
+        // and is never forwarded to the remote machine while captured.
+        if (_capture.Engaged && (key == Key.Escape || key == Key.F8))
+        {
+            e.Handled = true;
+            EndCapture();
+            return;
+        }
+
         // Unmodified printable keys are delivered by TextInput as Unicode so
         // the remote layout, dead keys and IME composition all behave. WPF only
         // raises TextInput for key events it has NOT seen marked handled, so
