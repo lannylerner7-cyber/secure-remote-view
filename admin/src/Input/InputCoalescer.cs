@@ -57,16 +57,44 @@ public sealed class InputCoalescer
     }
 
     /// <summary>
+    /// S19(b) — accumulate a relative delta (device pixels). Deltas SUM
+    /// between flushes; unlike absolute moves a dropped delta is lost motion,
+    /// so they must never be replaced by "the latest one".
+    /// </summary>
+    public void UpdateRel(int dx, int dy)
+    {
+        if (dx == 0 && dy == 0) return;
+        lock (_relGate)
+        {
+            _relDx += dx;
+            _relDy += dy;
+        }
+    }
+
+    /// <summary>
     /// Flush any queued move immediately. Call before an ordered event
     /// (mousedown/up, wheel, key) so a click never lands ahead of the move
     /// that positioned it.
     /// </summary>
     public void FlushNow() => TryFlush();
 
+    private readonly object _relGate = new();
+    private int _relDx, _relDy;
+
     private void TryFlush()
     {
+        int rdx, rdy;
+        lock (_relGate)
+        {
+            rdx = _relDx; rdy = _relDy;
+            _relDx = 0; _relDy = 0;
+        }
+        if (rdx != 0 || rdy != 0)
+            _ = Task.Run(async () => { try { await _mouse.MoveRelAsync(rdx, rdy); } catch { } });
+
         if (Interlocked.Exchange(ref _pending, 0) != 1) return;
         double x = _x, y = _y;
         _ = Task.Run(async () => { try { await _mouse.MoveAsync(x, y); } catch { } });
     }
 }
+
