@@ -2186,3 +2186,33 @@ application/xml, unsubscribe with a forged token → 400 and no row touched.
 
 **Unchanged by design.** No agent or admin code touched in this pass; §11 open
 items are untouched by these fixes.
+
+---
+
+## §10.33 — Contact form: submission, ack + support notification — 2026-08-05 (`SCOPE:WEB`)
+
+**Ask.** Replace the mailto-only contact page with a real form (name, email,
+phone, message), show the sender an "your message has been received / support
+will join you briefly" alert, and wave the submission through our own SMTP so an
+admin can reply manually with the sender's contact details attached. The same
+form must back both contact buttons (marketing `/contact` and the customer
+portal).
+
+**Shipped.**
+
+| Piece | File | Notes |
+| --- | --- | --- |
+| Storage | migration `contact_messages` | `name`, `email`, `phone`, `message`, `source`, `ip_hash`, `status`, `notified_at`, `ack_sent_at`; RLS on, `service_role`-only policy, no anon/authenticated grant — visitors can write through the server fn but can never read the table back |
+| Server fn | `src/lib/contact.functions.ts` | `submitContactMessage`, Zod-validated (name ≥ 2, RFC email, message 10–4000, phone ≤ 40); SHA-256 IP hash, 5 submissions/hour/connection; inserts first, mails second, then stamps delivery |
+| Mail | `src/lib/contact-emails.server.ts` | Two messages per submission — support notification to `support@connectliveagent.com` with `Reply-To: <sender>` so an admin replies straight from the inbox, and a visitor acknowledgement carrying their own message back plus the 8-char reference |
+| SMTP | `src/lib/smtp.server.ts` | `MailMessage.replyTo` added; per-message value overrides `smtp_settings.reply_to`, CR/LF stripped before it reaches the header block |
+| UI | `src/components/ContactForm.tsx` | One component, `source` prop only; sonner success toast ("Your message has been received — Our support team will join you briefly.") plus an inline confirmation panel with the reference and a "Send another message" reset |
+| Wiring | `src/routes/contact.tsx`, `src/routes/public.agent.portal.tsx` | Marketing page renders it inside a `not-prose` block under the intro; portal renders it as a "Contact us" card below the Telegram panel. Both existing "Contact us" buttons (`/` capability card, `/order` help card, footer, portal link) funnel into the same form |
+
+**Verified live.** Headless submit against `/contact`: row written, `notified_at`
+and `ack_sent_at` both stamped (support notification and visitor ack accepted by
+`smtp.gmail.com:587`), confirmation panel rendered with reference `28B4CA8E`,
+zero console errors. `tsgo --noEmit` clean.
+
+**Not touched.** No agent or admin C# changed in this pass; §11 open items
+unchanged. Release packages re-cut as `2026-08-05e` for parity only.
