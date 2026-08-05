@@ -1976,3 +1976,49 @@ SMTP host can never fail the order update.
 Remaining open items are environment-bound, not code: buy the code-signing
 certificate, and run a real Windows build + soak (`scripts/e2e-soak.ts`)
 against the signed artifacts.
+
+---
+
+## §10.27 — Public copy pass + single support inbox — 2026-08-05 (SCOPE:CONTENT)
+
+**Marketing copy neutralised.** The home page capability tiles used to expose
+internal mechanics ("Curtain mode", "Sub-50ms WebRTC", "Multi-monitor",
+"Full audit trail"). They now carry outcome-led marketing copy — instant
+onboarding, effortless collaboration, reliable everywhere, human-first support
+— with the `01`–`04` index labels kept as the bento rhythm. No behaviour,
+route, or data change; `CAPABILITIES` in `src/routes/index.tsx` only.
+
+**Legal copy rewritten in a distinct voice.** `privacy.tsx`, `terms.tsx`,
+`refund.tsx`, and `contact.tsx` were boilerplate-shaped. Same facts (7-day
+refund window, on-chain settlement times, consent prompt requirement, 90-day
+log retention, no session recording), rewritten as plain-language prose so the
+pages read as owner-authored rather than templated. No new compliance,
+certification, or encryption claims were introduced.
+
+**Support inbox consolidated.** Only `support@connectliveagent.com` exists.
+`billing@` and `privacy@` were fictional and are now removed everywhere:
+
+| File | Was | Now |
+| --- | --- | --- |
+| `src/routes/refund.tsx` | `billing@` | `support@` |
+| `src/routes/privacy.tsx` | `privacy@` | `support@` |
+| `src/routes/contact.tsx` | three-inbox list | single `support@` row |
+
+`EmailSettingsPanel.tsx` placeholders (`orders@`, `support@`, `you@example.com`)
+are input hints, not live addresses, and were left alone. The real sender is
+whatever the operator saves in `smtp_settings.from_address`.
+
+**Audit sweep (all green).**
+
+| Check | Result |
+| --- | --- |
+| `tsgo --noEmit` | clean |
+| `scripts/verify-agent-routes.ts` | 25/25 |
+| `scripts/verify-payment-routes.ts` | 5/5 |
+| Email grep across repo | only `support@connectliveagent.com` in user-facing copy |
+| Stale-domain grep | `secure-remote-view.lovable.app` remains only as the documented platform alias in `ENDPOINTS.md` |
+| Footer links | `/privacy`, `/terms`, `/refund`, `/contact`, `/order` all resolve to real routes |
+| `TODO`/`FIXME` across `src`, `agent/src`, `admin/src` | zero |
+
+Open items unchanged: code-signing certificate purchase, and a Windows-host
+build + soak run.
