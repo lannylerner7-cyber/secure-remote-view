@@ -716,7 +716,7 @@ surprise.
 | Console is modular | `src/routes/_authenticated/console.tsx` = 1,666 lines + 11 component files in `src/components/console/` — 9 imported directly by the route, `DirectNotifyModal` and `PowerMenu` nested inside `TeamPanel` / `DevicesTable` |
 | Every route has real head metadata | 11 web routes, each with a unique title + description; the 3 non-public ones also `noindex` + self-canonical |
 | Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `api/public/health`, plus the standalone unauthenticated `/health` probe for Coolify |
-| Known dead code | `admin/src/Input/MouseInjector.MoveRelAsync` is defined but never called — the WPF console has no pointer-capture toggle yet (the browser console does). Intentional: it is the seam for that turn, not a regression. |
+| Known dead code | **None.** The last two orphans — `MouseInjector.MoveRelAsync` and the `RtpCapture` RTP tap — were removed in the 08-05 alignment pass (§10.11). The agent still speaks `mousemove_rel`; re-add the admin wrapper the same turn WPF pointer capture lands. |
 | Packaging / autostart | Inno + MSI installers now create four identical `/background` triggers at install time (HKCU Run, HKLM Run, all-users Startup shortcut, ONLOGON scheduled task with `/IT`), record `HKLM\Software\ConnectLive` `{InstallPath,Version}`, and clean up all four on uninstall. `StartupSelfHeal.cs` remains as belt-and-brades. `agent/INSTALL.md` and `agent/packaging/inno/README.md` list the verify commands. |
 
 **Database**
