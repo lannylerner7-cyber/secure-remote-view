@@ -69,6 +69,14 @@ public partial class App : Application
         }
 
         var api = new ApiClient(apiUrl);
+        // Only foreground launches can surface the Meeting-ID prompt. A
+        // /BACKGROUND or /WAKE start with no prior enrollment must stay silent
+        // and simply defer until the user opens the agent themselves.
+        if (!background)
+        {
+            api.MeetingIdProvider = (err) => MeetingIdPrompt.Ask(err);
+        }
+        api.OnLicenseChanged += OnLicenseChanged;
         var dispatcher = new WpfDispatcher(Current.Dispatcher);
 
         try
