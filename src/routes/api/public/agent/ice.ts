@@ -68,25 +68,39 @@ async function buildCloudflareTurnServers(peer: string): Promise<IceServer[]> {
   const token = process.env["CLOUDFLARE_CALLS_APP_TOKEN"];
   if (!appId || !token) return [];
 
-  const res = await fetch(
-    `https://rtc.live.cloudflare.com/v1/turn/keys/${appId}/credentials/generate`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+  // Cloudflare renamed the mint endpoint: `generate-ice-servers` is current,
+  // `generate` is the legacy shape. Try both so a working TURN key never gets
+  // discarded because of an API rename.
+  const paths = ["credentials/generate-ice-servers", "credentials/generate"];
+  let res: Response | null = null;
+  for (const path of paths) {
+    const attempt = await fetch(
+      `https://rtc.live.cloudflare.com/v1/turn/keys/${appId}/${path}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ttl: TTL_SECONDS }),
       },
-      body: JSON.stringify({ ttl: TTL_SECONDS }),
-    },
-  );
-
-  if (!res.ok) {
-    const body = await res.text();
-    console.error(`Cloudflare TURN credential request failed [${res.status}]: ${body}`);
-    return [];
+    );
+    if (attempt.ok) {
+      res = attempt;
+      break;
+    }
+    const body = await attempt.text();
+    console.error(
+      `Cloudflare TURN mint failed [${attempt.status}] via ${path}: ${body}` +
+        (attempt.status === 404
+          ? " — CLOUDFLARE_CALLS_APP_ID must be a TURN key ID, not a Calls/SFU app ID"
+          : ""),
+    );
   }
+  if (!res) return [];
 
   const data = await res.json();
+
   // Cloudflare returns { iceServers: { urls, username, credential } }.
   // Defensively normalise in case the envelope ever changes.
   const rawServers = Array.isArray(data.iceServers)

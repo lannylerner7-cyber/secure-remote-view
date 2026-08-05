@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { sendTelegramNotify } from "@/lib/notify.functions";
 import { getMyRole, type AppRole } from "@/lib/admins.functions";
@@ -71,6 +72,8 @@ function AdminPage() {
   const [role, setRole] = useState<AppRole | null>(null);
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
   const rtcRef = useRef<WebRtcLive | null>(null);
+  /** S21 — true while the reliable `files` DataChannel is open. */
+  const [filesReady, setFilesReady] = useState(false);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const mouseButtonDownRef = useRef(false);
   // rAF pointer-move coalescer: only the latest position is flushed per frame.
@@ -284,6 +287,7 @@ function AdminPage() {
       rtcRef.current?.close();
       rtcRef.current = null;
       setRtcState("idle");
+      setFilesReady(false);
       return;
     }
     const live = startWebRtcLive(liveId);
@@ -292,12 +296,45 @@ function AdminPage() {
     live.onState((s) => {
       if (rtcRef.current === live) setRtcState(s);
     });
+
+    // S21 — inbound transfers must announce themselves even when the Files
+    // drawer is closed, and the HUD needs to say whether the reliable `files`
+    // channel is actually available (datachannel) or the session is on the
+    // HTTP archive fallback.
+    let toastId: string | number | undefined;
+    const offFile = live.onFile((ev) => {
+      if (rtcRef.current !== live) return;
+      if (ev.kind === "begin") {
+        toastId = toast.loading(`Receiving ${ev.name}…`);
+      } else if (ev.kind === "complete") {
+        toast.success(`Received ${ev.name}`, {
+          id: toastId,
+          description: `${(ev.size / 1024).toFixed(0)} KB · saved to the session transcript`,
+        });
+        toastId = undefined;
+      } else if (ev.kind === "error") {
+        toast.error(`Transfer failed: ${ev.name || "file"}`, {
+          id: toastId,
+          description: ev.message,
+        });
+        toastId = undefined;
+      }
+    });
+
+    const filesTick = window.setInterval(() => {
+      if (rtcRef.current === live) setFilesReady(live.filesReady());
+    }, 1000);
+
     return () => {
+      offFile();
+      window.clearInterval(filesTick);
       if (rtcRef.current === live) rtcRef.current = null;
       setRtcState("idle");
+      setFilesReady(false);
       live.close();
     };
   }, [liveId]);
+
 
   // Mount the WebRTC <video> element into the live surface. The element is
   // owned by startWebRtcLive() and reused across re-renders; we only move it
@@ -1603,7 +1640,19 @@ function AdminPage() {
                     {!videoDecoding && liveFrame?.updated_at && (
                       <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>
                     )}
+                    {/* S21 — transfer path at a glance: direct datachannel vs
+                        the archive/HTTP fallback. */}
+                    <span className="flex items-center gap-1">
+                      ·
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${
+                          filesReady ? "bg-emerald-400" : "bg-white/30"
+                        }`}
+                      />
+                      <span>{filesReady ? "files direct" : "files via archive"}</span>
+                    </span>
                   </div>
+
 
                   {s.mode === "control" && s.device_id && (
                     <>

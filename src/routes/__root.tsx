@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -146,6 +147,9 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      {/* S21 — single toast host for the whole app. Without it the Files panel
+          and inbound-transfer notices raised toasts into the void. */}
+      <Toaster position="top-right" richColors closeButton />
     </QueryClientProvider>
   );
 }

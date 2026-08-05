@@ -1824,3 +1824,33 @@ overlaid on it.
 `files` health tile in the HUD, S22 clipboard sync, S24 session recording,
 S25 code signing. `scripts/verify-agent-routes.ts` still reports the new
 `/session/{id}/file` route as 404 until the next publish.
+
+## §10.22 — S21 close-out + cursor/ICE verification pass — 2026-08-05 (`SCOPE:LIVE`)
+
+**S21 (closed).** Inbound transfers now announce themselves regardless of drawer
+state: `src/routes/_authenticated/console.tsx` subscribes to `live.onFile(...)`
+for the lifetime of the WebRTC session and raises loading/success/error toasts,
+and the viewport HUD gained a `files direct` / `files via archive` tile driven by
+a 1 s `filesReady()` poll. Root cause found while wiring it: **no `<Toaster />`
+was ever mounted**, so every `toast()` in `SessionFilesPanel` had been rendering
+into nothing. Mounted once in `src/routes/__root.tsx`.
+
+**Cursor prediction — verified, no change.** `admin/src/Media/PredictiveCursor.cs`
+predict → ease → disagree-surrender → hold-expiry contract is intact, and
+`LiveSessionWindow.xaml.cs` calls `Predict()` on every local pointer path,
+`Observe()` from telemetry, and `SyncPredictionGate()` on mode/curtain changes,
+so a view-only or paused session cannot show a pointer the agent won't honour.
+Web side keeps the telemetry-only `RemoteCursorOverlay` with object-contain
+letterbox math — correct for that surface.
+
+**ICE/TURN — real defect found.** The configured `CLOUDFLARE_CALLS_APP_ID` is a
+Calls/SFU app ID, not a **TURN key ID**: minting returns
+`404 {"error":"cannot find specified key"}`, so `/api/public/agent/ice` has been
+silently serving **STUN only** — symmetric-NAT sessions fall back to JPEG.
+`ice.ts` now tries `credentials/generate-ice-servers` (current) before the legacy
+`credentials/generate`, and logs an explicit "must be a TURN key ID" hint on 404.
+**Action required:** create a TURN key in Cloudflare Realtime and set
+`CLOUDFLARE_CALLS_APP_ID`/`CLOUDFLARE_CALLS_APP_TOKEN` to that key's ID/token.
+Auth gate itself verified: unauthenticated `GET /api/public/agent/ice` → 401.
+
+**Still outstanding:** S22 clipboard sync, S24 session recording, S25 code signing.
