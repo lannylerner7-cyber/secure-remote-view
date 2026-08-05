@@ -1,9 +1,0 @@
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAdmin.csproj.AssemblyReference.cache
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/Views/LiveSessionWindow.baml
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/Views/LiveSessionWindow.g.cs
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/Views/LoginWindow.g.cs
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/Views/MainWindow.g.cs
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/App.g.cs
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/GeneratedInternalTypeHelper.g.cs
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAdmin_MarkupCompile.cache
-/dev-server/admin/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAdmin_MarkupCompile.lref
