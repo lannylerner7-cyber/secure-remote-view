@@ -141,6 +141,7 @@ resolution change; fps within ±10% of source, `devices` flat, working set flat.
 
 ## Cleanup
 
-The RTP tap (`RtpCapture.cs`) and both `admin/spikes/*` projects are evidence
-harnesses. They ship disabled (env-flag gated, not referenced by
-`ConnectLiveAdmin.csproj`) and are deleted after the SOAK gate signs off.
+The RTP tap (`RtpCapture.cs`) was **deleted on 2026-08-05** (PROJECT-MAP §10.11)
+once its gate had signed off. Both `admin/spikes/*` projects remain in the tree
+as evidence harnesses; they are not referenced by `ConnectLiveAdmin.csproj` and
+never enter the shipped binary.
