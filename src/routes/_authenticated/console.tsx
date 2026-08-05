@@ -21,6 +21,8 @@ import {
 import { keyToVirtualKey, getContainedPoint } from "@/lib/console-input";
 import { VirtualTrackpad } from "@/components/console/VirtualTrackpad";
 import { OnScreenKeyboard } from "@/components/console/OnScreenKeyboard";
+import { SessionFilesPanel } from "@/components/console/SessionFilesPanel";
+
 import { StatCard } from "@/components/console/StatCard";
 import { DevicesTable } from "@/components/console/DevicesTable";
 import { SessionsTable } from "@/components/console/SessionsTable";
