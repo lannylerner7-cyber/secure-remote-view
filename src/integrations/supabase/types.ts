@@ -269,6 +269,44 @@ export type Database = {
         }
         Relationships: []
       }
+      order_emails: {
+        Row: {
+          created_at: string
+          detail: string | null
+          id: string
+          kind: string
+          order_id: string
+          recipient: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: string | null
+          id?: string
+          kind: string
+          order_id: string
+          recipient: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string | null
+          id?: string
+          kind?: string
+          order_id?: string
+          recipient?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_emails_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           access_link: string | null
@@ -821,6 +859,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      smtp_settings: {
+        Row: {
+          enabled: boolean
+          encryption: string
+          from_address: string
+          from_name: string
+          host: string
+          id: boolean
+          password: string
+          port: number
+          reply_to: string
+          updated_at: string
+          updated_by: string | null
+          username: string
+        }
+        Insert: {
+          enabled?: boolean
+          encryption?: string
+          from_address?: string
+          from_name?: string
+          host?: string
+          id?: boolean
+          password?: string
+          port?: number
+          reply_to?: string
+          updated_at?: string
+          updated_by?: string | null
+          username?: string
+        }
+        Update: {
+          enabled?: boolean
+          encryption?: string
+          from_address?: string
+          from_name?: string
+          host?: string
+          id?: boolean
+          password?: string
+          port?: number
+          reply_to?: string
+          updated_at?: string
+          updated_by?: string | null
+          username?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
