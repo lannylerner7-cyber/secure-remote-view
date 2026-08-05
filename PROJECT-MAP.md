@@ -1768,8 +1768,8 @@ unwrapped server-side solely to lock an archive — it is never returned, logged
 or echoed to the browser.
 
 **Next:** Agent-side `files` DataChannel handler + HTTP fallback client
-(`agent/src/FileTransfer.cs`). The native Admin Console Files side panel is
-implemented in §10.19.
+(`agent/src/FileTransfer.cs`) — *shipped in §10.20*. The native Admin Console
+Files side panel is implemented in §10.19.
 
 ## §10.19 — Step 9: Native Admin Console file manager — 2026-08-06 (`SCOPE:FILES`)
 
@@ -1836,10 +1836,11 @@ is still read off the `Image`'s live `StretchDirection`, so click/wheel/ghost-cu
 geometry stays correct in both modes. Banners are docked above the picture, never
 overlaid on it.
 
-**Still outstanding (not regressions, unbuilt scope):** S21 inbound-file toast +
-`files` health tile in the HUD, S22 clipboard sync, S24 session recording,
-S25 code signing. `scripts/verify-agent-routes.ts` still reports the new
-`/session/{id}/file` route as 404 until the next publish.
+**Still outstanding (not regressions, unbuilt scope) — SUPERSEDED:** S21 was
+closed in §10.22 (inbound-file toast + `files` health tile), S22 and S24 in
+§10.23, S25 (build-side) in §10.25. Nothing in this list is open any more; see
+§11 for the live open-items table. `scripts/verify-agent-routes.ts` now reports
+`/session/{id}/file` as wired (25/25).
 
 ## §10.22 — S21 close-out + cursor/ICE verification pass — 2026-08-05 (`SCOPE:LIVE`)
 
@@ -1869,7 +1870,8 @@ silently serving **STUN only** — symmetric-NAT sessions fall back to JPEG.
 `CLOUDFLARE_CALLS_APP_ID`/`CLOUDFLARE_CALLS_APP_TOKEN` to that key's ID/token.
 Auth gate itself verified: unauthenticated `GET /api/public/agent/ice` → 401.
 
-**Still outstanding:** S25 code signing.
+**Still outstanding:** S25 code signing — *build-side plumbing shipped in
+§10.25; only the certificate purchase remains.*
 
 ---
 
