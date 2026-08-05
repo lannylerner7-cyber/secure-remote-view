@@ -18,26 +18,28 @@ export const Route = createFileRoute("/refund")({
 function Page() {
   return (
     <LegalShell title="Refund Policy" updated="July 2026">
-      <h2>7-day satisfaction window</h2>
+      <h2>Seven days to change your mind</h2>
       <p>
-        If ConnectLive doesn't work for you, request a refund within 7 days of purchase and we'll
-        return the equivalent USD value in the same coin you paid with, less on-chain network fees.
+        If ConnectLive isn't the fit you hoped for, say so within seven days of buying and we'll
+        send back the same USD value in the coin you paid with, minus whatever the network charges
+        to move it.
       </p>
-      <h2>How to request</h2>
+      <h2>Asking for one</h2>
       <p>
-        Email <a href="mailto:billing@connectliveagent.com">billing@connectliveagent.com</a> from the address on
-        your order, include your order ID, and the wallet address to refund to.
+        Email <a href="mailto:billing@connectliveagent.com">billing@connectliveagent.com</a> from
+        the address on the order. Include the order ID and the wallet that should receive the
+        funds — that's the whole process.
       </p>
-      <h2>Timing</h2>
+      <h2>How quickly it lands</h2>
       <p>
-        Refunds are processed within 3 business days of approval. On-chain settlement time depends
-        on the network you selected (BTC: ~30 min, ERC-20: ~5 min).
+        We approve or query within three business days. After that the clock belongs to the chain
+        you chose: Bitcoin usually settles in about half an hour, ERC-20 in roughly five minutes.
       </p>
-      <h2>Exclusions</h2>
+      <h2>The few things we can't refund</h2>
       <ul>
-        <li>Requests made after the 7-day window.</li>
-        <li>Orders where the license has been transferred or shared beyond your seat count.</li>
-        <li>Chargeback attempts on already-refunded orders.</li>
+        <li>Requests that arrive after the seven-day window has closed.</li>
+        <li>Licences that have been passed on or stretched past the seats they cover.</li>
+        <li>Chargebacks raised against an order we've already refunded.</li>
       </ul>
     </LegalShell>
   );
