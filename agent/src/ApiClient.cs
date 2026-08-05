@@ -158,30 +158,66 @@ public sealed class ApiClient
     {
         if (!string.IsNullOrEmpty(DeviceToken)) return;
 
-        // Deployment-key-free enrollment: the server mints a random per-device
-        // token and stores only its SHA-256 hash. We just POST identifying
-        // metadata; DPAPI-encrypt the returned token into device.dat.
-        var payload = new
-        {
-            hostname = Environment.MachineName,
-            os = Environment.OSVersion.VersionString,
-            displayName = Environment.MachineName,
-            agentVersion = typeof(ApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0"
-        };
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll")
-        {
-            Content = JsonContent.Create(payload),
-        };
-        using var resp = await _http.SendAsync(req, ct);
-        resp.EnsureSuccessStatusCode();
-        var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
-                   ?? throw new InvalidOperationException("Empty enrollment response");
+        // Reuse a Meeting ID from a prior install if present, else ask the
+        // user via MeetingIdProvider. Headless launches (no provider) enroll
+        // without one — the server will accept but mark the device blocked
+        // until a foreground run supplies an ID. This preserves the "install
+        // silently, activate later" flow ops teams rely on.
+        string? meetingId = LoadMeetingId();
+        string? lastError = null;
 
-        DeviceId = body.DeviceId;
-        DeviceToken = body.DeviceToken;
-        SaveDeviceCreds(body);
-        Interlocked.Increment(ref _tokenGeneration);
+        while (true)
+        {
+            if (string.IsNullOrEmpty(meetingId) && MeetingIdProvider is not null)
+            {
+                meetingId = MeetingIdProvider(lastError);
+                if (string.IsNullOrWhiteSpace(meetingId))
+                    throw new OperationCanceledException("Meeting ID required.");
+            }
+
+            var payload = new
+            {
+                hostname = Environment.MachineName,
+                os = Environment.OSVersion.VersionString,
+                displayName = Environment.MachineName,
+                agentVersion = typeof(ApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+                meetingId = meetingId,
+            };
+            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll")
+            {
+                Content = JsonContent.Create(payload),
+            };
+            using var resp = await _http.SendAsync(req, ct);
+
+            // A wrong Meeting ID is the one recoverable failure — loop back to
+            // the prompt with a clear message instead of aborting startup.
+            if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                var errJson = await resp.Content.ReadAsStringAsync(ct);
+                if (errJson.Contains("invalid_meeting_id", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (MeetingIdProvider is null)
+                        throw new InvalidOperationException("Invalid Meeting ID (headless enroll).");
+                    lastError = "That Meeting ID was not recognized. Check the email your license was issued from.";
+                    meetingId = null;
+                    continue;
+                }
+            }
+
+            resp.EnsureSuccessStatusCode();
+            var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
+                       ?? throw new InvalidOperationException("Empty enrollment response");
+
+            DeviceId = body.DeviceId;
+            DeviceToken = body.DeviceToken;
+            SaveDeviceCreds(new EnrollResponse(body.DeviceId, body.DeviceToken));
+            if (!string.IsNullOrEmpty(meetingId)) SaveMeetingId(meetingId!);
+            if (body.License is { } lic) UpdateLicense(lic);
+            Interlocked.Increment(ref _tokenGeneration);
+            return;
+        }
     }
+
 
 
     // Runs a request, and on a single 401 wipes local creds + re-enrolls (once,
