@@ -75,6 +75,10 @@ export function RenderHealthPanel({ sessionId }: { sessionId?: string | null }) 
                   </td>
                   <td className="py-1 pr-3">{num(r.fps as number | null)}</td>
                   <td className="py-1 pr-3">
+                    {num(r.bitrate_kbps as number | null, " kbps")}
+                  </td>
+
+                  <td className="py-1 pr-3">
                     {num(r.latency_ms as number | null, " ms")}
                   </td>
                   <td className="py-1 pr-3">{num(r.queue_depth)}</td>
