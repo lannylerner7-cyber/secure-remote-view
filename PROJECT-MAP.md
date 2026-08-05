@@ -1779,7 +1779,7 @@ panel, using the raw Supabase JWT of the signed-in technician for storage calls.
 Closes the file-transfer loop: files pushed from the web console or native
 admin now land on the remote machine, and files initiated on the agent flow
 back to the technician through the same channel — with an authed HTTP fallback
-the mo
+the moment the SCTP datachannel fails.
 
 | File | Change |
 |---|---|
