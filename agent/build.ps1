@@ -66,6 +66,7 @@ Write-Host "==> Build version: $Version"
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAgent.csproj
+if ($LASTEXITCODE -ne 0) { throw "Agent restore failed (exit $LASTEXITCODE)." }
 
 # -- 2. Publish binaries -------------------------------------------------------
 
@@ -78,6 +79,7 @@ dotnet publish src/ConnectLiveAgent.csproj `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
     -o publish/agent
+if ($LASTEXITCODE -ne 0) { throw "Agent publish failed (exit $LASTEXITCODE). See the compiler error above." }
 
 # -- 3. Stage binaries to dist\ ------------------------------------------------
 # Both packaging/inno/ConnectLiveSetup.iss and packaging/msi/ConnectLive.wxs
