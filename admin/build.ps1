@@ -1,9 +1,16 @@
 # ConnectLive Admin — build script (Windows, .NET 8 SDK required)
 # Produces dist/ConnectLiveAdmin.exe + dist/ConnectLiveAdmin.zip
+param(
+    [switch]$SkipSign
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+
+# S25 - Authenticode signing (see docs/SIGNING.md).
+. (Join-Path $root "..\tools\CodeSign.ps1")
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAdmin.csproj
@@ -32,6 +39,9 @@ if (Test-Path assets/icon.ico) {
     Write-Warning "assets\icon.ico not found - building without admin branding icon."
 }
 
+# S25 - sign the console before it is zipped, so the archive ships signed.
+Invoke-ConnectLiveSign -Paths @("dist/ConnectLiveAdmin.exe") -Skip:$SkipSign
+
 if (Test-Path dist/ConnectLiveAdmin.zip) { Remove-Item dist/ConnectLiveAdmin.zip }
 Compress-Archive -Path $zipItems -DestinationPath dist/ConnectLiveAdmin.zip -Force
 
@@ -40,8 +50,13 @@ Write-Host ""
 Write-Host "Built: dist/ConnectLiveAdmin.exe"
 Write-Host "Zip  : dist/ConnectLiveAdmin.zip"
 Write-Host ""
-Write-Host "Optional: sign with your code-signing cert"
-Write-Host '  signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLiveAdmin.exe'
+if ($SkipSign) {
+    Write-Host "Signing: SKIPPED (-SkipSign) - do not distribute this build."
+} elseif ($env:CODESIGN_THUMBPRINT -or $env:CODESIGN_PFX -or $env:CODESIGN_SUBJECT) {
+    Write-Host "Signing: Authenticode signed + timestamped (docs\SIGNING.md)."
+} else {
+    Write-Host "Signing: UNSIGNED - set CODESIGN_* env vars before release (docs\SIGNING.md)."
+}
 
 # -- Release manifest (S14) ----------------------------------------------------
 # The console reads /api/public/agent/release?product=admin to show its update

@@ -92,3 +92,13 @@ Then, on one pilot machine:
 - **S8 residual** — native-render soak: sustained motion, working set, decode
   errors, forced mid-session `switch_monitor`. Pass criteria come from S11
   telemetry; record the result in `PROJECT-MAP.md` §8.
+
+## Code signing (S25)
+
+- [ ] Certificate available on the build host (`Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert`).
+- [ ] `CODESIGN_THUMBPRINT` (or `CODESIGN_PFX` + `CODESIGN_PFX_PASSWORD`) exported in the build shell.
+- [ ] Build output shows `Signed + verified:` for `ConnectLive.exe`, `ConnectLiveSetup.exe`, `ConnectLiveAgent.msi`, `ConnectLiveAdmin.exe`.
+- [ ] `signtool verify /pa /all /v <artifact>` reports a valid chain **and** a timestamp.
+- [ ] SHA-256 hashes copied into `public.releases` are the post-signing hashes printed by the build.
+
+Full procedure: `docs/SIGNING.md`.
