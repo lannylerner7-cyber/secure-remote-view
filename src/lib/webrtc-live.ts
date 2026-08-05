@@ -546,6 +546,10 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       }
       return false;
     },
+    filesReady: () => fdc.readyState === "open",
+    sendFile: (file) => sendFileOverChannel(file),
+    onFile: (cb) => { fileListeners.add(cb); return () => { fileListeners.delete(cb); }; },
+
     close: () => {
       if (closed) return;
       closed = true;
