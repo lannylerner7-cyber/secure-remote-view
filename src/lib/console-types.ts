@@ -25,7 +25,6 @@ export const NAV_VALUES = [
   "audit",
   "settings",
   "team",
-  "payments",
 ] as const;
 
 export type Nav = (typeof NAV_VALUES)[number];
