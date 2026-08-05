@@ -2136,3 +2136,26 @@ tick repeats the composed surface rather than blocking.
 on real hardware. One Windows session under sustained motion, before/after, is
 what closes the measurement half of S20.
 
+
+---
+
+## §10.31 — Newsletter, branded email shell, motion showcase — 2026-08-05
+
+**What shipped (web only — no agent/admin code touched).**
+
+| Area | Change |
+| --- | --- |
+| DB | `public.newsletter_subscribers` (email unique, `status`, `source`, `ip_hash`, `welcome_sent_at`, `unsubscribed_at`). No `anon` grant; `authenticated` may read only via the super-admin RLS policy; all writes go through the service role. |
+| `src/lib/email-shell.server.ts` (new) | One 600px table-based HTML shell for every outbound message: ConnectLive logo in the header **and** the footer, legal links (Privacy / Terms / Refunds), `support@connectliveagent.com`, copyright line, preheader support, Outlook-safe CTA button, matching plain-text footer. Logo is a CDN asset (`connectlive-logo.png.asset.json`) referenced by absolute URL — email clients cannot resolve site-relative paths. |
+| `src/lib/newsletter-emails.server.ts` (new) | Welcome email (HTML + text): what subscribers get, the delivery/video-guide promise, plans CTA, reply-to-unsubscribe line. |
+| `src/lib/newsletter.functions.ts` (new) | Public `subscribeNewsletter` server fn. Zod-validated email only — no recipient list, template name or body crosses the boundary, so it cannot be used as an open relay. SHA-256 IP hash (never stored in the clear), 5 signups per IP per hour, idempotent re-subscribe, welcome send timestamped. |
+| `src/lib/order-emails.server.ts` | Now renders through the shared shell, so all three order emails carry the logo header/footer and the same legal links. |
+| `src/routes/index.tsx` | Newsletter bento tile with inline status; the four capability cards replaced by two chrome-free `aspect-video` autoplay/loop/muted product clips ("How live feels", "How writing on a document feels"); og/twitter images made absolute; description copy de-consented. |
+| `src/components/Footer.tsx` | Site footer now carries the logo mark; "consent-based" → "authorised". |
+| `src/components/PaymentsPanel.tsx` | External `target="_blank"` link hardened to `rel="noopener noreferrer"`. |
+
+**Verified.** `tsgo --noEmit` clean. Live end-to-end SMTP test from the running
+homepage: subscribe → row written → welcome email accepted by
+`smtp.gmail.com:587` (STARTTLS), `welcome_sent_at` stamped. Both showcase videos
+reach `readyState 4` and play. No unsafe `target="_blank"` and no plain-`http://`
+URLs remain in `src/`.

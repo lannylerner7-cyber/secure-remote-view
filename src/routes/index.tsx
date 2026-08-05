@@ -1,10 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
-import { Gift, PlayCircle, Sparkles, Tag } from "lucide-react";
+import { Gift, Mail, PlayCircle, Sparkles, Tag } from "lucide-react";
+import { subscribeNewsletter } from "@/lib/newsletter.functions";
 import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 import logoMark from "@/assets/hero-float-2.png";
+
 
 type PlanCard = {
   code: string;
@@ -76,12 +79,18 @@ const PROMO_ITEMS = [
   "Free video setup guides with every completed order",
 ];
 
-const CAPABILITIES: { k: string; label: string; body: string }[] = [
-  { k: "01", label: "Instant onboarding", body: "Get your team up and running in minutes with a guided setup — no complex configuration." },
-  { k: "02", label: "Effortless collaboration", body: "Work together on any screen, from any place, as if you were sitting side by side." },
-  { k: "03", label: "Reliable everywhere", body: "Consistent performance across offices, home networks, and travel days you didn't plan for." },
-  { k: "04", label: "Human-first support", body: "Real people on standby to help your team when it matters — not tickets in a queue." },
+/** Ambient product motion, rendered without card chrome so the edges stay clean. */
+const SHOWCASE: { src: string; caption: string }[] = [
+  {
+    src: "https://www.google.com/chrome/static/videos/whats-new/sidebyside/sidebyside.webm",
+    caption: "How live feels",
+  },
+  {
+    src: "https://www.google.com/chrome/static/videos/whats-new/144/pdfannotations.webm",
+    caption: "How writing on a document feels",
+  },
 ];
+
 
 
 export const Route = createFileRoute("/")({
@@ -92,7 +101,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "ConnectLive is a consent-based remote-support platform for IT, help desks, and enterprise fleets. Sub-50ms sessions, curtain mode, and a full audit trail.",
+          "ConnectLive is an authorised remote-support platform for IT, help desks, and enterprise fleets. Sub-50ms sessions, curtain mode, and a full audit trail.",
       },
       { property: "og:title", content: "ConnectLive — Remote Support Platform" },
       {
@@ -101,9 +110,10 @@ export const Route = createFileRoute("/")({
           "Authorised remote support for 10 to unlimited devices. Precise, secure, auditable.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: bannerAsset.url },
+      { property: "og:image", content: `https://www.connectliveagent.com${bannerAsset.url}` },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: bannerAsset.url },
+      { name: "twitter:image", content: `https://www.connectliveagent.com${bannerAsset.url}` },
+
     ],
   }),
 });
@@ -112,6 +122,11 @@ function Home() {
   const navigate = useNavigate();
   const [userCount, setUserCount] = useState<number | null>(null);
   const [orderId, setOrderId] = useState("");
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [newsletterState, setNewsletterState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [newsletterMsg, setNewsletterMsg] = useState("");
+  const doSubscribe = useServerFn(subscribeNewsletter);
+
 
   useEffect(() => {
     let alive = true;
@@ -139,6 +154,24 @@ function Home() {
     if (!v) return;
     navigate({ to: "/order/$id", params: { id: v } });
   };
+
+  const subscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = newsletterEmail.trim();
+    if (!email || newsletterState === "sending") return;
+    setNewsletterState("sending");
+    setNewsletterMsg("");
+    try {
+      const res = await doSubscribe({ data: { email, source: "homepage" } });
+      setNewsletterState(res.ok ? "done" : "error");
+      setNewsletterMsg(res.message);
+      if (res.ok) setNewsletterEmail("");
+    } catch {
+      setNewsletterState("error");
+      setNewsletterMsg("That didn't go through. Check the address and try again.");
+    }
+  };
+
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-navy-900 font-sans text-navy-050 antialiased">
@@ -371,19 +404,28 @@ function Home() {
             </div>
           </section>
 
-          {/* Capabilities tiles */}
-          {CAPABILITIES.map((c) => (
-            <section
-              key={c.k}
-              className="rounded-2xl border border-white/10 bg-navy-800 p-5 transition hover:border-navy-400/60 lg:col-span-3"
-            >
-              <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-navy-400">
-                {c.k}
-              </span>
-              <h3 className="mt-3 text-[16px] font-semibold tracking-tight">{c.label}</h3>
-              <p className="mt-2 text-[13px] leading-relaxed text-navy-200">{c.body}</p>
+          {/* Edge-clean product motion — no card chrome */}
+          {SHOWCASE.map((v) => (
+            <section key={v.src} className="lg:col-span-6">
+              <div className="aspect-video overflow-hidden rounded-2xl">
+                <video
+                  src={v.src}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                  aria-label={v.caption}
+                  disablePictureInPicture
+                  className="block h-full w-full object-cover"
+                />
+              </div>
+              <p className="mt-3 px-1 font-mono text-[11px] uppercase tracking-[0.18em] text-navy-200/70">
+                {v.caption}
+              </p>
             </section>
           ))}
+
 
           {/* Plans header */}
           <section id="plans" className="rounded-2xl border border-white/10 bg-navy-700 p-6 lg:col-span-12">
@@ -437,6 +479,54 @@ function Home() {
                   on your spam folder and mark our address as safe.
                 </p>
               </div>
+            </div>
+          </section>
+
+          {/* Newsletter tile */}
+          <section className="rounded-2xl border border-white/10 bg-navy-700 p-6 backdrop-blur-xl lg:col-span-12">
+            <div className="flex flex-wrap items-end justify-between gap-6">
+              <div className="min-w-[260px] flex-1">
+                <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-navy-400">
+                  <Mail className="h-3.5 w-3.5" />
+                  Newsletter
+                </span>
+                <h3 className="mt-3 text-xl font-semibold tracking-tight sm:text-2xl">
+                  Release notes, promo drops, setup guides.
+                </h3>
+                <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-navy-200">
+                  One email when there's something worth reading — never a schedule for its own sake.
+                  Unsubscribe any time by replying.
+                </p>
+              </div>
+              <form onSubmit={subscribe} className="flex w-full max-w-md flex-wrap items-center gap-2">
+                <input
+                  type="email"
+                  required
+                  value={newsletterEmail}
+                  onChange={(e) => setNewsletterEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  aria-label="Email address"
+                  maxLength={254}
+                  className="min-w-0 flex-1 rounded-md border border-white/15 bg-navy-900/60 px-3 py-2.5 font-mono text-[12px] text-navy-050 placeholder:text-navy-200/40 focus:border-navy-400 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={newsletterState === "sending"}
+                  className="rounded-md bg-navy-050 px-4 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-navy-800 transition hover:bg-white disabled:opacity-60"
+                >
+                  {newsletterState === "sending" ? "Sending…" : "Subscribe"}
+                </button>
+                {newsletterMsg && (
+                  <p
+                    role="status"
+                    className={`w-full font-mono text-[11px] ${
+                      newsletterState === "error" ? "text-red-300" : "text-emerald-300"
+                    }`}
+                  >
+                    {newsletterMsg}
+                  </p>
+                )}
+              </form>
             </div>
           </section>
 
