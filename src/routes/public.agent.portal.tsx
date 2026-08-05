@@ -6,8 +6,16 @@ import {
   getMyPortal,
   removeMyDevice,
   changeMyPassword,
+  getMyAlertSettings,
+  saveMyAlertSettings,
+  sendMyTelegramTest,
+  listMyBookings,
+  requestSupportSession,
   type PortalOverview,
+  type PortalAlertSettings,
+  type SupportBooking,
 } from "@/lib/portal.functions";
+
 
 export const Route = createFileRoute("/public/agent/portal")({
   ssr: false,
@@ -269,10 +277,257 @@ function PortalPage() {
             </section>
           </>
         )}
+
+        <SchedulePanel />
+        <TelegramPanel />
       </main>
     </div>
   );
 }
+
+const input =
+  "w-full rounded-md border border-white/10 bg-[#0F1626] px-3 py-2 text-sm outline-none focus:border-[#4F7CFF]";
+const label = "mb-1 block text-[11px] uppercase tracking-wide text-white/50";
+
+function SchedulePanel() {
+  const create = useServerFn(requestSupportSession);
+  const list = useServerFn(listMyBookings);
+
+  const [topic, setTopic] = useState("");
+  const [when, setWhen] = useState("");
+  const [notes, setNotes] = useState("");
+  const [tz] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
+  );
+  const [bookings, setBookings] = useState<SupportBooking[]>([]);
+  const [state, setState] = useState<{ busy: boolean; ok?: string; err?: string }>({
+    busy: false,
+  });
+
+  const reload = async () => {
+    try {
+      setBookings((await list()) as SupportBooking[]);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const submit = async () => {
+    setState({ busy: true });
+    try {
+      await create({
+        data: { topic, preferred_at: new Date(when).toISOString(), timezone: tz, notes },
+      });
+      setTopic("");
+      setWhen("");
+      setNotes("");
+      setState({ busy: false, ok: "Request sent — we'll confirm by email." });
+      await reload();
+    } catch (e) {
+      setState({ busy: false, err: e instanceof Error ? e.message : "Could not send request" });
+    }
+  };
+
+  return (
+    <section className={card}>
+      <h2 className="mb-1 text-sm font-semibold">Schedule a session</h2>
+      <p className="mb-4 text-xs text-white/50">
+        Check open slots on our support calendar, then request the time that suits you.
+      </p>
+
+      <div className="mb-4 overflow-hidden rounded-lg border border-white/10 bg-white">
+        <iframe
+          title="ConnectLive support calendar"
+          src="https://calendar.google.com/calendar/embed?src=support%40connectliveagent.com&ctz=America%2FNew_York"
+          className="h-[420px] w-full"
+          style={{ border: 0 }}
+          scrolling="no"
+          loading="lazy"
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <span className={label}>Topic</span>
+          <input
+            className={input}
+            value={topic}
+            maxLength={120}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="Onboarding, migration, incident…"
+          />
+        </div>
+        <div>
+          <span className={label}>Preferred time ({tz})</span>
+          <input
+            type="datetime-local"
+            className={input}
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <span className={label}>Notes (optional)</span>
+          <textarea
+            className={`${input} min-h-[80px]`}
+            value={notes}
+            maxLength={1000}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Anything we should prepare before the call"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          className="rounded-md bg-[#4F7CFF] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+          disabled={state.busy || topic.trim().length < 3 || !when}
+          onClick={submit}
+        >
+          {state.busy ? "Sending…" : "Request this slot"}
+        </button>
+        {state.ok && <span className="text-xs text-green-300">{state.ok}</span>}
+        {state.err && <span className="text-xs text-red-300">{state.err}</span>}
+      </div>
+
+      {bookings.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {bookings.map((b) => (
+            <li
+              key={b.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-black/20 px-3 py-2 text-xs"
+            >
+              <span className="font-medium">{b.topic}</span>
+              <span className="text-white/40">
+                {new Date(b.preferred_at).toLocaleString()} · {b.status}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function TelegramPanel() {
+  const load = useServerFn(getMyAlertSettings);
+  const save = useServerFn(saveMyAlertSettings);
+  const test = useServerFn(sendMyTelegramTest);
+
+  const [cfg, setCfg] = useState<PortalAlertSettings>({
+    telegram_bot_token: "",
+    telegram_chat_id: "",
+    notify_on_session_start: true,
+    notify_on_device_offline: false,
+  });
+  const [state, setState] = useState<{ busy: boolean; ok?: string; err?: string }>({
+    busy: false,
+  });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = (await load()) as PortalAlertSettings;
+        setCfg({
+          telegram_bot_token: s.telegram_bot_token ?? "",
+          telegram_chat_id: s.telegram_chat_id ?? "",
+          notify_on_session_start: s.notify_on_session_start,
+          notify_on_device_offline: s.notify_on_device_offline,
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setState({ busy: true });
+    try {
+      await fn();
+      setState({ busy: false, ok });
+    } catch (e) {
+      setState({ busy: false, err: e instanceof Error ? e.message : "Something went wrong" });
+    }
+  };
+
+  return (
+    <section className={card}>
+      <h2 className="mb-1 text-sm font-semibold">Telegram alerts</h2>
+      <p className="mb-4 text-xs text-white/50">
+        Create a bot with @BotFather, message it once, then paste the token and your chat ID here.
+        Alerts stay on your account only.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <span className={label}>Bot token</span>
+          <input
+            className={input}
+            type="password"
+            autoComplete="off"
+            value={cfg.telegram_bot_token ?? ""}
+            onChange={(e) => setCfg({ ...cfg, telegram_bot_token: e.target.value })}
+            placeholder="123456:ABC-DEF…"
+          />
+        </div>
+        <div>
+          <span className={label}>Chat ID</span>
+          <input
+            className={input}
+            value={cfg.telegram_chat_id ?? ""}
+            onChange={(e) => setCfg({ ...cfg, telegram_chat_id: e.target.value })}
+            placeholder="e.g. 987654321"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2 text-xs text-white/70">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={cfg.notify_on_session_start}
+            onChange={(e) => setCfg({ ...cfg, notify_on_session_start: e.target.checked })}
+          />
+          Alert me when a support session starts on one of my devices
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={cfg.notify_on_device_offline}
+            onChange={(e) => setCfg({ ...cfg, notify_on_device_offline: e.target.checked })}
+          />
+          Alert me when a device goes offline
+        </label>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          className="rounded-md bg-[#4F7CFF] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+          disabled={state.busy}
+          onClick={() => run(() => save({ data: cfg }), "Alert settings saved.")}
+        >
+          Save
+        </button>
+        <button
+          className={btn}
+          disabled={state.busy}
+          onClick={() => run(() => test(), "Test message sent.")}
+        >
+          Send test
+        </button>
+        {state.ok && <span className="text-xs text-green-300">{state.ok}</span>}
+        {state.err && <span className="text-xs text-red-300">{state.err}</span>}
+      </div>
+    </section>
+  );
+}
+
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (

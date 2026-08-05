@@ -544,6 +544,33 @@ export type Database = {
         }
         Relationships: []
       }
+      portal_settings: {
+        Row: {
+          notify_on_device_offline: boolean
+          notify_on_session_start: boolean
+          telegram_bot_token: string | null
+          telegram_chat_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          notify_on_device_offline?: boolean
+          notify_on_session_start?: boolean
+          telegram_bot_token?: string | null
+          telegram_chat_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          notify_on_device_offline?: boolean
+          notify_on_session_start?: boolean
+          telegram_bot_token?: string | null
+          telegram_chat_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       power_commands: {
         Row: {
           created_at: string
@@ -1078,6 +1105,53 @@ export type Database = {
           username?: string
         }
         Relationships: []
+      }
+      support_bookings: {
+        Row: {
+          contact_email: string
+          created_at: string
+          id: string
+          license_id: string | null
+          notes: string | null
+          preferred_at: string
+          status: string
+          timezone: string
+          topic: string
+          user_id: string
+        }
+        Insert: {
+          contact_email: string
+          created_at?: string
+          id?: string
+          license_id?: string | null
+          notes?: string | null
+          preferred_at: string
+          status?: string
+          timezone?: string
+          topic: string
+          user_id: string
+        }
+        Update: {
+          contact_email?: string
+          created_at?: string
+          id?: string
+          license_id?: string | null
+          notes?: string | null
+          preferred_at?: string
+          status?: string
+          timezone?: string
+          topic?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_bookings_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
