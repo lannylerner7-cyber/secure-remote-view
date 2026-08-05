@@ -277,7 +277,7 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                     </div>
                   ) : o.access_link ? (
                     <div className="flex items-center gap-1">
-                      <a href={o.access_link} target="_blank" rel="noreferrer" className="truncate text-[10px] text-[#4F7CFF] hover:underline" style={{ maxWidth: 160 }}>
+                      <a href={o.access_link} target="_blank" rel="noopener noreferrer" className="truncate text-[10px] text-[#4F7CFF] hover:underline" style={{ maxWidth: 160 }}>
                         {o.access_link}
                       </a>
                       <button
