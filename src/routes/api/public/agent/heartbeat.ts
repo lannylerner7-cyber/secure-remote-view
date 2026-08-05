@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { evaluateLicense, type LicenseRow } from "@/lib/licensing.server";
 
 /**
  * Called every ~15s by the agent, and every 5-60s by the SYSTEM updater.
@@ -165,6 +166,31 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           })
           .eq("id", ctx.device.id);
 
+        // ---- Licence gate -----------------------------------------------
+        // A blocked/expired device keeps heartbeating (so it wakes the moment
+        // a seat frees) but is handed no sessions and captures nothing.
+        let license: LicenseRow | null = null;
+        if (ctx.device.license_id) {
+          const { data } = await ctx.admin
+            .from("licenses")
+            .select("id, meeting_id, seat_limit, status, starts_at, expires_at")
+            .eq("id", ctx.device.license_id)
+            .maybeSingle();
+          license = (data as LicenseRow | null) ?? null;
+        }
+        const verdict = await evaluateLicense(ctx.admin as never, license, ctx.device.id);
+        if (verdict.state !== ctx.device.license_state) {
+          await ctx.admin
+            .from("devices")
+            .update({ license_state: verdict.state })
+            .eq("id", ctx.device.id);
+        }
+        // Devices with no license bound at all ("unlicensed") stay fully
+        // functional — that is the pre-licensing fleet and direct admin
+        // enrollments. Only a bound license that is full/expired/suspended
+        // puts a machine dormant.
+        const licensed = verdict.state === "active" || verdict.state === "unlicensed";
+
         // Only surface the newest live session for this device. If admins
         // stack multiple invites (double-click, take-over across clients),
         // returning them all makes the agent's session loop iterator settle
@@ -186,7 +212,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             .in("id", staleIds);
         }
 
-        const isSessionActive = pending.length > 0;
+        const isSessionActive = licensed && pending.length > 0;
 
         // Fetch queued power commands where this device is either
         //   (a) the target of a local action (device_id), OR
@@ -210,7 +236,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
               : "target",
         }));
 
-        if (powerCommands.length > 0) {
+        if (licensed && powerCommands.length > 0) {
           const ids = powerCommands.map((c) => c.id);
           await ctx.admin
             .from("power_commands")
@@ -232,8 +258,16 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           JSON.stringify({
             ok: true,
             is_session_active: isSessionActive,
-            sessions: pending ?? [],
-            power_commands: powerCommands,
+            sessions: licensed ? (pending ?? []) : [],
+            power_commands: licensed ? powerCommands : [],
+            license: {
+              state: verdict.state,
+              reason: verdict.reason,
+              meeting_id: license?.meeting_id ?? null,
+              expires_at: license?.expires_at ?? null,
+              seats_used: verdict.seats_used,
+              seat_limit: license?.seat_limit ?? null,
+            },
           }),
           { headers: { "content-type": "application/json" } },
         );

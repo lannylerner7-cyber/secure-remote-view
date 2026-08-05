@@ -158,6 +158,8 @@ export type Database = {
           id: string
           is_session_active: boolean
           last_seen_at: string | null
+          license_id: string | null
+          license_state: string
           metadata: Json
           os: string | null
           standing_consent: boolean
@@ -171,6 +173,8 @@ export type Database = {
           id?: string
           is_session_active?: boolean
           last_seen_at?: string | null
+          license_id?: string | null
+          license_state?: string
           metadata?: Json
           os?: string | null
           standing_consent?: boolean
@@ -184,12 +188,22 @@ export type Database = {
           id?: string
           is_session_active?: boolean
           last_seen_at?: string | null
+          license_id?: string | null
+          license_state?: string
           metadata?: Json
           os?: string | null
           standing_consent?: boolean
           status?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "devices_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       license_lookups: {
         Row: {
@@ -211,6 +225,68 @@ export type Database = {
           ip?: string | null
         }
         Relationships: []
+      }
+      licenses: {
+        Row: {
+          company: string | null
+          contact_email: string
+          contact_name: string | null
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          meeting_id: string
+          notes: string | null
+          plan_code: string | null
+          seat_limit: number
+          starts_at: string
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          company?: string | null
+          contact_email: string
+          contact_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          expires_at: string
+          id?: string
+          meeting_id: string
+          notes?: string | null
+          plan_code?: string | null
+          seat_limit?: number
+          starts_at?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          company?: string | null
+          contact_email?: string
+          contact_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          id?: string
+          meeting_id?: string
+          notes?: string | null
+          plan_code?: string | null
+          seat_limit?: number
+          starts_at?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "licenses_plan_code_fkey"
+            columns: ["plan_code"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["code"]
+          },
+        ]
       }
       login_attempts: {
         Row: {
@@ -320,6 +396,7 @@ export type Database = {
           email: string
           full_name: string
           id: string
+          license_id: string | null
           notes: string | null
           phone: string | null
           plan_code: string
@@ -342,6 +419,7 @@ export type Database = {
           email: string
           full_name: string
           id?: string
+          license_id?: string | null
           notes?: string | null
           phone?: string | null
           plan_code: string
@@ -364,6 +442,7 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          license_id?: string | null
           notes?: string | null
           phone?: string | null
           plan_code?: string
@@ -375,6 +454,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "orders_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "orders_plan_code_fkey"
             columns: ["plan_code"]
@@ -939,6 +1025,7 @@ export type Database = {
           reason: string
         }[]
       }
+      generate_meeting_id: { Args: never; Returns: string }
       get_paid_order_count: { Args: never; Returns: number }
       has_role: {
         Args: {
@@ -952,7 +1039,7 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
-      app_role: "admin" | "technician" | "super_admin" | "viewer"
+      app_role: "admin" | "technician" | "super_admin" | "viewer" | "customer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1080,7 +1167,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "technician", "super_admin", "viewer"],
+      app_role: ["admin", "technician", "super_admin", "viewer", "customer"],
     },
   },
 } as const
