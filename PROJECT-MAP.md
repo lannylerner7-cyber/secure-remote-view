@@ -1392,6 +1392,34 @@ starts from truth instead of memory.
 | S17 step 2 phase 1 — `EncodeStats` + `CodecPolicy` kill switch + heartbeat `encode` payload | closed (§10.7) |
 | V1–V5 route / key / metadata verification | closed (§10.8) |
 | Sanitized agent + admin source zips | re-cut 2026-08-04 |
+| U1 admin console UX — reachable toolbar, scoped key capture, Fit/1:1, docked banners | closed (§10.10) |
+
+## §10.10 — Native admin console UX repair — 2026-08-05 (`SCOPE:RENDER`)
+
+Four defects, all in the WPF chrome — no transport, capture or ViewModel change.
+
+1. **Toolbar layout.** `LiveSessionWindow.xaml` docked the status panel first
+   and let it grow without bound, so the eight action buttons (the last child)
+   were clipped out of the window and the bar looked dead. **INVARIANT** — the
+   action `WrapPanel` is declared FIRST with `DockPanel.Dock="Right"` so it
+   always reserves its width; the status panel is the fill child and trims with
+   `TextTrimming`. Power actions (lock / reboot / shutdown) now live in a single
+   `Menu` so the bar fits a normal window.
+2. **Key capture scope.** The window-level `PreviewKeyDown/Up` handlers marked
+   Enter/Space/Tab/arrows handled everywhere, disabling keyboard operation of the
+   chrome. **INVARIANT** — forwarding is gated on `Stage.IsKeyboardFocusWithin`;
+   the live surface (`Stage`) is focused on load and on any click on the picture.
+3. **Fit / 1:1.** Fit = `Stretch=Uniform` + `StretchDirection=Both` (upscale
+   allowed, small rungs fill the window); 1:1 = `Stretch=None` +
+   `StretchDirection=DownOnly` inside `FrameScroll`. **INVARIANT** —
+   `ContentRect.Compute`'s `allowUpscale` is still read off the Image's live
+   `StretchDirection` in `Rect()`, and the ghost cursor maps image-space to
+   canvas-space via `TransformToVisual` so scroll offset is honoured in 1:1.
+4. **Banners** (take-over, status) are docked above the picture instead of
+   overlaid on it, and the live window opens maximised. Device-list action cells
+   use a `DataGridCell` style with `Focusable=False` so Connect / Wake / Delete
+   fire on the first click.
+
 
 **Open / next**
 

@@ -55,7 +55,10 @@ public partial class LiveSessionWindow : Window
             _coalesce.Start();
             StartRenderTick();
             Activate();
-            Keyboard.Focus(this);
+            // Focus the live surface, not the window: key interception below is
+            // scoped to Stage so the toolbar keeps normal Tab/Enter/Space.
+            Keyboard.Focus(Stage);
+
         };
 
         Closed += (_, _) =>
@@ -148,6 +151,33 @@ public partial class LiveSessionWindow : Window
             allowUpscale: FrameImage.StretchDirection != StretchDirection.DownOnly);
     }
 
+    /// <summary>
+    /// Fit ⇄ 1:1. Fit scales the desktop to the window (upscale allowed);
+    /// 1:1 presents native pixels inside a scroll viewer. ContentRect derives
+    /// allowUpscale from the Image's live StretchDirection, so the input and
+    /// ghost-cursor geometry follow this switch with no extra state.
+    /// </summary>
+    private void ViewMode_Changed(object sender, RoutedEventArgs e)
+    {
+        var oneToOne = OneToOneToggle.IsChecked == true;
+        if (oneToOne)
+        {
+            FrameImage.Stretch = Stretch.None;
+            FrameImage.StretchDirection = StretchDirection.DownOnly;
+            FrameScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+            FrameScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        }
+        else
+        {
+            FrameImage.Stretch = Stretch.Uniform;
+            FrameImage.StretchDirection = StretchDirection.Both;
+            FrameScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            FrameScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        }
+        UpdateCursorGhost();
+        Keyboard.Focus(Stage);
+    }
+
     private void UpdateCursorGhost()
     {
         // Sample() advances prediction expiry and the fade, so it must be
@@ -163,13 +193,20 @@ public partial class LiveSessionWindow : Window
         if (!r.IsValid) { CursorGhost.Visibility = Visibility.Collapsed; return; }
         // Offset by the letterbox bars, not by the raw element size.
         var (x, y) = r.ToElement(nx, ny);
-        Canvas.SetLeft(CursorGhost, x - 1);
-        Canvas.SetTop(CursorGhost, y - 1);
+        // The overlay canvas is a sibling of the ScrollViewer, so image-space
+        // has to be mapped into canvas-space or the ghost ignores the scroll
+        // offset in 1:1 mode.
+        Point onCanvas;
+        try { onCanvas = FrameImage.TransformToVisual(CursorLayer).Transform(new Point(x, y)); }
+        catch { CursorGhost.Visibility = Visibility.Collapsed; return; }
+        Canvas.SetLeft(CursorGhost, onCanvas.X - 1);
+        Canvas.SetTop(CursorGhost, onCanvas.Y - 1);
         // Predicted = the technician's own hand (solid); telemetry = the remote
         // machine's pointer (dimmed), so the two are never confused on screen.
         CursorGhost.Opacity = _predict.IsPredicting ? 1.0 : 0.75;
         CursorGhost.Visibility = Visibility.Visible;
     }
+
 
 
     private (double x, double y) ToAbs(MouseEventArgs e)
@@ -203,7 +240,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        Keyboard.Focus(this);
+        Keyboard.Focus(Stage);
         if (!OnPicture(e)) return;
         var (x, y) = ToAbs(e);
         _predict.Predict(x, y);
@@ -275,8 +312,17 @@ public partial class LiveSessionWindow : Window
     private readonly List<Key> _awaitingText = new();
     private const int AwaitingTextCap = 16;
 
+    /// <summary>
+    /// Keys are only forwarded to the remote machine while the live surface
+    /// owns focus. Without this gate the window-level tunnelled handlers
+    /// marked Enter/Space/Tab/arrows handled everywhere, which killed keyboard
+    /// operation of the toolbar (and of the Power menu) entirely.
+    /// </summary>
+    private bool StageHasFocus => Stage.IsKeyboardFocusWithin;
+
     private async void OnKeyDown(object sender, KeyEventArgs e)
     {
+        if (!StageHasFocus) return;
         var key = Effective(e);
         // Unmodified printable keys are delivered by TextInput as Unicode so
         // the remote layout, dead keys and IME composition all behave. WPF only
@@ -297,6 +343,7 @@ public partial class LiveSessionWindow : Window
 
     private async void OnKeyUp(object sender, KeyEventArgs e)
     {
+        if (!StageHasFocus) return;
         var key = Effective(e);
         if (IsPrintable(key))
         {
@@ -327,6 +374,7 @@ public partial class LiveSessionWindow : Window
 
     private async void OnTextInput(object sender, TextCompositionEventArgs e)
     {
+        if (!StageHasFocus) return;
         e.Handled = true;
         if (string.IsNullOrEmpty(e.Text)) return;
         // This character settles the most recent pending key, so its fallback
@@ -334,6 +382,7 @@ public partial class LiveSessionWindow : Window
         if (_awaitingText.Count > 0) _awaitingText.RemoveAt(_awaitingText.Count - 1);
         await _kb.TextAsync(e.Text);
     }
+
 
 
     private void EndSession_Click(object sender, RoutedEventArgs e) => Close();

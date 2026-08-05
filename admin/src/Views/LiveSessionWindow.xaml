@@ -3,16 +3,70 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Live session"
         Height="720" Width="1200"
+        MinHeight="480" MinWidth="720"
+        WindowState="Maximized"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgPrimary}">
     <DockPanel>
+        <!-- Toolbar.
+             LAYOUT INVARIANT — the action buttons are declared FIRST and
+             docked right so they always reserve their width. The status panel
+             is the fill child and trims instead of squeezing the actions off
+             the edge, which is exactly what used to make every button in this
+             bar unreachable. The actions live in a WrapPanel so a narrow
+             window folds them onto a second line rather than clipping them. -->
         <Border DockPanel.Dock="Top" Background="{StaticResource BgSurface}" Padding="12,8">
-            <DockPanel>
-                <StackPanel Orientation="Horizontal">
+            <DockPanel LastChildFill="True">
+                <WrapPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                           HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button Content="Reconnect" Command="{Binding ReconnectAgentCommand}"
+                            Background="#334155" Margin="4,2" MinWidth="88"
+                            ToolTip="Wake the agent and force it to pick up this session on the next heartbeat" />
+                    <Button Content="Restart stream" Command="{Binding RestartStreamCommand}"
+                            Background="#334155" Margin="4,2" MinWidth="110"
+                            ToolTip="Tear down and rebuild the live stream without restarting the agent process" />
+                    <Button Content="Restart agent" Command="{Binding RestartAgentCommand}"
+                            Background="#334155" Margin="4,2" MinWidth="104"
+                            ToolTip="Soft-restart the agent in place (falls back to relaunch if the reset fails)" />
+                    <Button Content="{Binding ControlButtonLabel}" Command="{Binding ToggleControlCommand}"
+                            Background="#7F1D1D" Margin="4,2" MinWidth="150"
+                            ToolTip="Take control: blocks the user's keyboard/mouse, shows the curtain, and routes your real mouse and keyboard to the remote machine" />
+
+                    <!-- Fit / 1:1 view mode. Fit lets the picture fill the
+                         window (upscale allowed); 1:1 shows native pixels in a
+                         scroll viewer. ContentRect reads allowUpscale off the
+                         Image's live StretchDirection, so input geometry stays
+                         correct in both modes without extra bookkeeping. -->
+                    <ToggleButton x:Name="OneToOneToggle" Content="1:1" Margin="4,2" MinWidth="52"
+                                  Padding="12,6" BorderThickness="0" Foreground="White"
+                                  Background="#334155" Cursor="Hand"
+                                  Checked="ViewMode_Changed" Unchecked="ViewMode_Changed"
+                                  ToolTip="Toggle between Fit (scale the desktop to this window) and 1:1 (native pixels, scrollable)" />
+
+                    <!-- Power actions collapsed behind one menu so the bar
+                         stays inside a normal window width. -->
+                    <Menu Background="Transparent" VerticalAlignment="Center" Margin="4,2">
+                        <MenuItem Header="Power" Foreground="White" Padding="12,6"
+                                  ToolTip="Lock, restart or shut down the remote machine">
+                            <MenuItem Header="Lock" Command="{Binding PowerCommandCommand}" CommandParameter="lock" />
+                            <MenuItem Header="Restart" Command="{Binding PowerCommandCommand}" CommandParameter="reboot" />
+                            <MenuItem Header="Shut down" Command="{Binding PowerCommandCommand}" CommandParameter="shutdown" />
+                        </MenuItem>
+                    </Menu>
+
+                    <Button Content="End session" Click="EndSession_Click"
+                            Background="#334155" Margin="4,2" MinWidth="96" />
+                </WrapPanel>
+
+                <!-- Fill child: status readouts. Clipped, never expanding past
+                     the space the actions left behind. -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                            ClipToBounds="True" Margin="0,0,12,0">
                     <Ellipse Width="8" Height="8" Fill="#22C55E" VerticalAlignment="Center" />
                     <TextBlock Text="LIVE" Foreground="White" FontWeight="Bold" Margin="8,0,16,0"
                                VerticalAlignment="Center" FontSize="11" />
-                    <TextBlock x:Name="DeviceLabel" Foreground="White" VerticalAlignment="Center" />
+                    <TextBlock x:Name="DeviceLabel" Foreground="White" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" MaxWidth="180" />
                     <TextBlock Text="•" Foreground="{StaticResource TextMuted}" Margin="8,0" VerticalAlignment="Center" />
                     <!-- Pill honesty: green only while decoded frames present. -->
                     <TextBlock Text="{Binding Transport}" VerticalAlignment="Center" FontSize="11">
@@ -30,10 +84,13 @@
                     </TextBlock>
                     <TextBlock Text="•" Foreground="{StaticResource TextMuted}" Margin="8,0" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding LinkState}" Foreground="#22C55E"
-                               VerticalAlignment="Center" FontSize="11" />
+                               VerticalAlignment="Center" FontSize="11"
+                               TextTrimming="CharacterEllipsis" MaxWidth="220" />
                     <!-- G2 measurement: fps / latency / queue depth / source size. -->
                     <TextBlock Text="{Binding VideoStats}" Foreground="{StaticResource TextMuted}"
-                               Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11" />
+                               Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11"
+                               TextTrimming="CharacterEllipsis" MaxWidth="420"
+                               ToolTip="{Binding VideoStats}" />
 
                     <!-- SCOPE:CAPTURE — monitor picker. Hidden on single-display
                          machines so the bar stays clean. -->
@@ -50,7 +107,7 @@
                         </StackPanel.Style>
                         <TextBlock Text="Display" Foreground="{StaticResource TextMuted}"
                                    VerticalAlignment="Center" FontSize="11" Margin="0,0,6,0" />
-                        <ComboBox MinWidth="190"
+                        <ComboBox MinWidth="160"
                                   ItemsSource="{Binding Monitors}"
                                   SelectedItem="{Binding SelectedMonitor, Mode=TwoWay}"
                                   DisplayMemberPath="Label"
@@ -58,94 +115,75 @@
                                   ToolTip="Choose which remote monitor is captured. The stream restarts on change." />
                     </StackPanel>
                 </StackPanel>
-
-
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
-                    <Button Content="Reconnect" Command="{Binding ReconnectAgentCommand}"
-                            Background="#334155" Margin="4,0"
-                            ToolTip="Wake the agent and force it to pick up this session on the next heartbeat" />
-                    <Button Content="Restart stream" Command="{Binding RestartStreamCommand}"
-                            Background="#334155" Margin="4,0"
-                            ToolTip="Tear down and rebuild the live stream without restarting the agent process" />
-                    <Button Content="Restart agent" Command="{Binding RestartAgentCommand}"
-                            Background="#334155" Margin="4,0"
-                            ToolTip="Soft-restart the agent in place (falls back to relaunch if the reset fails)" />
-                    <Button Content="{Binding ControlButtonLabel}" Command="{Binding ToggleControlCommand}"
-                            Background="#7F1D1D" Margin="4,0"
-                            ToolTip="Take control: blocks the user's keyboard/mouse, shows the curtain, and routes your real mouse and keyboard to the remote machine" />
-
-                    <Button Content="Lock" Command="{Binding PowerCommandCommand}" CommandParameter="lock"
-                            Background="#334155" Margin="4,0" />
-                    <Button Content="Restart" Command="{Binding PowerCommandCommand}" CommandParameter="reboot"
-                            Background="#334155" Margin="4,0" />
-                    <Button Content="Shutdown" Command="{Binding PowerCommandCommand}" CommandParameter="shutdown"
-                            Background="#7F1D1D" Margin="4,0" />
-                    <Button Content="End session" Click="EndSession_Click"
-                            Background="#334155" Margin="4,0,0,0" />
-                </StackPanel>
-
             </DockPanel>
         </Border>
 
-        <Grid Background="Black" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        <!-- Banners are docked ABOVE the picture, not overlaid on it: a
+             take-over notice or an RLS warning must never cover the top of the
+             remote desktop. Collapsed banners take no layout space. -->
+        <Border DockPanel.Dock="Top" Background="#DC2626" Padding="16,10">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding TakenOver}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <TextBlock Text="{Binding TakenOverMessage}" Foreground="White"
+                       FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" />
+        </Border>
+
+        <!-- Non-fatal background error banner (frame poll / signal poll / RLS 401). -->
+        <Border DockPanel.Dock="Top" Background="#F59E0B" Padding="12,6">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StatusMessage}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <TextBlock Text="{Binding StatusMessage}" Foreground="Black" FontWeight="SemiBold"
+                       TextAlignment="Center" TextWrapping="Wrap" />
+        </Border>
+
+        <!-- The live surface. Keyboard interception is scoped to this element
+             (Stage) so toolbar buttons keep normal Tab/Enter/Space behaviour. -->
+        <Grid x:Name="Stage" Background="Black" UseLayoutRounding="True" SnapsToDevicePixels="True"
               Focusable="True" FocusVisualStyle="{x:Null}">
-            <!-- HighQuality (Fant) is the correct downscale filter for remote
-                 desktop text; the default bilinear pass smears 1920px sources
-                 into a ~1100px element. DownOnly keeps a small source crisp
-                 rather than blowing it up. -->
-            <Image x:Name="FrameImage" Source="{Binding CurrentFrame}"
-                   Stretch="Uniform" StretchDirection="DownOnly"
-                   RenderOptions.BitmapScalingMode="HighQuality"
-                   UseLayoutRounding="True" SnapsToDevicePixels="True"
-                   MouseMove="Frame_MouseMove"
-                   MouseLeftButtonDown="Frame_MouseDown"
-                   MouseLeftButtonUp="Frame_MouseUp"
-                   MouseRightButtonDown="Frame_MouseRightDown"
-                   MouseRightButtonUp="Frame_MouseRightUp"
-                   MouseWheel="Frame_MouseWheel" />
+            <ScrollViewer x:Name="FrameScroll"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Disabled"
+                          PanningMode="None" Focusable="False" Background="Black">
+                <!-- HighQuality (Fant) is the correct downscale filter for remote
+                     desktop text; the default bilinear pass smears 1920px sources
+                     into a ~1100px element. Fit mode allows upscale so a small
+                     rung fills the window; 1:1 mode swaps to native pixels. -->
+                <Image x:Name="FrameImage" Source="{Binding CurrentFrame}"
+                       Stretch="Uniform" StretchDirection="Both"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       UseLayoutRounding="True" SnapsToDevicePixels="True"
+                       MouseMove="Frame_MouseMove"
+                       MouseLeftButtonDown="Frame_MouseDown"
+                       MouseLeftButtonUp="Frame_MouseUp"
+                       MouseRightButtonDown="Frame_MouseRightDown"
+                       MouseRightButtonUp="Frame_MouseRightUp"
+                       MouseWheel="Frame_MouseWheel" />
+            </ScrollViewer>
 
-
-            <!-- Ghost cursor overlay driven by CursorPollPump.
-                 The window's SizeChanged handler keeps offsets in sync with
-                 letterboxing (Stretch="Uniform"). -->
+            <!-- Ghost cursor overlay driven by CursorPollPump. Positions are
+                 computed through ContentRect against FrameImage, so it tracks
+                 letterboxing in Fit mode and scroll offset in 1:1 mode. -->
             <Canvas x:Name="CursorLayer" IsHitTestVisible="False">
                 <Path x:Name="CursorGhost" Fill="#F97316" Stroke="Black" StrokeThickness="1"
                       Visibility="Collapsed"
                       Data="M0,0 L0,14 L4,10 L6,14 L8,13 L6,9 L11,9 Z" />
             </Canvas>
-            <!-- Take-over banner: red overlay when another admin console
-                 supersedes this session (WebRtcClient "terminated" signal). -->
-            <Border Background="#DC2626" Padding="16,10"
-                    VerticalAlignment="Top" HorizontalAlignment="Stretch">
-                <Border.Style>
-                    <Style TargetType="Border">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding TakenOver}" Value="True">
-                                <Setter Property="Visibility" Value="Visible" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Border.Style>
-                <TextBlock Text="{Binding TakenOverMessage}" Foreground="White"
-                           FontWeight="SemiBold" TextAlignment="Center" />
-            </Border>
-
-            <!-- Non-fatal background error banner (frame poll / signal poll / RLS 401). -->
-            <Border Background="#F59E0B" Padding="12,6"
-                    VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="0,64,0,0">
-                <Border.Style>
-                    <Style TargetType="Border">
-                        <Setter Property="Visibility" Value="Visible" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding StatusMessage}" Value="{x:Null}">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Border.Style>
-                <TextBlock Text="{Binding StatusMessage}" Foreground="Black" FontWeight="SemiBold" TextAlignment="Center" />
-            </Border>
         </Grid>
     </DockPanel>
 </Window>
