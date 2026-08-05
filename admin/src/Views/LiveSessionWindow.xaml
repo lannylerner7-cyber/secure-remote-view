@@ -103,10 +103,13 @@
                     <TextBlock Text="{Binding LinkState}" Foreground="#22C55E"
                                VerticalAlignment="Center" FontSize="11"
                                TextTrimming="CharacterEllipsis" MaxWidth="220" />
-                    <!-- G2 measurement: fps / latency / queue depth / source size. -->
+                    <!-- S18 HUD: fps / bitrate / latency / queue / drops / source size.
+                         Widened for the two extra fields; still trimmed, never
+                         allowed to push the docked actions off the bar. -->
                     <TextBlock Text="{Binding VideoStats}" Foreground="{StaticResource TextMuted}"
                                Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11"
-                               TextTrimming="CharacterEllipsis" MaxWidth="420"
+                               TextTrimming="CharacterEllipsis" MaxWidth="560"
+
                                ToolTip="{Binding VideoStats}" />
 
                     <!-- SCOPE:CAPTURE — monitor picker. Hidden on single-display
