@@ -185,7 +185,11 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             .update({ license_state: verdict.state })
             .eq("id", ctx.device.id);
         }
-        const licensed = verdict.state === "active";
+        // Devices with no license bound at all ("unlicensed") stay fully
+        // functional — that is the pre-licensing fleet and direct admin
+        // enrollments. Only a bound license that is full/expired/suspended
+        // puts a machine dormant.
+        const licensed = verdict.state === "active" || verdict.state === "unlicensed";
 
         // Only surface the newest live session for this device. If admins
         // stack multiple invites (double-click, take-over across clients),
