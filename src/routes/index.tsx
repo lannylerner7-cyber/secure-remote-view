@@ -4,7 +4,7 @@ import { Footer } from "@/components/Footer";
 import heroFloat1 from "@/assets/hero-float-1.png";
 import heroFloat2 from "@/assets/hero-float-2.png";
 import heroFloat3 from "@/assets/hero-float-3.png";
-import videoAsset from "@/assets/connectlive.mp4.asset.json";
+import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 
 type PlanCard = {
@@ -381,14 +381,14 @@ function DeviceMockup() {
 
           {/* video with cursor telemetry overlay */}
           <div className="relative aspect-video bg-black">
-            <video
-              src={videoAsset.url}
-              autoPlay
-              muted
-              loop
-              playsInline
-              className="h-full w-full object-cover opacity-90"
+            <img
+              src={orbAsset.url}
+              alt="ConnectLive live session orb animation"
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-contain opacity-95"
             />
+
             {/* Cursor telemetry */}
             <div className="absolute left-[38%] top-[42%] text-[#8FB4FF] drop-shadow-[0_0_6px_rgba(143,180,255,0.9)]">
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
