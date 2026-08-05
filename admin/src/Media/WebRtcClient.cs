@@ -332,13 +332,76 @@ public sealed class WebRtcClient : IDisposable
         {
             pc.OnVideoFrameReceived += (_, __, frame, ___) =>
             {
-                if (frame != null && frame.Length > 0) Pipeline.Submit(frame);
+                if (frame == null || frame.Length == 0) return;
+                Pipeline.Submit(frame);
+                // S24 — tee the exact bitstream to disk when recording. Reading
+                // the field without a lock is fine: it is swapped whole, and
+                // IvfWriter is itself thread-safe.
+                var rec = _recorder;
+                if (rec != null)
+                {
+                    try { rec.WriteFrame(frame); }
+                    catch (Exception ex) { T("record write failed: " + ex.Message); }
+                }
             };
         }
         catch (Exception ex) { T("frame handler wiring failed: " + ex.Message); }
     }
 
+    // ---- S24: session recording ------------------------------------------
+
+    private IvfWriter? _recorder;
+
+    public bool IsRecording => _recorder != null;
+
+    /// <summary>
+    /// Begin teeing decoded VP8 frames to an .ivf file under Videos\ConnectLive.
+    /// Returns the path, or null when the file cannot be created.
+    /// </summary>
+    public string? StartRecording(int width = 0, int height = 0)
+    {
+        if (_recorder != null) return _recorder.Path;
+        try
+        {
+            var dir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                "ConnectLive");
+            var file = $"session-{_sessionId.Substring(0, Math.Min(8, _sessionId.Length))}-" +
+                       $"{DateTime.Now:yyyyMMdd-HHmmss}.ivf";
+            var path = System.IO.Path.Combine(dir, file);
+            _recorder = new IvfWriter(path, width, height);
+            Log.Write("[record] started -> " + path);
+            return path;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[record] start failed: " + ex.Message);
+            _recorder = null;
+            return null;
+        }
+    }
+
+    /// <summary>Finish the recording and return the file path (null when idle).</summary>
+    public string? StopRecording()
+    {
+        var rec = _recorder;
+        _recorder = null;
+        if (rec == null) return null;
+        try
+        {
+            var path = rec.Stop();
+            Log.Write($"[record] stopped -> {path} ({rec.FrameCount} frames)");
+            return path;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[record] stop failed: " + ex.Message);
+            return null;
+        }
+    }
+
     // ---- Phase 4: keyframe first, then admin-initiated ICE restart -------
+
 
     private void OnKeyFrameRequested()
     {
