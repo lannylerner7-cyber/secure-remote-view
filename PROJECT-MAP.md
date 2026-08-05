@@ -1438,3 +1438,38 @@ Four defects, all in the WPF chrome — no transport, capture or ViewModel chang
 **Invariant** — nothing here is marked closed on intent. A row moves to the
 closed table only after the code exists in the repo and the matching probe,
 telemetry line, or checklist step passes.
+
+---
+
+## 10.11 — End-to-end audit pass (2026-08-05): bridge inventory & doc drift
+
+A read-only line-by-line pass over every web route, `agent/src/*.cs` (22 files),
+`admin/src/**` (32 files), `scripts/**`, and the Supabase migrations, diffed
+against this document. Result: **no CLAIMED-BUT-MISSING code.** Everything the
+map says is wired, is wired. Three items were corrected or recorded.
+
+### Route-string cross-check — clean
+Every hardcoded `/api/public/...` string in `agent/src/ApiClient.cs`,
+`agent/src/StreamListener.cs`, `admin/src/Api/ApiClient.cs`, `scripts/**`, and
+the web console resolves one-to-one to a real file under
+`src/routes/api/public/**` (19 route files). **Zero mismatches, zero 404 risk.**
+
+### Bridge inventory (indirection layers, all three codebases)
+
+| Bridge | Location | Status |
+|---|---|---|
+| `InputTransport` (datachannel → REST) | `admin/src/Input/*`, `Media/WebRtcClient.cs` | **Live** — consumed by `MouseInjector`, `KeyboardInjector`, `LiveSessionViewModel` |
+| `FrameFallbackPump` (JPEG path when WebRTC is unavailable) | `admin/src/Media/FrameFallbackPump.cs` | **Live** — dual-path with WebRTC, matches §2 |
+| `StartupSelfHeal` → `StartupRegistration` | `agent/src/StartupSelfHeal.cs:9,33,40,47` | **Live** — belt-and-braces, called from `App.xaml.cs:82` |
+| `RtpCapture` diagnostic tap | `admin/src/Media/RtpCapture.cs`, instantiated at `WebRtcClient.cs:81` | **Live but vestigial** — env-gated on `CONNECTLIVE_RTP_CAPTURE=1`, off by default. Its own docstring says "deleted after Phase 3, per the contract"; §10.2 superseded that contract. **Decision pending**: delete, or promote to permanent ops tooling. |
+| `MouseInjector.MoveRelAsync` | `admin/src/Input/MouseInjector.cs:38` | **Orphan seam** — zero call sites; the WPF console still has no pointer-capture toggle (browser console does). Unchanged from §8. |
+| `CodecPolicy.AllowH264` | `agent/src/CodecPolicy.cs:18,67` | **Dead switch by design** — no consumer until S17 Step 2 Phase 3. `HwH264Encoder.cs` genuinely does not exist yet; VP8 is still hard-pinned at `WebRtcSession.cs:158,193`. |
+
+### Doc drift corrected in this pass
+- `console.tsx` line count: **1,648 → 1,666** (4 occurrences: §7, §8, §9.1, §10).
+- Agent route verifier: **22/22 → 24/24** (§10.1) — the power-ack and
+  technician-bearer ICE probes were added but the count was never bumped.
+
+### Still open (unchanged, needs a physical Windows host)
+S3 fleet verification, native-render soak, and the 4K measurement window that
+gates S17 Step 2 Phase 3. No sandbox pass can close these.
