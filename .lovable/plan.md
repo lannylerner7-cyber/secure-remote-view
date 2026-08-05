@@ -1,74 +1,70 @@
-# Licensed customer accounts, seat limits, and a customer portal
+# Order emails, admin-issued customer accounts, and the domain switch
 
-Today every agent enrolls anonymously: `/api/public/agent/enroll` mints a device token for anyone who asks, and devices belong to nobody. Orders exist, but nothing links a paid plan to the machines running the agent.
+Three connected changes: emails around the order lifecycle, a customer portal whose accounts you create by hand, and moving every reference off the old domain.
 
-This adds the missing middle layer: a **license** that owns seats, devices, and a subscription window — and a customer-facing portal to manage it.
+## 1. Domain switch — connectliveagent.com
 
-## The model
+`zoomlite.live` appears in 19 files. All of it becomes `https://connectliveagent.com` (no `www`, so links stay consistent; the `www` host already redirects).
 
-```text
-auth user (customer)
-   └── license  (key, plan, seat_limit, starts_at, expires_at, status)
-          └── devices (each device row now carries license_id)
-```
+- Web: canonical + og:url tags on `contact`, `privacy`, `refund`, `connectlive.payment`, `connectlive.admin`, and the console.
+- Agent + Admin apps: the base URL in `agent/src/ApiClient.cs`, `admin/src/Api/AppConfig.cs`, `admin/src/admin.config.json`.
+- Scripts and docs: the four e2e/verify scripts, `PROJECT-MAP.md`, `ENDPOINTS.md`, `RELEASE-CHECKLIST.md`, both `INSTALL.md` files.
 
-- One license per customer account, identified by a single permanent **Meeting ID** shown on their profile.
-- Seats used = count of that license's devices that are not deleted.
-- Subscription clock starts on the license's issue date, not on install date.
+## 2. Order emails
 
-## How the agent knows who it belongs to — one-time Meeting ID
+Email needs a verified sender domain first — `connectliveagent.com` is not set up for sending yet, so that is step one and everything below waits on it. Two templates, both branded to the site:
 
-No per-customer builds and no bundled key file. One installer for everyone.
+**Order received** — sent the moment a customer submits the order form, to the email on the order.
+- Subject: `Your ConnectLive order is received — #<short id>`
+- Contents: order number, plan, seats, amount in USD and crypto, the pay-to address, the price-lock deadline, and a link to the tracking page for that order.
 
-- Every customer account gets one permanent Meeting ID (short, readable, e.g. `CL-8FQ2-4KDN`), displayed on their portal profile. It is the human-facing name of their license.
-- On first run only, the agent shows a small prompt: "Enter your ConnectLive Meeting ID". The customer types it once.
-- The agent posts it with enrollment. On success it writes the ID into its hidden local store (`%LOCALAPPDATA%\ConnectLive\meeting.dat`, DPAPI-encrypted, same folder as `device.dat`) and never asks again.
-- Every later boot reads that file, skips the prompt entirely, and goes straight to background startup — the existing HKCU Run-key startup path is unchanged.
-- If the file is missing or deleted (reimage, profile wipe), the prompt reappears once and the machine re-joins the same license.
+**Order confirmed** — sent when you mark the order paid (manual confirm or webhook confirmation).
+- Subject: `Payment confirmed — your ConnectLive access is on the way`
+- Contents: confirmation of payment, "your software and sign-in details arrive within 24–48 hours", an explicit "check your spam or junk folder, and mark us as safe" line, and the support contact.
 
+Nothing else is automated. You send the actual download links, the customer's portal password, and any setup notes yourself once you have provisioned them.
 
-## Enrollment with seat enforcement
+## 3. Order tracking
 
-`/api/public/agent/enroll` gains license logic:
+The existing public order page becomes the tracking surface: status timeline (received → payment detected → confirmed → access sent), with the confirmed state showing the 24–48 hour message. The link is in both emails, so no login is needed to track.
 
-1. Look up the license by Meeting ID. Unknown ID → refuse and let the agent re-prompt.
-2. Count active devices. Under the limit and subscription live → enroll as normal, `status = active`.
-3. **At or over the limit, or subscription expired → the device is still created, but marked `blocked`.** It appears in the customer portal with a "needs a seat" badge, and heartbeats return `blocked` so the agent goes quiet (no capture, no sessions) while retrying periodically.
-4. When the customer frees a seat or upgrades, the next heartbeat flips it to `active` automatically — no reinstall.
+## 4. Admin-issued customer accounts
 
-Freeing a seat is instant and unlimited: deleting a device in the portal immediately opens the slot for the next blocked or new device.
+No public signup. In the payments console you gain a **Customers** section:
 
-Sessions and every other agent route also refuse to run for a blocked or expired device.
+- **Create account** from a paid order in one click: pick the order, set a password, and the account is created with the customer role, the license, the seat count from the plan, and the subscription window. The password is shown once for you to pass on.
+- **Reset password** and **suspend/restore** for an existing customer.
+- Each customer row shows plan, seats used vs. total, expiry, and their devices.
 
-## Customer portal — `/connectlive/agent-user`
+## 5. Customer portal — `/public/agent/login`
 
-Separate login page and separate console from the technician console, using the existing auth system with a `customer` role.
+A separate login page and console from the technician one, with its own look and no technician features.
 
-- **Login / signup** at `/connectlive/agent-user/login`, tied to the email used at checkout so a paid order can be claimed into an account.
-- **Devices + seats**: seats used vs. available, the device list with hostname / OS / last seen / status, delete to free a seat, blocked devices called out with a one-click "activate into free seat".
-- **Subscription**: plan name, seat count, start date, renewal date, days remaining, plus a prominent expired/expiring banner.
-- **In-app upgrade & renewal**: buy more seats or renew through the existing crypto checkout; on payment confirmation the license's seat limit and expiry update and blocked devices activate.
-- **Profile**: their Meeting ID front and centre with a copy button, plus the plain agent download (same installer for everyone).
+- Sign in with the email and password you issued.
+- **Overview**: plan, seats used vs. total, start date, renewal date, days remaining, expiry banner when close.
+- **Devices**: hostname, OS, last seen, status; delete a device to free a seat; devices over the seat cap appear as "needs a seat".
+- **Downloads**: the agent installer and, for their admin, the console installer.
+- **Their ID**: the license/meeting ID with a copy button — this is what the agent asks for on first run so a machine joins the right account.
+- Password change.
 
-The technician console (`/console`) is untouched except that devices now display which license they belong to.
+The technician console and the native admin app are unchanged; the native app keeps working exactly as today since it only authenticates and reads.
 
 ## Technical details
 
-Database (one migration):
-- `licenses` — `id`, `user_id`, `meeting_id` (unique, short readable code), `plan_code`, `seat_limit`, `status` (`active`/`expired`/`suspended`), `issued_at`, `expires_at`, timestamps. RLS: a customer reads only their own; admins read all; service role full.
-- `devices` gains `license_id` (nullable, so existing rows survive) and `status` gains a `blocked` value. Existing unlicensed devices keep working for admins.
-- `license_events` — audit trail of seat grants, deletions, upgrades, renewals.
-- `orders` gains `license_id` so a renewal payment can be attributed.
-- GRANTs for `authenticated` + `service_role` on every new table.
+Domain: a straight replacement pass across the 19 files listed above, then re-run the route verifier scripts against the new host.
 
-Backend:
-- `enroll.ts`: accept `meetingId`, resolve the license, enforce seats/expiry, set `license_id` and `active`/`blocked`. Meeting-ID guessing is rate-limited per IP alongside the existing enroll throttle.
-- `heartbeat.ts`: return `{ licenseState: "active" | "blocked" | "expired" }`; the agent stops capture and skips invites unless active.
-- New server functions in `src/lib/licenses.functions.ts`: `getMyLicense`, `listMyDevices`, `deleteMyDevice`, `activateBlockedDevice`, `startUpgradeOrder`.
-- Order confirmation path (`webhooks/cdp.ts` + reconcile cron) creates the license (and its Meeting ID) on first paid order, and extends it on renewals.
+Email: set up `connectliveagent.com` as a sending domain, then scaffold the app-email system and add the two templates. The "order received" send hooks into `createOrderPublic`; the "order confirmed" send hooks into both the paid transition in `webhooks/cdp.ts` and `markOrderPaid`, keyed off the order id so retries do not double-send.
 
-Agent (C#):
-- `MeetingIdStore.cs` — DPAPI-encrypted `meeting.dat` in the existing hidden config folder, with read/write/clear helpers.
-- `MeetingIdPrompt.xaml` — small first-run-only dialog; shown before the splash, skipped entirely when `meeting.dat` exists.
-- `ApiClient.EnrollIfNeededAsync` sends the Meeting ID and persists it only after the server accepts it; a rejected ID clears the file and re-prompts.
-- `Agent.cs` honours a `blocked`/`expired` heartbeat by staying dormant and logging the reason.
+Database (one migration): `licenses` (`user_id`, `meeting_id` unique, `plan_code`, `seat_limit`, `status`, `issued_at`, `expires_at`), `devices.license_id` plus a `blocked` status, `orders.license_id`, and a `customer` value on `app_role`. GRANTs and RLS so a customer reads only their own license and devices, admins read all.
+
+Backend: admin-only server functions to create/reset/suspend a customer (service-role `auth.admin` user creation, never public); customer-scoped functions for license, devices, and device deletion. `agent/enroll` resolves the meeting ID, enforces seats and expiry, and marks over-cap devices `blocked`; `agent/heartbeat` returns the license state so a blocked agent stays dormant.
+
+Agent (C#): a DPAPI-encrypted `meeting.dat` next to `device.dat`, a one-time first-run prompt for the ID when that file is absent, and dormancy on a `blocked`/`expired` heartbeat.
+
+## Order of work
+
+1. Domain replacement (independent, ships immediately).
+2. Email domain setup, then the two templates and their triggers.
+3. Licensing migration + enrollment enforcement.
+4. Admin customer management, then the customer portal.
+5. Agent meeting-ID prompt.
