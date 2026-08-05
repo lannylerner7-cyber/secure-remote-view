@@ -141,9 +141,41 @@ function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-navy-900 font-sans text-navy-050 antialiased">
+    <div className="relative min-h-screen overflow-x-hidden bg-navy-900 font-sans text-navy-050 antialiased">
+      {/* Ambient motion background */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="aurora-a absolute -left-24 top-[-10%] h-[46rem] w-[46rem] rounded-full bg-navy-400/20 blur-[120px]" />
+        <div className="aurora-b absolute -right-32 top-[25%] h-[38rem] w-[38rem] rounded-full bg-emerald-400/10 blur-[130px]" />
+        <div className="aurora-a absolute bottom-[-15%] left-[30%] h-[34rem] w-[34rem] rounded-full bg-navy-200/10 blur-[140px]" />
+      </div>
+
+      {/* Promo marquee */}
+      <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-r from-navy-700 via-navy-600 to-navy-700">
+        <div className="marquee-track whitespace-nowrap py-2">
+          {[0, 1].map((dup) => (
+            <div key={dup} className="flex shrink-0 items-center">
+              {PROMO_ITEMS.map((item, i) => (
+                <span
+                  key={`${dup}-${i}`}
+                  className="mx-5 inline-flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-navy-050"
+                >
+                  {i % 2 === 0 ? (
+                    <Gift className="h-3.5 w-3.5 text-emerald-300" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                  )}
+                  {item}
+                  <Tag className="h-3.5 w-3.5 text-navy-400" />
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Top bar */}
-      <header className="border-b border-white/10">
+      <header className="border-b border-white/10 backdrop-blur-sm">
+
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-md bg-navy-400/20 ring-1 ring-navy-400/40">
