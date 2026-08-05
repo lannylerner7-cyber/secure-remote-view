@@ -29,6 +29,11 @@ REM Purge stale helper binaries from older full builds so they cannot ship.
 if exist "agent\dist\ConnectLiveUpdater.exe" del "agent\dist\ConnectLiveUpdater.exe"
 if exist "agent\dist\ConnectLiveService.exe" del "agent\dist\ConnectLiveService.exe"
 
+REM S25 - sign the agent exe before it is zipped (no-op with a warning when
+REM no CODESIGN_* env var is set). See docs\SIGNING.md.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0tools\CodeSign.ps1'; Invoke-ConnectLiveSign -Paths @('%~dp0agent\dist\ConnectLive.exe')"
+if errorlevel 1 goto :fail
+
 if exist "agent\dist\ConnectLive-RemoteAgent.zip" del "agent\dist\ConnectLive-RemoteAgent.zip"
 powershell -NoProfile -Command "Compress-Archive -Path 'agent\dist\ConnectLive.exe','agent\dist\README-INSTALL.txt' -DestinationPath 'agent\dist\ConnectLive-RemoteAgent.zip' -Force"
 if errorlevel 1 goto :fail
@@ -39,6 +44,9 @@ copy /Y "admin\publish\admin\ConnectLiveAdmin.exe" "admin\dist\" >nul
 if errorlevel 1 goto :fail
 copy /Y "admin\src\admin.config.json" "admin\dist\" >nul
 copy /Y "admin\INSTALL.md" "admin\dist\README-INSTALL.txt" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0tools\CodeSign.ps1'; Invoke-ConnectLiveSign -Paths @('%~dp0admin\dist\ConnectLiveAdmin.exe')"
+if errorlevel 1 goto :fail
+
 if exist "admin\dist\ConnectLive-AdminConsole.zip" del "admin\dist\ConnectLive-AdminConsole.zip"
 powershell -NoProfile -Command "Compress-Archive -Path 'admin\dist\ConnectLiveAdmin.exe','admin\dist\admin.config.json','admin\dist\README-INSTALL.txt' -DestinationPath 'admin\dist\ConnectLive-AdminConsole.zip' -Force"
 if errorlevel 1 goto :fail
@@ -48,7 +56,7 @@ echo BUILD COMPLETE!
 echo   Agent bundle: agent\dist\ConnectLive-RemoteAgent.zip
 echo   Admin bundle: admin\dist\ConnectLive-AdminConsole.zip
 echo.
-echo Optional: sign each .exe with your code-signing cert before shipping.
+echo Signing: automatic when CODESIGN_* env vars are set - see docs\SIGNING.md.
 pause
 exit /b 0
 
