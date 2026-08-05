@@ -61,11 +61,12 @@ const PLAN_CARDS: PlanCard[] = [
 ];
 
 const CAPABILITIES: { k: string; label: string; body: string }[] = [
-  { k: "01", label: "Curtain mode", body: "Blank the remote display and block local input mid-session." },
-  { k: "02", label: "Sub-50ms WebRTC", body: "Hardware-encoded H.264 over direct peer transport with TURN fallback." },
-  { k: "03", label: "Multi-monitor", body: "Per-display capture with precise pointer mapping across the fleet." },
-  { k: "04", label: "Full audit trail", body: "Every session, file, and clipboard event recorded and attributable." },
+  { k: "01", label: "Instant onboarding", body: "Get your team up and running in minutes with a guided setup — no complex configuration." },
+  { k: "02", label: "Effortless collaboration", body: "Work together on any screen, from any place, as if you were sitting side by side." },
+  { k: "03", label: "Reliable everywhere", body: "Consistent performance across offices, home networks, and travel days you didn't plan for." },
+  { k: "04", label: "Human-first support", body: "Real people on standby to help your team when it matters — not tickets in a queue." },
 ];
+
 
 export const Route = createFileRoute("/")({
   component: Home,
