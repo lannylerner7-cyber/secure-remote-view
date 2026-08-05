@@ -43,6 +43,16 @@
                                   Checked="ViewMode_Changed" Unchecked="ViewMode_Changed"
                                   ToolTip="Toggle between Fit (scale the desktop to this window) and 1:1 (native pixels, scrollable)" />
 
+                    <!-- S19(b) — pointer capture. Locks the local cursor to the
+                         live surface and streams relative motion, so the remote
+                         pointer is unbounded and 1:1 with the hand. -->
+                    <ToggleButton x:Name="CaptureToggle" Content="Capture" Margin="4,2" MinWidth="76"
+                                  Padding="12,6" BorderThickness="0" Foreground="White"
+                                  Background="#334155" Cursor="Hand"
+                                  Checked="Capture_Changed" Unchecked="Capture_Changed"
+                                  ToolTip="Capture the pointer (relative motion, unbounded). Press Esc or F8 to release." />
+
+
                     <!-- Power actions collapsed behind one menu so the bar
                          stays inside a normal window width. -->
                     <Menu Background="Transparent" VerticalAlignment="Center" Margin="4,2">
@@ -154,8 +164,20 @@
 
         <!-- The live surface. Keyboard interception is scoped to this element
              (Stage) so toolbar buttons keep normal Tab/Enter/Space behaviour. -->
+        <!-- Stage-level mouse handlers exist for S19(b): while the pointer is
+             captured, WPF routes every mouse event to the capturing element
+             (Stage), so the Image handlers below never fire. Each Stage
+             handler is a no-op unless capture is engaged, so nothing
+             double-fires in normal mode. -->
         <Grid x:Name="Stage" Background="Black" UseLayoutRounding="True" SnapsToDevicePixels="True"
-              Focusable="True" FocusVisualStyle="{x:Null}">
+              Focusable="True" FocusVisualStyle="{x:Null}"
+              MouseMove="Stage_MouseMove"
+              MouseLeftButtonDown="Stage_MouseDown"
+              MouseLeftButtonUp="Stage_MouseUp"
+              MouseRightButtonDown="Stage_MouseRightDown"
+              MouseRightButtonUp="Stage_MouseRightUp"
+              MouseWheel="Stage_MouseWheel">
+
             <ScrollViewer x:Name="FrameScroll"
                           HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Disabled"

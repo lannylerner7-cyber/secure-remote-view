@@ -29,11 +29,17 @@ public sealed class MouseInjector
     public Task MoveAsync(double x, double y, CancellationToken ct = default)
         => InputTransport.SendAsync(_sessionId, "mousemove", new { x, y }, ct);
 
-    // NOTE: there is no MoveRelAsync here. The agent still understands
-    // "mousemove_rel" (agent/src/InputRelay.cs:88) and the browser console uses
-    // it for pointer-lock, but the WPF console has no pointer-capture toggle, so
-    // shipping an uncalled wrapper was dead weight. Re-add it here the same turn
-    // the toggle lands — not before.
+    /// <summary>
+    /// S19(b) — relative motion for the pointer-capture toggle. The agent
+    /// handler is "mousemove_rel" { dx, dy } in integer device pixels
+    /// (agent/src/InputRelay.cs:88); the browser console uses the same shape
+    /// for pointer-lock. Only sent while <see cref="PointerCapture"/> owns the
+    /// cursor — absolute moves and relative moves must never interleave.
+    /// </summary>
+    public Task MoveRelAsync(int dx, int dy, CancellationToken ct = default)
+        => InputTransport.SendAsync(_sessionId, "mousemove_rel", new { dx, dy }, ct);
+
+
 
 
 

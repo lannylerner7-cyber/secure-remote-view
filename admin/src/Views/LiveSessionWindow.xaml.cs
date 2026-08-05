@@ -26,6 +26,11 @@ public partial class LiveSessionWindow : Window
     private readonly PredictiveCursor _predict = new();
     private EventHandler? _renderTick;
 
+    // S19(b) — pointer capture (relative motion). Created after
+    // InitializeComponent so the surface element exists.
+    private readonly PointerCapture _capture;
+
+
     public LiveSessionWindow(string sessionId, DeviceItem device)
     {
         InitializeComponent();
@@ -37,6 +42,8 @@ public partial class LiveSessionWindow : Window
         _mouse = new MouseInjector(sessionId);
         _kb = new KeyboardInjector(sessionId);
         _coalesce = new InputCoalescer(_mouse);
+        _capture = new PointerCapture(Stage);
+
 
         // Authoritative telemetry arrives here exactly once per sample.
         _vm.CursorSample += OnCursorSample;
@@ -66,13 +73,16 @@ public partial class LiveSessionWindow : Window
             StopRenderTick();
             _vm.CursorSample -= OnCursorSample;
             _predict.Reset();
+            EndCapture();
             _coalesce.Stop();
             _vm.Stop();
         };
         // Losing focus mid-keystroke means the matching key-up never reaches
         // us; drop the pending stamps so a later press of the same key cannot
         // fire a spurious raw-key fallback.
-        Deactivated += (_, _) => _awaitingText.Clear();
+        // Losing activation while captured must also free the physical cursor,
+        // otherwise the technician cannot reach any other window.
+        Deactivated += (_, _) => { _awaitingText.Clear(); EndCapture(); };
         // Tunnelled key events so the live surface wins over WPF focus
         // navigation (Tab, arrows, Alt menus) before it can swallow them.
         PreviewKeyDown += OnKeyDown;
@@ -82,9 +92,63 @@ public partial class LiveSessionWindow : Window
         // Recompute the content rect on element resize AND whenever the source
         // changes size mid-session (Phase 4 resolution change).
         FrameImage.SizeChanged += (_, _) => UpdateCursorGhost();
+        // The capture anchor is the centre of the live surface, so it moves
+        // whenever the surface does.
+        Stage.SizeChanged += (_, _) => _capture.Recenter();
+        LocationChanged += (_, _) => _capture.Recenter();
         _vm.PropertyChanged += Vm_PropertyChanged;
         SyncPredictionGate();
+        SyncLocalCursor();
     }
+
+    // ---------------------------------------------------------------------
+    // S19 — local cursor draw + pointer capture
+    //
+    // (a) While this console is authoritative the OS cursor is hidden over the
+    //     stage and the orange ghost — drawn from LOCAL input by
+    //     PredictiveCursor — is the only pointer on screen. That is what makes
+    //     the pointer track the hand instead of the decoded video.
+    // (b) Capture mode parks the physical cursor on the surface centre and
+    //     streams relative motion, so the remote pointer is unbounded.
+    // ---------------------------------------------------------------------
+
+    private void SyncLocalCursor()
+    {
+        var hide = _capture.Engaged || _vm.InputAuthoritative;
+        var c = hide ? Cursors.None : Cursors.Arrow;
+        Stage.Cursor = c;
+        FrameImage.Cursor = c;
+    }
+
+    private void Capture_Changed(object sender, RoutedEventArgs e)
+    {
+        if (CaptureToggle.IsChecked == true)
+        {
+            Keyboard.Focus(Stage);
+            if (!_capture.Engage())
+            {
+                // Surface not realised yet (or no presentation source): fail
+                // visibly rather than leaving a toggle that lies.
+                CaptureToggle.IsChecked = false;
+                return;
+            }
+        }
+        else
+        {
+            _capture.Release();
+        }
+        SyncLocalCursor();
+    }
+
+    /// <summary>Release capture from anywhere (Esc/F8, deactivate, close).</summary>
+    private void EndCapture()
+    {
+        if (!_capture.Engaged) return;
+        _capture.Release();
+        CaptureToggle.IsChecked = false;
+        SyncLocalCursor();
+    }
+
 
     private void OnCursorSample(double nx, double ny, bool visible)
         => _predict.Observe(nx, ny, visible);
@@ -125,12 +189,17 @@ public partial class LiveSessionWindow : Window
         if (e.PropertyName == nameof(LiveSessionViewModel.InputAuthoritative))
         {
             SyncPredictionGate();
+            // S19(a) — the OS cursor only hides while we own the remote
+            // pointer; a view-only session keeps its normal arrow.
+            SyncLocalCursor();
+            if (!_vm.InputAuthoritative) EndCapture();
         }
         else if (e.PropertyName == nameof(LiveSessionViewModel.CurrentFrame))
         {
             UpdateCursorGhost();
         }
     }
+
 
     /// <summary>
     /// Phase 5 — the ONE place element-space and source-space meet.
@@ -229,20 +298,85 @@ public partial class LiveSessionWindow : Window
 
     private void Frame_MouseMove(object sender, MouseEventArgs e)
     {
+        if (_capture.Engaged) { HandleCapturedMove(e); return; }
         if (!OnPicture(e)) return;      // letterbox bar: not part of the desktop
         var (x, y) = ToAbs(e);
         // Prediction FIRST — the ghost must move on this frame, not on the
         // frame after the agent's telemetry round trip completes.
         _predict.Predict(x, y);
         _coalesce.Update(x, y);
+        _lastNormX = x; _lastNormY = y;
     }
 
+    // In capture mode the mouse is captured by Stage, so moves arrive here
+    // (the picture may not be under the physical pointer at all).
+    private void Stage_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_capture.Engaged) HandleCapturedMove(e);
+    }
+
+    // Delegates: only live while captured (see the XAML comment on Stage).
+    private void Stage_MouseDown(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseDown(sender, e); }
+    private void Stage_MouseUp(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseUp(sender, e); }
+    private void Stage_MouseRightDown(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseRightDown(sender, e); }
+    private void Stage_MouseRightUp(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseRightUp(sender, e); }
+    private void Stage_MouseWheel(object sender, MouseWheelEventArgs e) { if (_capture.Engaged) Frame_MouseWheel(sender, e); }
+
+
+
+    private double _lastNormX = 0.5, _lastNormY = 0.5;
+
+    /// <summary>
+    /// S19(b) — one physical move becomes: a relative delta on the wire, and a
+    /// locally integrated normalised position so the ghost cursor and any
+    /// following click still have coordinates to work with.
+    /// </summary>
+    private void HandleCapturedMove(MouseEventArgs e)
+    {
+        Point screen;
+        try { screen = Stage.PointToScreen(e.GetPosition(Stage)); }
+        catch { return; }
+        if (!_capture.Consume(screen, out var dx, out var dy)) return;
+
+        _coalesce.UpdateRel(dx, dy);
+
+        // Integrate locally for the ghost. Source pixels, not element pixels:
+        // one physical pixel of hand movement is one remote pixel.
+        var (sw, sh) = SourceSize();
+        if (sw > 0 && sh > 0)
+        {
+            _lastNormX = Math.Clamp(_lastNormX + dx / sw, 0, 1);
+            _lastNormY = Math.Clamp(_lastNormY + dy / sh, 0, 1);
+            _predict.Predict(_lastNormX, _lastNormY);
+        }
+    }
+
+    private (double w, double h) SourceSize()
+    {
+        var src = FrameImage.Source;
+        if (src == null) return (0, 0);
+        if (src is System.Windows.Media.Imaging.BitmapSource bs) return (bs.PixelWidth, bs.PixelHeight);
+        if (src is System.Windows.Interop.D3DImage d3d) return (d3d.PixelWidth, d3d.PixelHeight);
+        return (src.Width, src.Height);
+    }
+
+    /// <summary>
+    /// Coordinates for a button/wheel event. Captured sessions have no
+    /// meaningful element position, so the locally integrated point is used
+    /// and the on-picture gate is skipped.
+    /// </summary>
+    private bool TryPointFor(MouseEventArgs e, out double x, out double y)
+    {
+        if (_capture.Engaged) { x = _lastNormX; y = _lastNormY; return true; }
+        if (!OnPicture(e)) { x = y = 0; return false; }
+        (x, y) = ToAbs(e);
+        return true;
+    }
 
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
         Keyboard.Focus(Stage);
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Left, x, y);
@@ -250,8 +384,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Left, x, y);
@@ -259,8 +392,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightDown(object sender, MouseButtonEventArgs e)
     {
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Right, x, y);
@@ -268,8 +400,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightUp(object sender, MouseButtonEventArgs e)
     {
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Right, x, y);
@@ -277,15 +408,15 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!OnPicture(e)) return;
+        if (!TryPointFor(e, out var x, out var y)) return;
         // Park the pointer at the wheel position first so the remote machine
         // scrolls the control under the cursor, not whatever had focus.
-        var (x, y) = ToAbs(e);
         _predict.Predict(x, y);
-        _coalesce.Update(x, y);
+        if (!_capture.Engaged) _coalesce.Update(x, y);
         _coalesce.FlushNow();
         await _mouse.WheelAsync(e.Delta);
     }
+
 
 
 
@@ -324,6 +455,15 @@ public partial class LiveSessionWindow : Window
     {
         if (!StageHasFocus) return;
         var key = Effective(e);
+        // S19(b) escape hatch — Esc or F8 always frees the physical cursor,
+        // and is never forwarded to the remote machine while captured.
+        if (_capture.Engaged && (key == Key.Escape || key == Key.F8))
+        {
+            e.Handled = true;
+            EndCapture();
+            return;
+        }
+
         // Unmodified printable keys are delivered by TextInput as Unicode so
         // the remote layout, dead keys and IME composition all behave. WPF only
         // raises TextInput for key events it has NOT seen marked handled, so

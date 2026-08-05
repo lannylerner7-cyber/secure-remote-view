@@ -1487,7 +1487,7 @@ Nothing here is closed on intent; every row is tagged
 | # | Gap | Evidence | Tag | Cost / priority |
 |---|---|---|---|---|
 | S18 | **No native-path latency or fps number exists.** Every figure in this doc is the JPEG+Realtime fallback on localhost (frame p50 1568 ms / p95 5096 ms). Zero measured glass-to-glass, sustained fps, or fps-under-motion for the native VP8→D3D path. `session_telemetry` + `WebRtcClient.StatsLoop` write the columns; nobody has read them from a real session. | §5 S8; §10.9 open 1; §10.11; S11 | unmeasured | **P0, ~no code.** One Windows host, one real session under sustained motion. Unblocks S17-P2, S20 and all rung tuning. |
-| S19 | **The pointer lags the hand.** The ghost cursor follows decoded video, so every motion pays the full round trip. Enterprise RMMs draw the technician cursor locally at input time and reconcile. Relative mode is regressed: `mousemove_rel` works from the browser and `agent/src/InputRelay.cs:88` honours it, but admin `MouseInjector.MoveRelAsync` was deleted 08-05 (re-add condition at `MouseInjector.cs:32`). | §2; §10.10; §10.11 | regressed + missing | **P0 for feel.** (a) local cursor draw + reconcile, hide OS cursor over the stage; (b) re-add `MoveRelAsync` behind a pointer-capture toggle. |
+| S19 | **The pointer lags the hand.** The ghost cursor follows decoded video, so every motion pays the full round trip. Enterprise RMMs draw the technician cursor locally at input time and reconcile. Relative mode is regressed: `mousemove_rel` works from the browser and `agent/src/InputRelay.cs:88` honours it, but admin `MouseInjector.MoveRelAsync` was deleted 08-05 (re-add condition at `MouseInjector.cs:32`). | §2; §10.10; §10.11 | **CLOSED 08-05** | **Shipped.** (a) local cursor draw + reconcile, hide OS cursor over the stage; (b) re-add `MoveRelAsync` behind a pointer-capture toggle. |
 | S20 | **Nothing paces presents to the display** — motion micro-judders even at good fps. Render invariants cover correctness, not smoothness. Distinct from the encoder: H.264 (S17-P3) raises the ceiling, pacing makes whatever fps you have look even. | §4; §10.9 1–2; S12 | not addressed | **P1.** Present on a vsync/`CompositionTarget.Rendering` cadence with a 1–2 frame smoothing buffer; measure judder via S18. `Media/VideoPipeline.cs`, `Media/D3DImageHost.cs`. |
 | S21 | **No file transfer.** Table-stakes RMM (push a driver, pull a log). The input datachannel is the pattern to mirror. | §2/§3; S10 | asserted absent | **P1.** Ordered/reliable file datachannel, chunked + SHA-256 (reuse S14 checksum discipline), progress UI, per-transfer owner approval. |
 | S22 | **No clipboard sync.** | §2/§3 | asserted absent | **P2.** Text-first, size-capped, `mode=control` only, off by default (exfiltration-capable). |
@@ -1506,3 +1506,25 @@ dialog (and `StandingConsent`) behave exactly as before. Nothing else changed:
 the server still records the consent transition via
 `POST /api/public/agent/session/:id/consent`, and the curtain, session banner
 and audit trail keep the session visible to the owner.
+
+### S19 — local cursor draw + pointer capture — CLOSED 2026-08-05 (SCOPE:INPUT)
+(a) `LiveSessionWindow.SyncLocalCursor()` hides the OS cursor over the stage
+whenever the console is authoritative (`InputAuthoritative`) or capture is
+engaged, so the only pointer on screen is the orange ghost drawn from LOCAL
+input by `PredictiveCursor` — the pointer now tracks the hand, not the decoded
+video.
+(b) `Input/PointerCapture.cs` (new) implements pointer-lock the way WPF cannot:
+the physical cursor is parked at the centre of `Stage` and each move is read as
+a delta and warped back (self-warps ignored). `MouseInjector.MoveRelAsync` is
+re-added (`mousemove_rel { dx, dy }`, matching `agent/src/InputRelay.cs:88`) and
+`InputCoalescer.UpdateRel` SUMS deltas between flushes — a dropped delta is
+lost motion, unlike an absolute point. The remote pointer is therefore
+unbounded and free of letterbox clamping.
+
+Invariants: capture releases on Esc/F8, window deactivation, loss of
+`InputAuthoritative`, and window close. While captured WPF routes mouse events
+to the capturing element, so `Stage` carries delegate handlers that are no-ops
+unless capture is engaged (no double-fire in normal mode). Absolute and
+relative moves never interleave — `TryPointFor` uses a locally integrated
+normalised point while captured.
+
