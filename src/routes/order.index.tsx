@@ -36,6 +36,7 @@ export const Route = createFileRoute("/order/")({
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
+    links: [{ rel: "canonical", href: "https://www.connectliveagent.com/order" }],
   }),
 });
 

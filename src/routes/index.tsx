@@ -115,6 +115,7 @@ export const Route = createFileRoute("/")({
       { name: "twitter:image", content: `https://www.connectliveagent.com${bannerAsset.url}` },
 
     ],
+    links: [{ rel: "canonical", href: "https://www.connectliveagent.com/" }],
   }),
 });
 

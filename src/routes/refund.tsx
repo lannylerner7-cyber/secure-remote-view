@@ -12,6 +12,7 @@ export const Route = createFileRoute("/refund")({
       { property: "og:type", content: "article" },
       { name: "twitter:card", content: "summary" },
     ],
+    links: [{ rel: "canonical", href: "https://www.connectliveagent.com/refund" }],
   }),
 });
 
