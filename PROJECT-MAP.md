@@ -2216,3 +2216,35 @@ zero console errors. `tsgo --noEmit` clean.
 
 **Not touched.** No agent or admin C# changed in this pass; §11 open items
 unchanged. Release packages re-cut as `2026-08-05e` for parity only.
+
+---
+
+## §10.34 — Windows build repair + four-artifact release contract — 2026-08-05 (`SCOPE:RELEASE`)
+
+**Trigger.** The `2026-08-05g` Admin archive failed at
+`Api/Models.cs` because `List<SessionFile>` had no
+`System.Collections.Generic` import. Its build script then continued after the
+failed `dotnet publish` and emitted a misleading missing-EXE `Copy-Item` error.
+A manifest comparison also proved the two Agent ZIPs contained the same 47
+byte-identical files; the Admin ZIPs differed only by one design note.
+
+**Build repair.** Added the missing collections import, the missing LINQ import
+used by file reassembly, and the `Info`/`Warn` diagnostics methods already
+called by clipboard, recording and WebRTC code. Both PowerShell builders now
+check `$LASTEXITCODE` after restore and publish; Admin gained the same
+expected-output assertion already used by Agent. A separate
+`agent/build-developer.ps1` produces the raw Agent without requiring Inno or
+WiX.
+
+**Security.** `SIPSorcery 6.2.4` was covered by
+GHSA-28gm-jrmw-xx93 (malformed RTP/ICE UDP packet can terminate a media
+session; all versions through 10.0.8 affected). Agent and Admin now use patched
+`SIPSorcery 10.0.13` with `SIPSorceryMedia.Encoders 10.0.4`; the VP8 spike is
+aligned to the same package generation.
+
+**Proof.** Clean .NET 8 builds with Windows targeting completed for both
+production projects: Admin 0 errors; Agent 0 errors. Generated `bin`/`obj`
+trees were removed after verification. The replacement `2026-08-05h` release
+uses four explicit contracts: Agent Installer Builder, Agent Developer Source,
+Admin Release Builder and Admin Developer Source. Their normalized manifests
+and SHA-256 hashes are checked independently; no variant is a relabelled copy.
