@@ -78,6 +78,8 @@ public sealed class WebRtcClient : IDisposable
         var ct = _cts.Token;
 
 
+
+
         Pipeline.KeyFrameRequested += OnKeyFrameRequested;
         Pipeline.Diagnostic += d => T("pipeline: " + d);
         // S16 — a dead decoder is not a stalled network. Record the reason,
