@@ -101,6 +101,33 @@ The customer's password is never persisted in plaintext, never logged, and never
 
 **Rate & size limits.** Per-file cap 500 MB, per-session cumulative cap 5 GB, cap-hit is a soft error surfaced in the Files tab. Sizes tunable via env.
 
+## 7. Native admin console (`admin/src`) — file-by-file
+
+The roadmap's §10 status board lists 32 files under `admin/src/**`. Everything below is scoped against that inventory so nothing is left half-wired between web and native.
+
+**Must change**
+
+| File | Change |
+|---|---|
+| `admin/src/admin.config.json` | `baseUrl` `https://zoomlite.live` → `https://connectliveagent.com`. |
+| `admin/src/Api/AppConfig.cs` | Same swap in both the property default and the embedded JSON fallback, so a console shipped without a config file still resolves. |
+| `admin/src/Api/ApiClient.cs` | New calls: `ListSessionFilesAsync`, `UploadSessionFileAsync` (fallback path), `RequestZipAsync` (returns the signed download URL for `packageSessionFiles`), `SubmitSessionPasswordAsync`. Existing `/api/public/auth/login` hardcode stays the only literal route string. |
+| `admin/src/Api/Models.cs` | `SessionFile`, `ZipRequest`, `ZipTicket`, `LicenseState` DTOs. |
+| `admin/src/Media/WebRtcClient.cs` | `NegotiateAsync` opens a **second** ordered datachannel `files` next to the existing `input` one, before `createOffer`; exposes it to the new transfer service. Chunk traffic is excluded from the wire-bitrate counters so the HUD keeps reporting video health honestly. |
+| `admin/src/Media/FileTransport.cs` *(new)* | Mirror of `InputTransport`: chunk/reassemble over the `files` channel, per-file SHA-256, progress events, one-way demotion to the HTTP fallback on first send failure — same demotion discipline S10 already established for input. |
+| `admin/src/ViewModels/LiveSessionViewModel.cs` | `Files` collection, `SelectedFiles`, `SendFilesCommand`, `DownloadZipCommand`, transfer progress and per-file state; refresh on the same 10 s poll that already tracks monitors. |
+| `admin/src/Views/LiveSessionWindow.xaml` + `.cs` | "Files" side panel: drop target, file list with checkboxes + Select all, progress bars, **Download selected (.zip)** button, and the password prompt dialog for the verify-and-cache flow. Drop handling must not steal keyboard focus from `Stage` — the S18 keyboard-capture gate (`Stage.IsKeyboardFocusWithin`) stays intact. |
+| `admin/src/Views/MainWindow.xaml.cs` | `OpenOrders_Click` keeps opening the browser, but at the new domain via `App.Config.BaseUrl` (already indirect — verify only). No SMTP or customer-management UI in native: those are web-only surfaces, opened in the browser. |
+| `admin/build.ps1` / `admin/INSTALL.md` / `admin/README.md` | Version bump, new domain, "Files" listed under in-scope features; README's Scope block currently says file transfer is absent. |
+
+**Verify-only (no code change expected, but each is read during the pass)**
+
+`App.xaml.cs`, `AuthStore.cs`, `ClientIdStore.cs`, `SupabaseCallException.cs`, `Diag/Log.cs`, `Input/*` (5 files), `Media/{VideoPipeline,D3DImageHost,D3D9Ex,FrameConvert,FrameFallbackPump,ContentRect,CursorPollPump,PredictiveCursor,RealtimeChannel}.cs`, `ViewModels/{DevicesViewModel,LoginViewModel,Converters}.cs`, `Views/LoginWindow.*`, `Ui/AppIcon.cs`, `app.manifest`, `ConnectLiveAdmin.csproj`, and both `spikes/`. The pass confirms none of them hold a `zoomlite.live` literal, none assume a single datachannel, and none break when the session view gains a panel.
+
+**Explicitly out of scope for native:** SMTP settings, customer/license administration, order emails. Those live in the web payments console only; the native console links out to them.
+
+**Agent side, matching:** `agent/src/FileTransfer.cs` (new) handles the `files` channel, writes inbound to `%LOCALAPPDATA%\ConnectLive\incoming\<session_id>\`, and reads outbound from a user-picked folder; `agent/src/WebRtcSession.cs` accepts the second channel in its existing `ondatachannel` handler; `agent/src/ApiClient.cs` gains the HTTP chunk fallback and the domain swap.
+
 ## Technical details
 
 **Database (one migration).** `licenses` (`user_id`, `meeting_id` unique, `plan_code`, `seat_limit`, `status`, `issued_at`, `expires_at`); `devices.license_id` plus a `blocked` status value; `orders.license_id`; `customer` added to the `app_role` enum. `smtp_settings` singleton (`host`, `port`, `username`, `password_encrypted`, `from_name`, `from_address`, `encryption`, `updated_by`, `updated_at`). `session_files` (see §6). `session_secrets` (see §6). GRANTs for `authenticated` and `service_role` in the same migration, plus RLS so a customer reads only their own license and devices while admins read all — device reads by the technician console keep working through the existing admin policies. `smtp_settings` and `session_secrets` are admin-only, no anon grant.
