@@ -88,10 +88,14 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
       o.receive_address ? `Pay to: ${o.receive_address}` : "",
       o.price_expires_at ? `Price locked until: ${new Date(o.price_expires_at).toUTCString()}` : "",
       ``,
+      `Video setup guides are included: on order completion we send the agent installer, the admin`,
+      `console installer, your Meeting ID and sign-in details, plus step-by-step video setup guides.`,
+      ``,
       `Track: ${track}`,
     ]
       .filter(Boolean)
       .join("\n");
+
 
     return { subject: `Your ConnectLive order is received — #${short}`, html, text };
   }
