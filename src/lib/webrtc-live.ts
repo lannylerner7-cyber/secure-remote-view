@@ -669,12 +669,24 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     sendFile: (file) => sendFileOverChannel(file),
     onFile: (cb) => { fileListeners.add(cb); return () => { fileListeners.delete(cb); }; },
 
+    clipboardReady: () => cdc.readyState === "open",
+    sendClipboard: (text) => sendClipboardText(text),
+    onClipboard: (cb) => { clipListeners.add(cb); return () => { clipListeners.delete(cb); }; },
+
+    canRecord: () => pickRecordMime() !== null && recordableStream() !== null,
+    recording: () => recorder !== null,
+    startRecording: () => startRecordingInternal(),
+    stopRecording: () => stopRecordingInternal(),
+
     close: () => {
       if (closed) return;
       closed = true;
       clearWatchdog();
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
       if (mediaWatchdog !== null) window.clearInterval(mediaWatchdog);
+      // S24 — never strand an in-flight recording; stop it before the track dies.
+      if (recorder) { try { recorder.stop(); } catch {} recorder = null; }
+
       // Send the final signal directly: the normal queue stops accepting work
       // once close begins, and a queued bye could otherwise be stranded.
       void postAdminSignal({
