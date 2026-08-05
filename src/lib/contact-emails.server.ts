@@ -98,32 +98,30 @@ Reply to this email to add anything else.${textFooter()}`;
 
 export type ContactDelivery = { notified: boolean; acked: boolean };
 
-/** Send both messages. Never throws — a mail failure must not lose the enquiry. */
+/** Send both messages. Never throws, never hangs — a mail failure must not lose the enquiry. */
 export async function deliverContactEmails(p: ContactPayload): Promise<ContactDelivery> {
   const settings = await loadSmtpSettings();
   if (!settings) return { notified: false, acked: false };
 
-  const out: ContactDelivery = { notified: false, acked: false };
-
-  try {
+  const notify = async () => {
     const msg = renderSupportNotification(p);
-    await sendMail(settings, {
-      to: SUPPORT_EMAIL,
-      ...msg,
-      replyTo: `${p.name.replace(/[<>"\r\n]/g, "")} <${p.email}>`,
-    });
-    out.notified = true;
-  } catch (err) {
-    console.error("[contact] support notification failed", (err as Error).message);
-  }
+    await sendMail(
+      settings,
+      { to: SUPPORT_EMAIL, ...msg, replyTo: `${p.name.replace(/[<>"\r\n]/g, "")} <${p.email}>` },
+      10_000,
+    );
+  };
 
-  try {
+  const ack = async () => {
     const msg = renderVisitorAck(p);
-    await sendMail(settings, { to: p.email, ...msg, replyTo: `<${SUPPORT_EMAIL}>` });
-    out.acked = true;
-  } catch (err) {
-    console.error("[contact] visitor ack failed", (err as Error).message);
-  }
+    await sendMail(settings, { to: p.email, ...msg, replyTo: `<${SUPPORT_EMAIL}>` }, 10_000);
+  };
 
-  return out;
+  const [notified, acked] = await Promise.allSettled([notify(), ack()]);
+
+  if (notified.status === "rejected")
+    console.error("[contact] support notification failed", String(notified.reason));
+  if (acked.status === "rejected") console.error("[contact] visitor ack failed", String(acked.reason));
+
+  return { notified: notified.status === "fulfilled", acked: acked.status === "fulfilled" };
 }
