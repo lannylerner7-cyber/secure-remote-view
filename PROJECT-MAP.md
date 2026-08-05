@@ -1695,3 +1695,7 @@ Route check: `/public/agent/login`, `/public/agent/portal`, `/license`, `/order`
 
 **Next:** step 7 — the agent-side Meeting-ID prompt, DPAPI `meeting.dat`, and
 dormancy UX when the heartbeat reports `blocked`/`expired`.
+
+---
+
+## §10.17 — Step 7:
