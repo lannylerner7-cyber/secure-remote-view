@@ -1725,3 +1725,31 @@ scope) is the fourth file in the hidden `ConnectLive` config folder, joining
 **Next:** Native Admin Console side of licensing (Customers panel, seat
 management, portal password reset from within the console).
 
+
+## §10.18 — Step 8: Session files + encrypted archive — 2026-08-05 (`SCOPE:FILES`)
+
+In-session file transfer now exists end-to-end on the web side. Bytes ride a
+dedicated `files` WebRTC DataChannel (separate from `inputs`, so a 400 MB push
+can never head-of-line block a keystroke) and every payload is archived in the
+private `session-files` bucket, giving the session a durable transcript that
+outlives the peer connection.
+
+| File | Change |
+|---|---|
+| `public.session_files` / `public.session_secrets` | Manifest rows + short-lived wrapped password. RLS: technicians reach only their own sessions; secrets are service-role only. |
+| `session-files` storage bucket | Private. Browsers never hold a durable link — uploads use one-shot signed upload URLs, downloads 5-minute signed URLs. |
+| `src/lib/session-files.server.ts` | Quotas (500 MB/file, 5 GB/session), path sanitising, AES-GCM wrap/unwrap of the verified customer password, WinZip AE-2 (AES-256) archive build via `@zip.js/zip.js` with web workers disabled for the Worker runtime. |
+| `src/lib/session-files.functions.ts` | `listSessionFiles`, `prepareSessionUpload`, `registerSessionFile`, `deleteSessionFile`, `getSessionFileUrl`, `cacheSessionPassword`, `clearSessionPassword`, `packageSessionFiles`. Every fn re-checks technician ownership (or `super_admin`) before touching storage. |
+| `src/routes/api/public/agent/session.$sessionId.file.ts` | Device-token authed chunk fallback (`?fileId&seq&eof=1`, ≤8 MiB/chunk). Parts stitch into the final object on EOF, then the manifest row is written and parts pruned. Same quotas as the datachannel path. |
+| `src/lib/webrtc-live.ts` | Second ordered/reliable `files` channel. Wire format: JSON `file_begin` / raw chunks / `file_end`. Backpressure yields at 4 MiB `bufferedAmount`. New API: `filesReady()`, `sendFile()`, `onFile()`. |
+| `src/components/console/SessionFilesPanel.tsx` | Drag-and-drop send, inbound list with direction arrows, per-transfer progress, single-file download, and "Encrypted .zip" for a multi-select. |
+| `src/routes/_authenticated/console.tsx` | Panel mounted under the live drawer for non-viewer roles. |
+
+Password handling: the technician verifies the customer's own account password
+(checked against auth via a throwaway client that immediately signs out). Only
+the AES-GCM ciphertext is stored, it expires after two hours, and it is
+unwrapped server-side solely to lock an archive — it is never returned, logged,
+or echoed to the browser.
+
+**Next:** Agent-side `files` DataChannel handler + HTTP fallback client
+(`agent/src/FileTransfer.cs`) and the native Admin Console Files side panel.
