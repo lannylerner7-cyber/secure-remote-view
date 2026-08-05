@@ -1462,8 +1462,8 @@ the web console resolves one-to-one to a real file under
 | `InputTransport` (datachannel → REST) | `admin/src/Input/*`, `Media/WebRtcClient.cs` | **Live** — consumed by `MouseInjector`, `KeyboardInjector`, `LiveSessionViewModel` |
 | `FrameFallbackPump` (JPEG path when WebRTC is unavailable) | `admin/src/Media/FrameFallbackPump.cs` | **Live** — dual-path with WebRTC, matches §2 |
 | `StartupSelfHeal` → `StartupRegistration` | `agent/src/StartupSelfHeal.cs:9,33,40,47` | **Live** — belt-and-braces, called from `App.xaml.cs:82` |
-| `RtpCapture` diagnostic tap | `admin/src/Media/RtpCapture.cs`, instantiated at `WebRtcClient.cs:81` | **Live but vestigial** — env-gated on `CONNECTLIVE_RTP_CAPTURE=1`, off by default. Its own docstring says "deleted after Phase 3, per the contract"; §10.2 superseded that contract. **Decision pending**: delete, or promote to permanent ops tooling. |
-| `MouseInjector.MoveRelAsync` | `admin/src/Input/MouseInjector.cs:38` | **Orphan seam** — zero call sites; the WPF console still has no pointer-capture toggle (browser console does). Unchanged from §8. |
+| `RtpCapture` diagnostic tap | ~~`admin/src/Media/RtpCapture.cs`~~ | **DELETED 08-05.** Env-gated (`CONNECTLIVE_RTP_CAPTURE=1`) passive RTP dump built for Spike 1 under a contract §10.2 superseded; its own docstring ordered its removal after Phase 3. File deleted, field/arm/write/dispose call sites stripped from `WebRtcClient.cs`. The RTP receive path now does loss detection only. |
+| `MouseInjector.MoveRelAsync` | ~~`admin/src/Input/MouseInjector.cs:38`~~ | **DELETED 08-05.** Zero call sites since it shipped. A comment at `MouseInjector.cs:32` records the wire shape and the re-add condition (WPF pointer-capture toggle). Agent `InputRelay.cs:88` and the browser console are untouched — `mousemove_rel` still works end-to-end from the web side. |
 | `CodecPolicy.AllowH264` | `agent/src/CodecPolicy.cs:18,67` | **Dead switch by design** — no consumer until S17 Step 2 Phase 3. `HwH264Encoder.cs` genuinely does not exist yet; VP8 is still hard-pinned at `WebRtcSession.cs:158,193`. |
 
 ### Doc drift corrected in this pass
