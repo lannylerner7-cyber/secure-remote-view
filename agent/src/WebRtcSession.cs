@@ -628,6 +628,9 @@ public sealed class WebRtcSession : IDisposable
         // Step 10 — drop the files channel with the peer so a stale reference
         // cannot keep an inbound reassembly buffer alive across sessions.
         try { FileTransfer.Detach(); } catch { }
+        // S22 — same for clipboard: stop the poll timer and drop the channel.
+        try { ClipboardRelay.Detach(); } catch { }
+
 
         TearDownPeer();
 
