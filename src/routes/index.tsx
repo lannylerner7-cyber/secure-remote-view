@@ -177,7 +177,7 @@ function Home() {
       </div>
 
       {/* Top bar */}
-      <header className="border-b border-white/10 backdrop-blur-sm">
+      <header className="relative z-10 border-b border-white/10 backdrop-blur-sm">
 
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
@@ -207,10 +207,10 @@ function Home() {
       </header>
 
       {/* Bento grid */}
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
+      <main className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
           {/* Hero tile */}
-          <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-navy-800 p-6 sm:p-10 lg:col-span-7">
+          <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-navy-800/80 backdrop-blur-xl p-6 sm:p-10 lg:col-span-7">
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:linear-gradient(to_right,#3b6fa0_1px,transparent_1px),linear-gradient(to_bottom,#3b6fa0_1px,transparent_1px)] [background-size:44px_44px]"
