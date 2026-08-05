@@ -1636,3 +1636,34 @@ email SDK and no Node-only dependency (the site runs on the Worker runtime).
 1. Order/payment flows must never fail because SMTP is down — every send is wrapped and logged.
 2. `smtp_settings` stays policy-free; all reads go through server functions with the service role.
 3. No `nodemailer` / Node-only mail package — it cannot bundle for workerd.
+
+---
+
+## §10.15 — Step 3+4: Meeting-ID licensing & seat enforcement — 2026-08-05 (`SCOPE:DB`, `SCOPE:AGENT`, `SCOPE:WEB`)
+
+**Model.** One customer account = one license = one permanent Meeting ID
+(`CL-XXXX-XXXX`, minted by `public.generate_meeting_id()`, service-role only)
+carrying plan, seat limit, term (`starts_at`/`expires_at`) and status.
+
+### Database
+| Object | Notes |
+|---|---|
+| `public.licenses` | `meeting_id UNIQUE`, `user_id` (portal account), contact/company, `plan_code`, `seat_limit`, `status(active\|suspended\|cancelled)`, term, `notes`. Staff read all; a customer reads only their own row. |
+| `devices.license_id` + `devices.license_state` | `unlicensed\|active\|blocked\|expired`. Customers may read and delete their own devices (deleting frees a seat immediately). |
+| `orders.license_id` | binds renewals/upgrades to an existing license. |
+| `app_role` | new `customer` value — portal accounts only, zero technician surface. |
+
+### Enforcement
+- `POST /api/public/agent/enroll` accepts `meetingId`. Unknown ID → **403 `invalid_meeting_id`** so the agent can re-prompt. Known but full/expired/suspended → enrolls **blocked** (visible in the portal, dormant on the machine). Response now carries `license: { state, reason }`.
+- `POST /api/public/agent/heartbeat` re-evaluates every beat, writes back `license_state` when it changes, and returns `license { state, reason, meeting_id, expires_at, seats_used, seat_limit }`. A non-licensed device gets **no sessions and no power commands** (and commands are not consumed/marked dispatched), but keeps heartbeating so it wakes the instant a seat frees.
+- Seat ranking is enrollment order: the oldest `seat_limit` devices hold the seats; later ones are blocked. An already-seated device never blocks itself.
+- **Grandfather rule:** `license_state = 'unlicensed'` (no license bound) stays fully functional — the pre-licensing fleet and direct admin enrollments are untouched. Only a *bound* license that is full/expired/suspended makes a machine dormant.
+
+### Code
+| File | Role |
+|---|---|
+| `src/lib/licensing.server.ts` | `normalizeMeetingId`, `findLicenseByMeetingId`, `evaluateLicense` (single source of the seat/expiry verdict). |
+| `src/lib/licenses.functions.ts` | staff `listLicenses` (with live seat usage) / `listLicenseDevices`; super-admin `createLicense` (mints Meeting ID, optionally creates the auth user + `customer` role, links a paid order), `updateLicense` (seats, term extension, suspend/restore, plan), `resetCustomerPassword`. All audit-logged. |
+| `src/components/CustomersPanel.tsx` | Payments console → **Customers** tab: provision form (email, seats 10/20/50, term, generated portal password shown once), license table with seats used/limit, expiry, suspend/restore, +1 month, seat change, password reset, and per-license device list. |
+
+**Next:** customer portal at `/public/agent/login` (step 6) and the agent-side Meeting-ID prompt + dormancy (step 7).
