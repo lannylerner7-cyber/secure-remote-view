@@ -132,7 +132,8 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
   const html = shell(
     "Payment confirmed",
     `<p style="font-size:14px;line-height:1.6;margin:0 0 10px">Hi ${escapeHtml(name)}, your payment for order <strong>#${short}</strong> (${escapeHtml(plan)}, ${money(o.amount_usd)}) is confirmed.</p>
-     <p style="font-size:14px;line-height:1.6;margin:0 0 10px"><strong>Your software and sign-in details arrive within 24–48 hours.</strong> We send the agent installer, the admin console installer, your portal link and your credentials in a single follow-up email.</p>
+     <p style="font-size:14px;line-height:1.6;margin:0 0 10px"><strong>Your software and sign-in details arrive within 24–48 hours.</strong> We send the agent installer, the admin console installer, your Meeting ID, your portal link and your credentials in a single follow-up email.</p>
+     <p style="font-size:13px;line-height:1.6;margin:0 0 10px;padding:12px;background:#EFF6FF;border-radius:8px;color:#1E3A8A"><strong>Video setup guides will be provided on order completion.</strong> That delivery email includes step-by-step video walkthroughs for installing the agent, enrolling your devices, and running your first live session — no guesswork.</p>
      <p style="font-size:13px;line-height:1.6;margin:0 0 10px;padding:12px;background:#FEF3C7;border-radius:8px;color:#92400E">Please check your spam / junk folder and mark our address as safe, so the delivery email isn't filtered.</p>
      <p style="margin:18px 0"><a href="${track}" style="background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;display:inline-block">View order status</a></p>
      <p style="font-size:13px;color:#6b7280;margin:0">Questions? Reply to this email or contact us at ${SITE}/contact.</p>`,
@@ -143,11 +144,14 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
     `Payment confirmed — order #${short} (${plan}, ${money(o.amount_usd)}).`,
     ``,
     `Your software and sign-in details arrive within 24-48 hours.`,
+    `Video setup guides will be provided on order completion — the delivery email includes`,
+    `step-by-step walkthroughs for installation, device enrollment, and your first live session.`,
     `Please check your spam/junk folder and mark our address as safe.`,
     ``,
     `Order status: ${track}`,
     `Support: ${SITE}/contact`,
   ].join("\n");
+
 
   return { subject: "Payment confirmed — your ConnectLive access is on the way", html, text };
 }
