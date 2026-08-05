@@ -249,6 +249,17 @@ public sealed class WebRtcSession : IDisposable
                 return;
             }
 
+            // ---- S22 — clipboard sync channel -----------------------------
+            // Text-only, capped, and equally forbidden from reaching the input
+            // parser below (a clip frame has no `kind`, so it would be a no-op,
+            // but routing explicitly keeps the intent readable).
+            if (dc.label == "clip")
+            {
+                ClipboardRelay.Attach(dc);
+                return;
+            }
+
+
             // Ingress coalescer: consecutive `mousemove` messages collapse to
             // the latest before hitting the input pump. Any other kind (click,
             // key, wheel, text, curtain_*) flushes the pending move first to
@@ -617,6 +628,9 @@ public sealed class WebRtcSession : IDisposable
         // Step 10 — drop the files channel with the peer so a stale reference
         // cannot keep an inbound reassembly buffer alive across sessions.
         try { FileTransfer.Detach(); } catch { }
+        // S22 — same for clipboard: stop the poll timer and drop the channel.
+        try { ClipboardRelay.Detach(); } catch { }
+
 
         TearDownPeer();
 

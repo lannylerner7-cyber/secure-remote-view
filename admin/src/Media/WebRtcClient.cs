@@ -202,6 +202,22 @@ public sealed class WebRtcClient : IDisposable
             FileTransport.Detach();
         }
 
+        // S22 — clipboard channel. Text-only and capped agent-side; kept off
+        // both `input` (latency) and `files` (throughput) for the same reason.
+        try
+        {
+            var cdc = await pc.createDataChannel("clip",
+                new RTCDataChannelInit { ordered = true }).ConfigureAwait(false);
+            ClipboardTransport.Attach(cdc);
+            T("clip datachannel created (label=clip, ordered)");
+        }
+        catch (Exception ex)
+        {
+            T("clip datachannel create failed: " + ex.Message);
+            ClipboardTransport.Detach();
+        }
+
+
         var offer = pc.createOffer();
         await pc.setLocalDescription(offer).ConfigureAwait(false);
         T("offer created + local description set");
@@ -316,13 +332,76 @@ public sealed class WebRtcClient : IDisposable
         {
             pc.OnVideoFrameReceived += (_, __, frame, ___) =>
             {
-                if (frame != null && frame.Length > 0) Pipeline.Submit(frame);
+                if (frame == null || frame.Length == 0) return;
+                Pipeline.Submit(frame);
+                // S24 — tee the exact bitstream to disk when recording. Reading
+                // the field without a lock is fine: it is swapped whole, and
+                // IvfWriter is itself thread-safe.
+                var rec = _recorder;
+                if (rec != null)
+                {
+                    try { rec.WriteFrame(frame); }
+                    catch (Exception ex) { T("record write failed: " + ex.Message); }
+                }
             };
         }
         catch (Exception ex) { T("frame handler wiring failed: " + ex.Message); }
     }
 
+    // ---- S24: session recording ------------------------------------------
+
+    private IvfWriter? _recorder;
+
+    public bool IsRecording => _recorder != null;
+
+    /// <summary>
+    /// Begin teeing decoded VP8 frames to an .ivf file under Videos\ConnectLive.
+    /// Returns the path, or null when the file cannot be created.
+    /// </summary>
+    public string? StartRecording(int width = 0, int height = 0)
+    {
+        if (_recorder != null) return _recorder.Path;
+        try
+        {
+            var dir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                "ConnectLive");
+            var file = $"session-{_sessionId.Substring(0, Math.Min(8, _sessionId.Length))}-" +
+                       $"{DateTime.Now:yyyyMMdd-HHmmss}.ivf";
+            var path = System.IO.Path.Combine(dir, file);
+            _recorder = new IvfWriter(path, width, height);
+            Log.Write("[record] started -> " + path);
+            return path;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[record] start failed: " + ex.Message);
+            _recorder = null;
+            return null;
+        }
+    }
+
+    /// <summary>Finish the recording and return the file path (null when idle).</summary>
+    public string? StopRecording()
+    {
+        var rec = _recorder;
+        _recorder = null;
+        if (rec == null) return null;
+        try
+        {
+            var path = rec.Stop();
+            Log.Write($"[record] stopped -> {path} ({rec.FrameCount} frames)");
+            return path;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[record] stop failed: " + ex.Message);
+            return null;
+        }
+    }
+
     // ---- Phase 4: keyframe first, then admin-initiated ICE restart -------
+
 
     private void OnKeyFrameRequested()
     {
@@ -570,6 +649,11 @@ public sealed class WebRtcClient : IDisposable
         try { ConnectLive.Admin.Input.InputTransport.Detach(); } catch { }
         // Step 9 — files channel must also detach so any in-flight send falls back cleanly.
         try { FileTransport.Detach(); } catch { }
+        // S22 — drop the clipboard channel so a stale reference cannot apply
+        // text from a dead session. S24 — finalise any in-flight recording.
+        try { ClipboardTransport.Detach(); } catch { }
+        try { StopRecording(); } catch { }
+
         try { _pc?.close(); } catch { }
         _pc = null;
         try { Pipeline.KeyFrameRequested -= OnKeyFrameRequested; } catch { }

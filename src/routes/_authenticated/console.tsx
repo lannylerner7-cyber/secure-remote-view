@@ -7,6 +7,8 @@ import { sendTelegramNotify } from "@/lib/notify.functions";
 import { getMyRole, type AppRole } from "@/lib/admins.functions";
 
 import { NotificationBell } from "@/components/NotificationBell";
+import { Button } from "@/components/ui/button";
+
 import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
 import {
@@ -74,6 +76,11 @@ function AdminPage() {
   const rtcRef = useRef<WebRtcLive | null>(null);
   /** S21 — true while the reliable `files` DataChannel is open. */
   const [filesReady, setFilesReady] = useState(false);
+  /** S22 — true while the `clip` DataChannel is open. */
+  const [clipReady, setClipReady] = useState(false);
+  /** S24 — true while a local recording of the live track is running. */
+  const [recording, setRecording] = useState(false);
+
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const mouseButtonDownRef = useRef(false);
   // rAF pointer-move coalescer: only the latest position is flushed per frame.
@@ -321,19 +328,103 @@ function AdminPage() {
       }
     });
 
+    // S22 — clipboard arriving from the remote machine. We mirror it into the
+    // technician's own clipboard when the browser allows it (needs a secure
+    // context and clipboard-write permission); otherwise the toast still shows
+    // the text so it can be copied by hand.
+    const offClip = live.onClipboard((text) => {
+      if (rtcRef.current !== live) return;
+      const preview = text.length > 90 ? `${text.slice(0, 90)}…` : text;
+      void navigator.clipboard
+        ?.writeText(text)
+        .then(() => toast.success("Clipboard received", { description: preview }))
+        .catch(() =>
+          toast.info("Clipboard received", {
+            description: preview,
+            duration: 10_000,
+          }),
+        );
+    });
+
     const filesTick = window.setInterval(() => {
-      if (rtcRef.current === live) setFilesReady(live.filesReady());
+      if (rtcRef.current !== live) return;
+      setFilesReady(live.filesReady());
+      setClipReady(live.clipboardReady());
+      setRecording(live.recording());
     }, 1000);
 
     return () => {
       offFile();
+      offClip();
       window.clearInterval(filesTick);
       if (rtcRef.current === live) rtcRef.current = null;
       setRtcState("idle");
       setFilesReady(false);
+      setClipReady(false);
+      setRecording(false);
       live.close();
     };
   }, [liveId]);
+
+  /** S22 — push the technician's local clipboard to the remote machine. */
+  async function pushClipboard() {
+    const live = rtcRef.current;
+    if (!live?.clipboardReady()) {
+      toast.error("Clipboard channel is not connected");
+      return;
+    }
+    let text = "";
+    try {
+      text = (await navigator.clipboard?.readText()) ?? "";
+    } catch {
+      toast.error("Clipboard blocked", {
+        description: "Allow clipboard access for this site, then try again.",
+      });
+      return;
+    }
+    if (!text.trim()) {
+      toast.info("Local clipboard is empty");
+      return;
+    }
+    if (live.sendClipboard(text)) toast.success("Clipboard sent to the remote machine");
+    else toast.error("Clipboard send failed");
+  }
+
+  /** S24 — start/stop a local WEBM recording of the live video track. */
+  async function toggleRecording(sessionId: string) {
+    const live = rtcRef.current;
+    if (!live) return;
+    if (live.recording()) {
+      const result = await live.stopRecording();
+      setRecording(false);
+      if (!result) {
+        toast.error("Recording produced no footage");
+        return;
+      }
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `connectlive-${sessionId.slice(0, 8)}-${Date.now()}.webm`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      toast.success("Recording saved", {
+        description: `${Math.round(result.durationMs / 1000)}s · ${(result.blob.size / 1048576).toFixed(1)} MB`,
+      });
+      return;
+    }
+    if (!live.canRecord()) {
+      toast.error("Recording needs the live video stream", {
+        description: "Wait for the WebRTC video to start, then record.",
+      });
+      return;
+    }
+    if (live.startRecording()) {
+      setRecording(true);
+      toast.success("Recording started");
+    } else {
+      toast.error("Recording could not start in this browser");
+    }
+  }
 
 
   // Mount the WebRTC <video> element into the live surface. The element is
@@ -1651,7 +1742,47 @@ function AdminPage() {
                       />
                       <span>{filesReady ? "files direct" : "files via archive"}</span>
                     </span>
+                    {/* S22 — clipboard channel state. */}
+                    <span className="flex items-center gap-1">
+                      ·
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${
+                          clipReady ? "bg-emerald-400" : "bg-white/30"
+                        }`}
+                      />
+                      <span>{clipReady ? "clipboard synced" : "clipboard offline"}</span>
+                    </span>
+                    {recording && (
+                      <span className="flex items-center gap-1 text-red-300">
+                        ·
+                        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
+                        <span>recording</span>
+                      </span>
+                    )}
                   </div>
+
+                  {/* S22 / S24 — clipboard push and local session recording. */}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!clipReady}
+                      onClick={() => void pushClipboard()}
+                    >
+                      Send clipboard
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={recording ? "destructive" : "outline"}
+                      onClick={() => void toggleRecording(s.id)}
+                    >
+                      {recording ? "Stop recording" : "Record session"}
+                    </Button>
+                  </div>
+
+
 
 
                   {s.mode === "control" && s.device_id && (

@@ -70,6 +70,9 @@ export type FileTransferEvent =
   | { kind: "sent"; name: string; size: number }
   | { kind: "error"; name: string; message: string };
 
+/** S24 — one finished local recording of the live track. */
+export type RecordingResult = { blob: Blob; mimeType: string; durationMs: number };
+
 export interface WebRtcLive {
   video: HTMLVideoElement;
   state: () => WebRtcState;
@@ -88,8 +91,27 @@ export interface WebRtcLive {
   sendFile: (file: File) => Promise<boolean>;
   /** Subscribe to inbound/outbound transfer events. */
   onFile: (cb: (ev: FileTransferEvent) => void) => () => void;
+
+  // ---- S22 — clipboard sync ---------------------------------------------
+  /** True when the `clip` channel is open. */
+  clipboardReady: () => boolean;
+  /** Push text to the remote clipboard (capped at 256 KiB). */
+  sendClipboard: (text: string) => boolean;
+  /** Subscribe to clipboard text arriving from the agent. */
+  onClipboard: (cb: (text: string) => void) => () => void;
+
+  // ---- S24 — local session recording ------------------------------------
+  /** True when MediaRecorder can capture the current track. */
+  canRecord: () => boolean;
+  recording: () => boolean;
+  /** Begin recording the live video track. Returns false when unavailable. */
+  startRecording: () => boolean;
+  /** Stop and resolve the finished recording (null when nothing was captured). */
+  stopRecording: () => Promise<RecordingResult | null>;
+
   close: () => void;
 }
+
 
 
 
@@ -222,6 +244,103 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     }
   }
 
+  // ---- S22: `clip` DataChannel -------------------------------------------
+  // Third reliable/ordered channel, text only and hard-capped. Kept separate
+  // from `inputs` so a large paste can never delay a mouseup, and separate
+  // from `files` so a multi-megabyte transfer can never delay a paste.
+  const CLIP_MAX = 256 * 1024;
+  const cdc: RTCDataChannel = pc.createDataChannel("clip", { ordered: true });
+  const clipListeners = new Set<(text: string) => void>();
+  let lastClipApplied = "";
+
+  cdc.onmessage = (ev) => {
+    if (typeof ev.data !== "string") return;
+    try {
+      const msg = JSON.parse(ev.data) as Record<string, unknown>;
+      if (msg["type"] !== "clip") return;
+      const text = String(msg["text"] ?? "").slice(0, CLIP_MAX);
+      if (!text || text === lastClipApplied) return;
+      lastClipApplied = text;
+      clipListeners.forEach((cb) => cb(text));
+    } catch { /* ignore malformed clip frame */ }
+  };
+
+  function sendClipboardText(text: string): boolean {
+    if (cdc.readyState !== "open") return false;
+    const trimmed = text.slice(0, CLIP_MAX);
+    if (!trimmed) return false;
+    try {
+      lastClipApplied = trimmed; // suppress the echo when the agent mirrors it back
+      cdc.send(JSON.stringify({ type: "clip", text: trimmed }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ---- S24: local session recording --------------------------------------
+  // MediaRecorder taps the already-decoded inbound track, so recording costs
+  // no extra bandwidth and no extra agent work. The blob stays in the browser
+  // — the caller decides whether to download it or upload it as evidence.
+  const RECORD_MIME_CANDIDATES = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4",
+  ];
+  let recorder: MediaRecorder | null = null;
+  let recordChunks: Blob[] = [];
+  let recordStartedAt = 0;
+
+  function pickRecordMime(): string | null {
+    if (typeof MediaRecorder === "undefined") return null;
+    for (const m of RECORD_MIME_CANDIDATES) {
+      try { if (MediaRecorder.isTypeSupported(m)) return m; } catch { /* older browsers */ }
+    }
+    return null;
+  }
+
+  function recordableStream(): MediaStream | null {
+    const src = video.srcObject;
+    if (!(src instanceof MediaStream)) return null;
+    return src.getVideoTracks().length > 0 ? src : null;
+  }
+
+  function startRecordingInternal(): boolean {
+    if (recorder) return true;
+    const stream = recordableStream();
+    const mimeType = pickRecordMime();
+    if (!stream || !mimeType) return false;
+    try {
+      const rec = new MediaRecorder(stream, { mimeType });
+      recordChunks = [];
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) recordChunks.push(ev.data); };
+      rec.start(1000); // flush a chunk per second so a crash still leaves footage
+      recorder = rec;
+      recordStartedAt = Date.now();
+      return true;
+    } catch (err) {
+      console.warn("[webrtc] recording failed to start", err);
+      return false;
+    }
+  }
+
+  function stopRecordingInternal(): Promise<RecordingResult | null> {
+    const rec = recorder;
+    if (!rec) return Promise.resolve(null);
+    recorder = null;
+    const mimeType = rec.mimeType || "video/webm";
+    const durationMs = Date.now() - recordStartedAt;
+    return new Promise((resolve) => {
+      rec.onstop = () => {
+        const parts = recordChunks;
+        recordChunks = [];
+        if (parts.length === 0) { resolve(null); return; }
+        resolve({ blob: new Blob(parts, { type: mimeType }), mimeType, durationMs });
+      };
+      try { rec.stop(); } catch { resolve(null); }
+    });
+  }
 
 
   let selectedCandidateType: string | null = null;
@@ -550,12 +669,24 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     sendFile: (file) => sendFileOverChannel(file),
     onFile: (cb) => { fileListeners.add(cb); return () => { fileListeners.delete(cb); }; },
 
+    clipboardReady: () => cdc.readyState === "open",
+    sendClipboard: (text) => sendClipboardText(text),
+    onClipboard: (cb) => { clipListeners.add(cb); return () => { clipListeners.delete(cb); }; },
+
+    canRecord: () => pickRecordMime() !== null && recordableStream() !== null,
+    recording: () => recorder !== null,
+    startRecording: () => startRecordingInternal(),
+    stopRecording: () => stopRecordingInternal(),
+
     close: () => {
       if (closed) return;
       closed = true;
       clearWatchdog();
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
       if (mediaWatchdog !== null) window.clearInterval(mediaWatchdog);
+      // S24 — never strand an in-flight recording; stop it before the track dies.
+      if (recorder) { try { recorder.stop(); } catch {} recorder = null; }
+
       // Send the final signal directly: the normal queue stops accepting work
       // once close begins, and a queued bye could otherwise be stranded.
       void postAdminSignal({

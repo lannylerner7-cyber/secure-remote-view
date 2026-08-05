@@ -1490,9 +1490,10 @@ Nothing here is closed on intent; every row is tagged
 | S19 | **The pointer lags the hand.** The ghost cursor follows decoded video, so every motion pays the full round trip. Enterprise RMMs draw the technician cursor locally at input time and reconcile. Relative mode is regressed: `mousemove_rel` works from the browser and `agent/src/InputRelay.cs:88` honours it, but admin `MouseInjector.MoveRelAsync` was deleted 08-05 (re-add condition at `MouseInjector.cs:32`). | §2; §10.10; §10.11 | **CLOSED 08-05** | **Shipped.** (a) local cursor draw + reconcile, hide OS cursor over the stage; (b) re-add `MoveRelAsync` behind a pointer-capture toggle. |
 | S20 | **Nothing paces presents to the display** — motion micro-judders even at good fps. Render invariants cover correctness, not smoothness. Distinct from the encoder: H.264 (S17-P3) raises the ceiling, pacing makes whatever fps you have look even. | §4; §10.9 1–2; S12 | not addressed | **P1.** Present on a vsync/`CompositionTarget.Rendering` cadence with a 1–2 frame smoothing buffer; measure judder via S18. `Media/VideoPipeline.cs`, `Media/D3DImageHost.cs`. |
 | S21 | **No file transfer.** Table-stakes RMM (push a driver, pull a log). The input datachannel is the pattern to mirror. | §2/§3; S10 | asserted absent | **P1.** Ordered/reliable file datachannel, chunked + SHA-256 (reuse S14 checksum discipline), progress UI, per-transfer owner approval. |
-| S22 | **No clipboard sync.** | §2/§3 | asserted absent | **P2.** Text-first, size-capped, `mode=control` only, off by default (exfiltration-capable). |
+| S22 | ~~No clipboard sync.~~ **SHIPPED §10.23** — `clip` DataChannel on all three peers, text-only, 256 KiB cap, echo-suppressed. | §2/§3 | done | — |
 | S23 | **No technician-side monitor picker.** Agent enumerates and switches (`MonitorSelector`, `switch_monitor`); U1 fixed toolbar/keys/Fit/banners, not a monitor strip. | §10.10 U1 | verify-first | **P2.** Confirm nothing is wired, then selector + thumbnail strip driving the existing `switch_monitor`. |
-| S24 | **No session recording / playback.** Rich event auditing exists; nothing captures what was done on screen. | §3 `audit_logs`; §5 | asserted absent | **P2, larger.** Retention-limited, encrypted, owner-accessible; schema + retention cron. |
+| S24 | ~~No session recording / playback.~~ **SHIPPED §10.23** — MediaRecorder (web, WEBM) and `IvfWriter` (native, raw VP8 IVF); no re-encode, no extra bandwidth. | §3 `audit_logs`; §5 | done | Retention/upload policy still open. |
+
 | S25 | **Code-signing / procurement lead time.** Only item that can progress without a physical Windows host — start the cert now. | §10 release | open | **P0 by lead time, small code change.** |
 
 **Sequence:** S18 first (nothing else can be tuned honestly until it reads a
@@ -1853,4 +1854,48 @@ silently serving **STUN only** — symmetric-NAT sessions fall back to JPEG.
 `CLOUDFLARE_CALLS_APP_ID`/`CLOUDFLARE_CALLS_APP_TOKEN` to that key's ID/token.
 Auth gate itself verified: unauthenticated `GET /api/public/agent/ice` → 401.
 
-**Still outstanding:** S22 clipboard sync, S24 session recording, S25 code signing.
+**Still outstanding:** S25 code signing.
+
+---
+
+## §10.23 — S22 clipboard sync + S24 session recording — 2026-08-05 (SCOPE:BUILD)
+
+TURN is confirmed live: the Cloudflare **Realtime → TURN key** ID/token now mint
+`201 Created` with real `turn:`/`turns:` relay URLs, so `/api/public/agent/ice`
+serves a genuine relay set and symmetric-NAT sessions keep native video.
+
+**S22 — clipboard sync (shipped).** A third reliable/ordered DataChannel,
+`clip`, carried by all three peers. Wire format is one shape everywhere:
+`{ "type":"clip", "text":"…" }`, text only, hard-capped at 256 KiB. It is kept
+off `input` (a large paste must never delay a mouseup) and off `files` (a
+multi-megabyte transfer must never delay a paste). Echo suppression is
+symmetric: each peer remembers the last string it applied or sent, so the
+mirror-back cannot loop.
+
+| Peer | File | Notes |
+| --- | --- | --- |
+| Agent | `agent/src/ClipboardRelay.cs` | 1 Hz poll of the local clipboard, STA-marshalled apply, attached/detached in `WebRtcSession.cs`. |
+| Web | `src/lib/webrtc-live.ts` | `clipboardReady()`, `sendClipboard()`, `onClipboard()`; console mirrors inbound text into the technician clipboard and toasts the preview when the browser blocks the write. |
+| Native | `admin/src/Media/ClipboardTransport.cs` | Same contract; `ReadLocal()`/`ApplyLocal()` run on the WPF dispatcher, with a `SetDataObject` retry for CLIPBRD_E_CANT_OPEN. |
+
+**S24 — session recording (shipped).** Two paths, chosen per client for zero
+re-encode and zero extra bandwidth:
+
+- **Web:** `MediaRecorder` taps the already-decoded inbound track
+  (`startRecording` / `stopRecording` on `WebRtcLive`, VP9→VP8→WEBM→MP4 mime
+  probe, 1 s chunk flush so a crash still leaves footage). The console
+  downloads `connectlive-<session>-<ts>.webm`.
+- **Native:** `admin/src/Media/IvfWriter.cs` tees the exact depacketised VP8
+  frames to `.ivf` (32-byte DKIF header + 12-byte frame headers, ms timebase,
+  frame count patched on stop). Files land in `Videos\ConnectLive` and convert
+  losslessly with `ffmpeg -i session.ivf -c copy session.webm`.
+
+Both stop paths are wired into teardown — `WebRtcClient.Close()` finalises the
+IVF and detaches `clip`; the web `close()` stops any live `MediaRecorder`
+before the track dies.
+
+**UI.** Web console gained a `clipboard synced` HUD chip, a pulsing `recording`
+chip, and **Send clipboard** / **Record session** buttons. Native console gained
+**Send clipboard** and a **Record / Stop recording** button that turns red while
+capturing (`SendClipboardCommand`, `ToggleRecordingCommand`).
+

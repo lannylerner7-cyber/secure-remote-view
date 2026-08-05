@@ -868,6 +868,70 @@ public partial class LiveSessionViewModel : ObservableObject
     [RelayCommand]
     private void ToggleFilesPanel() => FilesPanelOpen = !FilesPanelOpen;
 
+    // ---- S22 — clipboard sync -------------------------------------------
+
+    /// <summary>Push the technician's local clipboard text to the remote machine.</summary>
+    [RelayCommand]
+    private void SendClipboard()
+    {
+        if (!ClipboardTransport.IsOpen)
+        {
+            SurfaceError("Clipboard channel is not connected.");
+            return;
+        }
+        var text = ClipboardTransport.ReadLocal();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            FilesStatus = "Local clipboard is empty.";
+            return;
+        }
+        FilesStatus = ClipboardTransport.Send(text)
+            ? "Clipboard sent to the remote machine."
+            : "Clipboard send failed.";
+    }
+
+    // ---- S24 — session recording ----------------------------------------
+
+    [ObservableProperty] private bool isRecording;
+    [ObservableProperty] private string recordLabel = "Record";
+
+    /// <summary>Start/stop teeing the decoded VP8 stream to an .ivf file.</summary>
+    [RelayCommand]
+    private void ToggleRecording()
+    {
+        var rtc = _rtc;
+        if (rtc == null)
+        {
+            SurfaceError("No live peer to record.");
+            return;
+        }
+
+        if (rtc.IsRecording)
+        {
+            var path = rtc.StopRecording();
+            IsRecording = false;
+            RecordLabel = "Record";
+            FilesStatus = path != null
+                ? $"Recording saved to {path}"
+                : "Recording stopped (no footage captured).";
+            return;
+        }
+
+        var started = rtc.StartRecording(
+            rtc.Pipeline?.SourceWidth ?? 0,
+            rtc.Pipeline?.SourceHeight ?? 0);
+        if (started == null)
+        {
+            SurfaceError("Recording could not start — check disk permissions.");
+            return;
+        }
+        IsRecording = true;
+        RecordLabel = "Stop recording";
+        FilesStatus = $"Recording to {started}";
+    }
+
+
+
     [RelayCommand]
     private async Task SendFiles()
     {

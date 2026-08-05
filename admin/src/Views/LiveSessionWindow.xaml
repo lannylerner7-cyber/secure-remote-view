@@ -76,6 +76,28 @@
                             Background="#334155" Margin="4,2" MinWidth="90"
                             ToolTip="Copy the full fps / bitrate / latency / path reading for this session to the clipboard" />
 
+                    <!-- S22 — push this machine's clipboard to the remote desktop. -->
+                    <Button Content="Send clipboard" Command="{Binding SendClipboardCommand}"
+                            Background="#334155" Margin="4,2" MinWidth="110"
+                            ToolTip="Copy the local clipboard text to the remote machine over the encrypted clip channel" />
+
+                    <!-- S24 — tee the decoded video stream to an .ivf file. -->
+                    <Button Content="{Binding RecordLabel}" Command="{Binding ToggleRecordingCommand}"
+                            Margin="4,2" MinWidth="110"
+                            ToolTip="Record the live stream to Videos\ConnectLive (no re-encode, no extra bandwidth)">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Background" Value="#334155" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRecording}" Value="True">
+                                        <Setter Property="Background" Value="#B91C1C" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+
                     <Button Content="End session" Click="EndSession_Click"
                             Background="#334155" Margin="4,2" MinWidth="96" />
 
