@@ -30,6 +30,23 @@ cd ..\admin
 
 One-shot alternative for plain exes + zips: `build.bat` at the repo root.
 
+### Standalone ZIP contract
+
+Each release milestone publishes four deliberately different, independently
+buildable archives. Extract and build each from its own root; none requires a
+sibling archive or a repository-level `..\tools` folder.
+
+| Archive | Purpose | Build command | Expected output |
+| --- | --- | --- | --- |
+| `ConnectLive-Agent-Installer-Builder-*.zip` | Complete Inno/MSI/MDM release builder | `powershell -ExecutionPolicy Bypass -File build.ps1` | `dist\ConnectLive.exe`, setup EXE, MSI and distribution ZIP |
+| `ConnectLive-Agent-Developer-Source-*.zip` | Raw Agent developer build; no installer toolchain required | `powershell -ExecutionPolicy Bypass -File build-developer.ps1` | `dist\ConnectLive.exe` |
+| `ConnectLive-Admin-Release-Builder-*.zip` | Minimal production Admin release builder | `powershell -ExecutionPolicy Bypass -File build.ps1` | `dist\ConnectLiveAdmin.exe` and ZIP |
+| `ConnectLive-Admin-Developer-Source-*.zip` | Full Admin source plus native-video spike harnesses | `powershell -ExecutionPolicy Bypass -File build.ps1` | `dist\ConnectLiveAdmin.exe` and ZIP |
+
+All build scripts stop immediately when restore or publish fails. A missing
+output message is therefore an assembly-name diagnostic, never a follow-on
+`Copy-Item` error hiding the original compiler failure.
+
 ## 2. Sign (recommended)
 
 ```powershell
@@ -70,7 +87,7 @@ values
 ## 5. Post-publish verification
 
 ```bash
-BASE=https://connectliveagent.com bun run scripts/verify-agent-routes.ts   # expect 22/22
+BASE=https://connectliveagent.com bun run scripts/verify-agent-routes.ts   # expect 25/25
 bun run scripts/verify-payment-routes.ts                            # expect 5/5
 ```
 

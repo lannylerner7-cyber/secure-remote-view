@@ -26,6 +26,7 @@ if ($signHelper) {
 
 Write-Host "==> Restoring..."
 dotnet restore src/ConnectLiveAdmin.csproj
+if ($LASTEXITCODE -ne 0) { throw "Admin restore failed (exit $LASTEXITCODE)." }
 
 Write-Host "==> Publishing (single-file, self-contained, win-x64)..."
 dotnet publish src/ConnectLiveAdmin.csproj `
@@ -35,9 +36,18 @@ dotnet publish src/ConnectLiveAdmin.csproj `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -o publish/admin
+if ($LASTEXITCODE -ne 0) { throw "Admin publish failed (exit $LASTEXITCODE). See the compiler error above." }
+
+function Assert-Published([string]$Dir, [string]$Exe, [string]$Project) {
+    $full = Join-Path $Dir $Exe
+    if (Test-Path $full) { return $full }
+    $found = @(Get-ChildItem -Path $Dir -Filter *.exe -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    $actual = if ($found.Count -gt 0) { $found -join ', ' } else { '(none)' }
+    throw "Expected '$Exe' in '$Dir' but publish produced: $actual. Check <AssemblyName> in $Project."
+}
 
 New-Item -ItemType Directory -Force -Path dist | Out-Null
-Copy-Item publish/admin/ConnectLiveAdmin.exe dist/ -Force
+Copy-Item (Assert-Published "publish/admin" "ConnectLiveAdmin.exe" "src\ConnectLiveAdmin.csproj") dist/ -Force
 Copy-Item src/admin.config.json dist/ -Force
 Copy-Item INSTALL.md dist/README-INSTALL.txt -Force
 
