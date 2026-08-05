@@ -1,71 +1,66 @@
-# Roadmap ↔ Codebase Audit — findings and remediation
+# Repair and independently verify all four Windows release archives
 
-A head-to-head pass over `PROJECT-MAP.md` (2033 lines) against the web app,
-`agent/src` (28 files) and `admin/src` (42 files).
+## Confirmed findings
 
-## Verdict
+1. **Admin compile failure has a direct cause.** `admin/src/Api/Models.cs` uses `List<SessionFile>` without importing `System.Collections.Generic`.
+2. **The later `Copy-Item` error is secondary.** `dotnet publish` fails first, but `admin/build.ps1` does not explicitly stop on the native command's non-zero exit code, so it continues and tries to copy an executable that was never produced.
+3. **The two Agent archives are not separate deliverables.** The `2026-08-05g` Agent packaging and Agent source ZIPs each contain the same 47 files with identical bytes. Only their ZIP container metadata/checksum differs.
+4. **The two Admin archives are effectively duplicates.** They share 51 byte-identical files; the source ZIP only adds `Native-Video-Engine-B.md`.
+5. **Both Windows projects reference a vulnerable dependency.** Agent and Admin use `SIPSorcery 6.2.4`. GHSA-28gm-jrmw-xx93 affects every version through `10.0.8`; the first patched release is `10.0.9`. The current warning is therefore valid even though the JavaScript dependency scan is clean.
 
-The roadmap is honest. Every item tagged SHIPPED/closed resolves to real code
-on disk. No fabricated features, no ghost routes, no stale domains, no
-`AGENT_DEPLOYMENT_KEY`, no `ConsentPrompt` leftovers, zero TODO/FIXME across
-all three peers. The old `$250 / $570 / $840` figures still in the page source
-are the intentional strikethrough "was" prices for the promo, not stale copy.
+## Implementation
 
-Cross-peer parity is complete: clipboard, file transfer, monitor picker,
-recording, input datachannel, ICE/TURN and telemetry all exist on every peer
-that needs them. The only asymmetries are deliberate (WEBM on web vs IVF on
-native, agent as capture source rather than consumer).
+### 1. Repair and harden both builds
 
-## What is genuinely wrong — documentation drift (4 fixes)
+- Add the missing collections namespace to the Admin API models.
+- Add explicit exit-code checks immediately after every `dotnet restore` and `dotnet publish` in both PowerShell build scripts.
+- Assert that the expected executable exists before staging it, with a clear diagnostic naming the expected and actually produced files.
+- Preserve the standalone signing-helper lookup and unsigned-development fallback already added.
 
-1. **Stale consent paragraph.** The "Consent policy change" entry (~line 1502)
-   still describes a registry-gated `ConsentPrompt.AskAsync` dialog behind
-   `HKCU\Software\ConnectLive\PromptOnConnect`. §10.28 deleted that file
-   outright. A reader following the doc top-down would believe the dialog
-   exists. Mark superseded, pointing at §10.28.
-2. **System map still draws `ConsentPrompt.cs`.** The ASCII diagram in §2 lists
-   it as an agent component. Remove that node.
-3. **§4 invariant "Consent is a click, not a default."** No longer true on the
-   agent — authorisation is now account-level via Meeting-ID enrollment and
-   enforced server-side; the route still owns the `invited → active`
-   transition. Rewrite the invariant to state the real model rather than the
-   retired one.
-4. **§10.9 status board is superseded** and never rolled forward past S18–S28;
-   the same is true of the "Still outstanding" footers in §10.19 and §10.21
-   (S21's files health tile was in fact closed later in §10.22). Add a
-   one-line "superseded by §10.2x" marker on each so the doc's own status
-   table stops contradicting its tail.
+### 2. Remove the vulnerable media dependency
 
-## What is missing — code, and it matches what the doc already admits
+- Upgrade both Agent and Admin to a patched, mutually compatible SIPSorcery/media-encoder set (`SIPSorcery >= 10.0.9`; use the latest stable compatible pair after restore verification).
+- Update only API call sites broken by the major-version change.
+- Align the VP8 decode spike with the same media package generation so the test harness cannot drift from production.
+- Re-scan package restore output and reject any remaining high/critical NuGet advisory.
 
-| Gap | State |
-| --- | --- |
-| S3 fleet verification | Needs a live Windows fleet — not buildable here |
-| S17 phase 3 hardware H.264 | `HwH264Encoder.cs` absent; `CodecPolicy.AllowH264` is a switch with no consumer |
-| S18 real 4K latency numbers | Instrumentation shipped, no reading taken |
-| S20 present pacing / vsync | No `CompositionTarget.Rendering` pacing loop in `admin/src/Media` |
-| S24 recording retention/upload | Only local write (`IvfWriter`) + browser download; no server retention |
-| S25 signing certificate | `tools/CodeSign.ps1` ready, purchase is procurement |
-| §10.29 background-motion pass | The homepage motion re-layer shipped last turn is not logged in the roadmap at all |
+### 3. Establish four genuinely different deliverables
 
-## Proposed work in this pass
+Create a new milestone with unambiguous names rather than overwriting `2026-08-05g`:
 
-Documentation-only, plus one new changelog section:
+1. **`ConnectLive-Agent-Installer-Builder-2026-08-05h.zip`**  
+   Complete release builder: Agent source, assets, Inno/MSI/GPO/Intune/Jamf packaging, signing helper, and installer documentation.
+2. **`ConnectLive-Agent-Developer-Source-2026-08-05h.zip`**  
+   Developer project: Agent source, assets, signing helper, and a build path for the raw Agent executable; omit installer/MDM packaging.
+3. **`ConnectLive-Admin-Release-Builder-2026-08-05h.zip`**  
+   Minimal production Admin builder: required source/assets/config, signing helper, install guide, and release build script; omit engineering spikes and design notes.
+4. **`ConnectLive-Admin-Developer-Source-2026-08-05h.zip`**  
+   Full developer project: production source plus native-video notes and both diagnostic spike projects.
 
-- Fix items 1–4 above in `PROJECT-MAP.md`.
-- Add §10.29 logging the homepage motion re-layer (`cl-mesh`, `cl-grid-pan`,
-  `cl-sheen`, `cl-drift-slow`, z-index restacking) that shipped but was never
-  recorded.
-- Add a single consolidated "Open items" table at the end so the true
-  remaining state is readable in one place instead of assembled from footers.
+Every ZIP will remain independently buildable from its own extracted root. The source variants will not be relabeled copies of the release-builder variants.
 
-No source files change. S20 pacing and S24 retention are the two remaining
-gaps that are actually buildable here — say the word and I take S20 next.
+### 4. Clean-extraction verification
 
-## Technical notes
+For each ZIP independently:
 
-Verified with: full-tree grep for stale identifiers across `src`, `agent/src`,
-`admin/src`; route-target resolution for every `Link`/`navigate()` against
-`src/routeTree.gen.ts`; file-level existence checks for every claimed artefact
-in §9.x and §10.x; `consented` legacy-state filters confirmed still present in
-`heartbeat.ts` and `admin/src/Api/ApiClient.cs` per the §4 invariant.
+- Extract into a fresh directory with no access to the repository parent.
+- Confirm the project, build entry point, signing helper, config/assets, and referenced files all resolve inside that directory.
+- Run restore and publish from the extracted root; for the Agent developer archive, build the raw executable without requiring Inno/WiX.
+- For the installer-builder archive, verify the raw Agent publish here and validate the Inno/WiX inputs; document that final installer compilation requires those Windows tools.
+- Confirm expected output names and ensure a failed compile cannot fall through to misleading copy/package errors.
+- Compare normalized manifests and file hashes to prove all four archives are distinct.
+- Produce a checksum/manifest report beside the four ZIPs.
+
+### 5. Documentation truth pass
+
+- Update the release checklist with the four-deliverable contract, exact commands, prerequisites, expected outputs, and the correct current Agent route count.
+- Add a roadmap audit entry recording the Admin compile fix, fail-fast build behavior, dependency remediation, package split, and clean-extraction results.
+
+## Acceptance criteria
+
+- Admin no longer reports `CS0246` for `List<>`.
+- No Agent/Admin restore emits GHSA-28gm-jrmw-xx93 or another high/critical advisory.
+- All four new ZIPs have distinct names, manifests, purposes, and checksums.
+- Each ZIP can be extracted alone and run its documented build command without relying on `..\tools`, repository-only files, or another archive.
+- A publish failure stops at the real error and never continues to a misleading missing-EXE `Copy-Item` failure.
+- The four ZIPs plus their SHA-256 manifest are delivered as new downloadable artifacts; the older `g` files remain untouched for traceability.
