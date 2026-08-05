@@ -375,7 +375,7 @@ public sealed class VideoPipeline : IDisposable
         bool presented = false;
         if (_d3d.Available)
         {
-            presented = _d3d.PushBgra(_bgra!, w, h);
+            presented = _d3d.PushBgra(bgra, w, h);
             if (presented && !UsingD3D)
             {
                 UsingD3D = true;
@@ -386,7 +386,7 @@ public sealed class VideoPipeline : IDisposable
         if (!presented)
         {
             if (UsingD3D) { UsingD3D = false; Diagnostic?.Invoke("D3D present unavailable — using bitmap path"); }
-            PresentBitmap(w, h);
+            PresentBitmap(bgra, w, h);
         }
 
         _lastLatencyMs = _clock.ElapsedMilliseconds - enqueuedMs;
@@ -394,10 +394,15 @@ public sealed class VideoPipeline : IDisposable
             OnUi(() => FirstFrame?.Invoke());
     }
 
-    private void PresentBitmap(int w, int h)
+    private void PresentBitmap(byte[] bgra, int w, int h)
     {
-        var copy = _bgra;
-        if (copy == null) return;
+        if (bgra == null) return;
+        int need = w * h * 4;
+        if (bgra.Length < need) return;
+        var d = Application.Current?.Dispatcher;
+        // S20 — the pacer owns the buffer only for the duration of this call,
+        // so anything deferred to a later dispatcher turn must copy first.
+        var copy = (d != null && d.CheckAccess()) ? bgra : (byte[])bgra.Clone();
         OnUi(() =>
         {
             try
@@ -408,7 +413,7 @@ public sealed class VideoPipeline : IDisposable
                     SurfaceReady?.Invoke(_bitmap);
                 }
                 _bitmap.Lock();
-                System.Runtime.InteropServices.Marshal.Copy(copy, 0, _bitmap.BackBuffer, w * h * 4);
+                System.Runtime.InteropServices.Marshal.Copy(copy, 0, _bitmap.BackBuffer, need);
                 _bitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
             }
             catch { }
