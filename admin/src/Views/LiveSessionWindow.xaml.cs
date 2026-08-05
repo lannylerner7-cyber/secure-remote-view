@@ -315,6 +315,15 @@ public partial class LiveSessionWindow : Window
         if (_capture.Engaged) HandleCapturedMove(e);
     }
 
+    // Delegates: only live while captured (see the XAML comment on Stage).
+    private void Stage_MouseDown(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseDown(sender, e); }
+    private void Stage_MouseUp(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseUp(sender, e); }
+    private void Stage_MouseRightDown(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseRightDown(sender, e); }
+    private void Stage_MouseRightUp(object sender, MouseButtonEventArgs e) { if (_capture.Engaged) Frame_MouseRightUp(sender, e); }
+    private void Stage_MouseWheel(object sender, MouseWheelEventArgs e) { if (_capture.Engaged) Frame_MouseWheel(sender, e); }
+
+
+
     private double _lastNormX = 0.5, _lastNormY = 0.5;
 
     /// <summary>
