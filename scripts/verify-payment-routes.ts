@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Smoke-check the payment surface end-to-end.
- * Usage:  BASE=https://zoomlite.live bun run scripts/verify-payment-routes.ts
+ * Usage:  BASE=https://connectliveagent.com bun run scripts/verify-payment-routes.ts
  */
 const BASE = process.env.BASE ?? "http://localhost:8080";
 

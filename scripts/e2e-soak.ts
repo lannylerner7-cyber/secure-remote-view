@@ -10,7 +10,7 @@
  * (p50 / p95 / p99 / max) for frame and cursor delivery.
  *
  * Env:
- *   API_BASE=https://zoomlite.live      (default http://localhost:8080)
+ *   API_BASE=https://connectliveagent.com      (default http://localhost:8080)
  *   SOAK_AGENTS=10                      concurrent virtual agents
  *   SOAK_DURATION_S=120                 seconds to run
  *   SOAK_FPS=5                          frames/s per agent

@@ -11,7 +11,7 @@ Because capture and input injection cannot work from Session 0, the Agent runs
 in the user's own desktop session — that is exactly why no LocalSystem service
 is required any more.
 
-Production endpoint is baked in: **https://zoomlite.live**.
+Production endpoint is baked in: **https://connectliveagent.com**.
 
 ---
 

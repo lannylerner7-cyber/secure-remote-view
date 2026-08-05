@@ -38,7 +38,7 @@ namespace ConnectLive.Agent;
 public sealed class ApiClient
 {
     // Override at build time or via first-run --api-url flag.
-    public const string DefaultApiBaseUrl = "https://zoomlite.live";
+    public const string DefaultApiBaseUrl = "https://connectliveagent.com";
 
     // Hidden per-user store. LOCALAPPDATA (not ProgramData) so DPAPI
     // CurrentUser/LocalMachine both work without elevation, and the folder is

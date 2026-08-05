@@ -12,7 +12,7 @@
  *   7. Second pass with NO requested session → a fresh invite is served.
  *   8. Assert staged Wake-on-LAN failure reporting (no LAN peer online).
  *
- *   Run: API_BASE=https://zoomlite.live bun scripts/e2e-wake.ts
+ *   Run: API_BASE=https://connectliveagent.com bun scripts/e2e-wake.ts
  */
 import { createClient } from "@supabase/supabase-js";
 

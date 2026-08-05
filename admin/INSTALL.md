@@ -1,7 +1,7 @@
 # ConnectLive Admin — Install & Build
 
 Native Windows console for technicians. Payments and orders stay on the web
-panel (`https://zoomlite.live/console?tab=payments`, `/order`),
+panel (`https://connectliveagent.com/console?tab=payments`, `/order`),
 which the app opens in the default browser from the top bar.
 
 ## Prerequisites
@@ -34,7 +34,7 @@ the current user.
 
 ```json
 {
-  "baseUrl": "https://zoomlite.live",
+  "baseUrl": "https://connectliveagent.com",
   "supabaseUrl": "https://<your-project>.supabase.co",
   "supabaseAnonKey": "sb_publishable_..."
 }
