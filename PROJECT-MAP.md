@@ -487,7 +487,7 @@ fix, and it needs your call before a migration touches it.
 - Agent tree: `SplashWindow.xaml.cs`, `MonitorSelector.cs`, `StreamListener.cs`, `StartupSelfHeal.cs`, `DxgiCapture.cs` all present; zero `MainWindow`/`NotifyIcon` hits under `agent/`.
 - Native console: `PredictiveCursor.cs`, `LiveSessionViewModel.cs`, `LiveSessionWindow.xaml` present — turns 1 and 2 confirmed on disk.
 - Web console: gap **closed** — `src/components/console/MonitorPicker.tsx` reads `devices.metadata.monitors` and `switchMonitor()` in `console.tsx` enqueues `switch_monitor` + `restart_stream`. Tier A item 1 done.
-- `src/routes/_authenticated/console.tsx` is **1,648 lines** (route shell + live view). Tier C item 8 **done** — presentational blocks now live in `src/components/console/*` with shared types in `src/lib/console-types.ts` and input mapping in `src/lib/console-input.ts`.
+- `src/routes/_authenticated/console.tsx` is **1,666 lines** (route shell + live view). Tier C item 8 **done** — presentational blocks now live in `src/components/console/*` with shared types in `src/lib/console-types.ts` and input mapping in `src/lib/console-input.ts`.
 - DB: `power_commands_kind_check` vocabulary matches the doc; 2 active pg_cron jobs; 7 tables in `supabase_realtime`; `sessions` now carries exactly 3 triggers.
 
 ### 2026 — Agent surface reduction + verification pass (`SCOPE:PRESENCE`)
@@ -713,7 +713,7 @@ surprise.
 | Turn 1 + 2 shipped in the native console | `admin/src/Media/PredictiveCursor.cs`, `admin/src/ViewModels/LiveSessionViewModel.cs`, `admin/src/Views/LiveSessionWindow.xaml` |
 | SSE wake has a client | `agent/src/StreamListener.cs` ↔ `src/routes/api/public/agent/stream.ts` |
 | Web console **has** a monitor picker | `src/components/console/MonitorPicker.tsx` + `switchMonitor()` in `console.tsx` (was the gap in the 08-02 snapshot) |
-| Console is modular | `src/routes/_authenticated/console.tsx` = 1,648 lines + 11 component files in `src/components/console/` — 9 imported directly by the route, `DirectNotifyModal` and `PowerMenu` nested inside `TeamPanel` / `DevicesTable` |
+| Console is modular | `src/routes/_authenticated/console.tsx` = 1,666 lines + 11 component files in `src/components/console/` — 9 imported directly by the route, `DirectNotifyModal` and `PowerMenu` nested inside `TeamPanel` / `DevicesTable` |
 | Every route has real head metadata | 11 web routes, each with a unique title + description; the 3 non-public ones also `noindex` + self-canonical |
 | Server routes | 11 agent routes, `admin/bootstrap`, `auth/login`, `cron/reconcile-orders`, `webhooks/cdp`, `stats/orders`, `api/public/health`, plus the standalone unauthenticated `/health` probe for Coolify |
 | Known dead code | `admin/src/Input/MouseInjector.MoveRelAsync` is defined but never called — the WPF console has no pointer-capture toggle yet (the browser console does). Intentional: it is the seam for that turn, not a regression. |
@@ -905,7 +905,7 @@ against the file it names, then the DB re-queried rather than remembered.
 | Server routes | 17 handlers on disk, every §3 row backed by a file; auth mechanism matches the doc on all of them (`verifyDevice` on all 11 agent routes, `BOOTSTRAP_TOKEN`, `login_attempts` lockout, HMAC on CDP, open on the two probes + `stats/orders`) |
 | `src/shared/api-routes.ts` | Zero drift — every registry entry resolves to a route file, and `admin/src/Api/ApiClient.cs:42` is the only hardcoded route string in the native console (`/api/public/auth/login`, exact match) |
 | Head metadata | All 11 web routes carry unique title + description + `og:*` + `twitter:card`; `/connectlive/admin`, `/connectlive/payment`, `/console` also carry `robots: noindex` + self-canonical |
-| Console modularity | `console.tsx` = **1,648** lines, 11 files in `src/components/console/`, 9 imported directly, `DirectNotifyModal`/`PowerMenu` nested — §8 row exact |
+| Console modularity | `console.tsx` = **1,666** lines, 11 files in `src/components/console/`, 9 imported directly, `DirectNotifyModal`/`PowerMenu` nested — §8 row exact |
 | Input invariant | `session.$sessionId.inputs.ts:41-44` gates on `state=active AND mode=control`, `curtain_off`/`release_inputs` always pass; frame route 409s `not_active` |
 | Agent surface | One visible surface confirmed; zero `MainWindow`/`NotifyIcon`/`TrayIcon` hits under `agent/` |
 | Turns 1–4a | `StreamListener` wired at `Agent.cs:196`; `BitrateController` 6-rung ladder owned centrally and read per frame by `ScreenCapture.cs:33,70,110`; `HwEncoderProbe.LogCapability()` at `Agent.cs:165`; heartbeat sends `monitors[]` + `selected_monitor` + `encoder{}` + `lan{}` (`ApiClient.cs:244-296`) |
@@ -1010,7 +1010,7 @@ Run immediately before packaging the Agent / Admin source zips.
 | Check | Command | Result |
 | --- | --- | --- |
 | Typecheck | `tsgo` | clean, exit 0 |
-| Agent + auth routes | `BASE=http://localhost:8080 bun run scripts/verify-agent-routes.ts` | **22/22 passing** |
+| Agent + auth routes | `BASE=http://localhost:8080 bun run scripts/verify-agent-routes.ts` | **24/24 passing** |
 | Payment / order routes | `bun run scripts/verify-payment-routes.ts` | **5/5 passing** |
 
 Note (ops, not a code gap): running the agent verifier against its default
@@ -1438,3 +1438,38 @@ Four defects, all in the WPF chrome — no transport, capture or ViewModel chang
 **Invariant** — nothing here is marked closed on intent. A row moves to the
 closed table only after the code exists in the repo and the matching probe,
 telemetry line, or checklist step passes.
+
+---
+
+## 10.11 — End-to-end audit pass (2026-08-05): bridge inventory & doc drift
+
+A read-only line-by-line pass over every web route, `agent/src/*.cs` (22 files),
+`admin/src/**` (32 files), `scripts/**`, and the Supabase migrations, diffed
+against this document. Result: **no CLAIMED-BUT-MISSING code.** Everything the
+map says is wired, is wired. Three items were corrected or recorded.
+
+### Route-string cross-check — clean
+Every hardcoded `/api/public/...` string in `agent/src/ApiClient.cs`,
+`agent/src/StreamListener.cs`, `admin/src/Api/ApiClient.cs`, `scripts/**`, and
+the web console resolves one-to-one to a real file under
+`src/routes/api/public/**` (19 route files). **Zero mismatches, zero 404 risk.**
+
+### Bridge inventory (indirection layers, all three codebases)
+
+| Bridge | Location | Status |
+|---|---|---|
+| `InputTransport` (datachannel → REST) | `admin/src/Input/*`, `Media/WebRtcClient.cs` | **Live** — consumed by `MouseInjector`, `KeyboardInjector`, `LiveSessionViewModel` |
+| `FrameFallbackPump` (JPEG path when WebRTC is unavailable) | `admin/src/Media/FrameFallbackPump.cs` | **Live** — dual-path with WebRTC, matches §2 |
+| `StartupSelfHeal` → `StartupRegistration` | `agent/src/StartupSelfHeal.cs:9,33,40,47` | **Live** — belt-and-braces, called from `App.xaml.cs:82` |
+| `RtpCapture` diagnostic tap | `admin/src/Media/RtpCapture.cs`, instantiated at `WebRtcClient.cs:81` | **Live but vestigial** — env-gated on `CONNECTLIVE_RTP_CAPTURE=1`, off by default. Its own docstring says "deleted after Phase 3, per the contract"; §10.2 superseded that contract. **Decision pending**: delete, or promote to permanent ops tooling. |
+| `MouseInjector.MoveRelAsync` | `admin/src/Input/MouseInjector.cs:38` | **Orphan seam** — zero call sites; the WPF console still has no pointer-capture toggle (browser console does). Unchanged from §8. |
+| `CodecPolicy.AllowH264` | `agent/src/CodecPolicy.cs:18,67` | **Dead switch by design** — no consumer until S17 Step 2 Phase 3. `HwH264Encoder.cs` genuinely does not exist yet; VP8 is still hard-pinned at `WebRtcSession.cs:158,193`. |
+
+### Doc drift corrected in this pass
+- `console.tsx` line count: **1,648 → 1,666** (4 occurrences: §7, §8, §9.1, §10).
+- Agent route verifier: **22/22 → 24/24** (§10.1) — the power-ack and
+  technician-bearer ICE probes were added but the count was never bumped.
+
+### Still open (unchanged, needs a physical Windows host)
+S3 fleet verification, native-render soak, and the 4K measurement window that
+gates S17 Step 2 Phase 3. No sandbox pass can close these.
