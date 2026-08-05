@@ -238,6 +238,21 @@ function OrderPage() {
             </div>
           </label>
 
+          <div className="md:col-span-2 flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.04] p-4">
+            <PlayCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#4F7CFF]" />
+            <div className="text-xs leading-relaxed text-white/60">
+              <div className="text-sm font-medium text-white">
+                Video setup guides come with your order
+              </div>
+              Once your order completes we email the full delivery pack — agent installer, admin
+              console installer, your Meeting ID and sign-in details — together with step-by-step
+              video setup guides covering installation, device enrollment, and your first live
+              session. Delivery normally lands within 24 hours (48 at the outside) on business days;
+              please check your spam folder and mark our address as safe.
+            </div>
+          </div>
+
+
           {err && (
             <div className="md:col-span-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
               {err}
