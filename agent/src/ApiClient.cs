@@ -50,6 +50,18 @@ public sealed class ApiClient
     private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
     private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
     private static readonly string SessionPath = Path.Combine(ConfigDir, "session.dat");
+    private static readonly string LicensePath = Path.Combine(ConfigDir, "license.dat");
+
+    /// <summary>Delegate that yields a Meeting ID for enrollment. The App
+    /// wires this to <see cref="MeetingIdPrompt"/> on foreground launches and
+    /// leaves it null on headless (/BACKGROUND, /WAKE) launches — those must
+    /// never surface UI, so they defer enrollment until a foreground run.</summary>
+    public Func<string?, string?>? MeetingIdProvider { get; set; }
+
+    /// <summary>Last license verdict returned by enroll/heartbeat. Consumed by
+    /// the splash and dormancy logic; null until the first successful call.</summary>
+    public LicenseState? License { get; private set; }
+    public event Action<LicenseState>? OnLicenseChanged;
 
     private readonly HttpClient _http;
     public string ApiBaseUrl { get; }
@@ -146,30 +158,66 @@ public sealed class ApiClient
     {
         if (!string.IsNullOrEmpty(DeviceToken)) return;
 
-        // Deployment-key-free enrollment: the server mints a random per-device
-        // token and stores only its SHA-256 hash. We just POST identifying
-        // metadata; DPAPI-encrypt the returned token into device.dat.
-        var payload = new
-        {
-            hostname = Environment.MachineName,
-            os = Environment.OSVersion.VersionString,
-            displayName = Environment.MachineName,
-            agentVersion = typeof(ApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0"
-        };
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll")
-        {
-            Content = JsonContent.Create(payload),
-        };
-        using var resp = await _http.SendAsync(req, ct);
-        resp.EnsureSuccessStatusCode();
-        var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
-                   ?? throw new InvalidOperationException("Empty enrollment response");
+        // Reuse a Meeting ID from a prior install if present, else ask the
+        // user via MeetingIdProvider. Headless launches (no provider) enroll
+        // without one — the server will accept but mark the device blocked
+        // until a foreground run supplies an ID. This preserves the "install
+        // silently, activate later" flow ops teams rely on.
+        string? meetingId = LoadMeetingId();
+        string? lastError = null;
 
-        DeviceId = body.DeviceId;
-        DeviceToken = body.DeviceToken;
-        SaveDeviceCreds(body);
-        Interlocked.Increment(ref _tokenGeneration);
+        while (true)
+        {
+            if (string.IsNullOrEmpty(meetingId) && MeetingIdProvider is not null)
+            {
+                meetingId = MeetingIdProvider(lastError);
+                if (string.IsNullOrWhiteSpace(meetingId))
+                    throw new OperationCanceledException("Meeting ID required.");
+            }
+
+            var payload = new
+            {
+                hostname = Environment.MachineName,
+                os = Environment.OSVersion.VersionString,
+                displayName = Environment.MachineName,
+                agentVersion = typeof(ApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+                meetingId = meetingId,
+            };
+            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll")
+            {
+                Content = JsonContent.Create(payload),
+            };
+            using var resp = await _http.SendAsync(req, ct);
+
+            // A wrong Meeting ID is the one recoverable failure — loop back to
+            // the prompt with a clear message instead of aborting startup.
+            if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                var errJson = await resp.Content.ReadAsStringAsync(ct);
+                if (errJson.Contains("invalid_meeting_id", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (MeetingIdProvider is null)
+                        throw new InvalidOperationException("Invalid Meeting ID (headless enroll).");
+                    lastError = "That Meeting ID was not recognized. Check the email your license was issued from.";
+                    meetingId = null;
+                    continue;
+                }
+            }
+
+            resp.EnsureSuccessStatusCode();
+            var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
+                       ?? throw new InvalidOperationException("Empty enrollment response");
+
+            DeviceId = body.DeviceId;
+            DeviceToken = body.DeviceToken;
+            SaveDeviceCreds(new EnrollResponse(body.DeviceId, body.DeviceToken));
+            if (!string.IsNullOrEmpty(meetingId)) SaveMeetingId(meetingId!);
+            if (body.License is { } lic) UpdateLicense(lic);
+            Interlocked.Increment(ref _tokenGeneration);
+            return;
+        }
     }
+
 
 
     // Runs a request, and on a single 401 wipes local creds + re-enrolls (once,
@@ -311,7 +359,23 @@ public sealed class ApiClient
             Content = JsonContent.Create(payload),
         }, ct);
         resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadAsStringAsync(ct);
+        var text = await resp.Content.ReadAsStringAsync(ct);
+        // Best-effort: parse the license verdict returned on every heartbeat
+        // so the splash and dormancy paths reflect state without a second RTT.
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("license", out var lic) && lic.ValueKind == JsonValueKind.Object)
+            {
+                UpdateLicense(new LicenseState(
+                    lic.TryGetProperty("state", out var s) ? s.GetString() ?? "unlicensed" : "unlicensed",
+                    lic.TryGetProperty("reason", out var r) ? r.GetString() : null,
+                    lic.TryGetProperty("meeting_id", out var m) ? m.GetString() : null,
+                    lic.TryGetProperty("expires_at", out var ex) ? ex.GetString() : null));
+            }
+        }
+        catch { }
+        return text;
     }
 
     /// <summary>
@@ -558,6 +622,13 @@ public sealed class ApiClient
 
     // ---- DPAPI-encrypted local storage --------------------------------
 
+    // Local credential store: kept as its own POCO so wire attribute changes
+    // on EnrollResponse (added camelCase JsonPropertyName + optional license)
+    // can never break older device.dat blobs, which were serialised with
+    // System.Text.Json defaults (PascalCase, no license field).
+    private sealed record StoredCreds(string DeviceId, string DeviceToken);
+    private static readonly JsonSerializerOptions _credsRead = new() { PropertyNameCaseInsensitive = true };
+
     private void LoadDeviceCreds()
     {
         if (!File.Exists(DevicePath)) return;
@@ -566,7 +637,7 @@ public sealed class ApiClient
             var enc = File.ReadAllBytes(DevicePath);
             var dec = ProtectedData.Unprotect(enc, null, DataProtectionScope.LocalMachine);
             var json = Encoding.UTF8.GetString(dec);
-            var creds = JsonSerializer.Deserialize<EnrollResponse>(json);
+            var creds = JsonSerializer.Deserialize<StoredCreds>(json, _credsRead);
             DeviceId = creds?.DeviceId;
             DeviceToken = creds?.DeviceToken;
         }
@@ -575,10 +646,11 @@ public sealed class ApiClient
 
     private static void SaveDeviceCreds(EnrollResponse creds)
     {
-        var json = JsonSerializer.Serialize(creds);
+        var json = JsonSerializer.Serialize(new StoredCreds(creds.DeviceId, creds.DeviceToken));
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
         WriteHidden(DevicePath, enc);
     }
+
 
     public SessionBinding? LoadSessionBinding()
     {
@@ -640,7 +712,51 @@ public sealed class ApiClient
 
 
 
-    public sealed record EnrollResponse(string DeviceId, string DeviceToken);
+    public sealed record EnrollResponse(
+        [property: JsonPropertyName("deviceId")] string DeviceId,
+        [property: JsonPropertyName("deviceToken")] string DeviceToken,
+        [property: JsonPropertyName("license")] LicenseState? License = null);
+
+    /// <summary>License verdict shipped on enroll + every heartbeat. The Agent
+    /// stays online in every state; only "active" and "unlicensed" (pre-
+    /// licensing / direct admin enrollment) actually accept sessions.</summary>
+    public sealed record LicenseState(
+        [property: JsonPropertyName("state")] string State,
+        [property: JsonPropertyName("reason")] string? Reason,
+        [property: JsonPropertyName("meeting_id")] string? MeetingId,
+        [property: JsonPropertyName("expires_at")] string? ExpiresAt);
+
+    private void UpdateLicense(LicenseState next)
+    {
+        var prev = License;
+        License = next;
+        if (prev is null || prev.State != next.State || prev.Reason != next.Reason)
+        {
+            try { OnLicenseChanged?.Invoke(next); } catch { }
+        }
+    }
+
+    private static string? LoadMeetingId()
+    {
+        try
+        {
+            if (!File.Exists(LicensePath)) return null;
+            var enc = File.ReadAllBytes(LicensePath);
+            var dec = ProtectedData.Unprotect(enc, null, DataProtectionScope.LocalMachine);
+            return Encoding.UTF8.GetString(dec).Trim();
+        }
+        catch { return null; }
+    }
+
+    private static void SaveMeetingId(string meetingId)
+    {
+        try
+        {
+            var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(meetingId), null, DataProtectionScope.LocalMachine);
+            WriteHidden(LicensePath, enc);
+        }
+        catch { }
+    }
     public sealed record SessionBinding(string SessionId, string? PairingCode, DateTimeOffset SavedAt);
     public sealed record AgentConfig(string ApiBaseUrl);
 
