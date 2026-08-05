@@ -1604,3 +1604,35 @@ and order render at 768/390 with `scrollWidth == viewport` (no overflow).
 building), coin tiles carry brand-tinted icons (BTC `#F7931A`, USDT `#26A17B`,
 USDC `#2775CA`), and the footer policy row is icon-led (shield / file /
 rotate / mail) with the project blurb trimmed to one line.
+
+---
+
+## §10.14 — Step 2: Self-hosted SMTP + order emails — 2026-08-05 (`SCOPE:WEB`, `SCOPE:DB`)
+
+**Goal.** Order confirmations must leave our own mail server, with no third-party
+email SDK and no Node-only dependency (the site runs on the Worker runtime).
+
+### Database
+| Object | Shape | Access |
+|---|---|---|
+| `public.smtp_settings` | singleton (`id boolean PK CHECK (id)`): `host, port, username, password, from_name, from_address, reply_to, encryption('none'\|'starttls'\|'ssl'), enabled, updated_at, updated_by` | RLS on, **zero policies**, `service_role` only — the password can never reach a browser |
+| `public.order_emails` | `order_id → orders`, `kind('order_received'\|'order_confirmed'\|'test')`, `recipient`, `status('sent'\|'skipped'\|'error')`, `detail` | `SELECT` for `admin` / `super_admin`; writes via service role |
+
+### Code
+| File | Role |
+|---|---|
+| `src/lib/smtp.server.ts` | dependency-free SMTP client. Dual wire: `cloudflare:sockets` (prod, dynamic specifier so bundlers don't resolve it on Node) and `node:net`/`node:tls` (dev). Handles EHLO, STARTTLS upgrade, implicit SSL, AUTH PLAIN/LOGIN, multipart/alternative body, RFC 2047 headers. `loadSmtpSettings()` returns `null` unless `enabled && host && from_address`. |
+| `src/lib/order-emails.server.ts` | branded HTML+text templates (`order_received`, `order_confirmed`) on `connectliveagent.com`; `sendOrderEmail*` never throws and always logs to `order_emails`. |
+| `src/lib/smtp.functions.ts` | super-admin `getSmtpSettings` (returns `has_password`, never the secret), `saveSmtpSettings` (blank password keeps the stored one; audit-logged as `smtp.settings_saved`), `sendSmtpTest`, `resendOrderEmail`; admin `listOrderEmails`. |
+| `src/components/EmailSettingsPanel.tsx` | Payments console → **Email** tab (super-admin only): relay form, test send, delivery log with Resend on failed/skipped rows. |
+
+### Triggers
+- `createOrderPublic` → `order_received` (invoice, pay-to address, price-lock expiry, track link).
+- `markOrderPaid` (manual) and the CDP webhook on a `→ paid` transition → `order_confirmed`
+  ("software + sign-in details within 24–48 hours; check your spam folder").
+  The webhook reads the prior status first so redeliveries can't re-send.
+
+### Invariants added
+1. Order/payment flows must never fail because SMTP is down — every send is wrapped and logged.
+2. `smtp_settings` stays policy-free; all reads go through server functions with the service role.
+3. No `nodemailer` / Node-only mail package — it cannot bundle for workerd.
