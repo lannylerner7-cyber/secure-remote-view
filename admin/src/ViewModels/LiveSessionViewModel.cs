@@ -486,6 +486,7 @@ public partial class LiveSessionViewModel : ObservableObject
         _rtc = null;
         _framePump = null;
         _cursorPump = null;
+        StopFileTransfer();
         // G3: drop the decoded surface reference so nothing keeps a dead
         // D3D back-buffer alive between sessions.
         NativeVideo = false;
