@@ -1683,6 +1683,10 @@ function AdminPage() {
                     </div>
                   </div>
                 )}
+                {s.device_id && role !== "viewer" && (
+                  <SessionFilesPanel sessionId={s.id} getRtc={() => rtcRef.current} />
+                )}
+
               </div>
             </div>
           );
