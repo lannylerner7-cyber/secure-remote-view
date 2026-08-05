@@ -298,20 +298,76 @@ public partial class LiveSessionWindow : Window
 
     private void Frame_MouseMove(object sender, MouseEventArgs e)
     {
+        if (_capture.Engaged) { HandleCapturedMove(e); return; }
         if (!OnPicture(e)) return;      // letterbox bar: not part of the desktop
         var (x, y) = ToAbs(e);
         // Prediction FIRST — the ghost must move on this frame, not on the
         // frame after the agent's telemetry round trip completes.
         _predict.Predict(x, y);
         _coalesce.Update(x, y);
+        _lastNormX = x; _lastNormY = y;
     }
 
+    // In capture mode the mouse is captured by Stage, so moves arrive here
+    // (the picture may not be under the physical pointer at all).
+    private void Stage_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_capture.Engaged) HandleCapturedMove(e);
+    }
+
+    private double _lastNormX = 0.5, _lastNormY = 0.5;
+
+    /// <summary>
+    /// S19(b) — one physical move becomes: a relative delta on the wire, and a
+    /// locally integrated normalised position so the ghost cursor and any
+    /// following click still have coordinates to work with.
+    /// </summary>
+    private void HandleCapturedMove(MouseEventArgs e)
+    {
+        Point screen;
+        try { screen = Stage.PointToScreen(e.GetPosition(Stage)); }
+        catch { return; }
+        if (!_capture.Consume(screen, out var dx, out var dy)) return;
+
+        _coalesce.UpdateRel(dx, dy);
+
+        // Integrate locally for the ghost. Source pixels, not element pixels:
+        // one physical pixel of hand movement is one remote pixel.
+        var (sw, sh) = SourceSize();
+        if (sw > 0 && sh > 0)
+        {
+            _lastNormX = Math.Clamp(_lastNormX + dx / sw, 0, 1);
+            _lastNormY = Math.Clamp(_lastNormY + dy / sh, 0, 1);
+            _predict.Predict(_lastNormX, _lastNormY);
+        }
+    }
+
+    private (double w, double h) SourceSize()
+    {
+        var src = FrameImage.Source;
+        if (src == null) return (0, 0);
+        if (src is System.Windows.Media.Imaging.BitmapSource bs) return (bs.PixelWidth, bs.PixelHeight);
+        if (src is System.Windows.Interop.D3DImage d3d) return (d3d.PixelWidth, d3d.PixelHeight);
+        return (src.Width, src.Height);
+    }
+
+    /// <summary>
+    /// Coordinates for a button/wheel event. Captured sessions have no
+    /// meaningful element position, so the locally integrated point is used
+    /// and the on-picture gate is skipped.
+    /// </summary>
+    private bool TryPointFor(MouseEventArgs e, out double x, out double y)
+    {
+        if (_capture.Engaged) { x = _lastNormX; y = _lastNormY; return true; }
+        if (!OnPicture(e)) { x = y = 0; return false; }
+        (x, y) = ToAbs(e);
+        return true;
+    }
 
     private async void Frame_MouseDown(object sender, MouseButtonEventArgs e)
     {
         Keyboard.Focus(Stage);
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Left, x, y);
@@ -319,8 +375,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Left, x, y);
@@ -328,8 +383,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightDown(object sender, MouseButtonEventArgs e)
     {
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.DownAsync(MouseInjector.Right, x, y);
@@ -337,8 +391,7 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseRightUp(object sender, MouseButtonEventArgs e)
     {
-        if (!OnPicture(e)) return;
-        var (x, y) = ToAbs(e);
+        if (!TryPointFor(e, out var x, out var y)) return;
         _predict.Predict(x, y);
         _coalesce.FlushNow();
         await _mouse.UpAsync(MouseInjector.Right, x, y);
@@ -346,15 +399,15 @@ public partial class LiveSessionWindow : Window
 
     private async void Frame_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!OnPicture(e)) return;
+        if (!TryPointFor(e, out var x, out var y)) return;
         // Park the pointer at the wheel position first so the remote machine
         // scrolls the control under the cursor, not whatever had focus.
-        var (x, y) = ToAbs(e);
         _predict.Predict(x, y);
-        _coalesce.Update(x, y);
+        if (!_capture.Engaged) _coalesce.Update(x, y);
         _coalesce.FlushNow();
         await _mouse.WheelAsync(e.Delta);
     }
+
 
 
 
