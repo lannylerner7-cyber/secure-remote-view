@@ -189,12 +189,17 @@ public partial class LiveSessionWindow : Window
         if (e.PropertyName == nameof(LiveSessionViewModel.InputAuthoritative))
         {
             SyncPredictionGate();
+            // S19(a) — the OS cursor only hides while we own the remote
+            // pointer; a view-only session keeps its normal arrow.
+            SyncLocalCursor();
+            if (!_vm.InputAuthoritative) EndCapture();
         }
         else if (e.PropertyName == nameof(LiveSessionViewModel.CurrentFrame))
         {
             UpdateCursorGhost();
         }
     }
+
 
     /// <summary>
     /// Phase 5 — the ONE place element-space and source-space meet.
