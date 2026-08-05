@@ -360,7 +360,17 @@ public sealed class VideoPipeline : IDisposable
         Diagnostic?.Invoke($"source resolution now {w}x{h}");
     }
 
+    /// <summary>
+    /// S20 — decoded frames no longer go straight to the presenter. They are
+    /// handed to the pacer, which releases exactly one per composition tick so
+    /// motion is even instead of arriving in bursts.
+    /// </summary>
     private void Present(int w, int h, long enqueuedMs)
+    {
+        _pacer.Submit(_bgra!, w, h, enqueuedMs);
+    }
+
+    private void PresentPaced(byte[] bgra, int w, int h, long enqueuedMs)
     {
         bool presented = false;
         if (_d3d.Available)
