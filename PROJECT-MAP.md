@@ -31,7 +31,7 @@ Used in every changelog entry below and in commit-style notes.
  END USER PC                          SUPABASE / TSS API                 TECHNICIAN
  ───────────                          ──────────────────                 ──────────
  agent/src/Agent.cs      ──heartbeat──►  /api/public/agent/heartbeat
-   ├ ConsentPrompt.cs    ──decision───►  /agent/session/:id/consent   ┌─ admin (WPF)
+   ├ (auto-accept)       ──decision───►  /agent/session/:id/consent   ┌─ admin (WPF)
    ├ DxgiCapture.cs                                                  │  Api/ApiClient.cs
    ├ ScreenCapture.cs    ──jpeg───────►  /agent/session/:id/frame ────┼► Media/FrameFallbackPump
    ├ CursorPump.cs       ──x,y────────►  /agent/session/:id/cursor ───┼► Media/CursorPollPump
@@ -85,9 +85,14 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 4. Invariants — do not "optimise" these away
 
-- Consent is a **click**, not a default. Timeout, closed window, or missing UI
-  thread all mean decline. `/agent/session/:id/consent` is the only writer and
-  it 409s on any state other than `invited`.
+- **Authorisation is account-level, not per-session** (changed §10.28). The
+  agent no longer shows an Allow/Deny dialog: a machine is authorised when it
+  enrolled against a valid Meeting ID with seats available, and the server
+  enforces that on every heartbeat (blocked/expired ⇒ dormant). The agent
+  auto-accepts invites via `SubmitConsentAsync(sessionId, true)`.
+  `/agent/session/:id/consent` remains the **only** writer of the
+  `invited → active` transition and still 409s on any other state — the
+  transition is real, the human click is not.
 - Server state machine is `invited → active | declined`, then `paused` /
   `ended`. `consented` is a **legacy value** that the consent route never
   writes, but heartbeat, `prune_session_ephemera()`, the web console and
@@ -1374,8 +1379,12 @@ set gracefully and start using TURN the moment the gateway stops returning 401.
 
 ## §10.9 — Where we are / what is left — 2026-08-04 (`SCOPE:ROADMAP`)
 
-Rolling status board. Update this section with every change so the next pass
-starts from truth instead of memory.
+> **SUPERSEDED.** This board stopped at 2026-08-04 and does not reflect
+> S18–S25, licensing, files, clipboard, or recording. The authoritative
+> remaining state is the **Open items** table at the very end of this
+> document (§11).
+
+Rolling status board (historical). 
 
 **Wired and verified (closed)**
 
