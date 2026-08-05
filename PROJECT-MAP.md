@@ -1778,3 +1778,23 @@ panel, using the raw Supabase JWT of the signed-in technician for storage calls.
 
 Closes the file-transfer loop: files pushed from the web console or native
 admin now land on the remote mach
+ine, and files initiated on the agent flow back to
+the technician through the same channel — with an authed HTTP fallback the
+moment the SCTP datachannel fails.
+
+| File | Change |
+|---|---|
+| `agent/src/FileTransfer.cs` | New. `files` DataChannel receiver/sender identical to `admin/src/Media/FileTransport.cs` and `src/lib/webrtc-live.ts` (control JSON + 64 KiB binary frames, SHA-256, 4 MiB backpressure gate, 500 MiB per-file cap). Inbound files land atomically in `%PUBLIC%\Desktop\ConnectLive Files` with `.part`-then-rename; falls back to `%ProgramData%\ConnectLive\Files` then `%TEMP%\ConnectLive Files` when the interactive-session desktop is unwritable. Outbound tries the channel first, then permanently demotes to HTTP if the channel closes/fails mid-flight. |
+| `agent/src/WebRtcSession.cs` | `ondatachannel` now dispatches the reliable `files` channel to `FileTransfer.Attach` instead of routing every payload into `InputRelay`. `Close()` calls `FileTransfer.Detach()` so a superseded session cannot keep an inbound reassembly buffer or a stale `RTCDataChannel` reference alive across reconnects. |
+| `agent/src/ApiClient.cs` | New `UploadSessionFileChunkAsync(sessionId, fileId, seq, eof, name, mime, sha256, totalSize, chunk, ct)` posts 4 MiB chunks to `/api/public/agent/session/{id}/file?fileId=&seq=&eof=1` with `X-File-Name / X-File-Mime / X-File-Sha256 / X-File-Size` headers — byte-for-byte the envelope `session.$sessionId.file.ts` already parses. Uses the shared `SendAuthedAsync` pipeline so the machine token auto-refresh and revocation cooldown apply here too. |
+
+**Verifier note:** `scripts/verify-agent-routes.ts` reports `POST
+/api/public/agent/session/…/file` as `404` against production because the
+route ships in this deploy — locally it returns `401` as designed. The next
+publish flips that check green with no code change.
+
+**Next up (S21 register — file transfer):** admin-console UX polish for
+inbound files pushed *from* the remote machine (surface a "New file from
+agent" toast in the web console/native admin, deep-linking to the manifest
+row), and a small `files` health tile in the Session HUD so operators can see
+DC vs. HTTP for the currently-transferring file.
