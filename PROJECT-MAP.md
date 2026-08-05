@@ -1772,6 +1772,9 @@ panel, using the raw Supabase JWT of the signed-in technician for storage calls.
 | `admin/src/Views/LiveSessionWindow.xaml` | Toolbar "Files" toggle + right-side slide-out panel with file list, password UI, and action buttons. |
 | `admin/src/Views/LiveSessionWindow.xaml.cs` | Password box mirror and drag-and-drop file enqueue. |
 
-**Next:** Agent-side `files` DataChannel receiver + HTTP chunk fallback
-(`agent/src/FileTransfer.cs`) so files pushed from the admin also reach the
-remote computer and vice-versa.
+---
+
+## §10.20 — Step 10: Agent file receiver + HTTP fallback — 2026-08-05 (`SCOPE:FILES`, `SCOPE:AGENT`)
+
+Closes the file-transfer loop: files pushed from the web console or native
+admin now land on the remote mach
