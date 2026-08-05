@@ -704,7 +704,51 @@ public sealed class ApiClient
 
 
 
-    public sealed record EnrollResponse(string DeviceId, string DeviceToken);
+    public sealed record EnrollResponse(
+        [property: JsonPropertyName("deviceId")] string DeviceId,
+        [property: JsonPropertyName("deviceToken")] string DeviceToken,
+        [property: JsonPropertyName("license")] LicenseState? License = null);
+
+    /// <summary>License verdict shipped on enroll + every heartbeat. The Agent
+    /// stays online in every state; only "active" and "unlicensed" (pre-
+    /// licensing / direct admin enrollment) actually accept sessions.</summary>
+    public sealed record LicenseState(
+        [property: JsonPropertyName("state")] string State,
+        [property: JsonPropertyName("reason")] string? Reason,
+        [property: JsonPropertyName("meeting_id")] string? MeetingId,
+        [property: JsonPropertyName("expires_at")] string? ExpiresAt);
+
+    private void UpdateLicense(LicenseState next)
+    {
+        var prev = License;
+        License = next;
+        if (prev is null || prev.State != next.State || prev.Reason != next.Reason)
+        {
+            try { OnLicenseChanged?.Invoke(next); } catch { }
+        }
+    }
+
+    private static string? LoadMeetingId()
+    {
+        try
+        {
+            if (!File.Exists(LicensePath)) return null;
+            var enc = File.ReadAllBytes(LicensePath);
+            var dec = ProtectedData.Unprotect(enc, null, DataProtectionScope.LocalMachine);
+            return Encoding.UTF8.GetString(dec).Trim();
+        }
+        catch { return null; }
+    }
+
+    private static void SaveMeetingId(string meetingId)
+    {
+        try
+        {
+            var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(meetingId), null, DataProtectionScope.LocalMachine);
+            WriteHidden(LicensePath, enc);
+        }
+        catch { }
+    }
     public sealed record SessionBinding(string SessionId, string? PairingCode, DateTimeOffset SavedAt);
     public sealed record AgentConfig(string ApiBaseUrl);
 
