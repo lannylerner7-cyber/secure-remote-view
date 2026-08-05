@@ -46,7 +46,7 @@ export function RenderHealthPanel({ sessionId }: { sessionId?: string | null }) 
       </div>
       {rows.length === 0 ? (
         <p className="text-xs text-white/40">
-          No render telemetry yet — it appears a minute into a native live session.
+          No render telemetry yet — the first sample lands about 15 seconds into a native live session.
         </p>
       ) : (
         <div className="overflow-x-auto">
