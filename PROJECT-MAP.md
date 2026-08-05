@@ -1667,3 +1667,31 @@ carrying plan, seat limit, term (`starts_at`/`expires_at`) and status.
 | `src/components/CustomersPanel.tsx` | Payments console → **Customers** tab: provision form (email, seats 10/20/50, term, generated portal password shown once), license table with seats used/limit, expiry, suspend/restore, +1 month, seat change, password reset, and per-license device list. |
 
 **Next:** customer portal at `/public/agent/login` (step 6) and the agent-side Meeting-ID prompt + dormancy (step 7).
+
+---
+
+## §10.16 — Step 6: Customer portal — 2026-08-05 (`SCOPE:WEB`)
+
+Two new page routes, entirely separate from the technician console (no session,
+device-control or payment-admin surface reachable from them):
+
+| Route | File | Notes |
+|---|---|---|
+| `/public/agent/login` | `src/routes/public.agent.login.tsx` | Customer sign-in, reuses `AdminLoginCard` → `POST /api/public/auth/login` (same 3-strike / 1-hour lockout). Links across to `/connectlive/admin` for technicians. |
+| `/public/agent/portal` | `src/routes/public.agent.portal.tsx` | `ssr: false` + `beforeLoad` session gate → redirects to the login route. Meeting ID with copy button, plan/seats/status/renewal stats, expiry banner at ≤7 days, device list (remove frees a seat), renewal CTA into `/order`, password change. |
+
+`src/lib/portal.functions.ts` (all `requireSupabaseAuth`, all scoped to the
+caller's own license — no `supabaseAdmin` reads):
+`getMyPortal` (license + devices + `days_left` + `seats_used`),
+`removeMyDevice` (double-scoped by `license_id` on top of RLS),
+`changeMyPassword` (admin `updateUserById` for the caller's own id only).
+
+RLS verified in place: `customer reads own license`, `customer reads own devices`,
+`customer deletes own devices` — alongside the staff policies.
+
+`/license` now links to the customer portal so paid subscribers can find it.
+Route check: `/public/agent/login`, `/public/agent/portal`, `/license`, `/order`,
+`/connectlive/admin` all return 200 and are registered in `routeTree.gen.ts`.
+
+**Next:** step 7 — the agent-side Meeting-ID prompt, DPAPI `meeting.dat`, and
+dormancy UX when the heartbeat reports `blocked`/`expired`.

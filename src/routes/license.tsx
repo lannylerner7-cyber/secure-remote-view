@@ -59,16 +59,24 @@ function LicensePage() {
 
   return (
     <div className="min-h-screen bg-[#050B1F] text-white">
-      <header className="border-b border-white/10 px-6 py-4">
+      <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
         <Link to="/" className="text-sm text-white/70 hover:text-white">
           ← ConnectLive
+        </Link>
+        <Link
+          to="/public/agent/login"
+          className="rounded-md bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20"
+        >
+          Customer portal
         </Link>
       </header>
       <main className="mx-auto max-w-2xl px-4 py-12">
         <h1 className="text-3xl font-semibold">Look up your license</h1>
         <p className="mt-2 text-sm text-white/60">
           Enter the email you used at checkout. We'll show your most recent paid licenses.
+          Subscription customers can sign in to the portal above for their Meeting ID and devices.
         </p>
+
 
         <form onSubmit={submit} className="mt-8 flex gap-2">
           <input
