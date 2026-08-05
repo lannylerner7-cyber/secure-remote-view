@@ -42,6 +42,8 @@ public sealed class VideoPipeline : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly D3DImageHost _d3d = new();
+    /// <summary>S20 — releases one decoded frame per composition tick so motion is even.</summary>
+    private readonly PresentPacer _pacer;
 
     private Thread? _worker;
     private VpxVideoEncoder? _decoder;
@@ -96,6 +98,20 @@ public sealed class VideoPipeline : IDisposable
     /// <summary>True when the D3D present path is live; false means the WriteableBitmap fallback.</summary>
 
     public bool UsingD3D { get; private set; }
+
+    public VideoPipeline()
+    {
+        _pacer = new PresentPacer(PresentPaced);
+    }
+
+    /// <summary>S20 — mean absolute deviation between presents (ms). Lower is smoother.</summary>
+    public double JudderMs => _pacer.JudderMs;
+
+    /// <summary>S20 — presents per second actually reaching the compositor.</summary>
+    public double PaceFps => _pacer.PaceFps;
+
+    /// <summary>S20 — true while presents ride the display's composition cadence.</summary>
+    public bool PacedPresent => _pacer.Paced;
 
     /// <summary>
     /// S16 — HWND of the window that actually presents this video. Set it
@@ -360,12 +376,22 @@ public sealed class VideoPipeline : IDisposable
         Diagnostic?.Invoke($"source resolution now {w}x{h}");
     }
 
+    /// <summary>
+    /// S20 — decoded frames no longer go straight to the presenter. They are
+    /// handed to the pacer, which releases exactly one per composition tick so
+    /// motion is even instead of arriving in bursts.
+    /// </summary>
     private void Present(int w, int h, long enqueuedMs)
+    {
+        _pacer.Submit(_bgra!, w, h, enqueuedMs);
+    }
+
+    private void PresentPaced(byte[] bgra, int w, int h, long enqueuedMs)
     {
         bool presented = false;
         if (_d3d.Available)
         {
-            presented = _d3d.PushBgra(_bgra!, w, h);
+            presented = _d3d.PushBgra(bgra, w, h);
             if (presented && !UsingD3D)
             {
                 UsingD3D = true;
@@ -376,7 +402,7 @@ public sealed class VideoPipeline : IDisposable
         if (!presented)
         {
             if (UsingD3D) { UsingD3D = false; Diagnostic?.Invoke("D3D present unavailable — using bitmap path"); }
-            PresentBitmap(w, h);
+            PresentBitmap(bgra, w, h);
         }
 
         _lastLatencyMs = _clock.ElapsedMilliseconds - enqueuedMs;
@@ -384,10 +410,15 @@ public sealed class VideoPipeline : IDisposable
             OnUi(() => FirstFrame?.Invoke());
     }
 
-    private void PresentBitmap(int w, int h)
+    private void PresentBitmap(byte[] bgra, int w, int h)
     {
-        var copy = _bgra;
-        if (copy == null) return;
+        if (bgra == null) return;
+        int need = w * h * 4;
+        if (bgra.Length < need) return;
+        var d = Application.Current?.Dispatcher;
+        // S20 — the pacer owns the buffer only for the duration of this call,
+        // so anything deferred to a later dispatcher turn must copy first.
+        var copy = (d != null && d.CheckAccess()) ? bgra : (byte[])bgra.Clone();
         OnUi(() =>
         {
             try
@@ -398,7 +429,7 @@ public sealed class VideoPipeline : IDisposable
                     SurfaceReady?.Invoke(_bitmap);
                 }
                 _bitmap.Lock();
-                System.Runtime.InteropServices.Marshal.Copy(copy, 0, _bitmap.BackBuffer, w * h * 4);
+                System.Runtime.InteropServices.Marshal.Copy(copy, 0, _bitmap.BackBuffer, need);
                 _bitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
             }
             catch { }
@@ -473,6 +504,7 @@ public sealed class VideoPipeline : IDisposable
                $"chroma={_chroma} loss={Interlocked.Read(ref _lossEvents)} " +
 
                $"gated={Interlocked.Read(ref _framesGated)} " +
+               _pacer.StatsFragment() + " " +
                (_deadReason != null ? $"dead=\"{_deadReason}\" " : "") +
                _d3d.HealthLine() + $" ws={ws}MB";
 
@@ -489,6 +521,7 @@ public sealed class VideoPipeline : IDisposable
         try { _signal.Release(); } catch { }
         try { _decoder?.Dispose(); } catch { }
         _decoder = null;
+        try { _pacer.Dispose(); } catch { }
         try { _d3d.Park(); } catch { }
         try { _d3d.Dispose(); } catch { }
         _bgra = null;

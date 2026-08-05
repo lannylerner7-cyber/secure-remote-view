@@ -1501,7 +1501,7 @@ Nothing here is closed on intent; every row is tagged
 |---|---|---|---|---|
 | S18 | **No native-path latency or fps number exists.** Every figure in this doc is the JPEG+Realtime fallback on localhost (frame p50 1568 ms / p95 5096 ms). Zero measured glass-to-glass, sustained fps, or fps-under-motion for the native VP8→D3D path. | §5 S8; §10.9 open 1; §10.11; S11 | **INSTRUMENTED 08-05 — reading still owed** | **Instrumentation shipped (§10.12).** Remaining: one Windows host, one real session under sustained motion, paste the `Copy stats` line back. Unblocks S17-P2, S20 and all rung tuning. |
 | S19 | **The pointer lags the hand.** The ghost cursor follows decoded video, so every motion pays the full round trip. Enterprise RMMs draw the technician cursor locally at input time and reconcile. Relative mode is regressed: `mousemove_rel` works from the browser and `agent/src/InputRelay.cs:88` honours it, but admin `MouseInjector.MoveRelAsync` was deleted 08-05 (re-add condition at `MouseInjector.cs:32`). | §2; §10.10; §10.11 | **CLOSED 08-05** | **Shipped.** (a) local cursor draw + reconcile, hide OS cursor over the stage; (b) re-add `MoveRelAsync` behind a pointer-capture toggle. |
-| S20 | **Nothing paces presents to the display** — motion micro-judders even at good fps. Render invariants cover correctness, not smoothness. Distinct from the encoder: H.264 (S17-P3) raises the ceiling, pacing makes whatever fps you have look even. | §4; §10.9 1–2; S12 | not addressed | **P1.** Present on a vsync/`CompositionTarget.Rendering` cadence with a 1–2 frame smoothing buffer; measure judder via S18. `Media/VideoPipeline.cs`, `Media/D3DImageHost.cs`. |
+| S20 | **Nothing paces presents to the display** — motion micro-judders even at good fps. Render invariants cover correctness, not smoothness. Distinct from the encoder: H.264 (S17-P3) raises the ceiling, pacing makes whatever fps you have look even. | §4; §10.9 1–2; S12 | **SHIPPED 08-05 (§10.30)** | **P1.** Present on a vsync/`CompositionTarget.Rendering` cadence with a 1–2 frame smoothing buffer; measure judder via S18. `Media/VideoPipeline.cs`, `Media/D3DImageHost.cs`. |
 | S21 | **No file transfer.** Table-stakes RMM (push a driver, pull a log). The input datachannel is the pattern to mirror. | §2/§3; S10 | asserted absent | **P1.** Ordered/reliable file datachannel, chunked + SHA-256 (reuse S14 checksum discipline), progress UI, per-transfer owner approval. |
 | S22 | ~~No clipboard sync.~~ **SHIPPED §10.23** — `clip` DataChannel on all three peers, text-only, 256 KiB cap, echo-suppressed. | §2/§3 | done | — |
 | S23 | **No technician-side monitor picker.** Agent enumerates and switches (`MonitorSelector`, `switch_monitor`); U1 fixed toolbar/keys/Fit/banners, not a monitor strip. | §10.10 U1 | verify-first | **P2.** Confirm nothing is wired, then selector + thumbnail strip driving the existing `switch_monitor`. |
@@ -2089,7 +2089,7 @@ annotated as superseded where they contradict this.
 | S3 | Fleet verification (enroll → wake → live on real machines) | Needs a live Windows fleet | No — environment-bound |
 | S17-P3 | Hardware H.264 encode/decode | `agent/src/HwH264Encoder.cs` does not exist; `CodecPolicy.AllowH264` is a switch with no consumer, by design (see the class doc comment) | Partly — needs a Windows host to validate the MFT |
 | S18 | Real 4K latency/throughput readings | Instrumentation shipped (`EncodeStats.cs`, `session_telemetry`, HUD); no measurement taken | No — needs a live session |
-| S20 | Present pacing / vsync alignment | No `CompositionTarget.Rendering` pacing loop in `admin/src/Media`; frames present as they arrive | **Yes** |
+| ~~S20~~ | ~~Present pacing / vsync alignment~~ | **SHIPPED 2026-08-05 (§10.30)** — `admin/src/Media/PresentPacer.cs` releases one decoded frame per `CompositionTarget.Rendering` tick behind a 1–2 frame cushion; judder is measured and on the HUD. Only the on-hardware judder reading is still owed (blocked with S18) | done |
 | S24-b | Recording retention / upload policy | Recording writes locally only (`IvfWriter` native, browser download on web); nothing uploads, expires, or audits it | **Yes** |
 | S25-b | Code-signing certificate | `tools/CodeSign.ps1` + `docs/SIGNING.md` shipped and wired into both build scripts; the certificate is a procurement step | No — procurement |
 | — | Windows-host build + soak run | `scripts/e2e-soak.ts` exists and is unrun against real agents | No — environment-bound |
@@ -2108,3 +2108,31 @@ peers), monitor picker (web + native), consent removal.
 | Route targets vs `src/routeTree.gen.ts` | every `Link`/`navigate()` destination resolves |
 | Cross-peer parity (clipboard, files, monitor picker, recording, input DC, ICE/TURN, telemetry) | complete; only deliberate asymmetries (WEBM web / IVF native) |
 | `consented` legacy state retained in live filters | present in `heartbeat.ts` and `admin/src/Api/ApiClient.cs` per §4 |
+
+---
+
+## §10.30 — S20 present pacing (native Admin Console) — 2026-08-05
+
+**Problem.** Decoded VP8 frames were presented on the decode thread the instant
+they finished converting. WPF composes on the display cadence, so two frames
+could land inside one composition pass (the first never reached glass) and the
+next pass could have none. The result is micro-judder that fps cannot show:
+30 fps arriving unevenly looks worse than 24 fps arriving on time.
+
+**What shipped.**
+
+| File | Change |
+| --- | --- |
+| `admin/src/Media/PresentPacer.cs` (new) | Drop-oldest cushion of at most 2 frames; `CompositionTarget.Rendering` releases exactly one frame per composition tick on the UI thread; pooled BGRA buffers (no per-frame allocation); inline-present fallback when no `Application.Current` dispatcher exists (spike/unit hosts); measures present-to-present mean absolute deviation (`JudderMs`), paced fps, starved ticks and pace drops |
+| `admin/src/Media/VideoPipeline.cs` | `Present()` now submits to the pacer instead of pushing straight to D3D/bitmap; the real present body moved to `PresentPaced(bgra,w,h,enqueuedMs)`; `PresentBitmap` takes the paced buffer and clones it when the copy is deferred off the UI thread (the pacer owns the buffer only for the duration of the callback); exposes `JudderMs`, `PaceFps`, `PacedPresent`; `StatsLine()` carries `pace=… pacefps=… judder=…ms cushion=… starved=… pacedrop=…`; pacer disposed before the D3D park |
+| `admin/src/ViewModels/LiveSessionViewModel.cs` | HUD line gained `judder <n> ms` and a `· paced` marker on the native path |
+
+**Invariants kept.** Latency ceiling unchanged in practice (cushion ≤ 2 frames,
+drop-oldest so a burst never becomes a backlog); decode still off the UI thread;
+D3D and bitmap paths and the S12 device-lost recovery are untouched; a starved
+tick repeats the composed surface rather than blocking.
+
+**Still owed (with S18).** The judder number now exists but has never been read
+on real hardware. One Windows session under sustained motion, before/after, is
+what closes the measurement half of S20.
+
