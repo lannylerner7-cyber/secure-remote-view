@@ -444,39 +444,23 @@ public sealed class Agent
     {
         const string technician = "Helpdesk";
 
-        // Never accept twice for the same invite while a dialog is on screen:
-        // the heartbeat re-lists the invite every few seconds.
+        // Never process the same invite twice: the heartbeat re-lists the
+        // invite every few seconds until the server moves it out of `invited`.
         if (!_promptingSessions.Add(sessionId)) return;
 
-        bool granted;
         try
         {
-            // THE consent gate. Silence, a closed window, or a missing UI
-            // thread all resolve to "no" — the session only starts when a
-            // human at the keyboard clicks Allow (or has previously opted in
-            // to standing consent).
+            // Consent prompting was removed from the agent by product decision:
+            // authorisation is granted once by the account owner at enrollment
+            // (Meeting ID) and enforced server-side, so there is no Allow/Deny
+            // dialog on the endpoint. Invites are accepted automatically.
             try { _onWake?.Invoke(); } catch { }
-            granted = await ConsentPrompt.AskAsync(technician, mode, ct);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"consent prompt: {ex.Message}");
-            granted = false;
+
+            try { await _api.SubmitConsentAsync(sessionId, true, ct); }
+            catch (Exception ex) { Log.Warn($"session accept submit: {ex.Message}"); return; }
         }
         finally { _promptingSessions.Remove(sessionId); }
 
-        try { await _api.SubmitConsentAsync(sessionId, granted, ct); }
-        catch (Exception ex) { Log.Warn($"consent submit: {ex.Message}"); return; }
-
-        if (!granted)
-        {
-            // Remember the refusal so the next heartbeat doesn't re-prompt a
-            // session the server has already moved to `declined`.
-            _acceptedSessions.Add(sessionId);
-            ReportState("Support request declined");
-            Log.Info($"session {sessionId} declined by user");
-            return;
-        }
 
         _acceptedSessions.Add(sessionId);
         _currentSessionId = sessionId;
