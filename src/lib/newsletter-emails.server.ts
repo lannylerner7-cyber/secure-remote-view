@@ -5,6 +5,7 @@
  * support address are identical to every other message we send.
  */
 import { loadSmtpSettings, sendMail } from "./smtp.server";
+import { unsubUrl } from "./newsletter-unsub.server";
 import { emailShell, emailButton, escapeHtml, SITE, SUPPORT_EMAIL, textFooter } from "./email-shell.server";
 
 const BULLETS: { title: string; body: string }[] = [
@@ -22,7 +23,7 @@ const BULLETS: { title: string; body: string }[] = [
   },
 ];
 
-export function renderNewsletterWelcome(email: string) {
+export function renderNewsletterWelcome(email: string, unsubscribeUrl?: string) {
   const list = BULLETS.map(
     (b) => `<tr>
       <td width="8" style="vertical-align:top;padding:8px 0 0">
@@ -62,7 +63,11 @@ export function renderNewsletterWelcome(email: string) {
   const html = emailShell("Welcome to ConnectLive", inner, {
     eyebrow: "Newsletter",
     preheader: "Release notes, promo drops and setup guides — straight from the ConnectLive team.",
-    footerNote: `You're receiving this because ${escapeHtml(email)} subscribed on connectliveagent.com. Reply with "unsubscribe" and we'll remove you the same day.`,
+    footerNote: `You're receiving this because ${escapeHtml(email)} subscribed on connectliveagent.com.${
+      unsubscribeUrl
+        ? ` <a href="${escapeHtml(unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline">Unsubscribe</a> in one click.`
+        : ` Reply with "unsubscribe" and we'll remove you the same day.`
+    }`,
   });
 
   const text = `Welcome to ConnectLive
@@ -77,7 +82,8 @@ See plans: ${SITE}/order
 
 Questions? Reply to this email or write to ${SUPPORT_EMAIL}.
 
-You're receiving this because ${email} subscribed on connectliveagent.com. Reply with "unsubscribe" and we'll remove you the same day.${textFooter()}`;
+You're receiving this because ${email} subscribed on connectliveagent.com.
+${unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : 'Reply with "unsubscribe" and we\'ll remove you the same day.'}${textFooter()}`;
 
   return { subject: "Welcome to ConnectLive", html, text };
 }
@@ -86,9 +92,17 @@ You're receiving this because ${email} subscribed on connectliveagent.com. Reply
 export async function sendNewsletterWelcome(email: string): Promise<boolean> {
   const settings = await loadSmtpSettings();
   if (!settings) return false;
-  const msg = renderNewsletterWelcome(email);
+  const unsubscribeUrl = await unsubUrl(email);
+  const msg = renderNewsletterWelcome(email, unsubscribeUrl);
   try {
-    await sendMail(settings, { to: email, ...msg });
+    await sendMail(settings, {
+      to: email,
+      ...msg,
+      headers: {
+        "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:${SUPPORT_EMAIL}?subject=unsubscribe>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    });
     return true;
   } catch (err) {
     console.error("[newsletter] welcome send failed", (err as Error).message);

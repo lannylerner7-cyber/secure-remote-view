@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as RefundRouteImport } from './routes/refund'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LicenseRouteImport } from './routes/license'
@@ -28,6 +30,7 @@ import { Route as PublicAgentLoginRouteImport } from './routes/public.agent.logi
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
 import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
+import { Route as ApiPublicNewsletterUnsubscribeRouteImport } from './routes/api/public/newsletter/unsubscribe'
 import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
 import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
 import { Route as ApiPublicAgentStreamRouteImport } from './routes/api/public/agent/stream'
@@ -50,6 +53,16 @@ import { Route as ApiPublicAdminSessionSessionIdFilesRouteImport } from './route
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RefundRoute = RefundRouteImport.update({
@@ -141,6 +154,12 @@ const ApiPublicStatsOrdersRoute = ApiPublicStatsOrdersRouteImport.update({
   path: '/api/public/stats/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicNewsletterUnsubscribeRoute =
+  ApiPublicNewsletterUnsubscribeRouteImport.update({
+    id: '/api/public/newsletter/unsubscribe',
+    path: '/api/public/newsletter/unsubscribe',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicCronReconcileOrdersRoute =
   ApiPublicCronReconcileOrdersRouteImport.update({
     id: '/api/public/cron/reconcile-orders',
@@ -249,6 +268,8 @@ export interface FileRoutesByFullPath {
   '/license': typeof LicenseRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
+  '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/payments': typeof AuthenticatedPaymentsRoute
@@ -268,6 +289,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
@@ -287,6 +309,8 @@ export interface FileRoutesByTo {
   '/license': typeof LicenseRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
+  '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/payments': typeof AuthenticatedPaymentsRoute
@@ -306,6 +330,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
@@ -327,6 +352,8 @@ export interface FileRoutesById {
   '/license': typeof LicenseRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
+  '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/_authenticated/payments': typeof AuthenticatedPaymentsRoute
@@ -346,6 +373,7 @@ export interface FileRoutesById {
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
@@ -367,6 +395,8 @@ export interface FileRouteTypes {
     | '/license'
     | '/privacy'
     | '/refund'
+    | '/robots.txt'
+    | '/sitemap.xml'
     | '/terms'
     | '/console'
     | '/payments'
@@ -386,6 +416,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/stream'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
+    | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
     | '/api/public/admin/session/$sessionId/files'
@@ -405,6 +436,8 @@ export interface FileRouteTypes {
     | '/license'
     | '/privacy'
     | '/refund'
+    | '/robots.txt'
+    | '/sitemap.xml'
     | '/terms'
     | '/console'
     | '/payments'
@@ -424,6 +457,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/stream'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
+    | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
     | '/api/public/admin/session/$sessionId/files'
@@ -444,6 +478,8 @@ export interface FileRouteTypes {
     | '/license'
     | '/privacy'
     | '/refund'
+    | '/robots.txt'
+    | '/sitemap.xml'
     | '/terms'
     | '/_authenticated/console'
     | '/_authenticated/payments'
@@ -463,6 +499,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/stream'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
+    | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
     | '/api/public/admin/session/$sessionId/files'
@@ -484,6 +521,8 @@ export interface RootRouteChildren {
   LicenseRoute: typeof LicenseRoute
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
+  RobotsDottxtRoute: typeof RobotsDottxtRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   ConnectliveAdminRoute: typeof ConnectliveAdminRoute
   ConnectlivePaymentRoute: typeof ConnectlivePaymentRoute
@@ -501,6 +540,7 @@ export interface RootRouteChildren {
   ApiPublicAgentStreamRoute: typeof ApiPublicAgentStreamRoute
   ApiPublicAuthLoginRoute: typeof ApiPublicAuthLoginRoute
   ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
+  ApiPublicNewsletterUnsubscribeRoute: typeof ApiPublicNewsletterUnsubscribeRoute
   ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
   ApiPublicWebhooksCdpRoute: typeof ApiPublicWebhooksCdpRoute
   ApiPublicAdminSessionSessionIdFilesRoute: typeof ApiPublicAdminSessionSessionIdFilesRoute
@@ -521,6 +561,20 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/robots.txt': {
+      id: '/robots.txt'
+      path: '/robots.txt'
+      fullPath: '/robots.txt'
+      preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/refund': {
@@ -647,6 +701,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/stats/orders'
       fullPath: '/api/public/stats/orders'
       preLoaderRoute: typeof ApiPublicStatsOrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/newsletter/unsubscribe': {
+      id: '/api/public/newsletter/unsubscribe'
+      path: '/api/public/newsletter/unsubscribe'
+      fullPath: '/api/public/newsletter/unsubscribe'
+      preLoaderRoute: typeof ApiPublicNewsletterUnsubscribeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/cron/reconcile-orders': {
@@ -799,6 +860,8 @@ const rootRouteChildren: RootRouteChildren = {
   LicenseRoute: LicenseRoute,
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
+  RobotsDottxtRoute: RobotsDottxtRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   ConnectliveAdminRoute: ConnectliveAdminRoute,
   ConnectlivePaymentRoute: ConnectlivePaymentRoute,
@@ -816,6 +879,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentStreamRoute: ApiPublicAgentStreamRoute,
   ApiPublicAuthLoginRoute: ApiPublicAuthLoginRoute,
   ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
+  ApiPublicNewsletterUnsubscribeRoute: ApiPublicNewsletterUnsubscribeRoute,
   ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
   ApiPublicWebhooksCdpRoute: ApiPublicWebhooksCdpRoute,
   ApiPublicAdminSessionSessionIdFilesRoute:
