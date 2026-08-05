@@ -10,6 +10,7 @@ import {
   getPaymentsHealth,
 } from "@/lib/orders.functions";
 import { EmailSettingsPanel } from "@/components/EmailSettingsPanel";
+import { CustomersPanel } from "@/components/CustomersPanel";
 
 type OrderRow = {
   id: string;
@@ -52,7 +53,7 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     cdp_configured?: boolean;
     cdp_reason?: string | null;
   } | null>(null);
-  const [tab, setTab] = useState<"orders" | "wallets" | "email">("orders");
+  const [tab, setTab] = useState<"orders" | "wallets" | "email" | "customers">("orders");
   const [filter, setFilter] = useState<(typeof STATUSES)[number]>("");
   const [editingLink, setEditingLink] = useState<string | null>(null);
   const [linkDraft, setLinkDraft] = useState("");
@@ -162,6 +163,14 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
         )}
         {isSuperAdmin && (
           <button
+            onClick={() => setTab("customers")}
+            className={`rounded px-3 py-1.5 ${tab === "customers" ? "bg-[#4F7CFF] text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
+          >
+            Customers
+          </button>
+        )}
+        {isSuperAdmin && (
+          <button
             onClick={() => setTab("email")}
             className={`rounded px-3 py-1.5 ${tab === "email" ? "bg-[#4F7CFF] text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
           >
@@ -173,6 +182,8 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
       {tab === "wallets" && isSuperAdmin && <WalletsTab />}
 
       {tab === "email" && isSuperAdmin && <EmailSettingsPanel />}
+
+      {tab === "customers" && isSuperAdmin && <CustomersPanel isSuperAdmin={isSuperAdmin} />}
 
       {tab === "orders" && (
         <>
