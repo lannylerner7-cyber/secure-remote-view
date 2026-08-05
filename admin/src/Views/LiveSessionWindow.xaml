@@ -215,13 +215,113 @@
             </ScrollViewer>
 
             <!-- Ghost cursor overlay driven by CursorPollPump. Positions are
-                 computed through ContentRect against FrameImage, so it tracks
-                 letterboxing in Fit mode and scroll offset in 1:1 mode. -->
+                  computed through ContentRect against FrameImage, so it tracks
+                  letterboxing in Fit mode and scroll offset in 1:1 mode. -->
             <Canvas x:Name="CursorLayer" IsHitTestVisible="False">
                 <Path x:Name="CursorGhost" Fill="#F97316" Stroke="Black" StrokeThickness="1"
                       Visibility="Collapsed"
                       Data="M0,0 L0,14 L4,10 L6,14 L8,13 L6,9 L11,9 Z" />
             </Canvas>
         </Grid>
+
+        <!-- Step 9 — Session file manager (slide-out, right-side panel). -->
+        <Border DockPanel.Dock="Right" Width="340" Background="{StaticResource BgSurface}"
+                BorderBrush="#334155" BorderThickness="1,0,0,0" Padding="12"
+                Visibility="{Binding FilesPanelOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Session files" Foreground="White" FontWeight="SemiBold"
+                           FontSize="14" Margin="0,0,0,4"/>
+                <TextBlock Grid.Row="1" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,0,0,8">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0:N0} bytes used">
+                            <Binding Path="SessionBytesUsed"/>
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+
+                <!-- Password unlock for zip downloads. -->
+                <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                    <TextBlock Text="Zip download password" Foreground="White" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding PasswordEmail, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Customer account email address"
+                             Margin="0,2" Padding="6,4" FontSize="11">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Setter Property="Tag" Value="email@example.com"/>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    <PasswordBox x:Name="ZipPasswordBox" Margin="0,2" Padding="6,4" FontSize="11"
+                                 PasswordChanged="ZipPassword_Changed" ToolTip="Customer account password"/>
+                    <Button Content="Unlock zip downloads" Command="{Binding UnlockPasswordCommand}"
+                            Margin="0,4,0,0" Padding="8,4" Background="#334155" Foreground="White"
+                            IsEnabled="{Binding HasCachedPassword, Converter={StaticResource InverseBooleanConverter}}"/>
+                    <TextBlock Text="Zip downloads are unlocked" Foreground="#22C55E" FontSize="11"
+                               Visibility="{Binding HasCachedPassword, Converter={StaticResource BooleanToVisibilityConverter}}"
+                               Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <!-- File list. -->
+                <Border Grid.Row="3" BorderBrush="#334155" BorderThickness="1" Background="#0B1120" Margin="0,0,0,8">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Files}" Margin="4">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <StackPanel Grid.Column="1" Orientation="Vertical">
+                                            <TextBlock Text="{Binding Name}" Foreground="White" TextTrimming="CharacterEllipsis" FontSize="11"
+                                                       ToolTip="{Binding Name}"/>
+                                            <TextBlock FontSize="10" Foreground="{StaticResource TextMuted}">
+                                                <TextBlock.Text>
+                                                    <MultiBinding StringFormat="{}{0} • {1:N0} bytes">
+                                                        <Binding Path="Direction"/>
+                                                        <Binding Path="SizeBytes"/>
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="×" Padding="4,0" Background="Transparent" BorderThickness="0"
+                                                Foreground="#F87171" FontSize="14" VerticalAlignment="Center"
+                                                Command="{Binding DataContext.DeleteFileCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding Id}" ToolTip="Delete"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+
+                <TextBlock Grid.Row="4" Text="{Binding FilesStatus}" Foreground="{StaticResource TextMuted}"
+                           FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"
+                           Visibility="{Binding FilesStatus, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                <WrapPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Stretch">
+                    <Button Content="Send files…" Command="{Binding SendFilesCommand}" Padding="10,5"
+                            Background="#2563EB" Foreground="White" Margin="0,2,6,2"
+                            ToolTip="Select a file and push it to the remote machine"/>
+                    <Button Content="Download zip" Command="{Binding DownloadZipCommand}" Padding="10,5"
+                            Background="#334155" Foreground="White" Margin="0,2,6,2"
+                            ToolTip="Create an AES-256 encrypted zip of the selected files"/>
+                    <Button Content="Refresh" Command="{Binding RefreshFilesCommand}" Padding="10,5"
+                            Background="#334155" Foreground="White" Margin="0,2,0,2"
+                            ToolTip="Refresh the file list"/>
+                </WrapPanel>
+            </Grid>
+        </Border>
     </DockPanel>
 </Window>
