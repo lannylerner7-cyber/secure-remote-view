@@ -286,7 +286,11 @@ export async function sendMail(settings: SmtpSettings, msg: MailMessage): Promis
     const headers = [
       `From: ${fromHeader}`,
       `To: <${msg.to}>`,
-      settings.reply_to ? `Reply-To: <${settings.reply_to}>` : null,
+      msg.replyTo
+        ? `Reply-To: ${msg.replyTo.replace(/[\r\n]+/g, " ").trim()}`
+        : settings.reply_to
+          ? `Reply-To: <${settings.reply_to}>`
+          : null,
       `Subject: ${headerEncode(msg.subject)}`,
       `Date: ${new Date().toUTCString()}`,
       `Message-ID: <${boundary}@${ehloName}>`,
