@@ -1752,4 +1752,26 @@ unwrapped server-side solely to lock an archive — it is never returned, logged
 or echoed to the browser.
 
 **Next:** Agent-side `files` DataChannel handler + HTTP fallback client
-(`agent/src/FileTransfer.cs`) and the native Admin Console Files side panel.
+(`agent/src/FileTransfer.cs`). The native Admin Console Files side panel is
+implemented in §10.19.
+
+## §10.19 — Step 9: Native Admin Console file manager — 2026-08-06 (`SCOPE:FILES`)
+
+The WPF admin console now exposes the same session-file capabilities as the web
+panel, using the raw Supabase JWT of the signed-in technician for storage calls.
+
+| File | Change |
+|---|---|
+| `src/routes/api/public/admin/session.$sessionId.files.ts` | Technician-JWT authed `GET`/`POST`/`DELETE`. Mirrors §10.18 quotas and password verification. |
+| `admin/src/Api/Models.cs` | `SessionFile`, `PrepareUploadResponse`, `PackageFilesResponse`, `SimpleResult`, `SessionFilesList` DTOs. |
+| `admin/src/Api/ApiClient.cs` | `ListSessionFilesAsync`, `PrepareSessionUploadAsync`, `UploadToSignedUrlAsync`, `RegisterSessionFileAsync`, `RequestZipAsync`, `SubmitSessionPasswordAsync`, `DeleteSessionFileAsync`. |
+| `admin/src/Media/FileTransport.cs` | `files` DataChannel protocol: 64 KiB chunks, SHA-256 reassembly, progress events, 4 MiB backpressure gate. |
+| `admin/src/Media/WebRtcClient.cs` | Negotiates a second ordered DataChannel named `files` and wires it to `FileTransport`. |
+| `admin/src/Converters/BooleanConverters.cs` | `InverseBooleanConverter` + `NullToVisibilityConverter` used by the new panel. |
+| `admin/src/ViewModels/LiveSessionViewModel.cs` | `Files` collection, bytes-used tracker, unlock/password helpers, `SendFiles`/`DownloadZip`/`DeleteFile`/`RefreshFiles` commands. |
+| `admin/src/Views/LiveSessionWindow.xaml` | Toolbar "Files" toggle + right-side slide-out panel with file list, password UI, and action buttons. |
+| `admin/src/Views/LiveSessionWindow.xaml.cs` | Password box mirror and drag-and-drop file enqueue. |
+
+**Next:** Agent-side `files` DataChannel receiver + HTTP chunk fallback
+(`agent/src/FileTransfer.cs`) so files pushed from the admin also reach the
+remote computer and vice-versa.
