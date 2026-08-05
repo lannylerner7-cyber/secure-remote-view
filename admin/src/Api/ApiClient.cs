@@ -591,6 +591,86 @@ public sealed class ApiClient
 
     // ---------- JWT helpers ----------
 
+    // Step 9 — native-admin file transfer. These mirror the web console's
+    // session-files server functions, exposed as stable HTTP so the C#
+    // console can call them with the technician's Supabase JWT.
+
+    private HttpRequestMessage NewAdminRoute(HttpMethod method, string sessionId, string action)
+    {
+        var req = new HttpRequestMessage(method, $"{_config.BaseUrl}/api/public/admin/session/{Uri.EscapeDataString(sessionId)}/files");
+        req.Headers.Add("Accept", "application/json");
+        req.Headers.Add("x-action", action);
+        if (_auth.Current != null && !string.IsNullOrEmpty(_auth.Current.AccessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _auth.Current.AccessToken);
+        return req;
+    }
+
+    public async Task<SessionFilesList> ListSessionFilesAsync(string sessionId, CancellationToken ct)
+    {
+        using var req = NewAdminRoute(HttpMethod.Get, sessionId, "list");
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+            return new SessionFilesList { Error = $"list failed {(int)res.StatusCode}" };
+        return JsonSerializer.Deserialize<SessionFilesList>(body) ?? new SessionFilesList { Error = "bad json" };
+    }
+
+    public async Task<PrepareUploadResponse> PrepareSessionUploadAsync(string sessionId, string name, long size, CancellationToken ct)
+    {
+        using var req = NewAdminRoute(HttpMethod.Post, sessionId, "prepare");
+        req.Content = JsonContent.Create(new { name, size });
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+            return new PrepareUploadResponse { Error = $"prepare failed {(int)res.StatusCode}: {body}" };
+        return JsonSerializer.Deserialize<PrepareUploadResponse>(body) ?? new PrepareUploadResponse { Error = "bad json" };
+    }
+
+    public async Task UploadToSignedUrlAsync(string signedUrl, System.IO.Stream stream, string mime, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Put, signedUrl);
+        req.Content = new StreamContent(stream);
+        req.Content.Headers.ContentType = new MediaTypeHeaderValue(mime);
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        res.EnsureSuccessStatusCode();
+    }
+
+    public async Task<bool> RegisterSessionFileAsync(string sessionId, string path, string name, long size,
+        string mime, string sha256, string direction, string transport, CancellationToken ct)
+    {
+        using var req = NewAdminRoute(HttpMethod.Post, sessionId, "register");
+        req.Content = JsonContent.Create(new { path, name, size, mime, sha256, direction, transport });
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        return res.IsSuccessStatusCode;
+    }
+
+    public async Task<PackageFilesResponse> RequestZipAsync(string sessionId, List<string> fileIds, CancellationToken ct)
+    {
+        using var req = NewAdminRoute(HttpMethod.Post, sessionId, "package");
+        req.Content = JsonContent.Create(new { fileIds });
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+            return new PackageFilesResponse { Error = $"package failed {(int)res.StatusCode}: {body}" };
+        return JsonSerializer.Deserialize<PackageFilesResponse>(body) ?? new PackageFilesResponse { Error = "bad json" };
+    }
+
+    public async Task<bool> SubmitSessionPasswordAsync(string sessionId, string email, string password, CancellationToken ct)
+    {
+        using var req = NewAdminRoute(HttpMethod.Post, sessionId, "password");
+        req.Content = JsonContent.Create(new { email, password });
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        return res.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> DeleteSessionFileAsync(string sessionId, string fileId, CancellationToken ct)
+    {
+        using var req = NewAdminRoute(HttpMethod.Delete, sessionId, "delete");
+        req.Content = JsonContent.Create(new { fileId });
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        return res.IsSuccessStatusCode;
+    }
+
     private static long DecodeJwtExpiry(string jwt)
     {
         try
