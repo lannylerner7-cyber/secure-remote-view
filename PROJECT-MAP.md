@@ -1797,3 +1797,30 @@ inbound files pushed *from* the remote machine (surface a "New file from
 agent" toast in the web console/native admin, deep-linking to the manifest
 row), and a small `files` health tile in the Session HUD so operators can see
 DC vs. HTTP for the currently-transferring file.
+
+---
+
+## §10.21 — Native Admin: build-breaking brace in `LiveSessionViewModel` — 2026-08-05 (SCOPE:ADMIN)
+
+Roadmap-vs-code audit of §10.14–§10.20 and `.lovable/plan.md` steps 0–11 found
+everything else consistent: domain swap, licensing, SMTP/order emails, customer
+portal, session-file transport across web/agent/admin, and every button in
+`admin/src/Views/LiveSessionWindow.xaml` / `MainWindow.xaml` binds to a command
+that actually exists. One real defect:
+
+| File | Change |
+|---|---|
+| `admin/src/ViewModels/LiveSessionViewModel.cs` | Removed a stray `}` after the `RefreshFiles` relay command (old line 923). It closed the `LiveSessionViewModel` class ~120 lines early, so `UnlockPassword`, `DownloadZip`, `DeleteFile`, `UploadBytesAsync`, `Sha256HexAsync` and `MimeFor` were dangling outside the class — a hard C# compile error. The generated `UnlockPasswordCommand` / `DownloadZipCommand` / `DeleteFileCommand` bound at `LiveSessionWindow.xaml:265,300,317` could therefore never exist. Brace walk now balances (class closes 1043, `SessionFileRow` wrapper 1065). |
+
+**Display fit — verified, no change needed:** the live window opens
+`WindowState="Maximized"`, the picture is `Stretch=Uniform` +
+`StretchDirection=Both` inside a `ScrollViewer` with `BitmapScalingMode=HighQuality`,
+the 1:1 toggle swaps to native pixels, and `ContentRect.Compute`'s `allowUpscale`
+is still read off the `Image`'s live `StretchDirection`, so click/wheel/ghost-cursor
+geometry stays correct in both modes. Banners are docked above the picture, never
+overlaid on it.
+
+**Still outstanding (not regressions, unbuilt scope):** S21 inbound-file toast +
+`files` health tile in the HUD, S22 clipboard sync, S24 session recording,
+S25 code signing. `scripts/verify-agent-routes.ts` still reports the new
+`/session/{id}/file` route as 404 until the next publish.
