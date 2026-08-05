@@ -11,6 +11,8 @@ type PlanCard = {
   code: string;
   name: string;
   devices: string;
+  price: string;
+  period?: string;
   blurb: string;
   cta: string;
   href: string;
@@ -21,7 +23,9 @@ const PLAN_CARDS: PlanCard[] = [
   {
     code: "starter",
     name: "Starter",
-    devices: "10 devices",
+    devices: "10 desktop devices",
+    price: "$250",
+    period: "/month",
     blurb: "Small teams getting remote support off the ground.",
     cta: "Order Starter",
     href: "/order",
@@ -29,7 +33,9 @@ const PLAN_CARDS: PlanCard[] = [
   {
     code: "team",
     name: "Team",
-    devices: "20 devices",
+    devices: "20 desktop devices",
+    price: "$570",
+    period: "/month",
     blurb: "Growing help desks with multi-department coverage.",
     cta: "Order Team",
     href: "/order",
@@ -38,7 +44,9 @@ const PLAN_CARDS: PlanCard[] = [
   {
     code: "business",
     name: "Business",
-    devices: "50 devices",
+    devices: "50 desktop devices",
+    price: "$840",
+    period: "/month",
     blurb: "SMB fleets with priority response and full audit trail.",
     cta: "Order Business",
     href: "/order",
@@ -47,11 +55,13 @@ const PLAN_CARDS: PlanCard[] = [
     code: "custom",
     name: "Custom",
     devices: "Unlimited devices",
+    price: "Talk to us",
     blurb: "Enterprise fleets — manual order handled by our team.",
     cta: "Request Custom",
     href: "/contact",
   },
 ];
+
 
 const FEATURE_STRIP = [
   "Consent-based",
