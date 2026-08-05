@@ -202,6 +202,22 @@ public sealed class WebRtcClient : IDisposable
             FileTransport.Detach();
         }
 
+        // S22 — clipboard channel. Text-only and capped agent-side; kept off
+        // both `input` (latency) and `files` (throughput) for the same reason.
+        try
+        {
+            var cdc = await pc.createDataChannel("clip",
+                new RTCDataChannelInit { ordered = true }).ConfigureAwait(false);
+            ClipboardTransport.Attach(cdc);
+            T("clip datachannel created (label=clip, ordered)");
+        }
+        catch (Exception ex)
+        {
+            T("clip datachannel create failed: " + ex.Message);
+            ClipboardTransport.Detach();
+        }
+
+
         var offer = pc.createOffer();
         await pc.setLocalDescription(offer).ConfigureAwait(false);
         T("offer created + local description set");
