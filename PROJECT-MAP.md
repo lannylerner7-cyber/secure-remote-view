@@ -1528,3 +1528,46 @@ unless capture is engaged (no double-fire in normal mode). Absolute and
 relative moves never interleave — `TryPointFor` uses a locally integrated
 normalised point while captured.
 
+
+---
+
+## §10.12 — S18 Session Health HUD — instrumentation shipped — 2026-08-05 (`SCOPE:ADMIN`, `SCOPE:WEB`, `SCOPE:DB`)
+
+S18 was never a code gap in the usual sense: fps and latency were already
+counted, but nothing on the technician's glass said *how much data the link
+delivered*, and the first telemetry row only landed 60 s in — so a short
+measurement session wrote nothing at all. Both are now fixed.
+
+**Wire bitrate (`admin/src/Media/VideoPipeline.cs`).** `_bytesIn` /
+`_bytesWindow` are incremented in `Submit`, at the wire, *before* any gating or
+drop decision, so the number reads what arrived rather than what survived.
+`TickFps` converts the window to kbps on the exact same span that produces fps
+(`bytes * 8 / span_ms` is kbit/s by definition), so the two figures always
+describe the same second. Exposed as `BitrateKbps` / `BytesReceived` and added
+to `StatsLine()`.
+
+**First sample at 15 s (`admin/src/Media/WebRtcClient.cs`).** `StatsLoop`
+delays 15 s once, then settles to the 60 s cadence. A session a technician ends
+after half a minute now leaves a durable row.
+
+**On-glass HUD (`admin/src/ViewModels/LiveSessionViewModel.cs`).** `VideoStats`
+carries `fps · kbps · ms · queue · drop · size · path · wire · input`. fps alone
+cannot separate "the link starved us" from "the decoder fell behind"; bitrate
+and drop count together can.
+
+**`Copy stats` (`LiveSessionWindow.xaml` → `CopyDiagnosticsCommand`).** Puts
+session id, device, UTC timestamp, the full `StatsLine()`, wire path, ICE
+restart count and the input-transport line on the clipboard. This is the
+measurement path: the reading S18 still owes comes from a human on a real
+Windows host, and asking them to dig `admin.log` out of `%LOCALAPPDATA%` is
+exactly how that measurement never happens.
+
+**Persistence.** `session_telemetry.bitrate_kbps` (numeric, nullable) added by
+migration; the admin writes it straight through PostgREST in
+`ApiClient.PushTelemetryAsync`, so no server route changed. The web console's
+`RenderHealthPanel` shows a `bitrate` column and its empty-state copy now says
+15 seconds, not a minute.
+
+**Still open on S18:** the number itself. Run one real session under sustained
+motion at a high rung, hit `Copy stats`, and record the result here — S17-P2
+(hardware H.264) and S20 (present pacing) both stay unjustified until it exists.
