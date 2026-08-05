@@ -71,14 +71,14 @@ type "%LOCALAPPDATA%\ConnectLive\admin.log" | findstr /C:"[webrtc]"
 
 `admin/spikes/vp8-decode/` — offline replay, no network, no UI.
 
-```powershell
-setx CONNECTLIVE_RTP_CAPTURE 1      # arm the passive tap in RtpCapture.cs
-# run one session, ~10s of motion with something orange on the remote screen
-dotnet run --project admin/spikes/vp8-decode
-setx CONNECTLIVE_RTP_CAPTURE 0      # disarm
-```
+> **RETIRED 2026-08-05.** The `CONNECTLIVE_RTP_CAPTURE` tap (`RtpCapture.cs`)
+> that produced the input file was deleted in the §10.11 alignment pass — its
+> gate had already passed and the class carried its own "delete after Phase 3"
+> instruction. The spike project remains readable as evidence, but it can no
+> longer be fed from a live session. To re-run it, re-add a passive tap on the
+> `OnRtpPacketReceived` handler in `admin/src/Media/WebRtcClient.cs` first.
 
-Capture format: `[int64 arrivalUnixMs][int32 len][len bytes]` at
+Historic capture format: `[int64 arrivalUnixMs][int32 len][len bytes]` at
 `%LOCALAPPDATA%\ConnectLive\spikes\vp8-decode\capture.rtpdump`.
 
 The spike depacketizes RFC 7741, decodes, converts with the **shipping**
