@@ -72,6 +72,8 @@ function AdminPage() {
   const [role, setRole] = useState<AppRole | null>(null);
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
   const rtcRef = useRef<WebRtcLive | null>(null);
+  /** S21 — true while the reliable `files` DataChannel is open. */
+  const [filesReady, setFilesReady] = useState(false);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const mouseButtonDownRef = useRef(false);
   // rAF pointer-move coalescer: only the latest position is flushed per frame.
