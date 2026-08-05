@@ -407,7 +407,7 @@ function Home() {
           {/* Edge-clean product motion — no card chrome */}
           {SHOWCASE.map((v) => (
             <section key={v.src} className="lg:col-span-6">
-              <div className="overflow-hidden rounded-2xl">
+              <div className="aspect-video overflow-hidden rounded-2xl">
                 <video
                   src={v.src}
                   autoPlay
