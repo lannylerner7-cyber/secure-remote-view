@@ -47,3 +47,50 @@ public sealed class SessionSignal
     [JsonPropertyName("payload")] public object? Payload { get; set; }
     [JsonPropertyName("admin_client_id")] public string? AdminClientId { get; set; }
 }
+
+/// <summary>Step 9 — one row from public.session_files for the Files panel.</summary>
+public sealed class SessionFile
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("size_bytes")] public long SizeBytes { get; set; }
+    [JsonPropertyName("mime")] public string Mime { get; set; } = "application/octet-stream";
+    [JsonPropertyName("sha256")] public string? Sha256 { get; set; }
+    [JsonPropertyName("direction")] public string Direction { get; set; } = "from_agent";
+    [JsonPropertyName("transport")] public string Transport { get; set; } = "datachannel";
+    [JsonPropertyName("created_at")] public DateTimeOffset? CreatedAt { get; set; }
+}
+
+/// <summary>Step 9 — response from the native-admin files route.</summary>
+public sealed class SessionFilesList
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("files")] public List<SessionFile> Files { get; set; } = new();
+    [JsonPropertyName("bytesUsed")] public long BytesUsed { get; set; }
+    [JsonPropertyName("hasPassword")] public bool HasPassword { get; set; }
+}
+
+public sealed class PrepareUploadResponse
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("path")] public string Path { get; set; } = "";
+    [JsonPropertyName("token")] public string Token { get; set; } = "";
+    [JsonPropertyName("signedUrl")] public string SignedUrl { get; set; } = "";
+}
+
+public sealed class PackageFilesResponse
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("count")] public int Count { get; set; }
+    [JsonPropertyName("url")] public string Url { get; set; } = "";
+}
+
+public sealed class SimpleResult
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("id")] public string? Id { get; set; }
+}
