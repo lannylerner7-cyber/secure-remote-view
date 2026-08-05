@@ -12,19 +12,20 @@ auth user (customer)
           └── devices (each device row now carries license_id)
 ```
 
-- One license per customer account. The license key is what the agent carries.
+- One license per customer account, identified by a single permanent **Meeting ID** shown on their profile.
 - Seats used = count of that license's devices that are not deleted.
 - Subscription clock starts on the license's issue date, not on install date.
 
-## How the agent knows who it belongs to
+## How the agent knows who it belongs to — one-time Meeting ID
 
-The license key is **baked into the customer's own build** of the agent:
+No per-customer builds and no bundled key file. One installer for everyone.
 
-- The portal shows the customer's key and a "Download my agent" button.
-- The download hands back the installer plus a generated `connectlive.license` file that the Inno Setup script embeds next to the exe (this is the per-customer artefact — the exe itself stays identical, only the embedded key differs).
-- On first boot the agent reads the embedded key and sends it with enrollment. If it can't find one, it enrolls as **unlicensed** and stays dormant.
+- Every customer account gets one permanent Meeting ID (short, readable, e.g. `CL-8FQ2-4KDN`), displayed on their portal profile. It is the human-facing name of their license.
+- On first run only, the agent shows a small prompt: "Enter your ConnectLive Meeting ID". The customer types it once.
+- The agent posts it with enrollment. On success it writes the ID into its hidden local store (`%LOCALAPPDATA%\ConnectLive\meeting.dat`, DPAPI-encrypted, same folder as `device.dat`) and never asks again.
+- Every later boot reads that file, skips the prompt entirely, and goes straight to background startup — the existing HKCU Run-key startup path is unchanged.
+- If the file is missing or deleted (reimage, profile wipe), the prompt reappears once and the machine re-joins the same license.
 
-Note: producing a genuinely recompiled per-customer exe needs a Windows build step we can't run inside this app. The embedded-key packaging above gives the same end-user experience — one file per customer, nothing to type — using the existing installer pipeline.
 
 ## Enrollment with seat enforcement
 
