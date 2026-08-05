@@ -187,6 +187,21 @@ public sealed class WebRtcClient : IDisposable
             ConnectLive.Admin.Input.InputTransport.Detach();
         }
 
+        // Step 9 — dedicated files channel. Same ordered/reliable discipline as
+        // input; large transfers can't head-of-line block mouse/keyboard.
+        try
+        {
+            var fdc = await pc.createDataChannel("files",
+                new RTCDataChannelInit { ordered = true }).ConfigureAwait(false);
+            FileTransport.Attach(_sessionId, fdc);
+            T("files datachannel created (label=files, ordered)");
+        }
+        catch (Exception ex)
+        {
+            T("files datachannel create failed: " + ex.Message);
+            FileTransport.Detach();
+        }
+
         var offer = pc.createOffer();
         await pc.setLocalDescription(offer).ConfigureAwait(false);
         T("offer created + local description set");
@@ -553,6 +568,8 @@ public sealed class WebRtcClient : IDisposable
         try { _cts?.Cancel(); } catch { }
         // Input must fall back to REST the instant the peer goes away.
         try { ConnectLive.Admin.Input.InputTransport.Detach(); } catch { }
+        // Step 9 — files channel must also detach so any in-flight send falls back cleanly.
+        try { FileTransport.Detach(); } catch { }
         try { _pc?.close(); } catch { }
         _pc = null;
         try { Pipeline.KeyFrameRequested -= OnKeyFrameRequested; } catch { }

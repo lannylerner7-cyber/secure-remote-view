@@ -45,6 +45,7 @@ import { Route as ApiPublicAgentSessionSessionIdFileRouteImport } from './routes
 import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './routes/api/public/agent/session.$sessionId.cursor'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
 import { Route as ApiPublicAgentPowerCmdIdAckRouteImport } from './routes/api/public/agent/power.$cmdId.ack'
+import { Route as ApiPublicAdminSessionSessionIdFilesRouteImport } from './routes/api/public/admin/session.$sessionId.files'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -234,6 +235,12 @@ const ApiPublicAgentPowerCmdIdAckRoute =
     path: '/api/public/agent/power/$cmdId/ack',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicAdminSessionSessionIdFilesRoute =
+  ApiPublicAdminSessionSessionIdFilesRouteImport.update({
+    id: '/api/public/admin/session/$sessionId/files',
+    path: '/api/public/admin/session/$sessionId/files',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -263,6 +270,7 @@ export interface FileRoutesByFullPath {
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
+  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -300,6 +308,7 @@ export interface FileRoutesByTo {
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
+  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -339,6 +348,7 @@ export interface FileRoutesById {
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
+  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -378,6 +388,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
@@ -415,6 +426,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
@@ -453,6 +465,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/reconcile-orders'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
     | '/api/public/agent/session/$sessionId/cursor'
@@ -490,6 +503,7 @@ export interface RootRouteChildren {
   ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
   ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
   ApiPublicWebhooksCdpRoute: typeof ApiPublicWebhooksCdpRoute
+  ApiPublicAdminSessionSessionIdFilesRoute: typeof ApiPublicAdminSessionSessionIdFilesRoute
   ApiPublicAgentPowerCmdIdAckRoute: typeof ApiPublicAgentPowerCmdIdAckRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
   ApiPublicAgentSessionSessionIdCursorRoute: typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -754,6 +768,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentPowerCmdIdAckRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/admin/session/$sessionId/files': {
+      id: '/api/public/admin/session/$sessionId/files'
+      path: '/api/public/admin/session/$sessionId/files'
+      fullPath: '/api/public/admin/session/$sessionId/files'
+      preLoaderRoute: typeof ApiPublicAdminSessionSessionIdFilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -797,6 +818,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
   ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
   ApiPublicWebhooksCdpRoute: ApiPublicWebhooksCdpRoute,
+  ApiPublicAdminSessionSessionIdFilesRoute:
+    ApiPublicAdminSessionSessionIdFilesRoute,
   ApiPublicAgentPowerCmdIdAckRoute: ApiPublicAgentPowerCmdIdAckRoute,
   ApiPublicAgentSessionSessionIdConsentRoute:
     ApiPublicAgentSessionSessionIdConsentRoute,

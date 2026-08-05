@@ -1,4 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -52,6 +57,17 @@ public partial class LiveSessionViewModel : ObservableObject
     // True while the raw Supabase Realtime socket is delivering frames — the
     // HTTP fallback pumps still run but the Realtime pipe is our fast path.
     private volatile bool _realtimeHealthy;
+
+    // ---- Step 9 — in-session file transfer --------------------------------
+    [ObservableProperty] private bool filesPanelOpen;
+    [ObservableProperty] private bool filesBusy;
+    [ObservableProperty] private string? filesStatus;
+    [ObservableProperty] private long sessionBytesUsed;
+    [ObservableProperty] private bool hasCachedPassword;
+    [ObservableProperty] private string passwordEmail = "";
+    [ObservableProperty] private string passwordPlain = "";
+    public ObservableCollection<SessionFileItem> Files { get; } = new();
+    private CancellationTokenSource? _filesCts;
 
 
     // Latest cursor sample (normalised 0..1) bound by LiveSessionWindow.
@@ -287,6 +303,7 @@ public partial class LiveSessionViewModel : ObservableObject
         StartLinkWatchdog(_cts.Token);
         StartVideoStats(_cts.Token);
         StartNetworkWatch();
+        StartFileTransfer(_cts.Token);
     }
 
     // ---- G2 on-screen measurement ----------------------------------------
@@ -469,6 +486,7 @@ public partial class LiveSessionViewModel : ObservableObject
         _rtc = null;
         _framePump = null;
         _cursorPump = null;
+        StopFileTransfer();
         // G3: drop the decoded surface reference so nothing keeps a dead
         // D3D back-buffer alive between sessions.
         NativeVideo = false;
@@ -749,6 +767,300 @@ public partial class LiveSessionViewModel : ObservableObject
         }
         catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
         catch (Exception ex) { SurfaceError(ex.Message); }
+    }
+
+    // ----------------------------------------------------------------------
+    // Step 9 — in-session file transfer
+    // ----------------------------------------------------------------------
+
+    private void StartFileTransfer(CancellationToken ct)
+    {
+        StopFileTransfer();
+        _filesCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var fileCt = _filesCts.Token;
+
+        FileTransport.Progress += OnFileTransportEvent;
+        FileTransport.FileReceived += OnFileReceived;
+
+        _ = Task.Run(async () =>
+        {
+            while (!fileCt.IsCancellationRequested)
+            {
+                try { await Task.Delay(TimeSpan.FromSeconds(5), fileCt).ConfigureAwait(false); }
+                catch { return; }
+                await RefreshFilesAsync(fileCt);
+            }
+        }, CancellationToken.None);
+    }
+
+    private void StopFileTransfer()
+    {
+        try { _filesCts?.Cancel(); } catch { }
+        _filesCts = null;
+        FileTransport.Progress -= OnFileTransportEvent;
+        FileTransport.FileReceived -= OnFileReceived;
+    }
+
+    private async Task RefreshFilesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var result = await App.Api.ListSessionFilesAsync(SessionId, ct).ConfigureAwait(false);
+            if (result?.Ok != true) return;
+            await Application.Current?.Dispatcher.InvokeAsync(() =>
+            {
+                SessionBytesUsed = result.BytesUsed;
+                HasCachedPassword = result.HasPassword;
+
+                // Rebuild the list while preserving selection.
+                var selected = Files.Where(f => f.IsSelected).Select(f => f.Id).ToHashSet();
+                Files.Clear();
+                foreach (var f in result.Files)
+                {
+                    Files.Add(new SessionFileItem(f)
+                    {
+                        IsSelected = selected.Contains(f.Id),
+                    });
+                }
+            })!;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            await Application.Current?.Dispatcher.InvokeAsync(() => FilesStatus = $"Refresh failed: {ex.Message}")!;
+        }
+    }
+
+    private void OnFileTransportEvent(FileTransport.TransferEvent ev)
+    {
+        var msg = ev.Kind switch
+        {
+            FileTransport.TransferKind.Begin => $"Receiving {ev.Name}…",
+            FileTransport.TransferKind.Progress => $"Receiving {ev.Name}: {Percent(ev.Bytes, ev.Size)}",
+            FileTransport.TransferKind.Complete => $"Received {ev.Name}",
+            FileTransport.TransferKind.Sent => $"Sent {ev.Name}",
+            FileTransport.TransferKind.Error => $"File error: {ev.Name}",
+            _ => ev.Name,
+        };
+        Application.Current?.Dispatcher.InvokeAsync(() =>
+        {
+            FilesStatus = msg;
+            if (ev.Kind == FileTransport.TransferKind.Error) SurfaceError(msg);
+        });
+    }
+
+    private async void OnFileReceived(FileTransport.ReceivedFile file)
+    {
+        // Files arriving from the agent need to land in Supabase Storage so the
+        // manifest list and zip packaging can see them.
+        if (file.Bytes.LongLength > FileTransport.MaxFileBytes)
+        {
+            SurfaceError($"{file.Name} exceeds the 500 MB per-file limit");
+            return;
+        }
+        try
+        {
+            await UploadBytesAsync(file.Name, file.Mime, file.Bytes, "from_agent", "datachannel", CancellationToken.None);
+        }
+        catch (Exception ex) { SurfaceError($"Could not store received file: {ex.Message}"); }
+    }
+
+    [RelayCommand]
+    private void ToggleFilesPanel() => FilesPanelOpen = !FilesPanelOpen;
+
+    [RelayCommand]
+    private async Task SendFiles()
+    {
+        if (Application.Current == null) return;
+        string[]? paths = null;
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            using var dlg = new System.Windows.Forms.OpenFileDialog
+            {
+                Multiselect = true,
+                Title = "Select files to send to the remote machine",
+            };
+            if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                paths = dlg.FileNames;
+        });
+        if (paths != null) await SendPathsAsync(paths);
+    }
+
+    public async Task SendPathsAsync(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            var fi = new FileInfo(path);
+            if (!fi.Exists) continue;
+            if (fi.Length > FileTransport.MaxFileBytes)
+            {
+                SurfaceError($"{fi.Name} exceeds 500 MB");
+                continue;
+            }
+            await Application.Current?.Dispatcher.InvokeAsync(() => { FilesBusy = true; FilesStatus = $"Sending {fi.Name}…"; })!;
+            try
+            {
+                var bytes = await File.ReadAllBytesAsync(path);
+                var direction = "from_admin";
+                var transport = "http";
+
+                // Primary path: data channel, if open.
+                if (await FileTransport.SendFileAsync(SessionId, path, MimeFor(path), null, CancellationToken.None))
+                    transport = "datachannel";
+
+                // Always persist to storage + manifest so the file appears
+                // in the session file manager and survives beyond this peer.
+                await UploadBytesAsync(fi.Name, MimeFor(path), bytes, direction, transport, CancellationToken.None);
+            }
+            catch (Exception ex) { SurfaceError($"Send failed: {ex.Message}"); }
+            finally { await Application.Current?.Dispatcher.InvokeAsync(() => FilesBusy = false)!; }
+        }
+        await RefreshFilesAsync(CancellationToken.None);
+    }
+
+    [RelayCommand]
+    private async Task RefreshFiles() => await RefreshFilesAsync(CancellationToken.None);
+    }
+
+    [RelayCommand]
+    private async Task UnlockPassword()
+    {
+        if (string.IsNullOrWhiteSpace(PasswordEmail) || PasswordPlain.Length < 6)
+        {
+            FilesStatus = "Enter a valid email and password to unlock zip downloads.";
+            return;
+        }
+        try
+        {
+            FilesBusy = true;
+            var ok = await App.Api.SubmitSessionPasswordAsync(SessionId, PasswordEmail.Trim(), PasswordPlain, CancellationToken.None).ConfigureAwait(false);
+            if (ok)
+            {
+                HasCachedPassword = true;
+                FilesStatus = "Password verified. You can now download zip archives.";
+                PasswordPlain = "";
+            }
+            else
+            {
+                FilesStatus = "Password verification failed.";
+            }
+        }
+        catch (Exception ex) { FilesStatus = $"Unlock failed: {ex.Message}"; }
+        finally { FilesBusy = false; }
+    }
+
+    [RelayCommand]
+    private async Task DownloadZip()
+    {
+        var selected = Files.Where(f => f.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            FilesStatus = "Select at least one file to download.";
+            return;
+        }
+        if (!HasCachedPassword)
+        {
+            FilesStatus = "Enter the customer account email and password, then click Unlock.";
+            return;
+        }
+        try
+        {
+            FilesBusy = true;
+            var ids = selected.Select(f => f.Id).ToList();
+            var result = await App.Api.RequestZipAsync(SessionId, ids, CancellationToken.None).ConfigureAwait(false);
+            if (!result.Ok || string.IsNullOrEmpty(result.Url))
+            {
+                FilesStatus = $"Zip failed: {result.Error ?? "unknown"}";
+                return;
+            }
+            // Open the signed URL in the default browser; the backend sets the
+            // Content-Disposition so it downloads as an attachment.
+            await Application.Current?.Dispatcher.InvokeAsync(() =>
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = result.Url, UseShellExecute = true }); }
+                catch { FilesStatus = "Could not open download URL."; }
+            })!;
+            FilesStatus = $"Downloading {result.Count} file(s)…";
+        }
+        catch (Exception ex) { FilesStatus = $"Download failed: {ex.Message}"; }
+        finally { FilesBusy = false; }
+    }
+
+    [RelayCommand]
+    private async Task DeleteFile(string id)
+    {
+        try
+        {
+            FilesBusy = true;
+            var ok = await App.Api.DeleteSessionFileAsync(SessionId, id, CancellationToken.None).ConfigureAwait(false);
+            if (ok) await RefreshFilesAsync(CancellationToken.None);
+            else FilesStatus = "Delete failed.";
+        }
+        catch (Exception ex) { FilesStatus = $"Delete failed: {ex.Message}"; }
+        finally { FilesBusy = false; }
+    }
+
+    private async Task UploadBytesAsync(string name, string mime, byte[] bytes, string direction, string transport, CancellationToken ct)
+    {
+        var prepare = await App.Api.PrepareSessionUploadAsync(SessionId, name, bytes.LongLength, ct).ConfigureAwait(false);
+        if (!prepare.Ok) throw new InvalidOperationException(prepare.Error ?? "prepare failed");
+        using var ms = new MemoryStream(bytes);
+        await App.Api.UploadToSignedUrlAsync(prepare.SignedUrl, ms, mime, ct).ConfigureAwait(false);
+        var sha = await Sha256HexAsync(bytes);
+        await App.Api.RegisterSessionFileAsync(SessionId, prepare.Path, name, bytes.LongLength, mime, sha, direction, transport, ct).ConfigureAwait(false);
+    }
+
+    private static string Percent(long got, long total)
+    {
+        if (total <= 0) return "0%";
+        return $"{Math.Min(100, (int)(got * 100 / total))}%";
+    }
+
+    private static async Task<string> Sha256HexAsync(byte[] bytes)
+    {
+        using var hasher = SHA256.Create();
+        var hash = await hasher.ComputeHashAsync(new MemoryStream(bytes));
+        return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+    }
+
+    private static string MimeFor(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".txt" => "text/plain",
+            ".pdf" => "application/pdf",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".zip" => "application/zip",
+            ".json" => "application/json",
+            ".xml" => "application/xml",
+            ".exe" => "application/octet-stream",
+            _ => "application/octet-stream",
+        };
+    }
+}
+
+/// <summary>Step 9 — selectable wrapper around a session file row.</summary>
+public sealed partial class SessionFileItem : ObservableObject
+{
+    [ObservableProperty] private bool isSelected;
+    [ObservableProperty] private string id = "";
+    [ObservableProperty] private string name = "";
+    [ObservableProperty] private long sizeBytes;
+    [ObservableProperty] private string direction = "";
+    [ObservableProperty] private string transport = "";
+    [ObservableProperty] private DateTimeOffset? createdAt;
+
+    public SessionFileItem(SessionFile f)
+    {
+        Id = f.Id;
+        Name = f.Name;
+        SizeBytes = f.SizeBytes;
+        Direction = f.Direction;
+        Transport = f.Transport;
+        CreatedAt = f.CreatedAt;
     }
 }
 

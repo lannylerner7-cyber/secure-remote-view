@@ -526,4 +526,28 @@ public partial class LiveSessionWindow : Window
 
 
     private void EndSession_Click(object sender, RoutedEventArgs e) => Close();
+
+    // Step 9 — password box is not bindable directly, so mirror it to the VM.
+    private void ZipPassword_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is PasswordBox pb && _vm != null) _vm.PasswordPlain = pb.Password;
+    }
+
+    // Step 9 — drop files anywhere on the window to queue them for transfer.
+    protected override void OnDragOver(DragEventArgs e)
+    {
+        base.OnDragOver(e);
+        if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    protected override void OnDrop(DragEventArgs e)
+    {
+        base.OnDrop(e);
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && _vm != null)
+        {
+            _vm.FilesPanelOpen = true;
+            _ = _vm.SendPathsAsync(paths);
+        }
+    }
 }
