@@ -154,6 +154,24 @@ function Home() {
     navigate({ to: "/order/$id", params: { id: v } });
   };
 
+  const subscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = newsletterEmail.trim();
+    if (!email || newsletterState === "sending") return;
+    setNewsletterState("sending");
+    setNewsletterMsg("");
+    try {
+      const res = await doSubscribe({ data: { email, source: "homepage" } });
+      setNewsletterState(res.ok ? "done" : "error");
+      setNewsletterMsg(res.message);
+      if (res.ok) setNewsletterEmail("");
+    } catch {
+      setNewsletterState("error");
+      setNewsletterMsg("That didn't go through. Check the address and try again.");
+    }
+  };
+
+
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-navy-900 font-sans text-navy-050 antialiased">
       {/* Ambient motion background */}
