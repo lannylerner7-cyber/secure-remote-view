@@ -34,6 +34,23 @@ public static class ConsentPrompt
 {
     private const string RegKey = @"Software\ConnectLive";
     private const string RegValue = "StandingConsent";
+    private const string PromptValue = "PromptOnConnect";
+
+    /// <summary>
+    /// The connect-time dialog is OFF by default (2026-08-05). Allow/Deny is
+    /// still available for deployments that want it — set
+    /// HKCU\Software\ConnectLive\PromptOnConnect = 1 — and the curtain,
+    /// session banner and audit trail keep the session visible either way.
+    /// </summary>
+    public static bool PromptOnConnect()
+    {
+        try
+        {
+            using var k = Registry.CurrentUser.OpenSubKey(RegKey);
+            return k?.GetValue(PromptValue) is int v && v == 1;
+        }
+        catch { return false; }
+    }
 
     public static bool HasStandingConsent()
     {
@@ -44,6 +61,7 @@ public static class ConsentPrompt
         }
         catch { return false; }
     }
+
 
     public static void RevokeStandingConsent()
     {
