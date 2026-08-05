@@ -468,8 +468,10 @@ public sealed class VideoPipeline : IDisposable
         return $"[video] fps={_fps:F1} queue={QueueDepth} in={Interlocked.Read(ref _framesIn)} " +
                $"decoded={FramesDecoded} dropped={FramesDropped} presented={FramesPresented} " +
                $"latency={_lastLatencyMs:F0}ms size={_width}x{_height} " +
+               $"bitrate={_bitrateKbps:F0}kbps bytes={Interlocked.Read(ref _bytesIn)} " +
                $"path={(_decoderDead ? "unavailable" : UsingD3D ? "d3d" : "bitmap")} " +
                $"chroma={_chroma} loss={Interlocked.Read(ref _lossEvents)} " +
+
                $"gated={Interlocked.Read(ref _framesGated)} " +
                (_deadReason != null ? $"dead=\"{_deadReason}\" " : "") +
                _d3d.HealthLine() + $" ws={ws}MB";
