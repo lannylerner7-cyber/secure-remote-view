@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash, randomBytes } from "crypto";
 import { adminClient } from "@/lib/server-supabase";
+import {
+  evaluateLicense,
+  findLicenseByMeetingId,
+  normalizeMeetingId,
+} from "@/lib/licensing.server";
 
 /**
  * Agent auto-enrollment (deployment-key-free).
@@ -27,6 +32,7 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           mac?: string;
           displayName?: string;
           agentVersion?: string;
+          meetingId?: string;
         };
 
         const forwarded = request.headers.get("x-forwarded-for") ?? "";
@@ -75,6 +81,30 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           });
         }
 
+        // ---- Licence binding -------------------------------------------
+        // The agent prompts for a Meeting ID on first run. An unknown ID is a
+        // hard failure so the prompt can reappear with a clear message; a
+        // known ID that is full/expired still enrols, but dormant (blocked).
+        let licenseId: string | null = null;
+        let licenseState: "unlicensed" | "active" | "blocked" | "expired" = "unlicensed";
+        let licenseReason: string | null = "no_license";
+        if (typeof body.meetingId === "string" && body.meetingId.trim().length > 0) {
+          const license = await findLicenseByMeetingId(admin as never, body.meetingId);
+          if (!license) {
+            return new Response(
+              JSON.stringify({
+                error: "invalid_meeting_id",
+                meeting_id: normalizeMeetingId(body.meetingId),
+              }),
+              { status: 403, headers: { "content-type": "application/json" } },
+            );
+          }
+          const verdict = await evaluateLicense(admin as never, license, null);
+          licenseId = license.id;
+          licenseState = verdict.state === "unlicensed" ? "blocked" : verdict.state;
+          licenseReason = verdict.reason;
+        }
+
         // ---- Mint credentials ------------------------------------------
         const deviceId = randomBytes(16).toString("hex");
         const rawToken = randomBytes(32).toString("hex");
@@ -87,6 +117,8 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           os: body.os ?? null,
           status: "online",
           last_seen_at: new Date().toISOString(),
+          license_id: licenseId,
+          license_state: licenseState,
           metadata: {
             token_hash: tokenHash,
             enrolled_via: "auto",
@@ -98,12 +130,25 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
 
         await admin.from("audit_logs").insert({
           event: "device.auto_enrolled",
-          detail: { deviceId, hostname: body.hostname ?? null, ip: ipMasked },
+          detail: {
+            deviceId,
+            hostname: body.hostname ?? null,
+            ip: ipMasked,
+            license_id: licenseId,
+            license_state: licenseState,
+          },
         });
 
-        return new Response(JSON.stringify({ deviceId, deviceToken: rawToken }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            deviceId,
+            deviceToken: rawToken,
+            license: { state: licenseState, reason: licenseReason },
+          }),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        );
       },
     },
   },
