@@ -883,39 +883,43 @@ public partial class LiveSessionViewModel : ObservableObject
             if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
                 paths = dlg.FileNames;
         });
-        if (paths == null || paths.Length == 0) return;
-        _ = Task.Run(async () =>
+        if (paths != null) await SendPathsAsync(paths);
+    }
+
+    public async Task SendPathsAsync(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
         {
-            foreach (var path in paths!)
+            var fi = new FileInfo(path);
+            if (!fi.Exists) continue;
+            if (fi.Length > FileTransport.MaxFileBytes)
             {
-                var fi = new FileInfo(path);
-                if (!fi.Exists) continue;
-                if (fi.Length > FileTransport.MaxFileBytes)
-                {
-                    SurfaceError($"{fi.Name} exceeds 500 MB");
-                    continue;
-                }
-                await Application.Current?.Dispatcher.InvokeAsync(() => { FilesBusy = true; FilesStatus = $"Sending {fi.Name}…"; })!;
-                try
-                {
-                    var bytes = await File.ReadAllBytesAsync(path);
-                    var sha = await Sha256HexAsync(bytes);
-                    var direction = "from_admin";
-                    var transport = "http";
-
-                    // Primary path: data channel, if open.
-                    if (await FileTransport.SendFileAsync(SessionId, path, MimeFor(path), null, CancellationToken.None))
-                        transport = "datachannel";
-
-                    // Always persist to storage + manifest so the file appears
-                    // in the session file manager and survives beyond this peer.
-                    await UploadBytesAsync(fi.Name, MimeFor(path), bytes, direction, transport, CancellationToken.None);
-                }
-                catch (Exception ex) { SurfaceError($"Send failed: {ex.Message}"); }
-                finally { await Application.Current?.Dispatcher.InvokeAsync(() => FilesBusy = false)!; }
+                SurfaceError($"{fi.Name} exceeds 500 MB");
+                continue;
             }
-            await RefreshFilesAsync(CancellationToken.None);
-        });
+            await Application.Current?.Dispatcher.InvokeAsync(() => { FilesBusy = true; FilesStatus = $"Sending {fi.Name}…"; })!;
+            try
+            {
+                var bytes = await File.ReadAllBytesAsync(path);
+                var direction = "from_admin";
+                var transport = "http";
+
+                // Primary path: data channel, if open.
+                if (await FileTransport.SendFileAsync(SessionId, path, MimeFor(path), null, CancellationToken.None))
+                    transport = "datachannel";
+
+                // Always persist to storage + manifest so the file appears
+                // in the session file manager and survives beyond this peer.
+                await UploadBytesAsync(fi.Name, MimeFor(path), bytes, direction, transport, CancellationToken.None);
+            }
+            catch (Exception ex) { SurfaceError($"Send failed: {ex.Message}"); }
+            finally { await Application.Current?.Dispatcher.InvokeAsync(() => FilesBusy = false)!; }
+        }
+        await RefreshFilesAsync(CancellationToken.None);
+    }
+
+    [RelayCommand]
+    private async Task RefreshFiles() => await RefreshFilesAsync(CancellationToken.None);
     }
 
     [RelayCommand]
