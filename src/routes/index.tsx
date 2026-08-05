@@ -394,9 +394,18 @@ function Home() {
                 </h2>
               </div>
               <p className="max-w-sm text-[13px] leading-relaxed text-navy-200">
-                From ten devices to unlimited fleets. Custom orders are handled by our team
-                directly.
+                Promo pricing is live — every plan is discounted while the drop lasts. Custom orders
+                are handled by our team directly.
               </p>
+            </div>
+            <div className="mt-5 inline-flex flex-wrap items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2.5">
+              <Gift className="h-4 w-4 text-emerald-300" />
+              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-200">
+                Promo drop — up to 46% off
+              </span>
+              <span className="text-[12px] text-navy-200">
+                $250 → $150 · $570 → $310 · $840 → $560
+              </span>
             </div>
           </section>
 
@@ -405,6 +414,29 @@ function Home() {
               <PlanCardView plan={p} />
             </div>
           ))}
+
+          {/* Post-order delivery tile */}
+          <section className="rounded-2xl border border-white/10 bg-navy-800 p-6 lg:col-span-12">
+            <div className="flex flex-wrap items-start gap-4">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-navy-400/20 ring-1 ring-navy-400/40">
+                <PlayCircle className="h-5 w-5 text-navy-200" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[17px] font-semibold tracking-tight">
+                  Video setup guides are included with every completed order
+                </h3>
+                <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-navy-200">
+                  Once your order is complete, we email you the full delivery pack: the agent
+                  installer, the admin console installer, your Meeting ID and sign-in details — plus
+                  step-by-step video setup guides that walk you through installing the agent,
+                  enrolling devices, and running your first live session. Delivery normally lands
+                  within 24 hours (48 hours at the outside) on business days, so please keep an eye
+                  on your spam folder and mark our address as safe.
+                </p>
+              </div>
+            </div>
+          </section>
+
 
           {/* Banner tile */}
           <section className="relative overflow-hidden rounded-2xl border border-white/10 lg:col-span-12">
