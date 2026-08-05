@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as RefundRouteImport } from './routes/refund'
 import { Route as PrivacyRouteImport } from './routes/privacy'
@@ -52,6 +53,11 @@ import { Route as ApiPublicAdminSessionSessionIdFilesRouteImport } from './route
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
@@ -263,6 +269,7 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/payments': typeof AuthenticatedPaymentsRoute
@@ -303,6 +310,7 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/payments': typeof AuthenticatedPaymentsRoute
@@ -345,6 +353,7 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/_authenticated/payments': typeof AuthenticatedPaymentsRoute
@@ -387,6 +396,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/refund'
     | '/robots.txt'
+    | '/sitemap.xml'
     | '/terms'
     | '/console'
     | '/payments'
@@ -427,6 +437,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/refund'
     | '/robots.txt'
+    | '/sitemap.xml'
     | '/terms'
     | '/console'
     | '/payments'
@@ -468,6 +479,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/refund'
     | '/robots.txt'
+    | '/sitemap.xml'
     | '/terms'
     | '/_authenticated/console'
     | '/_authenticated/payments'
@@ -510,6 +522,7 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   ConnectliveAdminRoute: typeof ConnectliveAdminRoute
   ConnectlivePaymentRoute: typeof ConnectlivePaymentRoute
@@ -548,6 +561,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/robots.txt': {
@@ -841,6 +861,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   ConnectliveAdminRoute: ConnectliveAdminRoute,
   ConnectlivePaymentRoute: ConnectlivePaymentRoute,

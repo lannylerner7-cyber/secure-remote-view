@@ -226,6 +226,8 @@ export type MailMessage = {
   subject: string;
   html: string;
   text: string;
+  /** Extra RFC 5322 headers (e.g. List-Unsubscribe). Values are single-line. */
+  headers?: Record<string, string>;
 };
 
 /** Send one message through the configured SMTP server. Throws on SMTP failure. */
@@ -290,6 +292,9 @@ export async function sendMail(settings: SmtpSettings, msg: MailMessage): Promis
       `Message-ID: <${boundary}@${ehloName}>`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      ...Object.entries(msg.headers ?? {}).map(
+        ([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, " ").trim()}`,
+      ),
     ].filter(Boolean) as string[];
 
     const body = [
