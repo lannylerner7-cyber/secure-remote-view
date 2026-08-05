@@ -21,6 +21,11 @@ Outputs:
 - `dist/ConnectLiveAdmin.exe` — single-file, self-contained
 - `dist/ConnectLiveAdmin.zip` — exe + `admin.config.json` + this readme
 
+Signing is automatic: set `CODESIGN_THUMBPRINT` (or `CODESIGN_PFX` +
+`CODESIGN_PFX_PASSWORD`) before running `build.ps1` and the exe is
+Authenticode-signed and timestamped before it is zipped. See
+`../docs/SIGNING.md`. `-SkipSign` opts out for local builds.
+
 ## Run
 
 Double-click `ConnectLiveAdmin.exe`. Sign in with your technician ID

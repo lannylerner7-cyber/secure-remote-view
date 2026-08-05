@@ -32,7 +32,7 @@ iscc agent\packaging\inno\ConnectLiveSetup.iss
 ConnectLiveSetup.exe /VERYSILENT
 ```
 
-The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same single binary; none of them push a deployment key. **Sign the installer with your own EV cert before wide rollout** — the packaging pipeline produces an unsigned artifact.
+The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same single binary; none of them push a deployment key. **Signing is built into `build.ps1`** — set `CODESIGN_THUMBPRINT` (or `CODESIGN_PFX` + `CODESIGN_PFX_PASSWORD`) before building and the agent binary, the Inno installer, and the MSI are all Authenticode-signed and timestamped. Without those variables the pipeline produces an unsigned artifact and says so. See `../docs/SIGNING.md`.
 
 ### Autostart triggers created at install time
 

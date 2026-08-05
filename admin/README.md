@@ -31,3 +31,10 @@ admin/
 
 No new server code — everything reuses the existing agent API surface and
 Supabase RLS.
+
+## Signing
+
+`build.ps1` Authenticode-signs and timestamps `ConnectLiveAdmin.exe` before it
+is zipped, driven by `CODESIGN_THUMBPRINT` / `CODESIGN_PFX` /
+`CODESIGN_SUBJECT`. Unset = unsigned build plus a warning; set = a signing
+failure aborts the build. `-SkipSign` opts out. See `../docs/SIGNING.md`.
