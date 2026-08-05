@@ -814,8 +814,9 @@ helper functions, and leaked-password protection disabled in auth settings.
   drains both the absolute and relative queues before mousedown/mouseup so a
   click never lands ahead of the delta that aimed it.
 - Native admin (`admin/src/Input/MouseInjector.cs`): added `MoveRelAsync(dx,
-  dy)` for the same wire shape. Kept alongside `MoveAsync` so the WPF
-  console can flip modes without a rewrite when we wire its pointer capture.
+  dy)` for the same wire shape. **Removed again on 08-05 (§10.11)** — it never
+  gained a call site because WPF pointer capture was never wired. Restore it
+  together with that toggle; the agent side already accepts the shape.
 - Agent side unchanged: `InputRelay.cs` already had `mousemove_rel →
   MoveRel(dx, dy)` using `MOUSEEVENTF_MOVE` (no ABSOLUTE flag), so Windows'
   own accel curve runs. Pointer lock therefore gets the native feel that
