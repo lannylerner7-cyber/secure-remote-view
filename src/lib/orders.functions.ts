@@ -66,7 +66,13 @@ export const createOrderPublic = createServerFn({ method: "POST" })
       .single();
     if (error) throw new Error(error.message);
 
-    // TODO: enqueue "order created" email once email domain is verified.
+    // Order received email (never blocks or fails the order).
+    try {
+      const { sendOrderEmailById } = await import("./order-emails.server");
+      await sendOrderEmailById("order_received", inserted.id);
+    } catch {
+      /* logged in order_emails */
+    }
 
     return { id: inserted.id };
   });
@@ -203,6 +209,12 @@ export const markOrderPaid = createServerFn({ method: "POST" })
       event: "order.manual_paid",
       detail: { order_id: data.id, note: data.note ?? null },
     });
+    try {
+      const { sendOrderEmailById } = await import("./order-emails.server");
+      await sendOrderEmailById("order_confirmed", data.id);
+    } catch {
+      /* logged in order_emails */
+    }
     return { ok: true };
   });
 

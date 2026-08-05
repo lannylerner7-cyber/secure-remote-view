@@ -51,6 +51,11 @@ export const Route = createFileRoute("/api/public/webhooks/cdp")({
         if (!orderId) return Response.json({ ok: true, skipped: "no matching order" });
 
         const nextStatus = payload.status ?? "detected";
+        const { data: before } = await supabaseAdmin
+          .from("orders")
+          .select("status")
+          .eq("id", orderId)
+          .maybeSingle();
         await supabaseAdmin
           .from("orders")
           .update({
@@ -70,6 +75,15 @@ export const Route = createFileRoute("/api/public/webhooks/cdp")({
           },
           { onConflict: "order_id,tx_hash,event_type", ignoreDuplicates: true },
         );
+
+        if (nextStatus === "paid" && before?.status !== "paid") {
+          try {
+            const { sendOrderEmailById } = await import("@/lib/order-emails.server");
+            await sendOrderEmailById("order_confirmed", orderId);
+          } catch {
+            /* logged in order_emails */
+          }
+        }
 
         return Response.json({ ok: true });
       },
