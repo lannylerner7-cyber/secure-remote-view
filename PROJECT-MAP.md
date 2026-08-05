@@ -1494,7 +1494,7 @@ Nothing here is closed on intent; every row is tagged
 | S23 | **No technician-side monitor picker.** Agent enumerates and switches (`MonitorSelector`, `switch_monitor`); U1 fixed toolbar/keys/Fit/banners, not a monitor strip. | §10.10 U1 | verify-first | **P2.** Confirm nothing is wired, then selector + thumbnail strip driving the existing `switch_monitor`. |
 | S24 | ~~No session recording / playback.~~ **SHIPPED §10.23** — MediaRecorder (web, WEBM) and `IvfWriter` (native, raw VP8 IVF); no re-encode, no extra bandwidth. | §3 `audit_logs`; §5 | done | Retention/upload policy still open. |
 
-| S25 | **Code-signing / procurement lead time.** Only item that can progress without a physical Windows host — start the cert now. | §10 release | open | **P0 by lead time, small code change.** |
+| S25 | **Code-signing / procurement lead time.** Build-side plumbing shipped (`tools/CodeSign.ps1`, `docs/SIGNING.md`); only the certificate purchase remains. | §10 release | shipped (cert pending) | Build signs + verifies when `CODESIGN_*` is set. |
 
 **Sequence:** S18 first (nothing else can be tuned honestly until it reads a
 number) → S19 + S25 in parallel → S20 with S17-P3 → S21/S22/S23 → S24.
@@ -1907,3 +1907,34 @@ capturing (`SendClipboardCommand`, `ToggleRecordingCommand`).
 53 udp, 80 tcp, 443 tls). No 401s. `/api/public/agent/ice` still returns 401 to
 unauthenticated callers, as designed — relay minutes are billable.
 Open item remains **S25 — code signing**.
+
+## §10.25 — S25 code signing (shipped, certificate pending) — 2026-08-05 (`SCOPE:RELEASE`)
+
+Signing is no longer a line in a build-log epilogue that a human was supposed
+to copy-paste. It is a build step.
+
+`tools/CodeSign.ps1` is the single implementation, dot-sourced by both
+`agent/build.ps1` and `admin/build.ps1`. It locates `signtool.exe` under
+`Windows Kits\10\bin` (it is never on PATH), resolves credentials from
+environment variables only — `CODESIGN_THUMBPRINT` (preferred: token/HSM key
+never leaves the device), else `CODESIGN_PFX` + `CODESIGN_PFX_PASSWORD`, else
+`CODESIGN_SUBJECT` — and always RFC-3161 timestamps (`CODESIGN_TIMESTAMP_URL`,
+default DigiCert) so signatures outlive the certificate.
+
+Ordering is the part that is easy to get wrong and is now fixed in the scripts:
+
+1. `dist\ConnectLive.exe` is signed **before** Inno and WiX embed it, so the
+   payload extracted onto the endpoint is signed, not just the installer.
+2. `ConnectLiveSetup.exe` and `ConnectLiveAgent.msi` are signed **after** build
+   and **before** the distribution ZIP is created.
+3. `ConnectLiveAdmin.exe` is signed before `ConnectLiveAdmin.zip` is written.
+4. The S14 SHA-256 manifest is printed **after** signing, so the hash in the
+   `public.releases` row matches the signed bytes the self-updater verifies.
+
+Failure policy: unconfigured = unsigned build plus a loud warning (local dev
+keeps working); configured = a signing or `signtool verify /pa /all` failure
+aborts the build. The silent-unsigned-release path S25 existed to close is
+gone. `-SkipSign` is the explicit opt-out.
+
+Operator documentation lives in `docs/SIGNING.md`: OV vs EV, the post-2023
+hardware-key requirement, thumbprint discovery, and artifact verification.
