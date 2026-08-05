@@ -1508,7 +1508,13 @@ Nothing here is closed on intent; every row is tagged
 **Sequence:** S18 first (nothing else can be tuned honestly until it reads a
 number) → S19 + S25 in parallel → S20 with S17-P3 → S21/S22/S23 → S24.
 
-### Consent policy change — 2026-08-05
+### Consent policy change — 2026-08-05 — **SUPERSEDED BY §10.28**
+
+> Historical. The registry-gated dialog described below **no longer exists**:
+> §10.28 deleted `agent/src/ConsentPrompt.cs` outright and `Agent.HandleInvite`
+> now auto-accepts. There is no `HKCU\Software\ConnectLive\PromptOnConnect`
+> switch in the shipping build. Read §4 and §10.28 for the current model.
+
 The connect-time consent dialog is **off by default**. `ConsentPrompt.AskAsync`
 now returns `true` immediately unless
 `HKCU\Software\ConnectLive\PromptOnConnect = 1`, in which case the Allow/Deny
