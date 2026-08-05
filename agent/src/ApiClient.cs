@@ -359,7 +359,23 @@ public sealed class ApiClient
             Content = JsonContent.Create(payload),
         }, ct);
         resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadAsStringAsync(ct);
+        var text = await resp.Content.ReadAsStringAsync(ct);
+        // Best-effort: parse the license verdict returned on every heartbeat
+        // so the splash and dormancy paths reflect state without a second RTT.
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("license", out var lic) && lic.ValueKind == JsonValueKind.Object)
+            {
+                UpdateLicense(new LicenseState(
+                    lic.TryGetProperty("state", out var s) ? s.GetString() ?? "unlicensed" : "unlicensed",
+                    lic.TryGetProperty("reason", out var r) ? r.GetString() : null,
+                    lic.TryGetProperty("meeting_id", out var m) ? m.GetString() : null,
+                    lic.TryGetProperty("expires_at", out var ex) ? ex.GetString() : null));
+            }
+        }
+        catch { }
+        return text;
     }
 
     /// <summary>
