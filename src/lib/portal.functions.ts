@@ -94,7 +94,10 @@ export const changeMyPassword = createServerFn({ method: "POST" })
   )
   .middleware([requireSupabaseAuth])
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.auth.updateUser({ password: data.password });
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(context.userId, {
+      password: data.password,
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
