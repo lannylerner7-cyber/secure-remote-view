@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { createOrderPublic, getActivePlansPublic } from "@/lib/orders.functions";
 import { Footer } from "@/components/Footer";
-import { Bitcoin, Building2, Coins, DollarSign, Mail, Phone, User } from "lucide-react";
+import { Bitcoin, Building2, Coins, DollarSign, Gift, Mail, Phone, PlayCircle, User } from "lucide-react";
 
 type Plan = {
   code: string;
