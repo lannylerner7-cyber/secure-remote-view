@@ -1777,10 +1777,9 @@ panel, using the raw Supabase JWT of the signed-in technician for storage calls.
 ## §10.20 — Step 10: Agent file receiver + HTTP fallback — 2026-08-05 (`SCOPE:FILES`, `SCOPE:AGENT`)
 
 Closes the file-transfer loop: files pushed from the web console or native
-admin now land on the remote mach
-ine, and files initiated on the agent flow back to
-the technician through the same channel — with an authed HTTP fallback the
-moment the SCTP datachannel fails.
+admin now land on the remote machine, and files initiated on the agent flow
+back to the technician through the same channel — with an authed HTTP fallback
+the mo
 
 | File | Change |
 |---|---|
