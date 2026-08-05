@@ -309,7 +309,11 @@ public partial class LiveSessionViewModel : ObservableObject
                 string? text;
                 if (presenting && p != null)
                 {
-                    text = $"{p.Fps:F0} fps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · {SourceLabel(p.SourceWidth, p.SourceHeight)} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+                    // S18 — bitrate and dropped frames belong on the glass next
+                    // to fps: fps alone cannot tell "the link starved us" from
+                    // "the decoder fell behind".
+                    text = $"{p.Fps:F0} fps · {p.BitrateKbps:F0} kbps · {p.LastLatencyMs:F0} ms · q{p.QueueDepth} · drop {p.FramesDropped} · {SourceLabel(p.SourceWidth, p.SourceHeight)} · {(p.UsingD3D ? "D3D" : "bitmap")} · wire {_rtc?.WirePath ?? "unknown"} · input {ConnectLive.Admin.Input.InputTransport.CurrentPath}";
+
                 }
                 else if (_jpegW > 0 && _jpegH > 0)
                 {
