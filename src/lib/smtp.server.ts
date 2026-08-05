@@ -232,8 +232,33 @@ export type MailMessage = {
   headers?: Record<string, string>;
 };
 
-/** Send one message through the configured SMTP server. Throws on SMTP failure. */
-export async function sendMail(settings: SmtpSettings, msg: MailMessage): Promise<void> {
+/** Default hard cap on a single SMTP conversation, so callers can never hang. */
+const SMTP_TIMEOUT_MS = 12_000;
+
+/**
+ * Send one message through the configured SMTP server. Throws on SMTP failure.
+ * Bounded by `timeoutMs` — an unreachable or silent server rejects instead of
+ * hanging the request that triggered the send.
+ */
+export async function sendMail(
+  settings: SmtpSettings,
+  msg: MailMessage,
+  timeoutMs: number = SMTP_TIMEOUT_MS,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      sendMailInner(settings, msg),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`SMTP timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function sendMailInner(settings: SmtpSettings, msg: MailMessage): Promise<void> {
   if (!settings.host || !settings.from_address) throw new Error("SMTP is not configured");
 
   const host = settings.host.trim();
