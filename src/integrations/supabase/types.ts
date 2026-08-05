@@ -312,6 +312,39 @@ export type Database = {
         }
         Relationships: []
       }
+      newsletter_subscribers: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          ip_hash: string | null
+          source: string
+          status: string
+          unsubscribed_at: string | null
+          welcome_sent_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          ip_hash?: string | null
+          source?: string
+          status?: string
+          unsubscribed_at?: string | null
+          welcome_sent_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          ip_hash?: string | null
+          source?: string
+          status?: string
+          unsubscribed_at?: string | null
+          welcome_sent_at?: string | null
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           body: string
