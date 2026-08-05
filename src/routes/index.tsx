@@ -383,7 +383,7 @@ function Home() {
                   playsInline
                   preload="metadata"
                   aria-label={v.caption}
-                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
                   className="block h-full w-full object-cover"
                 />
               </div>
