@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
 import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
+import logoMark from "@/assets/hero-float-2.png";
 
 type PlanCard = {
   code: string;
@@ -128,8 +129,8 @@ function Home() {
       <header className="border-b border-white/10">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md bg-navy-400/20 ring-1 ring-navy-400/40">
-              <span className="font-mono text-[13px] font-bold text-navy-200">C</span>
+            <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-md bg-navy-400/20 ring-1 ring-navy-400/40">
+              <img src={logoMark} alt="ConnectLive" className="h-8 w-8 object-cover" />
             </div>
             <span className="font-mono text-[14px] font-bold tracking-tight">ConnectLive</span>
             <span className="ml-2 hidden items-center gap-1.5 rounded-sm bg-white/5 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300 ring-1 ring-white/10 sm:inline-flex">
