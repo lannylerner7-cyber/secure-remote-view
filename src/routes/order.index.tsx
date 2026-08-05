@@ -185,9 +185,9 @@ function OrderPage() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {(
                 [
-                  { k: "BTC", label: "Bitcoin", sub: "BTC", Icon: Bitcoin },
-                  { k: "USDT_ERC20", label: "Tether", sub: "USDT · ERC-20", Icon: Coins },
-                  { k: "USDC_ERC20", label: "USD Coin", sub: "USDC · ERC-20", Icon: DollarSign },
+                  { k: "BTC", label: "Bitcoin", sub: "BTC", Icon: Bitcoin, tint: "text-[#F7931A]" },
+                  { k: "USDT_ERC20", label: "Tether", sub: "USDT · ERC-20", Icon: Coins, tint: "text-[#26A17B]" },
+                  { k: "USDC_ERC20", label: "USD Coin", sub: "USDC · ERC-20", Icon: DollarSign, tint: "text-[#2775CA]" },
                 ] as const
               ).map((c) => (
                 <button
@@ -201,7 +201,7 @@ function OrderPage() {
                   }`}
                 >
                   <div className="flex items-center gap-2 font-medium">
-                    <c.Icon className="h-4 w-4 shrink-0 text-[#F7931A]" />
+                    <c.Icon className={`h-4 w-4 shrink-0 ${c.tint}`} />
                     {c.label}
                   </div>
                   <div className="mt-0.5 text-[11px] text-white/50">{c.sub}</div>
