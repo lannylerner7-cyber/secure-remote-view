@@ -55,7 +55,10 @@ public partial class LiveSessionWindow : Window
             _coalesce.Start();
             StartRenderTick();
             Activate();
-            Keyboard.Focus(this);
+            // Focus the live surface, not the window: key interception below is
+            // scoped to Stage so the toolbar keeps normal Tab/Enter/Space.
+            Keyboard.Focus(Stage);
+
         };
 
         Closed += (_, _) =>
