@@ -1,0 +1,72 @@
+# Licensed customer accounts, seat limits, and a customer portal
+
+Today every agent enrolls anonymously: `/api/public/agent/enroll` mints a device token for anyone who asks, and devices belong to nobody. Orders exist, but nothing links a paid plan to the machines running the agent.
+
+This adds the missing middle layer: a **license** that owns seats, devices, and a subscription window — and a customer-facing portal to manage it.
+
+## The model
+
+```text
+auth user (customer)
+   └── license  (key, plan, seat_limit, starts_at, expires_at, status)
+          └── devices (each device row now carries license_id)
+```
+
+- One license per customer account. The license key is what the agent carries.
+- Seats used = count of that license's devices that are not deleted.
+- Subscription clock starts on the license's issue date, not on install date.
+
+## How the agent knows who it belongs to
+
+The license key is **baked into the customer's own build** of the agent:
+
+- The portal shows the customer's key and a "Download my agent" button.
+- The download hands back the installer plus a generated `connectlive.license` file that the Inno Setup script embeds next to the exe (this is the per-customer artefact — the exe itself stays identical, only the embedded key differs).
+- On first boot the agent reads the embedded key and sends it with enrollment. If it can't find one, it enrolls as **unlicensed** and stays dormant.
+
+Note: producing a genuinely recompiled per-customer exe needs a Windows build step we can't run inside this app. The embedded-key packaging above gives the same end-user experience — one file per customer, nothing to type — using the existing installer pipeline.
+
+## Enrollment with seat enforcement
+
+`/api/public/agent/enroll` gains license logic:
+
+1. Look up the license by key. Unknown key → refuse with a clear reason.
+2. Count active devices. Under the limit and subscription live → enroll as normal, `status = active`.
+3. **At or over the limit, or subscription expired → the device is still created, but marked `blocked`.** It appears in the customer portal with a "needs a seat" badge, and heartbeats return `blocked` so the agent goes quiet (no capture, no sessions) while retrying periodically.
+4. When the customer frees a seat or upgrades, the next heartbeat flips it to `active` automatically — no reinstall.
+
+Freeing a seat is instant and unlimited: deleting a device in the portal immediately opens the slot for the next blocked or new device.
+
+Sessions and every other agent route also refuse to run for a blocked or expired device.
+
+## Customer portal — `/connectlive/agent-user`
+
+Separate login page and separate console from the technician console, using the existing auth system with a `customer` role.
+
+- **Login / signup** at `/connectlive/agent-user/login`, tied to the email used at checkout so a paid order can be claimed into an account.
+- **Devices + seats**: seats used vs. available, the device list with hostname / OS / last seen / status, delete to free a seat, blocked devices called out with a one-click "activate into free seat".
+- **Subscription**: plan name, seat count, start date, renewal date, days remaining, plus a prominent expired/expiring banner.
+- **In-app upgrade & renewal**: buy more seats or renew through the existing crypto checkout; on payment confirmation the license's seat limit and expiry update and blocked devices activate.
+- Download section with their key and keyed installer.
+
+The technician console (`/console`) is untouched except that devices now display which license they belong to.
+
+## Technical details
+
+Database (one migration):
+- `licenses` — `id`, `user_id`, `key` (unique, random), `plan_code`, `seat_limit`, `status` (`active`/`expired`/`suspended`), `issued_at`, `expires_at`, timestamps. RLS: a customer reads only their own; admins read all; service role full.
+- `devices` gains `license_id` (nullable, so existing rows survive) and `status` gains a `blocked` value. Existing unlicensed devices keep working for admins.
+- `license_events` — audit trail of seat grants, deletions, upgrades, renewals.
+- `orders` gains `license_id` so a renewal payment can be attributed.
+- GRANTs for `authenticated` + `service_role` on every new table.
+
+Backend:
+- `enroll.ts`: accept `licenseKey`, resolve license, enforce seats/expiry, set `license_id` and `active`/`blocked`.
+- `heartbeat.ts`: return `{ licenseState: "active" | "blocked" | "expired" }`; the agent stops capture and skips invites unless active.
+- New server functions in `src/lib/licenses.functions.ts`: `getMyLicense`, `listMyDevices`, `deleteMyDevice`, `activateBlockedDevice`, `startUpgradeOrder`.
+- Order confirmation path (`webhooks/cdp.ts` + reconcile cron) creates or extends the license on first paid order and on renewals.
+
+Agent (C#):
+- `LicenseStore.cs` reads the embedded/adjacent `connectlive.license` and sends the key on enroll.
+- `Agent.cs` honours a `blocked`/`expired` heartbeat by staying dormant and logging the reason.
+- Inno Setup script packages the license file alongside the exe.
