@@ -128,11 +128,21 @@ function OrderPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <div className="font-mono text-base">${Number(p.amount_usd).toFixed(0)}</div>
+                      <div className="flex items-baseline justify-end gap-2">
+                        {WAS_PRICE[p.code] && (
+                          <span className="font-mono text-xs text-white/40 line-through">
+                            ${WAS_PRICE[p.code]}
+                          </span>
+                        )}
+                        <span className="font-mono text-base">
+                          ${Number(p.amount_usd).toFixed(0)}
+                        </span>
+                      </div>
                       <div className="text-[10px] uppercase tracking-wider text-white/40">
                         per month
                       </div>
                     </div>
+
                     <input
                       type="radio"
                       name="plan"
