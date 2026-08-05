@@ -49,7 +49,6 @@ public sealed class WebRtcClient : IDisposable
     private DateTime _lastRestartUtc = DateTime.MinValue;
     private int _pliBurst;
     private int _restarts;
-    private RtpCapture? _capture;
 
     /// <summary>The native video pipeline. The window binds its surface directly.</summary>
     public VideoPipeline Pipeline { get; } = new();
