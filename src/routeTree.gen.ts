@@ -21,6 +21,7 @@ import { Route as OrderIndexRouteImport } from './routes/order.index'
 import { Route as OrderIdRouteImport } from './routes/order.$id'
 import { Route as ConnectlivePaymentRouteImport } from './routes/connectlive.payment'
 import { Route as ConnectliveAdminRouteImport } from './routes/connectlive.admin'
+import { Route as AuthenticatedPaymentsRouteImport } from './routes/_authenticated/payments'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
@@ -100,6 +101,11 @@ const ConnectliveAdminRoute = ConnectliveAdminRouteImport.update({
   id: '/connectlive/admin',
   path: '/connectlive/admin',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedPaymentsRoute = AuthenticatedPaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   id: '/console',
@@ -219,6 +225,7 @@ export interface FileRoutesByFullPath {
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
+  '/payments': typeof AuthenticatedPaymentsRoute
   '/connectlive/admin': typeof ConnectliveAdminRoute
   '/connectlive/payment': typeof ConnectlivePaymentRoute
   '/order/$id': typeof OrderIdRoute
@@ -252,6 +259,7 @@ export interface FileRoutesByTo {
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/console': typeof AuthenticatedConsoleRoute
+  '/payments': typeof AuthenticatedPaymentsRoute
   '/connectlive/admin': typeof ConnectliveAdminRoute
   '/connectlive/payment': typeof ConnectlivePaymentRoute
   '/order/$id': typeof OrderIdRoute
@@ -287,6 +295,7 @@ export interface FileRoutesById {
   '/refund': typeof RefundRoute
   '/terms': typeof TermsRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
+  '/_authenticated/payments': typeof AuthenticatedPaymentsRoute
   '/connectlive/admin': typeof ConnectliveAdminRoute
   '/connectlive/payment': typeof ConnectlivePaymentRoute
   '/order/$id': typeof OrderIdRoute
@@ -322,6 +331,7 @@ export interface FileRouteTypes {
     | '/refund'
     | '/terms'
     | '/console'
+    | '/payments'
     | '/connectlive/admin'
     | '/connectlive/payment'
     | '/order/$id'
@@ -355,6 +365,7 @@ export interface FileRouteTypes {
     | '/refund'
     | '/terms'
     | '/console'
+    | '/payments'
     | '/connectlive/admin'
     | '/connectlive/payment'
     | '/order/$id'
@@ -389,6 +400,7 @@ export interface FileRouteTypes {
     | '/refund'
     | '/terms'
     | '/_authenticated/console'
+    | '/_authenticated/payments'
     | '/connectlive/admin'
     | '/connectlive/payment'
     | '/order/$id'
@@ -533,6 +545,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/connectlive/admin'
       preLoaderRoute: typeof ConnectliveAdminRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/payments': {
+      id: '/_authenticated/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof AuthenticatedPaymentsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/console': {
       id: '/_authenticated/console'
@@ -679,10 +698,12 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedConsoleRoute: typeof AuthenticatedConsoleRoute
+  AuthenticatedPaymentsRoute: typeof AuthenticatedPaymentsRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedConsoleRoute: AuthenticatedConsoleRoute,
+  AuthenticatedPaymentsRoute: AuthenticatedPaymentsRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
