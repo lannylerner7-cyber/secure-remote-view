@@ -555,8 +555,6 @@ public sealed class WebRtcClient : IDisposable
         _pc = null;
         try { Pipeline.KeyFrameRequested -= OnKeyFrameRequested; } catch { }
         try { Pipeline.Dispose(); } catch { }
-        try { _capture?.Dispose(); } catch { }
-        _capture = null;
         Log.Write("[webrtc] closed — pipeline flushed, D3D surface parked");
     }
 
