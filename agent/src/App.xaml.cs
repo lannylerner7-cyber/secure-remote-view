@@ -158,6 +158,28 @@ public partial class App : Application
         try { Current?.Dispatcher.Invoke(() => _splash?.SetSession(state)); } catch { }
     }
 
+    /// <summary>
+    /// Dormancy UX. The agent never nags: a blocked/expired license only
+    /// changes the wording on the splash (while it is still visible) and the
+    /// log. The machine stays enrolled and keeps heartbeating, so it revives
+    /// the instant a seat frees or the subscription renews.
+    /// </summary>
+    private void OnLicenseChanged(ApiClient.LicenseState lic)
+    {
+        var text = lic.State switch
+        {
+            "active" => lic.MeetingId is { Length: > 0 } m ? $"Licensed — Meeting {m}" : "Licensed",
+            "expired" => "Subscription expired — renew to resume support",
+            "blocked" => lic.Reason == "seat_limit"
+                ? "All seats in use — remove a device in your portal"
+                : "Device not activated on this license",
+            _ => null,
+        };
+        if (text is null) return;
+        Log.Warn($"license: {lic.State} ({lic.Reason ?? "-"})");
+        try { Current?.Dispatcher.Invoke(() => _splash?.SetStatus(text)); } catch { }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _cts.Cancel();
