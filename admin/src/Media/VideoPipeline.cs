@@ -234,6 +234,11 @@ public sealed class VideoPipeline : IDisposable
     {
         if (_disposed || _decoderDead || encodedFrame == null || encodedFrame.Length == 0) return;
         Interlocked.Increment(ref _framesIn);
+        // S18 — count bytes at the wire, before any gating/drop decision, so
+        // the bitrate reads what the link delivered rather than what survived.
+        Interlocked.Add(ref _bytesIn, encodedFrame.Length);
+        Interlocked.Add(ref _bytesWindow, encodedFrame.Length);
+
 
         if (_awaitingKeyFrame)
         {
