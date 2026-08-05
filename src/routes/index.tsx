@@ -383,7 +383,7 @@ function Home() {
                   playsInline
                   preload="metadata"
                   aria-label={v.caption}
-                  crossOrigin="anonymous"
+                  disablePictureInPicture
                   className="block h-full w-full object-cover"
                 />
               </div>
