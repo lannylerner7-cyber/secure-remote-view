@@ -622,6 +622,13 @@ public sealed class ApiClient
 
     // ---- DPAPI-encrypted local storage --------------------------------
 
+    // Local credential store: kept as its own POCO so wire attribute changes
+    // on EnrollResponse (added camelCase JsonPropertyName + optional license)
+    // can never break older device.dat blobs, which were serialised with
+    // System.Text.Json defaults (PascalCase, no license field).
+    private sealed record StoredCreds(string DeviceId, string DeviceToken);
+    private static readonly JsonSerializerOptions _credsRead = new() { PropertyNameCaseInsensitive = true };
+
     private void LoadDeviceCreds()
     {
         if (!File.Exists(DevicePath)) return;
@@ -630,7 +637,7 @@ public sealed class ApiClient
             var enc = File.ReadAllBytes(DevicePath);
             var dec = ProtectedData.Unprotect(enc, null, DataProtectionScope.LocalMachine);
             var json = Encoding.UTF8.GetString(dec);
-            var creds = JsonSerializer.Deserialize<EnrollResponse>(json);
+            var creds = JsonSerializer.Deserialize<StoredCreds>(json, _credsRead);
             DeviceId = creds?.DeviceId;
             DeviceToken = creds?.DeviceToken;
         }
@@ -639,10 +646,11 @@ public sealed class ApiClient
 
     private static void SaveDeviceCreds(EnrollResponse creds)
     {
-        var json = JsonSerializer.Serialize(creds);
+        var json = JsonSerializer.Serialize(new StoredCreds(creds.DeviceId, creds.DeviceToken));
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
         WriteHidden(DevicePath, enc);
     }
+
 
     public SessionBinding? LoadSessionBinding()
     {
