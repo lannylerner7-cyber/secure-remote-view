@@ -1853,4 +1853,48 @@ silently serving **STUN only** — symmetric-NAT sessions fall back to JPEG.
 `CLOUDFLARE_CALLS_APP_ID`/`CLOUDFLARE_CALLS_APP_TOKEN` to that key's ID/token.
 Auth gate itself verified: unauthenticated `GET /api/public/agent/ice` → 401.
 
-**Still outstanding:** S22 clipboard sync, S24 session recording, S25 code signing.
+**Still outstanding:** S25 code signing.
+
+---
+
+## §10.23 — S22 clipboard sync + S24 session recording — 2026-08-05 (SCOPE:BUILD)
+
+TURN is confirmed live: the Cloudflare **Realtime → TURN key** ID/token now mint
+`201 Created` with real `turn:`/`turns:` relay URLs, so `/api/public/agent/ice`
+serves a genuine relay set and symmetric-NAT sessions keep native video.
+
+**S22 — clipboard sync (shipped).** A third reliable/ordered DataChannel,
+`clip`, carried by all three peers. Wire format is one shape everywhere:
+`{ "type":"clip", "text":"…" }`, text only, hard-capped at 256 KiB. It is kept
+off `input` (a large paste must never delay a mouseup) and off `files` (a
+multi-megabyte transfer must never delay a paste). Echo suppression is
+symmetric: each peer remembers the last string it applied or sent, so the
+mirror-back cannot loop.
+
+| Peer | File | Notes |
+| --- | --- | --- |
+| Agent | `agent/src/ClipboardRelay.cs` | 1 Hz poll of the local clipboard, STA-marshalled apply, attached/detached in `WebRtcSession.cs`. |
+| Web | `src/lib/webrtc-live.ts` | `clipboardReady()`, `sendClipboard()`, `onClipboard()`; console mirrors inbound text into the technician clipboard and toasts the preview when the browser blocks the write. |
+| Native | `admin/src/Media/ClipboardTransport.cs` | Same contract; `ReadLocal()`/`ApplyLocal()` run on the WPF dispatcher, with a `SetDataObject` retry for CLIPBRD_E_CANT_OPEN. |
+
+**S24 — session recording (shipped).** Two paths, chosen per client for zero
+re-encode and zero extra bandwidth:
+
+- **Web:** `MediaRecorder` taps the already-decoded inbound track
+  (`startRecording` / `stopRecording` on `WebRtcLive`, VP9→VP8→WEBM→MP4 mime
+  probe, 1 s chunk flush so a crash still leaves footage). The console
+  downloads `connectlive-<session>-<ts>.webm`.
+- **Native:** `admin/src/Media/IvfWriter.cs` tees the exact depacketised VP8
+  frames to `.ivf` (32-byte DKIF header + 12-byte frame headers, ms timebase,
+  frame count patched on stop). Files land in `Videos\ConnectLive` and convert
+  losslessly with `ffmpeg -i session.ivf -c copy session.webm`.
+
+Both stop paths are wired into teardown — `WebRtcClient.Close()` finalises the
+IVF and detaches `clip`; the web `close()` stops any live `MediaRecorder`
+before the track dies.
+
+**UI.** Web console gained a `clipboard synced` HUD chip, a pulsing `recording`
+chip, and **Send clipboard** / **Record session** buttons. Native console gained
+**Send clipboard** and a **Record / Stop recording** button that turns red while
+capturing (`SendClipboardCommand`, `ToggleRecordingCommand`).
+
