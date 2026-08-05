@@ -98,7 +98,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Consent-based remote support for 10 to unlimited devices. Precise, secure, auditable.",
+          "Authorised remote support for 10 to unlimited devices. Precise, secure, auditable.",
       },
       { property: "og:type", content: "website" },
       { property: "og:image", content: bannerAsset.url },
@@ -222,7 +222,7 @@ function Home() {
                 <span className="text-navy-400">on the record.</span>
               </h1>
               <p className="mt-5 max-w-lg text-[15px] leading-relaxed text-navy-200">
-                Consent-based remote control for IT, help desks, and enterprise fleets. Sub-50ms
+                Authorised remote control for IT, help desks, and enterprise fleets. Sub-50ms
                 sessions, curtain mode, and a full audit trail — provisioned within 24 hours.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-2.5">
@@ -363,7 +363,7 @@ function Home() {
                 {userCount !== null ? userCount.toLocaleString() : "—"}
               </div>
               <p className="mt-2 text-[13px] font-medium leading-snug text-navy-900/80">
-                Consent-logged, auditable, attributable.
+                Fully logged, auditable, attributable.
               </p>
             </div>
           </section>
