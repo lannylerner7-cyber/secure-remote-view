@@ -464,7 +464,8 @@ resolved all three:
   enrollments. They are inside the 24 h grace window at time of writing, so
   the reaper deliberately left them; they age out on their own.
 
-**Deliberately NOT changed:** `devices.standing_consent` defaults to `true`,
+**Deliberately NOT changed** *(historical — the `ConsentPrompt` gate referenced
+below no longer exists; see §10.28 and §4)**:** `devices.standing_consent` defaults to `true`,
 which reads against the "consent is a click" invariant. It is left alone
 because the agent's `ConsentPrompt` is the real gate and the column is only the
 *opt-in* record ("Always allow" stored under `HKCU\Software\ConnectLive`) —
@@ -552,6 +553,9 @@ fix, and it needs your call before a migration touches it.
 | `SCOPE:WEB` | `src/routes/**`, `src/shared/api-routes.ts` | Prettier pass; `agentStream` doc comment corrected (it is no longer a reserved stub). |
 
 ### 2026 — Audit follow-up, pass 1
+
+> Historical: every `ConsentPrompt` row below was **reverted by §10.28**, which
+> deleted the file and restored `SubmitConsentAsync(..., true)` auto-accept.
 
 | Scope | File | Change |
 | --- | --- | --- |
