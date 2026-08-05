@@ -614,6 +614,10 @@ public sealed class WebRtcSession : IDisposable
             try { BitrateController.Ceiling = 0; } catch { }
         }
         try { _cts.Cancel(); } catch { }
+        // Step 10 — drop the files channel with the peer so a stale reference
+        // cannot keep an inbound reassembly buffer alive across sessions.
+        try { FileTransfer.Detach(); } catch { }
+
         TearDownPeer();
 
         // SCOPE:TRANSPORT lifecycle — both of these are per-session and were
