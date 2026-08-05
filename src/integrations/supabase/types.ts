@@ -717,6 +717,59 @@ export type Database = {
           },
         ]
       }
+      session_files: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          direction: string
+          id: string
+          mime: string
+          name: string
+          session_id: string
+          sha256: string | null
+          size_bytes: number
+          storage_path: string
+          transport: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          direction: string
+          id?: string
+          mime?: string
+          name: string
+          session_id: string
+          sha256?: string | null
+          size_bytes?: number
+          storage_path: string
+          transport?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          direction?: string
+          id?: string
+          mime?: string
+          name?: string
+          session_id?: string
+          sha256?: string | null
+          size_bytes?: number
+          storage_path?: string
+          transport?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_files_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       session_frames: {
         Row: {
           frame: string
@@ -776,6 +829,41 @@ export type Database = {
             foreignKeyName: "session_inputs_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_secrets: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          iv: string
+          session_id: string
+          wrapped_password: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          iv: string
+          session_id: string
+          wrapped_password: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          iv?: string
+          session_id?: string
+          wrapped_password?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_secrets_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
             referencedRelation: "sessions"
             referencedColumns: ["id"]
           },

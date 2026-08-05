@@ -61,6 +61,15 @@ const MAX_ATTEMPTS = 6;
 
 
 export type WebRtcState = "idle" | "connecting" | "connected" | "failed" | "superseded";
+
+/** Step 8 — progress/lifecycle events emitted by the `files` DataChannel. */
+export type FileTransferEvent =
+  | { kind: "begin"; name: string; size: number }
+  | { kind: "progress"; name: string; size: number; sent: number }
+  | { kind: "complete"; name: string; size: number; blob: Blob }
+  | { kind: "sent"; name: string; size: number }
+  | { kind: "error"; name: string; message: string };
+
 export interface WebRtcLive {
   video: HTMLVideoElement;
   state: () => WebRtcState;
@@ -73,8 +82,15 @@ export interface WebRtcLive {
   relay: () => "pending" | "relay" | "none";
 
   sendInput: (payload: unknown) => boolean;
+  /** True when the `files` channel is open (datachannel transfer available). */
+  filesReady: () => boolean;
+  /** Push a local file to the agent over the `files` channel. */
+  sendFile: (file: File) => Promise<boolean>;
+  /** Subscribe to inbound/outbound transfer events. */
+  onFile: (cb: (ev: FileTransferEvent) => void) => () => void;
   close: () => void;
 }
+
 
 
 function getWebClientId(): string {
@@ -136,6 +152,76 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   let relayState: "pending" | "relay" | "none" = "pending";
   let dc: RTCDataChannel | null = pc.createDataChannel("inputs", { ordered: true });
   dc.onclose = () => { dc = null; };
+
+  // ---- Step 8: `files` DataChannel ---------------------------------------
+  // Separate, ordered/reliable channel so a multi-megabyte transfer can never
+  // head-of-line block the input channel. Wire format: a JSON control frame
+  // ("file_begin" / "file_end"), then raw ArrayBuffer chunks in order that
+  // belong to the most recent "file_begin".
+  const fileChunk = 64 * 1024;
+  const fdc: RTCDataChannel = pc.createDataChannel("files", { ordered: true });
+  fdc.binaryType = "arraybuffer";
+  let incoming: { name: string; mime: string; size: number; parts: ArrayBuffer[]; got: number } | null = null;
+
+  fdc.onmessage = (ev) => {
+    if (typeof ev.data === "string") {
+      try {
+        const msg = JSON.parse(ev.data) as Record<string, unknown>;
+        if (msg["type"] === "file_begin") {
+          incoming = {
+            name: String(msg["name"] ?? "file"),
+            mime: String(msg["mime"] ?? "application/octet-stream"),
+            size: Number(msg["size"] ?? 0),
+            parts: [],
+            got: 0,
+          };
+          fileListeners.forEach((cb) => cb({ kind: "begin", name: incoming!.name, size: incoming!.size }));
+        } else if (msg["type"] === "file_end" && incoming) {
+          const done = incoming;
+          incoming = null;
+          const blob = new Blob(done.parts, { type: done.mime });
+          fileListeners.forEach((cb) => cb({ kind: "complete", name: done.name, size: blob.size, blob }));
+        } else if (msg["type"] === "file_error") {
+          incoming = null;
+          fileListeners.forEach((cb) => cb({ kind: "error", name: String(msg["name"] ?? ""), message: String(msg["message"] ?? "transfer failed") }));
+        }
+      } catch { /* ignore malformed control frame */ }
+      return;
+    }
+    if (!incoming) return;
+    const buf = ev.data as ArrayBuffer;
+    incoming.parts.push(buf);
+    incoming.got += buf.byteLength;
+    const rec = incoming;
+    fileListeners.forEach((cb) => cb({ kind: "progress", name: rec.name, size: rec.size, sent: rec.got }));
+  };
+
+  const fileListeners = new Set<(ev: FileTransferEvent) => void>();
+
+  /** Push a local file to the agent, yielding to the SCTP buffer as it fills. */
+  async function sendFileOverChannel(file: File): Promise<boolean> {
+    if (fdc.readyState !== "open") return false;
+    try {
+      fdc.send(JSON.stringify({ type: "file_begin", name: file.name, size: file.size, mime: file.type }));
+      let offset = 0;
+      while (offset < file.size) {
+        while (fdc.bufferedAmount > 4 * 1024 * 1024) {
+          await new Promise((r) => setTimeout(r, 20));
+          if (fdc.readyState !== "open") return false;
+        }
+        const slice = await file.slice(offset, offset + fileChunk).arrayBuffer();
+        fdc.send(slice);
+        offset += slice.byteLength;
+        fileListeners.forEach((cb) => cb({ kind: "progress", name: file.name, size: file.size, sent: offset }));
+      }
+      fdc.send(JSON.stringify({ type: "file_end", name: file.name, size: file.size }));
+      fileListeners.forEach((cb) => cb({ kind: "sent", name: file.name, size: file.size }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
 
 
   let selectedCandidateType: string | null = null;
@@ -460,6 +546,10 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       }
       return false;
     },
+    filesReady: () => fdc.readyState === "open",
+    sendFile: (file) => sendFileOverChannel(file),
+    onFile: (cb) => { fileListeners.add(cb); return () => { fileListeners.delete(cb); }; },
+
     close: () => {
       if (closed) return;
       closed = true;

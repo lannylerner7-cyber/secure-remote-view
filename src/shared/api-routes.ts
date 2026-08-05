@@ -37,6 +37,9 @@ export const API_ROUTES = {
   agentInputs: (sessionId: string) => `/api/public/agent/session/${sessionId}/inputs`,
   agentSignal: (sessionId: string) => `/api/public/agent/session/${sessionId}/signal`,
   agentCursor: (sessionId: string) => `/api/public/agent/session/${sessionId}/cursor`,
+  /** Step 8 — chunked file upload fallback when the `files` DataChannel is down. */
+  agentFile: (sessionId: string) => `/api/public/agent/session/${sessionId}/file`,
+
   agentPowerAck: (cmdId: string) => `/api/public/agent/power/${cmdId}/ack`,
 
   // Shared infrastructure
