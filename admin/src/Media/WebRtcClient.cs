@@ -405,9 +405,14 @@ public sealed class WebRtcClient : IDisposable
 
     private async Task StatsLoop(CancellationToken ct)
     {
+        // S18 — the first reading lands at 15s, not 60s. A measurement session
+        // that a technician ends after half a minute used to write no row at
+        // all, which is exactly why the native path was still "unmeasured".
+        var delay = TimeSpan.FromSeconds(15);
         while (!ct.IsCancellationRequested)
         {
-            try { await Task.Delay(60_000, ct).ConfigureAwait(false); } catch { return; }
+            try { await Task.Delay(delay, ct).ConfigureAwait(false); } catch { return; }
+            delay = TimeSpan.FromSeconds(60);
             var p = Pipeline;
             Log.Write(p.StatsLine() + $" restarts={_restarts} state={_pc?.connectionState} wire={_wirePath} "
                       + ConnectLive.Admin.Input.InputTransport.StatsLine());
@@ -421,8 +426,12 @@ public sealed class WebRtcClient : IDisposable
                     session_id = _sessionId,
                     admin_client_id = App.ClientId,
                     fps = Math.Round(p.Fps, 1),
+                    // S18 — wire bitrate over the last fps window, the missing
+                    // half of "is this link or is this encoder".
+                    bitrate_kbps = Math.Round(p.BitrateKbps, 0),
                     latency_ms = Math.Round(p.LastLatencyMs, 0),
                     queue_depth = p.QueueDepth,
+
                     frames_decoded = p.FramesDecoded,
                     frames_dropped = p.FramesDropped,
                     frames_presented = p.FramesPresented,
