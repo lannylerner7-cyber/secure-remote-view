@@ -21,19 +21,18 @@ function Page() {
   return (
     <LegalShell title="Contact us" updated="">
       <p>
-        Email still beats every form we could build. One inbox, watched by the whole team — you'll
-        hear back inside one business day.
+        Tell us what's going on and the whole support team sees it. You'll get an instant
+        confirmation, and a human reply inside one business day — usually much sooner.
       </p>
-      <ul>
-        <li>
-          <strong>Orders, billing, technical issues, privacy:</strong>{" "}
-          <a href="mailto:support@connectliveagent.com">support@connectliveagent.com</a>
-        </li>
-      </ul>
 
-      <p>
-        If a live session is stuck right now, put your order ID or meeting code in the subject line
-        and it jumps the queue.
+      <div className="not-prose mt-6">
+        <ContactForm source="contact" />
+      </div>
+
+      <p className="mt-8">
+        If a live session is stuck right now, drop your order ID or meeting code into the message and
+        it jumps the queue. Prefer plain email? Write to{" "}
+        <a href="mailto:support@connectliveagent.com">support@connectliveagent.com</a>.
       </p>
     </LegalShell>
   );
