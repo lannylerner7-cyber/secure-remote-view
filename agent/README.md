@@ -41,13 +41,21 @@ cd agent
 
 Outputs `dist/ConnectLive.exe` (single-file, self-contained) and `dist/ConnectLiveAgent.zip`.
 
-## Sign (Authenticode)
+## Sign (Authenticode) — automatic
 
-Before deploying to endpoints, sign with your code-signing cert. Example:
+`build.ps1` signs and timestamps every artifact itself (S25). Export one
+credential before building and the agent exe, both installers, and the ZIP
+payload are all signed in the right order:
 
 ```powershell
-signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist/ConnectLive.exe
+$env:CODESIGN_THUMBPRINT = "<sha1 thumbprint from Cert:\CurrentUser\My>"
+powershell -ExecutionPolicy Bypass -File build.ps1
 ```
+
+With no `CODESIGN_*` variable set the build still succeeds but warns loudly and
+ships unsigned; with one set, a signing or verification failure aborts the
+build. Use `-SkipSign` for fast local loops. Full procedure — OV vs EV,
+hardware-key requirement, verification — is in `../docs/SIGNING.md`.
 
 ## Configure API base URL
 

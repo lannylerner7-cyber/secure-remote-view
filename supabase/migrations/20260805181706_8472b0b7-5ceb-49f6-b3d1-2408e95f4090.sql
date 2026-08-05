@@ -1,0 +1,2 @@
+ALTER TABLE public.order_emails DROP CONSTRAINT IF EXISTS order_emails_kind_check;
+ALTER TABLE public.order_emails ADD CONSTRAINT order_emails_kind_check CHECK (kind IN ('order_received','order_confirmed','access_ready','test'));

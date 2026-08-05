@@ -1938,3 +1938,41 @@ gone. `-SkipSign` is the explicit opt-out.
 
 Operator documentation lives in `docs/SIGNING.md`: OV vs EV, the post-2023
 hardware-key requirement, thumbprint discovery, and artifact verification.
+
+## §10.26 — Signing rollout + end-to-end sweep — 2026-08-05 (`SCOPE:AUDIT`)
+
+**Docs now match the build.** The four packaging docs still told operators to
+run `signtool` by hand, which is exactly the manual step S25 removed.
+`agent/README.md` (§Sign), `agent/INSTALL.md`, `admin/README.md` and
+`admin/INSTALL.md` now describe the automatic path (`CODESIGN_*` env var →
+signed + verified artifacts, `-SkipSign` to opt out) and point at
+`docs/SIGNING.md`. `RELEASE-CHECKLIST.md` gained a signing block.
+
+**S23 correction.** The native monitor picker is *already* shipped, not
+outstanding: `LiveSessionWindow.xaml` renders the ComboBox (auto-hidden on
+single-display hosts via `HasMultipleMonitors`), `LiveSessionViewModel.cs`
+seeds from `devices.metadata.monitors`, polls for hot-plug, and drives changes
+through the `switch_monitor` power command that `agent/src/MonitorSelector.cs`
+consumes. Web and native are at parity.
+
+**Delivery email closed.** `setOrderAccessLink` carried a `TODO: fire "access
+ready" email once domain configured` — the domain and SMTP have both shipped,
+so the TODO was a silent gap between "admin pastes the access link" and "the
+customer learns about it". Added the `access_ready` template
+(`order-emails.server.ts`), widened the `order_emails.kind` check constraint,
+and dispatch on link save. Sending stays non-throwing and logged, so a dead
+SMTP host can never fail the order update.
+
+**Sweep results (all green).**
+
+| Check | Result |
+| --- | --- |
+| `tsgo --noEmit` | clean |
+| `scripts/verify-agent-routes.ts` | 25/25 against `connectliveagent.com` |
+| `scripts/verify-payment-routes.ts` | 5/5 |
+| Stale-domain grep (`zoomlite`, `AGENT_DEPLOYMENT_KEY`, `DeploymentKey`) | no live references; only historical "this was removed" notes in the GPO/Intune/Jamf READMEs |
+| `TODO`/`FIXME` across `src`, `agent/src`, `admin/src` | zero remaining |
+
+Remaining open items are environment-bound, not code: buy the code-signing
+certificate, and run a real Windows build + soak (`scripts/e2e-soak.ts`)
+against the signed artifacts.

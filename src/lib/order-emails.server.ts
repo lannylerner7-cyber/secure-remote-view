@@ -8,7 +8,7 @@ import { loadSmtpSettings, sendMail } from "./smtp.server";
 const SITE = "https://connectliveagent.com";
 const BRAND = "#4F7CFF";
 
-export type OrderEmailKind = "order_received" | "order_confirmed";
+export type OrderEmailKind = "order_received" | "order_confirmed" | "access_ready";
 
 export type OrderEmailData = {
   id: string;
@@ -21,6 +21,8 @@ export type OrderEmailData = {
   amount_coin: number | string | null;
   receive_address: string | null;
   price_expires_at: string | null;
+  /** Present for the access_ready email: the delivery/download link. */
+  access_link?: string | null;
 };
 
 const money = (v: number | string | null | undefined) =>
@@ -90,6 +92,30 @@ export function renderOrderEmail(kind: OrderEmailKind, o: OrderEmailData) {
       .join("\n");
 
     return { subject: `Your ConnectLive order is received — #${short}`, html, text };
+  }
+
+  if (kind === "access_ready") {
+    const link = o.access_link || track;
+    const html = shell(
+      `Your ConnectLive access is ready`,
+      `<p style="font-size:14px;line-height:1.6;margin:0 0 10px">Hi ${escapeHtml(name)}, order <strong>#${short}</strong> (${escapeHtml(plan)}) is now provisioned.</p>
+       <p style="font-size:14px;line-height:1.6;margin:0 0 10px">Use the link below to get your agent installer, the admin console installer, and your sign-in details.</p>
+       <p style="margin:18px 0"><a href="${escapeHtml(link)}" style="background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;display:inline-block">Open your access page</a></p>
+       <p style="font-size:12px;color:#6b7280;line-height:1.6;margin:0;word-break:break-all">${escapeHtml(link)}</p>
+       <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:12px 0 0">Keep this link private — it is tied to your order.</p>`,
+      "Sent because your ConnectLive order was provisioned.",
+    );
+
+    const text = [
+      `Your ConnectLive access is ready — order #${short} (${plan}).`,
+      ``,
+      `Access link: ${link}`,
+      ``,
+      `Order status: ${track}`,
+      `Support: ${SITE}/contact`,
+    ].join("\n");
+
+    return { subject: `Your ConnectLive access is ready — #${short}`, html, text };
   }
 
   const html = shell(
@@ -164,7 +190,7 @@ export async function sendOrderEmailById(kind: OrderEmailKind, orderId: string) 
   const { data } = await supabaseAdmin
     .from("orders")
     .select(
-      "id, email, full_name, plan_code, amount_usd, coin, amount_coin, receive_address, price_expires_at",
+      "id, email, full_name, plan_code, amount_usd, coin, amount_coin, receive_address, price_expires_at, access_link",
     )
     .eq("id", orderId)
     .maybeSingle();
