@@ -43,6 +43,12 @@
                                   Checked="ViewMode_Changed" Unchecked="ViewMode_Changed"
                                   ToolTip="Toggle between Fit (scale the desktop to this window) and 1:1 (native pixels, scrollable)" />
 
+                    <!-- Step 9 — slide-out session files panel. -->
+                    <ToggleButton IsChecked="{Binding FilesPanelOpen}" Content="Files" Margin="4,2" MinWidth="64"
+                                  Padding="12,6" BorderThickness="0" Foreground="White"
+                                  Background="#334155" Cursor="Hand"
+                                  ToolTip="Open the session file manager (upload, download and manage files)" />
+
                     <!-- S19(b) — pointer capture. Locks the local cursor to the
                          live surface and streams relative motion, so the remote
                          pointer is unbounded and 1:1 with the hand. -->
