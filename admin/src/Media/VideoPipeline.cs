@@ -426,8 +426,11 @@ public sealed class VideoPipeline : IDisposable
         var span = now - _fpsWindowStart;
         if (span < 1000) return;
         _fps = _fpsWindowFrames * 1000.0 / span;
+        var bytes = Interlocked.Exchange(ref _bytesWindow, 0);
+        _bitrateKbps = bytes * 8.0 / span;   // bytes/ms * 8 == kbit/s
         _fpsWindowStart = now;
         _fpsWindowFrames = 0;
+
     }
 
     // Phase 4 — keyframe FIRST. The caller escalates to an ICE restart only if
