@@ -31,7 +31,7 @@ Used in every changelog entry below and in commit-style notes.
  END USER PC                          SUPABASE / TSS API                 TECHNICIAN
  ───────────                          ──────────────────                 ──────────
  agent/src/Agent.cs      ──heartbeat──►  /api/public/agent/heartbeat
-   ├ ConsentPrompt.cs    ──decision───►  /agent/session/:id/consent   ┌─ admin (WPF)
+   ├ (auto-accept)       ──decision───►  /agent/session/:id/consent   ┌─ admin (WPF)
    ├ DxgiCapture.cs                                                  │  Api/ApiClient.cs
    ├ ScreenCapture.cs    ──jpeg───────►  /agent/session/:id/frame ────┼► Media/FrameFallbackPump
    ├ CursorPump.cs       ──x,y────────►  /agent/session/:id/cursor ───┼► Media/CursorPollPump
@@ -85,9 +85,14 @@ additionally carry `robots: noindex` and a self-referencing canonical.
 
 ## 4. Invariants — do not "optimise" these away
 
-- Consent is a **click**, not a default. Timeout, closed window, or missing UI
-  thread all mean decline. `/agent/session/:id/consent` is the only writer and
-  it 409s on any state other than `invited`.
+- **Authorisation is account-level, not per-session** (changed §10.28). The
+  agent no longer shows an Allow/Deny dialog: a machine is authorised when it
+  enrolled against a valid Meeting ID with seats available, and the server
+  enforces that on every heartbeat (blocked/expired ⇒ dormant). The agent
+  auto-accepts invites via `SubmitConsentAsync(sessionId, true)`.
+  `/agent/session/:id/consent` remains the **only** writer of the
+  `invited → active` transition and still 409s on any other state — the
+  transition is real, the human click is not.
 - Server state machine is `invited → active | declined`, then `paused` /
   `ended`. `consented` is a **legacy value** that the consent route never
   writes, but heartbeat, `prune_session_ephemera()`, the web console and
@@ -459,7 +464,8 @@ resolved all three:
   enrollments. They are inside the 24 h grace window at time of writing, so
   the reaper deliberately left them; they age out on their own.
 
-**Deliberately NOT changed:** `devices.standing_consent` defaults to `true`,
+**Deliberately NOT changed** *(historical — the `ConsentPrompt` gate referenced
+below no longer exists; see §10.28 and §4)*: `devices.standing_consent` defaults to `true`,
 which reads against the "consent is a click" invariant. It is left alone
 because the agent's `ConsentPrompt` is the real gate and the column is only the
 *opt-in* record ("Always allow" stored under `HKCU\Software\ConnectLive`) —
@@ -496,7 +502,7 @@ fix, and it needs your call before a migration touches it.
 | Scope | File | Change |
 | --- | --- | --- |
 | `SCOPE:PRESENCE` | `agent/src/App.xaml.cs` | The agent has exactly one visible surface: the ~5 s startup splash, which doubles as the connection banner (device id + session state). No `MainWindow`, no tray icon, no wake pop-up — `onWake: null`, and `/BACKGROUND`, `/MINIMIZED`, `/WAKE` launches show nothing at all. Splash auto-closes after 5 s and every later state change is a no-op once it is gone. |
-| `SCOPE:PRESENCE` | `agent/src/SplashWindow.xaml.cs` | Borderless branded card: wordmark, indeterminate progress, live status line, Device / Session rows, and the standing consent promise. Only remaining agent UI besides `ConsentPrompt` and `CurtainOverlay`. |
+| `SCOPE:PRESENCE` | `agent/src/SplashWindow.xaml.cs` | Borderless branded card: wordmark, indeterminate progress, live status line, Device / Session rows, and the standing consent promise. Only remaining agent UI besides `CurtainOverlay` and (since §10.28) `MeetingIdPrompt` — `ConsentPrompt` was deleted. |
 | `SCOPE:WEB` | `scripts/verify-agent-routes.ts` | Power-command vocabulary assertion now includes `switch_monitor` (turn 2 added it to the DB check constraint but not to the verifier). |
 
 **Verification run (this pass)**
@@ -547,6 +553,9 @@ fix, and it needs your call before a migration touches it.
 | `SCOPE:WEB` | `src/routes/**`, `src/shared/api-routes.ts` | Prettier pass; `agentStream` doc comment corrected (it is no longer a reserved stub). |
 
 ### 2026 — Audit follow-up, pass 1
+
+> Historical: every `ConsentPrompt` row below was **reverted by §10.28**, which
+> deleted the file and restored `SubmitConsentAsync(..., true)` auto-accept.
 
 | Scope | File | Change |
 | --- | --- | --- |
@@ -1374,8 +1383,12 @@ set gracefully and start using TURN the moment the gateway stops returning 401.
 
 ## §10.9 — Where we are / what is left — 2026-08-04 (`SCOPE:ROADMAP`)
 
-Rolling status board. Update this section with every change so the next pass
-starts from truth instead of memory.
+> **SUPERSEDED.** This board stopped at 2026-08-04 and does not reflect
+> S18–S25, licensing, files, clipboard, or recording. The authoritative
+> remaining state is the **Open items** table at the very end of this
+> document (§11).
+
+Rolling status board (historical). 
 
 **Wired and verified (closed)**
 
@@ -1499,7 +1512,13 @@ Nothing here is closed on intent; every row is tagged
 **Sequence:** S18 first (nothing else can be tuned honestly until it reads a
 number) → S19 + S25 in parallel → S20 with S17-P3 → S21/S22/S23 → S24.
 
-### Consent policy change — 2026-08-05
+### Consent policy change — 2026-08-05 — **SUPERSEDED BY §10.28**
+
+> Historical. The registry-gated dialog described below **no longer exists**:
+> §10.28 deleted `agent/src/ConsentPrompt.cs` outright and `Agent.HandleInvite`
+> now auto-accepts. There is no `HKCU\Software\ConnectLive\PromptOnConnect`
+> switch in the shipping build. Read §4 and §10.28 for the current model.
+
 The connect-time consent dialog is **off by default**. `ConsentPrompt.AskAsync`
 now returns `true` immediately unless
 `HKCU\Software\ConnectLive\PromptOnConnect = 1`, in which case the Allow/Deny
@@ -1753,8 +1772,8 @@ unwrapped server-side solely to lock an archive — it is never returned, logged
 or echoed to the browser.
 
 **Next:** Agent-side `files` DataChannel handler + HTTP fallback client
-(`agent/src/FileTransfer.cs`). The native Admin Console Files side panel is
-implemented in §10.19.
+(`agent/src/FileTransfer.cs`) — *shipped in §10.20*. The native Admin Console
+Files side panel is implemented in §10.19.
 
 ## §10.19 — Step 9: Native Admin Console file manager — 2026-08-06 (`SCOPE:FILES`)
 
@@ -1821,10 +1840,11 @@ is still read off the `Image`'s live `StretchDirection`, so click/wheel/ghost-cu
 geometry stays correct in both modes. Banners are docked above the picture, never
 overlaid on it.
 
-**Still outstanding (not regressions, unbuilt scope):** S21 inbound-file toast +
-`files` health tile in the HUD, S22 clipboard sync, S24 session recording,
-S25 code signing. `scripts/verify-agent-routes.ts` still reports the new
-`/session/{id}/file` route as 404 until the next publish.
+**Still outstanding (not regressions, unbuilt scope) — SUPERSEDED:** S21 was
+closed in §10.22 (inbound-file toast + `files` health tile), S22 and S24 in
+§10.23, S25 (build-side) in §10.25. Nothing in this list is open any more; see
+§11 for the live open-items table. `scripts/verify-agent-routes.ts` now reports
+`/session/{id}/file` as wired (25/25).
 
 ## §10.22 — S21 close-out + cursor/ICE verification pass — 2026-08-05 (`SCOPE:LIVE`)
 
@@ -1854,7 +1874,8 @@ silently serving **STUN only** — symmetric-NAT sessions fall back to JPEG.
 `CLOUDFLARE_CALLS_APP_ID`/`CLOUDFLARE_CALLS_APP_TOKEN` to that key's ID/token.
 Auth gate itself verified: unauthenticated `GET /api/public/agent/ice` → 401.
 
-**Still outstanding:** S25 code signing.
+**Still outstanding:** S25 code signing — *build-side plumbing shipped in
+§10.25; only the certificate purchase remains.*
 
 ---
 
@@ -2031,3 +2052,59 @@ build + soak run.
 - **Consent removed from agent:** `agent/src/ConsentPrompt.cs` deleted; `Agent.HandleInvite` auto-accepts invites (`SubmitConsentAsync(..., true)`) — authorisation is account-level via Meeting ID enrollment and enforced server-side. Server route `session/$sessionId/consent` unchanged (still the invited → active transition).
 - **Copy:** homepage "consent-based" wording replaced with "authorised" to match the new model.
 - **Verification:** tsgo clean · agent routes 25/25 · payment routes 5/5 · homepage renders with zero console errors.
+
+---
+
+## §10.29 — Homepage ambient motion re-layer — 2026-08-05 (`SCOPE:WEB`)
+
+The aurora background added in §10.28 was invisible: it painted *behind* the
+page's own opaque navy fill, so the only motion the user ever saw was the promo
+marquee. Fixed by restacking, not by adding more effects on top of a hidden
+layer.
+
+| Layer | z | Source |
+| --- | --- | --- |
+| Base navy fill | `z-0` | `src/routes/index.tsx` root |
+| Rotating gradient mesh | `z-0` | `mesh-pan` utility (`cl-mesh`, 48s) |
+| Three drifting auroras | `z-0` | `aurora-a` / `aurora-b` / `aurora-c` (`cl-drift`, `cl-drift-alt`, `cl-drift-slow`) |
+| Panning grid | `z-0` | `grid-pan` (`cl-grid-pan`, 14s, radial mask) |
+| Slow light sweep | `z-0` | `sheen` (`cl-sheen`, 16s) |
+| Header, marquee, main | `z-10` | content lifted above the motion field |
+
+Content tiles carry `backdrop-blur-xl` so the motion bleeds through the bento
+cards instead of being occluded by them. All seven keyframe utilities are
+disabled under `@media (prefers-reduced-motion: reduce)` in `src/styles.css`.
+No route, data, or behaviour change. `tsgo --noEmit` clean.
+
+---
+
+## §11 — Open items (authoritative — supersedes every earlier status footer)
+
+This table is the single place the remaining state lives. Earlier boards
+(§10.9) and per-section "Still outstanding" footers are historical and are
+annotated as superseded where they contradict this.
+
+| # | Item | Why it is still open | Buildable here? |
+| --- | --- | --- | --- |
+| S3 | Fleet verification (enroll → wake → live on real machines) | Needs a live Windows fleet | No — environment-bound |
+| S17-P3 | Hardware H.264 encode/decode | `agent/src/HwH264Encoder.cs` does not exist; `CodecPolicy.AllowH264` is a switch with no consumer, by design (see the class doc comment) | Partly — needs a Windows host to validate the MFT |
+| S18 | Real 4K latency/throughput readings | Instrumentation shipped (`EncodeStats.cs`, `session_telemetry`, HUD); no measurement taken | No — needs a live session |
+| S20 | Present pacing / vsync alignment | No `CompositionTarget.Rendering` pacing loop in `admin/src/Media`; frames present as they arrive | **Yes** |
+| S24-b | Recording retention / upload policy | Recording writes locally only (`IvfWriter` native, browser download on web); nothing uploads, expires, or audits it | **Yes** |
+| S25-b | Code-signing certificate | `tools/CodeSign.ps1` + `docs/SIGNING.md` shipped and wired into both build scripts; the certificate is a procurement step | No — procurement |
+| — | Windows-host build + soak run | `scripts/e2e-soak.ts` exists and is unrun against real agents | No — environment-bound |
+
+**Not open, despite what older sections imply:** S8, S9, S10, S11, S12, S13,
+S14, S15, S19, S21, S22, S23, licensing/Meeting-ID, customer portal, SMTP and
+order emails, session files (all three peers), clipboard sync (all three
+peers), monitor picker (web + native), consent removal.
+
+### Verification snapshot for this pass — 2026-08-05
+
+| Check | Result |
+| --- | --- |
+| Stale identifiers (`zoomlite`, `secure-remote-view`, `AGENT_DEPLOYMENT_KEY`, `ConsentPrompt`, `TODO`, `FIXME`) across `src`, `agent/src`, `admin/src` | zero hits |
+| `$250` / `$570` / `$840` in page source | intentional strikethrough "was" prices (§10.28), not stale copy |
+| Route targets vs `src/routeTree.gen.ts` | every `Link`/`navigate()` destination resolves |
+| Cross-peer parity (clipboard, files, monitor picker, recording, input DC, ICE/TURN, telemetry) | complete; only deliberate asymmetries (WEBM web / IVF native) |
+| `consented` legacy state retained in live filters | present in `heartbeat.ts` and `admin/src/Api/ApiClient.cs` per §4 |
