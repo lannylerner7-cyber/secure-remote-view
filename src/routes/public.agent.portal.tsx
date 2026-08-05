@@ -2,6 +2,7 @@ import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-ro
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
+import { ContactForm } from "@/components/ContactForm";
 import {
   getMyPortal,
   removeMyDevice,
@@ -280,6 +281,15 @@ function PortalPage() {
 
         <SchedulePanel />
         <TelegramPanel />
+
+        <section className={card}>
+          <h2 className="mb-1 text-sm font-semibold">Contact us</h2>
+          <p className="mb-4 text-xs text-white/60">
+            Send the support team a message — you'll get an instant confirmation and a reply by
+            email.
+          </p>
+          <ContactForm source="portal" />
+        </section>
       </main>
     </div>
   );

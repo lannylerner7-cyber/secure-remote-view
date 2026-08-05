@@ -226,6 +226,8 @@ export type MailMessage = {
   subject: string;
   html: string;
   text: string;
+  /** Optional per-message Reply-To, e.g. `Jane <jane@example.com>`. */
+  replyTo?: string;
   /** Extra RFC 5322 headers (e.g. List-Unsubscribe). Values are single-line. */
   headers?: Record<string, string>;
 };
@@ -286,7 +288,11 @@ export async function sendMail(settings: SmtpSettings, msg: MailMessage): Promis
     const headers = [
       `From: ${fromHeader}`,
       `To: <${msg.to}>`,
-      settings.reply_to ? `Reply-To: <${settings.reply_to}>` : null,
+      msg.replyTo
+        ? `Reply-To: ${msg.replyTo.replace(/[\r\n]+/g, " ").trim()}`
+        : settings.reply_to
+          ? `Reply-To: <${settings.reply_to}>`
+          : null,
       `Subject: ${headerEncode(msg.subject)}`,
       `Date: ${new Date().toUTCString()}`,
       `Message-ID: <${boundary}@${ehloName}>`,
