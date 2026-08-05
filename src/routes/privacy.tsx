@@ -25,44 +25,43 @@ function Page() {
   return (
     <LegalShell title="Privacy Policy" updated="July 2026">
       <p>
-        ConnectLive is a consent-based remote-support tool. This policy explains what we collect,
-        why, and how long we keep it.
+        This page is written in plain language so you always know where your information lives, why
+        we have it, and when it goes away. If anything here is unclear, tell us — we'll rewrite it.
       </p>
-      <h2>What we collect</h2>
+      <h2>Information we hold</h2>
       <ul>
         <li>
-          <strong>Account data</strong> for buyers: name, email, optional phone and company, and the
-          plan you purchased.
+          <strong>Your account.</strong> A name, an email, and — if you share them — a phone number
+          and company. Enough to send you a receipt and to help when you write in.
         </li>
         <li>
-          <strong>Payment data</strong>: the coin, on-chain address issued to your order, and
-          confirmation status. We never see your wallet keys.
+          <strong>Your order.</strong> The plan you picked, the coin you paid with, and the
+          on-chain address issued to that order. Wallet keys never leave your device.
         </li>
         <li>
-          <strong>Session data</strong>: while a technician is connected, screen frames, cursor
-          position, and admin-issued inputs pass through our servers only for the duration of the
-          session.
+          <strong>Working memory.</strong> While a support session is open, the pixels and inputs
+          needed to keep the two ends in sync briefly pass through our relays. They are not stored.
         </li>
         <li>
-          <strong>Device metadata</strong>: a short-lived device token, OS name, and heartbeat
-          timestamps used to route sessions.
+          <strong>Device fingerprints.</strong> A short device token, operating system name, and
+          heartbeat timestamps so we can route the right session to the right machine.
         </li>
       </ul>
-      <h2>What we do not collect</h2>
+      <h2>Information we deliberately avoid</h2>
       <p>
-        We do not record sessions. We do not read files on your device. We do not run a background
-        service that connects without your explicit consent — every session begins with an on-screen
-        prompt you must accept.
+        We don't sit on top of your files, we don't quietly record sessions, and no piece of our
+        software opens a connection without the person at the keyboard agreeing to it first.
       </p>
-      <h2>Retention</h2>
+      <h2>How long anything sticks around</h2>
       <ul>
-        <li>Session frames and cursor positions are deleted within minutes of a session ending.</li>
-        <li>Order and payment records are kept for accounting purposes.</li>
-        <li>Audit logs are kept for 90 days.</li>
+        <li>Live-session buffers are cleared within minutes of the session closing.</li>
+        <li>Orders and receipts are kept for as long as accounting rules require.</li>
+        <li>Operational logs roll off automatically after 90 days.</li>
       </ul>
-      <h2>Contact</h2>
+      <h2>Getting in touch about your data</h2>
       <p>
-        Questions? Reach us at <a href="mailto:privacy@connectliveagent.com">privacy@connectliveagent.com</a>.
+        Write to <a href="mailto:privacy@connectliveagent.com">privacy@connectliveagent.com</a> and
+        a human will answer — usually the same day.
       </p>
     </LegalShell>
   );
