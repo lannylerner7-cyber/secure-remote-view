@@ -1740,7 +1740,47 @@ function AdminPage() {
                       />
                       <span>{filesReady ? "files direct" : "files via archive"}</span>
                     </span>
+                    {/* S22 — clipboard channel state. */}
+                    <span className="flex items-center gap-1">
+                      ·
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${
+                          clipReady ? "bg-emerald-400" : "bg-white/30"
+                        }`}
+                      />
+                      <span>{clipReady ? "clipboard synced" : "clipboard offline"}</span>
+                    </span>
+                    {recording && (
+                      <span className="flex items-center gap-1 text-red-300">
+                        ·
+                        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
+                        <span>recording</span>
+                      </span>
+                    )}
                   </div>
+
+                  {/* S22 / S24 — clipboard push and local session recording. */}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!clipReady}
+                      onClick={() => void pushClipboard()}
+                    >
+                      Send clipboard
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={recording ? "destructive" : "outline"}
+                      onClick={() => void toggleRecording(s.id)}
+                    >
+                      {recording ? "Stop recording" : "Record session"}
+                    </Button>
+                  </div>
+
+
 
 
                   {s.mode === "control" && s.device_id && (
