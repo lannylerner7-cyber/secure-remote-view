@@ -28,11 +28,97 @@ public sealed class ApiClient
     private readonly AuthStore _auth;
     private readonly HttpClient _http;
 
+    /// <summary>
+    /// Raised on the renewal thread whenever the access token rotates, with
+    /// the new token. Long-lived sockets (Realtime) subscribe so they can
+    /// re-auth in place instead of dying when the old token expires.
+    /// </summary>
+    public event Action<string>? TokenChanged;
+
+    private CancellationTokenSource? _renewCts;
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+
     public ApiClient(AppConfig config, AuthStore auth)
     {
         _config = config;
         _auth = auth;
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+    }
+
+    /// <summary>Current technician access token, or null when signed out.</summary>
+    public string? AccessToken
+        => string.IsNullOrEmpty(_auth.Current?.AccessToken) ? null : _auth.Current!.AccessToken;
+
+    /// <summary>
+    /// Background renewal. Supabase access tokens live about an hour; nothing
+    /// used to renew them proactively, so any console session that outlived the
+    /// token lost Realtime permanently ("Token has expired N seconds ago") and
+    /// fell back to HTTP polling for the rest of the session. This keeps the
+    /// token at least 60s ahead of expiry, forever, on one cheap timer.
+    /// </summary>
+    public void StartTokenRenewal()
+    {
+        StopTokenRenewal();
+        var cts = new CancellationTokenSource();
+        _renewCts = cts;
+        var ct = cts.Token;
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                TimeSpan wait;
+                try
+                {
+                    var s = _auth.Current;
+                    if (s == null || string.IsNullOrEmpty(s.RefreshToken))
+                    {
+                        wait = TimeSpan.FromSeconds(30);
+                    }
+                    else
+                    {
+                        var secondsLeft = s.ExpiresAt - DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                        if (secondsLeft <= 60)
+                        {
+                            var ok = await EnsureFreshTokenAsync(ct).ConfigureAwait(false);
+                            wait = ok ? TimeSpan.FromSeconds(15) : TimeSpan.FromSeconds(20);
+                        }
+                        else
+                        {
+                            // Wake shortly before the 60s threshold.
+                            wait = TimeSpan.FromSeconds(Math.Min(300, Math.Max(15, secondsLeft - 60)));
+                        }
+                    }
+                }
+                catch { wait = TimeSpan.FromSeconds(30); }
+
+                try { await Task.Delay(wait, ct).ConfigureAwait(false); } catch { return; }
+            }
+        }, CancellationToken.None);
+    }
+
+    public void StopTokenRenewal()
+    {
+        try { _renewCts?.Cancel(); } catch { }
+        _renewCts = null;
+    }
+
+    /// <summary>
+    /// Refresh the token if it is expired or nearly so. Serialised, so a burst
+    /// of 401 retries plus the renewal timer produce one refresh, not five
+    /// (each of which would invalidate the previous refresh token).
+    /// </summary>
+    public async Task<bool> EnsureFreshTokenAsync(CancellationToken ct)
+    {
+        await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var s = _auth.Current;
+            if (s != null && !string.IsNullOrEmpty(s.AccessToken)
+                && s.ExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60)
+                return true;   // someone else already refreshed while we waited
+            return await RefreshSessionAsync(ct).ConfigureAwait(false);
+        }
+        finally { _refreshGate.Release(); }
     }
 
     // ---------- Login (custom endpoint with lockout) ----------
@@ -81,10 +167,16 @@ public sealed class ApiClient
             ExpiresAt = DecodeJwtExpiry(access),
             UserId = DecodeJwtSubject(access),
         });
+        // Tell the live sockets before anything else touches the wire.
+        try { TokenChanged?.Invoke(access); } catch { }
         return true;
     }
 
-    public void Logout() => _auth.Clear();
+    public void Logout()
+    {
+        StopTokenRenewal();
+        _auth.Clear();
+    }
 
     // ---------- ICE gateway (S9) ----------
 
