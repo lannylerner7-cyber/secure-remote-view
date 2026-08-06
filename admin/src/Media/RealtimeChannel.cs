@@ -39,6 +39,7 @@ public sealed class RealtimeChannel : IAsyncDisposable
     // join payload and the live re-auth push read through this provider instead.
     private readonly Func<string?> _tokenProvider;
     private readonly Func<CancellationToken, Task<bool>>? _refreshTokenAsync;
+    private readonly Func<bool>? _isTokenStale;
 
     private readonly Action<byte[], DateTime>? _onFrameBytes;
     private readonly Action<CursorEvent>? _onCursor;
