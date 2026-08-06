@@ -183,7 +183,12 @@ public sealed class RealtimeChannel : IAsyncDisposable
 
                 // A stale token is the single most common reason a re-join is
                 // rejected, so renew it up front rather than burning an attempt.
-                if (_refreshTokenAsync != null && string.IsNullOrEmpty(_tokenProvider()))
+                // "Stale" includes *nearly* expired, not just missing: on a
+                // resume from sleep this socket reconnects before the renewal
+                // timer wakes, and a token with seconds left would otherwise
+                // guarantee a rejected join.
+                if (_refreshTokenAsync != null
+                    && (string.IsNullOrEmpty(_tokenProvider()) || (_isTokenStale?.Invoke() ?? false)))
                     try { await _refreshTokenAsync(ct).ConfigureAwait(false); } catch { }
 
                 await JoinAsync("session_frames", ct).ConfigureAwait(false);
