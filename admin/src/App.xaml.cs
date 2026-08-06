@@ -89,6 +89,10 @@ public partial class App : Application
             ClientId = ClientIdStore.LoadOrCreate();
             Log.Write($"client id: {ClientId}");
             Api = new ApiClient(Config, Auth);
+            // Keep the technician JWT ahead of expiry for the whole run. Without
+            // this the Realtime socket dies about an hour into a shift with
+            // "InvalidJWTToken: Token has expired".
+            Api.StartTokenRenewal();
         }
         catch (Exception ex)
         {

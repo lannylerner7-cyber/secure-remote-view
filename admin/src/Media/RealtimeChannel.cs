@@ -30,7 +30,16 @@ public sealed class RealtimeChannel : IAsyncDisposable
     private readonly string _sessionId;
     private readonly string _wsUrl;
     private readonly string _apiKey;
-    private readonly string? _accessToken;
+
+    // TOKEN INVARIANT — a long-lived socket must never capture the technician
+    // JWT. The Supabase access token expires roughly hourly; the old code
+    // snapshotted it at construction, so once it aged out every reconnect
+    // replayed the same dead token and Realtime stayed rejected for the rest of
+    // the session ("InvalidJWTToken: Token has expired N seconds ago"). Both the
+    // join payload and the live re-auth push read through this provider instead.
+    private readonly Func<string?> _tokenProvider;
+    private readonly Func<CancellationToken, Task<bool>>? _refreshTokenAsync;
+
     private readonly Action<byte[], DateTime>? _onFrameBytes;
     private readonly Action<CursorEvent>? _onCursor;
     private readonly Action<string>? _onError;
@@ -39,6 +48,14 @@ public sealed class RealtimeChannel : IAsyncDisposable
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private int _ref;
+
+    // Topics we have successfully joined, so UpdateToken can re-auth them in
+    // place (Phoenix "access_token" event) without recycling the socket.
+    private readonly System.Collections.Generic.List<string> _joinedTopics = new();
+
+    // Transient reconnects are normal (Realtime node recycles, laptop sleeps,
+    // token rotation). Only a *persistent* failure earns the amber banner.
+    private int _consecutiveFailures;
 
     // Join bookkeeping. Supabase answers every phx_join with a phx_reply whose
     // payload.status is "ok" or "error". Before this existed we treated a *sent*
@@ -62,16 +79,27 @@ public sealed class RealtimeChannel : IAsyncDisposable
         public bool Visible { get; init; }
     }
 
+    /// <param name="tokenProvider">
+    /// Reads the CURRENT technician access token every time it is needed.
+    /// Never pass a captured string — see the TOKEN INVARIANT above.
+    /// </param>
+    /// <param name="refreshTokenAsync">
+    /// Forces a token renewal. Called when Realtime rejects a join because the
+    /// JWT expired, so the very next attempt carries a live token instead of
+    /// looping on a dead one.
+    /// </param>
     public RealtimeChannel(
-        string supabaseUrl, string apiKey, string? accessToken, string sessionId,
+        string supabaseUrl, string apiKey, Func<string?> tokenProvider, string sessionId,
         Action<byte[], DateTime>? onFrameBytes,
         Action<CursorEvent>? onCursor,
         Action<string>? onError = null,
-        Action<bool>? onHealth = null)
+        Action<bool>? onHealth = null,
+        Func<CancellationToken, Task<bool>>? refreshTokenAsync = null)
     {
         _sessionId = sessionId;
         _apiKey = apiKey;
-        _accessToken = accessToken;
+        _tokenProvider = tokenProvider;
+        _refreshTokenAsync = refreshTokenAsync;
         _onFrameBytes = onFrameBytes;
         _onCursor = onCursor;
         _onError = onError;
@@ -87,6 +115,44 @@ public sealed class RealtimeChannel : IAsyncDisposable
         _ = Task.Run(() => RunAsync(_cts.Token), CancellationToken.None);
     }
 
+    /// <summary>
+    /// Push a rotated access token onto the live socket. Supabase Realtime
+    /// accepts an <c>access_token</c> event per joined topic and re-runs RLS
+    /// with it, so a routine refresh costs no reconnect and no dropped frames.
+    /// Safe to call from any thread and before the socket is up (no-op).
+    /// </summary>
+    public void UpdateToken(string? token)
+    {
+        if (string.IsNullOrEmpty(token)) return;
+        string[] topics;
+        lock (_joinGate) topics = _joinedTopics.ToArray();
+        if (topics.Length == 0 || _ws?.State != WebSocketState.Open) return;
+        _ = Task.Run(async () =>
+        {
+            foreach (var topic in topics)
+            {
+                try
+                {
+                    var msg = new
+                    {
+                        topic,
+                        @event = "access_token",
+                        payload = new { access_token = token },
+                        @ref = Interlocked.Increment(ref _ref).ToString(),
+                    };
+                    await SendJsonAsync(msg, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch { /* the reconnect ladder re-joins with the fresh token */ }
+            }
+        });
+    }
+
+    private static bool IsExpiredTokenError(string? message)
+        => message != null
+           && (message.Contains("InvalidJWTToken", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("expired", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("JWT", StringComparison.OrdinalIgnoreCase));
+
     private async Task RunAsync(CancellationToken ct)
     {
         int backoffMs = 1000;
@@ -101,10 +167,16 @@ public sealed class RealtimeChannel : IAsyncDisposable
                 lock (_joinGate)
                 {
                     _pendingJoins.Clear();
+                    _joinedTopics.Clear();
                     _joinError = null;
                     _joinsDone = new TaskCompletionSource<bool>(
                         TaskCreationOptions.RunContinuationsAsynchronously);
                 }
+
+                // A stale token is the single most common reason a re-join is
+                // rejected, so renew it up front rather than burning an attempt.
+                if (_refreshTokenAsync != null && string.IsNullOrEmpty(_tokenProvider()))
+                    try { await _refreshTokenAsync(ct).ConfigureAwait(false); } catch { }
 
                 await JoinAsync("session_frames", ct).ConfigureAwait(false);
                 await JoinAsync("session_cursors", ct).ConfigureAwait(false);
@@ -127,12 +199,37 @@ public sealed class RealtimeChannel : IAsyncDisposable
 
                 _onHealth?.Invoke(true);
                 backoffMs = 1000;
+                _consecutiveFailures = 0;
 
                 await receive.ConfigureAwait(false);
                 hbCts.Cancel();
             }
             catch (OperationCanceledException) { return; }
-            catch (Exception ex) { _onError?.Invoke("Realtime: " + ex.Message); }
+            catch (Exception ex)
+            {
+                _consecutiveFailures++;
+
+                // Expired JWT: renew and retry immediately at the fast rung.
+                // Silently — a token rotation is housekeeping, not an incident,
+                // and the amber banner used to sit over the remote desktop for
+                // the rest of the session because of it.
+                if (IsExpiredTokenError(ex.Message) && _refreshTokenAsync != null)
+                {
+                    bool refreshed = false;
+                    try { refreshed = await _refreshTokenAsync(ct).ConfigureAwait(false); } catch { }
+                    if (refreshed)
+                    {
+                        backoffMs = 1000;
+                        _consecutiveFailures = 0;
+                    }
+                }
+                else if (_consecutiveFailures >= 3)
+                {
+                    // Only a persistent failure earns the banner. The HTTP poll
+                    // pumps keep the picture alive in the meantime.
+                    _onError?.Invoke("Realtime: " + ex.Message);
+                }
+            }
             finally
             {
                 _onHealth?.Invoke(false);
@@ -149,7 +246,7 @@ public sealed class RealtimeChannel : IAsyncDisposable
     {
         var topic = $"realtime:public:{table}:session_id=eq.{_sessionId}";
         var joinRef = Interlocked.Increment(ref _ref).ToString();
-        lock (_joinGate) { _pendingJoins[joinRef] = table; }
+        lock (_joinGate) { _pendingJoins[joinRef] = topic; }
         var payload = new
         {
             config = new
@@ -168,7 +265,8 @@ public sealed class RealtimeChannel : IAsyncDisposable
                 presence = new { key = "" },
                 @private = false,
             },
-            access_token = _accessToken,
+            // Read through the provider, never a captured snapshot.
+            access_token = _tokenProvider(),
         };
         var msg = new { topic, @event = "phx_join", payload, @ref = joinRef };
         await SendJsonAsync(msg, ct).ConfigureAwait(false);
@@ -179,7 +277,8 @@ public sealed class RealtimeChannel : IAsyncDisposable
     {
         lock (_joinGate)
         {
-            if (joinRef != null && !_pendingJoins.Remove(joinRef, out _)) return;
+            string? topic = null;
+            if (joinRef != null && !_pendingJoins.Remove(joinRef, out topic)) return;
             if (!ok)
             {
                 _joinError = reason ?? "join rejected";
@@ -188,6 +287,8 @@ public sealed class RealtimeChannel : IAsyncDisposable
                 try { _ws?.Abort(); } catch { }
                 return;
             }
+            if (!string.IsNullOrEmpty(topic) && !_joinedTopics.Contains(topic!))
+                _joinedTopics.Add(topic!);
             if (_pendingJoins.Count == 0) _joinsDone?.TrySetResult(true);
         }
     }

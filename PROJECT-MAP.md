@@ -2248,3 +2248,43 @@ trees were removed after verification. The replacement `2026-08-05h` release
 uses four explicit contracts: Agent Installer Builder, Agent Developer Source,
 Admin Release Builder and Admin Developer Source. Their normalized manifests
 and SHA-256 hashes are checked independently; no variant is a relabelled copy.
+
+## §10.35 — Native Admin: expired-JWT Realtime death + curtain transport parity — 2026-08-06 (`SCOPE:LIVE`)
+
+**Symptom.** Mid-session the live window showed an amber banner reading
+`Realtime: join rejected: {"reason":"InvalidJWTToken: Token has expired 260
+seconds ago"}`. Video kept moving (the HTTP poll pumps are the fallback) but the
+push path was gone for the rest of the shift, and the banner sat above the
+picture. The agent was behaving correctly; the curtain was not the cause.
+
+**Root cause.** `RealtimeChannel` captured the technician access token once at
+construction and replayed that same string on every reconnect. Nothing renewed
+the token: `RefreshSessionAsync` was only reached at startup and reactively
+after a REST 401. Once the JWT aged out, the reconnect ladder looped forever on
+a dead token.
+
+**TOKEN INVARIANT (new).** Any long-lived socket in the native console reads the
+access token through a provider callback, never a captured string.
+`RealtimeChannel` now takes `Func<string?> tokenProvider`, exposes
+`UpdateToken()` (Phoenix `access_token` event per joined topic, so a routine
+rotation costs no reconnect), and forces a refresh before retrying when a join
+is rejected for an expired/invalid JWT. `ApiClient.StartTokenRenewal()` keeps
+the token at least 60s ahead of expiry on one timer, serialised through
+`EnsureFreshTokenAsync` so a burst of 401 retries cannot invalidate each other's
+refresh token, and raises `TokenChanged` for subscribers.
+
+**Banner honesty.** Realtime failures now surface only after three consecutive
+attempts, and a recovered socket clears any stale `Realtime:` message. Token
+rotation is housekeeping, not an incident.
+
+**Curtain parity.** Web and native already matched on toggle semantics, ping
+cadence (1s), release-on-close and button labels. The remaining gap was
+transport: the native dead-man `curtain_on` ping was pinned to REST while the
+web console sends it datachannel-first. The native heartbeat now goes through
+`InputTransport`, so a slow HTTPS leg can no longer starve the agent watchdog
+into dropping the curtain while the console still reads "Release curtain".
+`curtain_off` / `release_inputs` remain REST-only by design.
+
+**Proof.** Clean .NET 8 Windows-targeted build of the Admin console: 0 errors.
+Generated `bin`/`obj` trees removed after verification. Admin archives recut as
+`2026-08-06`.

@@ -54,6 +54,7 @@ public partial class LiveSessionViewModel : ObservableObject
     private CursorPollPump? _cursorPump;
     private WebRtcClient? _rtc;
     private RealtimeChannel? _realtime;
+    private Action<string>? _onTokenChanged;
     // True while the raw Supabase Realtime socket is delivering frames — the
     // HTTP fallback pumps still run but the Realtime pipe is our fast path.
     private volatile bool _realtimeHealthy;
@@ -218,7 +219,9 @@ public partial class LiveSessionViewModel : ObservableObject
         _realtime = new RealtimeChannel(
             App.Config.SupabaseUrl,
             App.Config.SupabaseAnonKey,
-            App.Auth.Current?.AccessToken,
+            // TOKEN INVARIANT — provider, never a snapshot. A captured token
+            // expires mid-session and every re-join is rejected afterwards.
+            () => App.Api.AccessToken,
             SessionId,
             onFrameBytes: (bytes, utc) =>
             {
@@ -250,8 +253,25 @@ public partial class LiveSessionViewModel : ObservableObject
             },
 
             onError: SurfaceError,
-            onHealth: healthy => _realtimeHealthy = healthy);
+            onHealth: healthy =>
+            {
+                _realtimeHealthy = healthy;
+                // A recovered socket clears any stale Realtime banner so a
+                // transient token rotation cannot leave a warning on screen.
+                if (!healthy) return;
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    if (StatusMessage != null && StatusMessage.StartsWith("Realtime:", StringComparison.Ordinal))
+                        StatusMessage = null;
+                });
+            },
+            refreshTokenAsync: ct => App.Api.EnsureFreshTokenAsync(ct));
         _realtime.Start();
+
+        // Rotate the token onto the live socket instead of losing the channel
+        // when it expires (root cause of "InvalidJWTToken: Token has expired").
+        _onTokenChanged = tok => _realtime?.UpdateToken(tok);
+        App.Api.TokenChanged += _onTokenChanged;
 
         _rtc = new WebRtcClient(SessionId);
         _rtc.Pipeline.PresentationWindow = PresentationWindow;
@@ -478,6 +498,11 @@ public partial class LiveSessionViewModel : ObservableObject
 
         try { _cts?.Cancel(); } catch { }
         try { _rtc?.Close(); } catch { }
+        if (_onTokenChanged != null)
+        {
+            try { App.Api.TokenChanged -= _onTokenChanged; } catch { }
+            _onTokenChanged = null;
+        }
         if (_realtime != null)
         {
             var rt = _realtime;
@@ -503,8 +528,11 @@ public partial class LiveSessionViewModel : ObservableObject
     // ---- Curtain dead-man heartbeat --------------------------------------
     // The agent's InputBlocker releases the curtain after 5s without a
     // curtain_on ping (so a crashed console never leaves a user locked out).
-    // The web console pings at 1s; the native console must do the same or the
-    // curtain silently drops five seconds after it is engaged.
+    // The web console pings at 1s over the datachannel with a REST fallback;
+    // the native console now does exactly the same. Pinning these pings to REST
+    // was the remaining parity gap: on a slow link the HTTPS round trips are
+    // the first thing to stall, and one missed 5s window makes the agent drop
+    // the curtain while the console still shows "Release curtain".
     private CancellationTokenSource? _curtainCts;
 
     private void StartCurtainHeartbeat()
@@ -519,7 +547,11 @@ public partial class LiveSessionViewModel : ObservableObject
             {
                 try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch { return; }
                 if (ct.IsCancellationRequested) return;
-                try { await App.Api.PushInputAsync(SessionId, "curtain_on", new { }, ct).ConfigureAwait(false); }
+                try
+                {
+                    await ConnectLive.Admin.Input.InputTransport
+                        .SendAsync(SessionId, "curtain_on", new { }, ct).ConfigureAwait(false);
+                }
                 catch { /* transient — the next tick retries */ }
             }
         }, CancellationToken.None);
