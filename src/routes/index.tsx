@@ -483,6 +483,34 @@ function Home() {
             </div>
           </section>
 
+          {/* Agent setup guide embed */}
+          <section className="rounded-2xl border border-white/10 bg-navy-800 p-6 lg:col-span-12">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-navy-400">
+                  Agent Setup Guide
+                </span>
+                <h3 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
+                  Watch the agent installation walkthrough
+                </h3>
+              </div>
+              <span className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-navy-200 sm:inline-flex">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                YouTube
+              </span>
+            </div>
+            <div className="mt-5 aspect-video overflow-hidden rounded-xl bg-navy-900 ring-1 ring-white/10">
+              <iframe
+                src="https://www.youtube.com/embed/xjtQdMZFOKg?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1"
+                title="ConnectLive Agent Setup Guide"
+                loading="lazy"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                className="h-full w-full"
+              />
+            </div>
+          </section>
+
           {/* Newsletter tile */}
           <section className="rounded-2xl border border-white/10 bg-navy-700 p-6 backdrop-blur-xl lg:col-span-12">
             <div className="flex flex-wrap items-end justify-between gap-6">
