@@ -88,18 +88,25 @@ public sealed class RealtimeChannel : IAsyncDisposable
     /// JWT expired, so the very next attempt carries a live token instead of
     /// looping on a dead one.
     /// </param>
+    /// <param name="isTokenStale">
+    /// Cheap, synchronous "is the token missing or about to expire?" probe.
+    /// Consulted before every join so a resume-from-sleep reconnect renews
+    /// first instead of spending an attempt on a token that dies mid-handshake.
+    /// </param>
     public RealtimeChannel(
         string supabaseUrl, string apiKey, Func<string?> tokenProvider, string sessionId,
         Action<byte[], DateTime>? onFrameBytes,
         Action<CursorEvent>? onCursor,
         Action<string>? onError = null,
         Action<bool>? onHealth = null,
-        Func<CancellationToken, Task<bool>>? refreshTokenAsync = null)
+        Func<CancellationToken, Task<bool>>? refreshTokenAsync = null,
+        Func<bool>? isTokenStale = null)
     {
         _sessionId = sessionId;
         _apiKey = apiKey;
         _tokenProvider = tokenProvider;
         _refreshTokenAsync = refreshTokenAsync;
+        _isTokenStale = isTokenStale;
         _onFrameBytes = onFrameBytes;
         _onCursor = onCursor;
         _onError = onError;
