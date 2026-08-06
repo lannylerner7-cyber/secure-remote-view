@@ -2288,3 +2288,12 @@ into dropping the curtain while the console still reads "Release curtain".
 **Proof.** Clean .NET 8 Windows-targeted build of the Admin console: 0 errors.
 Generated `bin`/`obj` trees removed after verification. Admin archives recut as
 `2026-08-06`.
+
+**Follow-up (same day).** The pre-join guard in `RealtimeChannel.RunAsync` only
+renewed when the token was missing, so a token with seconds left still went out
+on the handshake. A laptop resuming from sleep hits exactly that window — the
+socket reconnects before the renewal timer thread wakes — and spent one
+guaranteed-rejected join before recovering. `ApiClient.TokenExpiringWithin(int)`
+now backs an `isTokenStale` probe consulted before every join; the guard renews
+when the token is missing *or* inside a 60s window. Happy path unchanged
+(`EnsureFreshTokenAsync` no-ops on a fresh token). Rebuilt: 0 errors.
