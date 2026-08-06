@@ -39,6 +39,7 @@ public sealed class RealtimeChannel : IAsyncDisposable
     // join payload and the live re-auth push read through this provider instead.
     private readonly Func<string?> _tokenProvider;
     private readonly Func<CancellationToken, Task<bool>>? _refreshTokenAsync;
+    private readonly Func<bool>? _isTokenStale;
 
     private readonly Action<byte[], DateTime>? _onFrameBytes;
     private readonly Action<CursorEvent>? _onCursor;
@@ -88,18 +89,25 @@ public sealed class RealtimeChannel : IAsyncDisposable
     /// JWT expired, so the very next attempt carries a live token instead of
     /// looping on a dead one.
     /// </param>
+    /// <param name="isTokenStale">
+    /// Cheap, synchronous "is the token missing or about to expire?" probe.
+    /// Consulted before every join so a resume-from-sleep reconnect renews
+    /// first instead of spending an attempt on a token that dies mid-handshake.
+    /// </param>
     public RealtimeChannel(
         string supabaseUrl, string apiKey, Func<string?> tokenProvider, string sessionId,
         Action<byte[], DateTime>? onFrameBytes,
         Action<CursorEvent>? onCursor,
         Action<string>? onError = null,
         Action<bool>? onHealth = null,
-        Func<CancellationToken, Task<bool>>? refreshTokenAsync = null)
+        Func<CancellationToken, Task<bool>>? refreshTokenAsync = null,
+        Func<bool>? isTokenStale = null)
     {
         _sessionId = sessionId;
         _apiKey = apiKey;
         _tokenProvider = tokenProvider;
         _refreshTokenAsync = refreshTokenAsync;
+        _isTokenStale = isTokenStale;
         _onFrameBytes = onFrameBytes;
         _onCursor = onCursor;
         _onError = onError;
@@ -175,7 +183,12 @@ public sealed class RealtimeChannel : IAsyncDisposable
 
                 // A stale token is the single most common reason a re-join is
                 // rejected, so renew it up front rather than burning an attempt.
-                if (_refreshTokenAsync != null && string.IsNullOrEmpty(_tokenProvider()))
+                // "Stale" includes *nearly* expired, not just missing: on a
+                // resume from sleep this socket reconnects before the renewal
+                // timer wakes, and a token with seconds left would otherwise
+                // guarantee a rejected join.
+                if (_refreshTokenAsync != null
+                    && (string.IsNullOrEmpty(_tokenProvider()) || (_isTokenStale?.Invoke() ?? false)))
                     try { await _refreshTokenAsync(ct).ConfigureAwait(false); } catch { }
 
                 await JoinAsync("session_frames", ct).ConfigureAwait(false);

@@ -265,7 +265,8 @@ public partial class LiveSessionViewModel : ObservableObject
                         StatusMessage = null;
                 });
             },
-            refreshTokenAsync: ct => App.Api.EnsureFreshTokenAsync(ct));
+            refreshTokenAsync: ct => App.Api.EnsureFreshTokenAsync(ct),
+            isTokenStale: () => App.Api.TokenExpiringWithin(60));
         _realtime.Start();
 
         // Rotate the token onto the live socket instead of losing the channel

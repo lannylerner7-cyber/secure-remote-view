@@ -103,6 +103,20 @@ public sealed class ApiClient
     }
 
     /// <summary>
+    /// True when there is no usable token, or the one we hold falls inside the
+    /// given expiry window. Callers about to open a long-lived socket use this
+    /// to renew *before* the join rather than eating a guaranteed rejection —
+    /// the exact case a laptop hits on resume, where the socket reconnects
+    /// before the renewal timer thread wakes up.
+    /// </summary>
+    public bool TokenExpiringWithin(int seconds)
+    {
+        var s = _auth.Current;
+        if (s == null || string.IsNullOrEmpty(s.AccessToken)) return true;
+        return s.ExpiresAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds() + seconds;
+    }
+
+    /// <summary>
     /// Refresh the token if it is expired or nearly so. Serialised, so a burst
     /// of 401 retries plus the renewal timer produce one refresh, not five
     /// (each of which would invalidate the previous refresh token).
