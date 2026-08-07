@@ -19,6 +19,9 @@ type Settings = {
   encryption: "none" | "starttls" | "ssl";
   enabled: boolean;
   updated_at: string | null;
+  active_source: "custom" | "builtin" | "none";
+  builtin_from: string;
+  builtin_host: string;
 };
 
 type LogRow = {
@@ -135,6 +138,24 @@ export function EmailSettingsPanel() {
             <h3 className="text-sm font-semibold text-white">SMTP relay</h3>
             <p className="text-[11px] text-white/50">
               Used for order receipts and payment confirmations. Credentials never leave the server.
+            </p>
+            <p className="mt-2 text-[11px]">
+              {s.active_source === "custom" && (
+                <span className="rounded bg-[#4F7CFF]/20 px-2 py-1 text-[#9DB8FF]">
+                  Active: custom settings saved here
+                </span>
+              )}
+              {s.active_source === "builtin" && (
+                <span className="rounded bg-green-500/15 px-2 py-1 text-green-200">
+                  Active: built-in credentials ({s.builtin_from} via {s.builtin_host}) — no input
+                  needed below
+                </span>
+              )}
+              {s.active_source === "none" && (
+                <span className="rounded bg-amber-500/15 px-2 py-1 text-amber-200">
+                  No SMTP credentials available — email is not sending
+                </span>
+              )}
             </p>
           </div>
           <label className="flex items-center gap-2 text-xs text-white/70">

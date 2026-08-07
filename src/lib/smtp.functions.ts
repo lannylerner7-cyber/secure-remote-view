@@ -23,6 +23,7 @@ export const getSmtpSettings = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     await assertSuperAdmin(context as never);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { envSmtpSettings } = await import("./smtp.server");
     const { data } = await supabaseAdmin
       .from("smtp_settings")
       .select(
@@ -31,6 +32,8 @@ export const getSmtpSettings = createServerFn({ method: "GET" })
       .eq("id", true)
       .maybeSingle();
     const row = (data ?? {}) as Record<string, unknown>;
+    const builtin = envSmtpSettings();
+    const customUsable = Boolean(row.enabled && row.host && row.from_address);
     return {
       host: (row.host as string) ?? "",
       port: (row.port as number) ?? 587,
@@ -42,8 +45,15 @@ export const getSmtpSettings = createServerFn({ method: "GET" })
       encryption: ((row.encryption as string) ?? "starttls") as (typeof ENCRYPTIONS)[number],
       enabled: Boolean(row.enabled),
       updated_at: (row.updated_at as string) ?? null,
+      active_source: (customUsable ? "custom" : builtin ? "builtin" : "none") as
+        | "custom"
+        | "builtin"
+        | "none",
+      builtin_from: builtin?.from_address ?? "",
+      builtin_host: builtin?.host ?? "",
     };
   });
+
 
 const SaveInput = z.object({
   host: z.string().max(255),
@@ -97,26 +107,20 @@ export const sendSmtpTest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context as never);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { sendMail } = await import("./smtp.server");
+    const { sendMail, resolveSmtpSource } = await import("./smtp.server");
 
-    const { data: row } = await supabaseAdmin
-      .from("smtp_settings")
-      .select(
-        "host, port, username, password, from_name, from_address, reply_to, encryption, enabled, updated_at",
-      )
-      .eq("id", true)
-      .maybeSingle();
-    if (!row?.host || !row?.from_address) return { ok: false, error: "SMTP is not configured yet" };
+    const { source, settings } = await resolveSmtpSource();
+    if (!settings) return { ok: false, error: "SMTP is not configured yet" };
 
     try {
-      await sendMail(row as never, {
+      await sendMail(settings, {
         to: data.to,
         subject: "ConnectLive SMTP test",
-        html: `<p style="font-family:Arial,sans-serif;font-size:14px">Your ConnectLive SMTP relay is working. Sent ${new Date().toUTCString()}.</p>`,
-        text: `Your ConnectLive SMTP relay is working. Sent ${new Date().toUTCString()}.`,
+        html: `<p style="font-family:Arial,sans-serif;font-size:14px">Your ConnectLive SMTP relay is working (${source} credentials). Sent ${new Date().toUTCString()}.</p>`,
+        text: `Your ConnectLive SMTP relay is working (${source} credentials). Sent ${new Date().toUTCString()}.`,
       });
       return { ok: true };
+
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Unknown SMTP error" };
     }
