@@ -357,8 +357,54 @@ async function sendMailInner(settings: SmtpSettings, msg: MailMessage): Promise<
 
 /* --------------------------------------------------------------- settings */
 
-/** Load the singleton SMTP row with the service role. Returns null when unusable. */
-export async function loadSmtpSettings(): Promise<SmtpSettings | null> {
+/**
+ * Built-in credentials from server secrets. Used whenever the console row is
+ * absent or disabled, so email works without any admin input.
+ */
+export function envSmtpSettings(): SmtpSettings | null {
+  const host = (process.env["SMTP_HOST"] ?? "").trim();
+  const from_address = (process.env["SMTP_FROM_ADDRESS"] ?? "").trim().toLowerCase();
+  const password = process.env["SMTP_PASSWORD"] ?? "";
+  if (!host || !from_address) return null;
+
+  const rawPort = Number(process.env["SMTP_PORT"] ?? "");
+  const rawEnc = (process.env["SMTP_ENCRYPTION"] ?? "").trim().toLowerCase();
+  const encryption: SmtpEncryption =
+    rawEnc === "none" || rawEnc === "ssl" || rawEnc === "starttls"
+      ? rawEnc
+      : rawPort === 465
+        ? "ssl"
+        : rawPort === 25
+          ? "none"
+          : "starttls";
+  const port =
+    Number.isFinite(rawPort) && rawPort > 0 && rawPort < 65536
+      ? rawPort
+      : encryption === "ssl"
+        ? 465
+        : encryption === "none"
+          ? 25
+          : 587;
+
+  return {
+    host,
+    port,
+    username: (process.env["SMTP_USERNAME"] ?? "").trim(),
+    password,
+    from_name: (process.env["SMTP_FROM_NAME"] ?? "ConnectLive").trim(),
+    from_address,
+    reply_to: (process.env["SMTP_REPLY_TO"] ?? from_address).trim().toLowerCase(),
+    encryption,
+    enabled: true,
+    updated_at: new Date(0).toISOString(),
+  };
+}
+
+/** Which source the mailer will use right now. */
+export async function resolveSmtpSource(): Promise<{
+  source: "custom" | "builtin" | "none";
+  settings: SmtpSettings | null;
+}> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data } = await supabaseAdmin
     .from("smtp_settings")
@@ -367,8 +413,17 @@ export async function loadSmtpSettings(): Promise<SmtpSettings | null> {
     )
     .eq("id", true)
     .maybeSingle();
-  if (!data) return null;
-  const row = data as unknown as SmtpSettings;
-  if (!row.enabled || !row.host || !row.from_address) return null;
-  return row;
+
+  const row = data as unknown as SmtpSettings | null;
+  if (row && row.enabled && row.host && row.from_address) {
+    return { source: "custom", settings: row };
+  }
+  const env = envSmtpSettings();
+  return env ? { source: "builtin", settings: env } : { source: "none", settings: null };
 }
+
+/** Resolve the active SMTP credentials. Returns null when nothing is usable. */
+export async function loadSmtpSettings(): Promise<SmtpSettings | null> {
+  return (await resolveSmtpSource()).settings;
+}
+
