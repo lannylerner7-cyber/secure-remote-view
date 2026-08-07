@@ -95,8 +95,8 @@ export const subscribeNewsletter = createServerFn({ method: "POST" })
     }
 
     const { sendNewsletterWelcome } = await import("./newsletter-emails.server");
-    const sent = await sendNewsletterWelcome(email);
-    if (sent) {
+    const result = await sendNewsletterWelcome(email);
+    if (result.sent) {
       await supabaseAdmin
         .from("newsletter_subscribers")
         .update({ welcome_sent_at: new Date().toISOString() })
@@ -104,9 +104,17 @@ export const subscribeNewsletter = createServerFn({ method: "POST" })
       return { ok: true, status: "subscribed", message: "You're in — check your inbox for a welcome note." };
     }
 
+    // A failed welcome must leave a trace: otherwise the subscriber is stored,
+    // the mail never lands, and nothing anywhere says why.
+    await supabaseAdmin.from("audit_logs").insert({
+      event: "newsletter.welcome_failed",
+      detail: { email, reason: result.reason ?? "unknown" },
+    });
+
     return {
       ok: true,
       status: "mail_pending",
       message: "You're subscribed. The welcome email is on its way shortly.",
     };
   });
+
