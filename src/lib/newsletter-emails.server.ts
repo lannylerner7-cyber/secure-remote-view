@@ -4,7 +4,7 @@
  * Uses the shared email shell so the header logo, footer logo, legal links and
  * support address are identical to every other message we send.
  */
-import { loadSmtpSettings, sendMail } from "./smtp.server";
+import { sendMail } from "./smtp.server";
 import { unsubUrl } from "./newsletter-unsub.server";
 import { emailShell, emailButton, escapeHtml, SITE, SUPPORT_EMAIL, textFooter } from "./email-shell.server";
 
