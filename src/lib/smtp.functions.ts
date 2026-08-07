@@ -23,6 +23,7 @@ export const getSmtpSettings = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     await assertSuperAdmin(context as never);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { envSmtpSettings } = await import("./smtp.server");
     const { data } = await supabaseAdmin
       .from("smtp_settings")
       .select(
@@ -31,6 +32,8 @@ export const getSmtpSettings = createServerFn({ method: "GET" })
       .eq("id", true)
       .maybeSingle();
     const row = (data ?? {}) as Record<string, unknown>;
+    const builtin = envSmtpSettings();
+    const customUsable = Boolean(row.enabled && row.host && row.from_address);
     return {
       host: (row.host as string) ?? "",
       port: (row.port as number) ?? 587,
@@ -42,8 +45,15 @@ export const getSmtpSettings = createServerFn({ method: "GET" })
       encryption: ((row.encryption as string) ?? "starttls") as (typeof ENCRYPTIONS)[number],
       enabled: Boolean(row.enabled),
       updated_at: (row.updated_at as string) ?? null,
+      active_source: (customUsable ? "custom" : builtin ? "builtin" : "none") as
+        | "custom"
+        | "builtin"
+        | "none",
+      builtin_from: builtin?.from_address ?? "",
+      builtin_host: builtin?.host ?? "",
     };
   });
+
 
 const SaveInput = z.object({
   host: z.string().max(255),
