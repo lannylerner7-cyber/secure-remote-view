@@ -88,10 +88,22 @@ ${unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : 'Reply with "unsubscribe" 
   return { subject: "Welcome to ConnectLive", html, text };
 }
 
-/** Send the welcome mail. Returns false when SMTP is off or the send failed. */
-export async function sendNewsletterWelcome(email: string): Promise<boolean> {
-  const settings = await loadSmtpSettings();
-  if (!settings) return false;
+/**
+ * Send the welcome mail.
+ *
+ * Returns the outcome rather than a bare boolean so the caller can persist why
+ * a send failed — a silent `false` here is what let two subscribers slip past
+ * unnoticed.
+ */
+export async function sendNewsletterWelcome(
+  email: string,
+): Promise<{ sent: boolean; reason?: string }> {
+  const { resolveSmtpSource } = await import("./smtp.server");
+  const { source, settings } = await resolveSmtpSource();
+  if (!settings) {
+    console.error("[newsletter] welcome skipped: no usable SMTP configuration");
+    return { sent: false, reason: "smtp_not_configured" };
+  }
   const unsubscribeUrl = await unsubUrl(email);
   const msg = renderNewsletterWelcome(email, unsubscribeUrl);
   try {
@@ -103,9 +115,11 @@ export async function sendNewsletterWelcome(email: string): Promise<boolean> {
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
       },
     });
-    return true;
+    return { sent: true };
   } catch (err) {
-    console.error("[newsletter] welcome send failed", (err as Error).message);
-    return false;
+    const reason = (err as Error).message.slice(0, 300);
+    console.error(`[newsletter] welcome send failed via ${source} source:`, reason);
+    return { sent: false, reason };
   }
 }
+
