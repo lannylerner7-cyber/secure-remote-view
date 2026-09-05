@@ -567,6 +567,76 @@ public sealed class WebRtcSession : IDisposable
         MaybeLogStats();
     }
 
+    /// <summary>
+    /// Hardware H.264 frame path. Builds the encoder on the first frame (the
+    /// only moment the capture geometry is actually known), keeps its bitrate
+    /// in step with the congestion ladder, and hands the Annex-B access unit
+    /// straight to SIPSorcery's H.264 packetiser.
+    ///
+    /// Every failure here is soft: the frame is dropped, the HTTPS JPEG stream
+    /// is still running underneath, and a dead encoder retires the H.264 path
+    /// for the rest of the peer rather than looping on a broken driver.
+    /// </summary>
+    private void PushFrameH264(RTCPeerConnection pc, byte[] bgra, int width, int height)
+    {
+        var hw = _h264;
+        if (hw == null || !hw.IsAlive)
+        {
+            if (hw != null && !hw.IsAlive)
+            {
+                // The MFT died mid-session. Do not rebuild it in a tight loop:
+                // one retry per peer is enough to tell a transient from a rot.
+                DisposeH264("encoder reported dead: " + hw.DeadReason);
+                _h264Negotiated = false;
+                Log.Warn("h264: hardware path abandoned for this peer; HTTPS frame stream continues");
+                return;
+            }
+
+            int kbps = BitrateController.Current.TargetKbps;
+            int fps = BitrateController.Current.Fps;
+            hw = HwH264Encoder.TryCreate(width, height, fps, kbps);
+            if (hw == null)
+            {
+                _h264Negotiated = false;
+                Log.Warn("h264: encoder could not be created; HTTPS frame stream continues");
+                return;
+            }
+            Interlocked.Exchange(ref _h264, hw);
+            _h264Live = true;
+            // Earned, not assumed: the ladder is only allowed above 1920px once
+            // a real hardware encoder is in the loop.
+            try { BitrateController.Ceiling = 0; } catch { }
+            Log.Info("h264: ladder ceiling lifted — full resolution range available");
+        }
+
+        hw.SetBitrateKbps(BitrateController.Current.TargetKbps);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var au = hw.Encode(bgra, width, height, out bool geometryChanged);
+        sw.Stop();
+
+        if (geometryChanged)
+        {
+            // A monitor switch or a ladder step changed the frame size. Rebuild
+            // rather than renegotiate the MFT in place; the next frame picks up
+            // the new encoder and the decoder resyncs on its IDR.
+            DisposeH264($"geometry changed to {width}x{height}");
+            return;
+        }
+        if (au == null || au.Length == 0) return;   // pipelined encoder, no output yet
+
+        EncodeStats.NoteVp8Encode(
+            sw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, width, height);
+
+        // 90 kHz clock: one frame at the current cadence.
+        uint duration = (uint)(90000 / Math.Max(1, BitrateController.Current.Fps));
+        pc.SendVideo(duration, au);
+        Interlocked.Increment(ref _encoded);
+        Interlocked.Increment(ref _h264Frames);
+    }
+
+
+
     /// <summary>~5 s heartbeat of the video pipeline so "connected but black" is diagnosable.</summary>
     private void MaybeLogStats()
     {
