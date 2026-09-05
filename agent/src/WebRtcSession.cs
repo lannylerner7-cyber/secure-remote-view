@@ -43,6 +43,15 @@ public sealed class WebRtcSession : IDisposable
     private readonly CancellationTokenSource _cts;
     private RTCPeerConnection? _pc;
     private VideoEncoderEndPoint? _videoEnd;
+    // Brain-engine phase 1 — hardware H.264. Non-null only once the peer has
+    // actually negotiated H.264 AND a real MFT has come up for the current
+    // geometry. Everything about this path is additive: if any part of it
+    // fails, `_h264Negotiated` goes false and the VP8 route below is untouched.
+    private HwH264Encoder? _h264;
+    private volatile bool _h264Negotiated = false;
+    private volatile bool _h264Live = false;
+    private long _h264Frames = 0;
+
     private long _sinceSignal = 0;
     private bool _closed = false;
 
