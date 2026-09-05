@@ -108,7 +108,11 @@ public sealed class WebRtcSession : IDisposable
     {
         Interlocked.Increment(ref _keyFrameRequests);
         var end = _videoEnd;
-        if (end == null || !_videoStarted) return;
+        var hw = _h264;
+        // On the H.264 path the software endpoint is idle, so `_videoStarted`
+        // alone is the gate; on the VP8 path we still need the endpoint.
+        if (!_videoStarted) return;
+        if (hw == null && end == null) return;
 
         long now = MonoClock.ElapsedMilliseconds;
         long last = Interlocked.Read(ref _lastKeyFrameTicks);
@@ -117,7 +121,8 @@ public sealed class WebRtcSession : IDisposable
 
         try
         {
-            end.ForceKeyFrame();
+            if (hw != null) hw.ForceKeyFrame();
+            else end!.ForceKeyFrame();
             // Reset the safety-net counter so the next periodic keyframe is
             // measured from *this* IDR, not the last scheduled one.
             ScreenCapture.ResetKeyframeClock();
@@ -126,6 +131,7 @@ public sealed class WebRtcSession : IDisposable
         }
         catch (Exception ex) { Log.Warn($"webrtc force keyframe: {ex.Message}"); }
     }
+
 
     public Task StartAsync()
     {
