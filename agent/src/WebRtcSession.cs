@@ -440,10 +440,22 @@ public sealed class WebRtcSession : IDisposable
             Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc pc state: {s}");
             if (s == RTCPeerConnectionState.connected)
             {
-                // The encoder is a source: it stays paused until StartVideo().
                 try
                 {
-                    if (_videoEnd != null && !_videoStarted)
+                    if (_h264Negotiated)
+                    {
+                        // Nothing to start: the hardware encoder is driven
+                        // directly from PushFrame, so the software source stays
+                        // paused for the life of this peer.
+                        if (!_videoStarted)
+                        {
+                            _videoStarted = true;
+                            ScreenCapture.ResetWebRtcTee();
+                            Log.Info("webrtc video started on hardware H.264 path");
+                        }
+                    }
+                    // The encoder is a source: it stays paused until StartVideo().
+                    else if (_videoEnd != null && !_videoStarted)
                     {
                         await _videoEnd.StartVideo();
                         _videoStarted = true;
@@ -469,11 +481,26 @@ public sealed class WebRtcSession : IDisposable
         try { _videoEnd?.PauseVideo(); } catch { }
         try { _videoEnd?.CloseVideo(); } catch { }
         try { _pc?.close(); } catch { }
+        DisposeH264("peer torn down");
         _videoEnd = null;
         _pc = null;
         _formatReady = false;
         _videoStarted = false;
+        _h264Negotiated = false;
+        _h264Live = false;
     }
+
+    /// <summary>Release the hardware encoder and hand the ladder ceiling back to the VP8 policy.</summary>
+    private void DisposeH264(string why)
+    {
+        var hw = Interlocked.Exchange(ref _h264, null);
+        if (hw == null) return;
+        try { hw.Dispose(); } catch { }
+        _h264Live = false;
+        Log.Info($"h264: encoder released ({why})");
+        try { BitrateController.Ceiling = BitrateController.DefaultRung; } catch { }
+    }
+
 
     /// <summary>
     /// Called from ScreenCapture: encode this frame into the WebRTC video track.
