@@ -183,18 +183,21 @@ public sealed class WebRtcSession : IDisposable
         // SCOPE:TRANSPORT — a new peer is a new link. Start at the top rung
         // rather than inheriting the ladder position a previous technician's
         // congested connection settled on.
-        // SCOPE:TRANSPORT — S17 ceiling. The 3840/2560 rungs exist for the
-        // JPEG path today; the WebRTC wire codec below is still software VP8,
-        // which cannot encode 4K on the CPU in real time. Hold the ladder at
-        // DefaultRung for the life of this peer. Lift this (set 0) in the same
-        // change that lands the hardware H.264 encoder, not before.
+        // SCOPE:TRANSPORT — S17 ceiling. The 3840/2560 rungs cost more CPU than
+        // software VP8 can pay, so a VP8 peer is held at DefaultRung. The
+        // ceiling is dropped to 0 (full ladder) only once a hardware H.264
+        // encoder is genuinely producing frames — see PushFrame. Negotiating
+        // H.264 is not enough; the silicon has to answer first.
         BitrateController.Ceiling = BitrateController.DefaultRung;
         BitrateController.Reset();
         // S17 step 1 — a new peer is a new measurement. The previous session's
         // encode averages and peak geometry say nothing about this link.
         EncodeStats.Reset();
 
-
+        DisposeH264("new peer");
+        _h264Negotiated = false;
+        _h264Live = false;
+        _h264Frames = 0;
 
         _videoEnd = new VideoEncoderEndPoint();
         // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
@@ -217,11 +220,37 @@ public sealed class WebRtcSession : IDisposable
             TearDownPeer();
             return;
         }
-        MediaStreamTrack videoTrack = new(sourceFormats, MediaStreamStatusEnum.SendOnly);
+
+        // Brain-engine phase 1 — offer hardware H.264 *ahead of* VP8 when this
+        // machine has a real encoder and the operator has not forced VP8. The
+        // ordering matters: SDP answers pick the first mutually supported
+        // format, so listing H.264 first is what makes it win against a peer
+        // (browser or native admin) that supports both. VP8 stays in the list
+        // as the universal floor, so a peer that cannot do H.264 still connects.
+        var offered = new List<VideoFormat>();
+        bool offerH264 = CodecPolicy.AllowH264;
+        if (offerH264)
+        {
+            // profile-level-id 42e01f = Constrained Baseline 3.1, the profile the
+            // MFT is configured for and the one every browser decodes in
+            // hardware. packetization-mode=1 enables fragmented NAL units, which
+            // is mandatory for frames larger than one MTU — i.e. all of them.
+            offered.Add(new VideoFormat(VideoCodecsEnum.H264, 102, 90000,
+                                        "packetization-mode=1;profile-level-id=42e01f"));
+            Log.Info($"webrtc offering hardware H.264 first ({HwEncoderProbe.VendorTag}) with VP8 fallback");
+        }
+        if (sourceFormats != null) offered.AddRange(sourceFormats);
+
+        MediaStreamTrack videoTrack = new(offered, MediaStreamStatusEnum.SendOnly);
         _pc.addTrack(videoTrack);
 
         _videoEnd.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
         {
+            // Guard: if H.264 won the negotiation this endpoint should be idle.
+            // Sending its output would interleave VP8 payloads into an H.264
+            // stream and produce exactly the "connected but garbage" failure
+            // this whole path is meant to avoid.
+            if (_h264Negotiated) return;
             System.Threading.Interlocked.Increment(ref _encoded);
             _pc?.SendVideo(durationRtpUnits, sample);
         };
@@ -235,11 +264,22 @@ public sealed class WebRtcSession : IDisposable
             try
             {
                 var fmt = formats[0];
-                if (fmt.Codec != VideoCodecsEnum.VP8)
+                if (fmt.Codec == VideoCodecsEnum.H264 && offerH264)
                 {
-                    Log.Warn($"webrtc rejected negotiated codec {fmt.Codec}; VP8 required");
+                    // The encoder itself is built lazily in PushFrame, because
+                    // only the first frame tells us the capture geometry.
+                    _h264Negotiated = true;
+                    _formatReady = true;
+                    _negotiatedPt = fmt.FormatID;
+                    Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc video format negotiated: H264 pt={fmt.FormatID} (hardware)");
                     return;
                 }
+                if (fmt.Codec != VideoCodecsEnum.VP8)
+                {
+                    Log.Warn($"webrtc rejected negotiated codec {fmt.Codec}; VP8 or H264 required");
+                    return;
+                }
+                _h264Negotiated = false;
                 _videoEnd?.SetVideoSourceFormat(fmt);
                 _formatReady = true;
                 _negotiatedPt = fmt.FormatID;
@@ -247,6 +287,7 @@ public sealed class WebRtcSession : IDisposable
             }
             catch (Exception ex) { Log.Warn($"webrtc set format: {ex.Message}"); }
         };
+
 
 
         _pc.ondatachannel += (dc) =>
