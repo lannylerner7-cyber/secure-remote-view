@@ -418,6 +418,55 @@ public sealed class VideoPipeline : IDisposable
     }
 
     /// <summary>
+    /// H.264 access unit → NV12 → BGRA32 → present. Structurally identical to
+    /// the VP8 path above, including the failure accounting, so a decoder that
+    /// starts producing rubbish retires the native path exactly the same way
+    /// rather than PLI-storming a link that cannot be helped.
+    /// </summary>
+    private void DecodeOneH264(byte[] encoded, long enqueuedMs)
+    {
+        var dec = _h264;
+        if (dec == null) return;
+        if (!dec.IsAlive) { MarkUnavailable("H.264 decoder failed: " + dec.DeadReason); return; }
+
+        byte[]? nv12;
+        try { nv12 = dec.Decode(encoded, out int _, out int __); }
+        catch (Exception ex)
+        {
+            if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
+                Diagnostic?.Invoke("H.264 decode error: " + ex.Message);
+            if (NoteFailure($"H.264 decode keeps failing ({ex.Message})")) return;
+            KeyFrameRequested?.Invoke();
+            return;
+        }
+
+        int w = dec.Width, h = dec.Height;
+        // No picture yet is normal while the decoder fills its reference
+        // pipeline; it is not a failure and must not count as one.
+        if (nv12 == null || w <= 0 || h <= 0) return;
+
+        EnsureBuffers(w, h);
+        if (_bgra == null) return;
+
+        if (!FrameConvert.ToBgra32(nv12, w, h, _bgra, FrameConvert.Shape.Nv12))
+        {
+            if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
+                Diagnostic?.Invoke("unusable H.264 output: " + FrameConvert.Describe(nv12.Length, w, h));
+            NoteFailure("H.264 output is not a layout we can present: " +
+                        FrameConvert.Describe(nv12.Length, w, h));
+            return;
+        }
+
+        Interlocked.Exchange(ref _consecutiveFailures, 0);
+        Interlocked.Increment(ref _framesDecoded);
+        Interlocked.Exchange(ref _lastDecodedMs, _clock.ElapsedMilliseconds);
+        Present(w, h, enqueuedMs);
+        TickFps();
+    }
+
+
+
+    /// <summary>
     /// S16 — count one unusable frame. Returns true once the native path has
     /// been retired, so the caller stops asking for keyframes that cannot help.
     /// </summary>
