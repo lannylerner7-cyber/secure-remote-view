@@ -363,7 +363,9 @@ public sealed class VideoPipeline : IDisposable
 
     private void DecodeOne(byte[] encoded, long enqueuedMs)
     {
+        if (_useH264) { DecodeOneH264(encoded, enqueuedMs); return; }
         IEnumerable<VideoSample>? samples;
+
         try
         {
             samples = _decoder!.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.VP8);
