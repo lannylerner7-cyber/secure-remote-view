@@ -159,15 +159,39 @@ public sealed class WebRtcClient : IDisposable
         var pc = new RTCPeerConnection(cfg);
         _pc = pc;
 
-        // Codec pinning guardrail — see agent WebRtcSession for the matching side.
+        // Codec list — MUST stay in lockstep with agent/src/WebRtcSession.cs.
+        // H.264 first: when the endpoint has a hardware encoder we want it, and
+        // the answerer picks the first mutually supported format. VP8 stays
+        // second as the universal floor, so an endpoint without hardware (or
+        // with the operator's VP8 kill switch set) still connects normally.
         pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video,
             false, new System.Collections.Generic.List<SDPAudioVideoMediaFormat>
             {
+                new SDPAudioVideoMediaFormat(
+                    new SIPSorceryMedia.Abstractions.VideoFormat(
+                        SIPSorceryMedia.Abstractions.VideoCodecsEnum.H264, 102, 90000,
+                        "packetization-mode=1;profile-level-id=42e01f")),
                 new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000),
             }, MediaStreamStatusEnum.RecvOnly));
 
+        // Whichever codec the agent picked decides the decoder. Doing this on
+        // the negotiation callback (not on the first frame) means the pipeline
+        // is already on the right decoder before a single packet lands.
+        pc.OnVideoFormatsNegotiated += (formats) =>
+        {
+            if (formats == null || formats.Count == 0) return;
+            var fmt = formats[0];
+            T($"video format negotiated: {fmt.Codec} pt={fmt.FormatID}");
+            if (fmt.Codec == SIPSorceryMedia.Abstractions.VideoCodecsEnum.H264)
+            {
+                _wireCodecIsH264 = true;
+                Pipeline.UseH264Codec();
+            }
+        };
+
         WireDiagnostics(pc, ct);
         WireVideo(pc);
+
 
         // S10 — open the input datachannel BEFORE createOffer so the SDP
         // advertises the SCTP m-line. Ordered + reliable: input events must

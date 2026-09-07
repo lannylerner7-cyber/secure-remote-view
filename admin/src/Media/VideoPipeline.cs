@@ -47,6 +47,12 @@ public sealed class VideoPipeline : IDisposable
 
     private Thread? _worker;
     private VpxVideoEncoder? _decoder;
+    // Brain-engine phase 1 — H.264 decode. Non-null only when the session
+    // negotiated H.264; the VP8 decoder above is disposed in that case so the
+    // two can never both be live.
+    private H264Decoder? _h264;
+    private volatile bool _useH264;
+
     private byte[]? _bgra;
     private int _width, _height;
     private WriteableBitmap? _bitmap;
@@ -171,12 +177,16 @@ public sealed class VideoPipeline : IDisposable
         // frames queued forever, the stall watch fired a PLI every 500 ms, that
         // escalated into ICE restarts, and the technician was told the network
         // had stalled when in fact there was no decoder at all.
-        try { _decoder = new VpxVideoEncoder(); }
-        catch (Exception ex)
+        if (!_useH264)
         {
-            MarkUnavailable("VP8 decoder unavailable: " + ex.Message);
-            return;
+            try { _decoder = new VpxVideoEncoder(); }
+            catch (Exception ex)
+            {
+                MarkUnavailable("VP8 decoder unavailable: " + ex.Message);
+                return;
+            }
         }
+
 
         // S12 — device-lost is visible, not silent. A TDR, driver update, RDP
         // attach or dGPU/iGPU flip now says so in the session log and in the
@@ -240,10 +250,62 @@ public sealed class VideoPipeline : IDisposable
     }
 
     /// <summary>
+    /// Switch this pipeline to the H.264 decode path. Called once, from the
+    /// SDP negotiation callback, before frames start arriving. If the machine
+    /// has no usable H.264 decoder the native path retires itself and the
+    /// session falls back to the JPEG stream — never to a black picture.
+    /// </summary>
+    public void UseH264Codec()
+    {
+        if (_useH264 || _disposed) return;
+        var dec = H264Decoder.TryCreate();
+        if (dec == null)
+        {
+            MarkUnavailable("H.264 decoder unavailable on this machine");
+            return;
+        }
+        _h264 = dec;
+        _useH264 = true;
+        try { _decoder?.Dispose(); } catch { }
+        _decoder = null;
+        lock (_qGate) _queue.Clear();
+        // Start from an IDR: joining an H.264 stream mid-GOP decodes into
+        // exactly the smeared references we gate VP8 against.
+        _awaitingKeyFrame = true;
+        Diagnostic?.Invoke("negotiated H.264 — hardware decode path active");
+    }
+
+    /// <summary>True while frames are being decoded as H.264 rather than VP8.</summary>
+    public bool UsingH264 => _useH264;
+
+    /// <summary>
     /// VP8 uncompressed data chunk, first byte: bit 0 is the inverse keyframe
     /// flag (0 = keyframe). RFC 6386 §9.1.
+    ///
+    /// For H.264 the equivalent question is "does this access unit contain an
+    /// IDR (NAL type 5) or a parameter set (7/8)?" — scan the Annex-B start
+    /// codes rather than guessing from the first byte.
     /// </summary>
-    private static bool IsKeyFrame(byte[] f) => f.Length > 0 && (f[0] & 0x01) == 0;
+    private bool IsKeyFrame(byte[] f)
+    {
+        if (f.Length == 0) return false;
+        if (!_useH264) return (f[0] & 0x01) == 0;
+
+        for (int i = 0; i + 4 < f.Length; i++)
+        {
+            if (f[i] != 0 || f[i + 1] != 0) continue;
+            int nalAt;
+            if (f[i + 2] == 1) nalAt = i + 3;
+            else if (f[i + 2] == 0 && f[i + 3] == 1) nalAt = i + 4;
+            else continue;
+            if (nalAt >= f.Length) break;
+            int type = f[nalAt] & 0x1F;
+            if (type == 5 || type == 7 || type == 8) return true;
+            i = nalAt;
+        }
+        return false;
+    }
+
 
     /// <summary>Submit one depacketised VP8 frame. Never blocks the RTP thread.</summary>
     public void Submit(byte[] encodedFrame)
@@ -301,7 +363,9 @@ public sealed class VideoPipeline : IDisposable
 
     private void DecodeOne(byte[] encoded, long enqueuedMs)
     {
+        if (_useH264) { DecodeOneH264(encoded, enqueuedMs); return; }
         IEnumerable<VideoSample>? samples;
+
         try
         {
             samples = _decoder!.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.VP8);
@@ -352,6 +416,55 @@ public sealed class VideoPipeline : IDisposable
             TickFps();
         }
     }
+
+    /// <summary>
+    /// H.264 access unit → NV12 → BGRA32 → present. Structurally identical to
+    /// the VP8 path above, including the failure accounting, so a decoder that
+    /// starts producing rubbish retires the native path exactly the same way
+    /// rather than PLI-storming a link that cannot be helped.
+    /// </summary>
+    private void DecodeOneH264(byte[] encoded, long enqueuedMs)
+    {
+        var dec = _h264;
+        if (dec == null) return;
+        if (!dec.IsAlive) { MarkUnavailable("H.264 decoder failed: " + dec.DeadReason); return; }
+
+        byte[]? nv12;
+        try { nv12 = dec.Decode(encoded, out int _, out int __); }
+        catch (Exception ex)
+        {
+            if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
+                Diagnostic?.Invoke("H.264 decode error: " + ex.Message);
+            if (NoteFailure($"H.264 decode keeps failing ({ex.Message})")) return;
+            KeyFrameRequested?.Invoke();
+            return;
+        }
+
+        int w = dec.Width, h = dec.Height;
+        // No picture yet is normal while the decoder fills its reference
+        // pipeline; it is not a failure and must not count as one.
+        if (nv12 == null || w <= 0 || h <= 0) return;
+
+        EnsureBuffers(w, h);
+        if (_bgra == null) return;
+
+        if (!FrameConvert.ToBgra32(nv12, w, h, _bgra, FrameConvert.Shape.Nv12))
+        {
+            if (Interlocked.Increment(ref _decodeErrors) % 30 == 1)
+                Diagnostic?.Invoke("unusable H.264 output: " + FrameConvert.Describe(nv12.Length, w, h));
+            NoteFailure("H.264 output is not a layout we can present: " +
+                        FrameConvert.Describe(nv12.Length, w, h));
+            return;
+        }
+
+        Interlocked.Exchange(ref _consecutiveFailures, 0);
+        Interlocked.Increment(ref _framesDecoded);
+        Interlocked.Exchange(ref _lastDecodedMs, _clock.ElapsedMilliseconds);
+        Present(w, h, enqueuedMs);
+        TickFps();
+    }
+
+
 
     /// <summary>
     /// S16 — count one unusable frame. Returns true once the native path has
@@ -521,6 +634,9 @@ public sealed class VideoPipeline : IDisposable
         try { _signal.Release(); } catch { }
         try { _decoder?.Dispose(); } catch { }
         _decoder = null;
+        try { _h264?.Dispose(); } catch { }
+        _h264 = null;
+
         try { _pacer.Dispose(); } catch { }
         try { _d3d.Park(); } catch { }
         try { _d3d.Dispose(); } catch { }
