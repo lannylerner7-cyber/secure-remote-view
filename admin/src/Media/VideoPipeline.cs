@@ -634,6 +634,9 @@ public sealed class VideoPipeline : IDisposable
         try { _signal.Release(); } catch { }
         try { _decoder?.Dispose(); } catch { }
         _decoder = null;
+        try { _h264?.Dispose(); } catch { }
+        _h264 = null;
+
         try { _pacer.Dispose(); } catch { }
         try { _d3d.Park(); } catch { }
         try { _d3d.Dispose(); } catch { }
