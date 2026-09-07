@@ -244,10 +244,62 @@ public sealed class VideoPipeline : IDisposable
     }
 
     /// <summary>
+    /// Switch this pipeline to the H.264 decode path. Called once, from the
+    /// SDP negotiation callback, before frames start arriving. If the machine
+    /// has no usable H.264 decoder the native path retires itself and the
+    /// session falls back to the JPEG stream — never to a black picture.
+    /// </summary>
+    public void UseH264Codec()
+    {
+        if (_useH264 || _disposed) return;
+        var dec = H264Decoder.TryCreate();
+        if (dec == null)
+        {
+            MarkUnavailable("H.264 decoder unavailable on this machine");
+            return;
+        }
+        _h264 = dec;
+        _useH264 = true;
+        try { _decoder?.Dispose(); } catch { }
+        _decoder = null;
+        lock (_qGate) _queue.Clear();
+        // Start from an IDR: joining an H.264 stream mid-GOP decodes into
+        // exactly the smeared references we gate VP8 against.
+        _awaitingKeyFrame = true;
+        Diagnostic?.Invoke("negotiated H.264 — hardware decode path active");
+    }
+
+    /// <summary>True while frames are being decoded as H.264 rather than VP8.</summary>
+    public bool UsingH264 => _useH264;
+
+    /// <summary>
     /// VP8 uncompressed data chunk, first byte: bit 0 is the inverse keyframe
     /// flag (0 = keyframe). RFC 6386 §9.1.
+    ///
+    /// For H.264 the equivalent question is "does this access unit contain an
+    /// IDR (NAL type 5) or a parameter set (7/8)?" — scan the Annex-B start
+    /// codes rather than guessing from the first byte.
     /// </summary>
-    private static bool IsKeyFrame(byte[] f) => f.Length > 0 && (f[0] & 0x01) == 0;
+    private bool IsKeyFrame(byte[] f)
+    {
+        if (f.Length == 0) return false;
+        if (!_useH264) return (f[0] & 0x01) == 0;
+
+        for (int i = 0; i + 4 < f.Length; i++)
+        {
+            if (f[i] != 0 || f[i + 1] != 0) continue;
+            int nalAt;
+            if (f[i + 2] == 1) nalAt = i + 3;
+            else if (f[i + 2] == 0 && f[i + 3] == 1) nalAt = i + 4;
+            else continue;
+            if (nalAt >= f.Length) break;
+            int type = f[nalAt] & 0x1F;
+            if (type == 5 || type == 7 || type == 8) return true;
+            i = nalAt;
+        }
+        return false;
+    }
+
 
     /// <summary>Submit one depacketised VP8 frame. Never blocks the RTP thread.</summary>
     public void Submit(byte[] encodedFrame)
