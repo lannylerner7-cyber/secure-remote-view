@@ -47,6 +47,12 @@ public sealed class VideoPipeline : IDisposable
 
     private Thread? _worker;
     private VpxVideoEncoder? _decoder;
+    // Brain-engine phase 1 — H.264 decode. Non-null only when the session
+    // negotiated H.264; the VP8 decoder above is disposed in that case so the
+    // two can never both be live.
+    private H264Decoder? _h264;
+    private volatile bool _useH264;
+
     private byte[]? _bgra;
     private int _width, _height;
     private WriteableBitmap? _bitmap;
