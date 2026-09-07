@@ -171,12 +171,16 @@ public sealed class VideoPipeline : IDisposable
         // frames queued forever, the stall watch fired a PLI every 500 ms, that
         // escalated into ICE restarts, and the technician was told the network
         // had stalled when in fact there was no decoder at all.
-        try { _decoder = new VpxVideoEncoder(); }
-        catch (Exception ex)
+        if (!_useH264)
         {
-            MarkUnavailable("VP8 decoder unavailable: " + ex.Message);
-            return;
+            try { _decoder = new VpxVideoEncoder(); }
+            catch (Exception ex)
+            {
+                MarkUnavailable("VP8 decoder unavailable: " + ex.Message);
+                return;
+            }
         }
+
 
         // S12 — device-lost is visible, not silent. A TDR, driver update, RDP
         // attach or dGPU/iGPU flip now says so in the session log and in the
