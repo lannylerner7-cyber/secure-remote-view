@@ -2297,3 +2297,56 @@ guaranteed-rejected join before recovering. `ApiClient.TokenExpiringWithin(int)`
 now backs an `isTokenStale` probe consulted before every join; the guard renews
 when the token is missing *or* inside a 60s window. Happy path unchanged
 (`EnsureFreshTokenAsync` no-ops on a fresh token). Rebuilt: 0 errors.
+
+## §10.36 — Brain engine phase 1: hardware H.264 wire codec — 2026-09-03 (`SCOPE:LIVE`)
+
+**Why.** Software VP8 was the whole reason the resolution ladder was pinned at
+1920px (`BitrateController.Ceiling = DefaultRung`): libvpx on the CPU cannot
+encode 2K/4K in real time, so the 3840/2560 rungs existed only for the JPEG
+fallback and the technician saw a soft picture on the WebRTC path. This ships
+the hardware encode/decode path that earns the ceiling back.
+
+**Agent (`SCOPE:AGENT`)**
+- `agent/src/MediaFoundationInterop.cs` — shared Media Foundation COM/P-Invoke
+  layer (MFT enumeration/activation, media types, samples, async event
+  generator, ICodecAPI).
+- `agent/src/HwH264Encoder.cs` — wraps the NVENC/QuickSync/AMF MFT that
+  `HwEncoderProbe` finds. BGRA → NV12 (BT.601 limited range, matching
+  `FrameConvert`) → Annex-B H.264. Handles both synchronous and asynchronous
+  MFTs, forced IDR on PLI/FIR, CBR rate control tracked to the ladder, low
+  latency mode, 2 s GOP, and output stream-change renegotiation.
+- `agent/src/WebRtcSession.cs` — offers H.264 (pt 102,
+  `packetization-mode=1;profile-level-id=42e01f`) ahead of VP8 when
+  `CodecPolicy.AllowH264`; keeps VP8 in the list as the universal floor. On an
+  H.264 answer the software endpoint is muted and frames go through
+  `HwH264Encoder` to `pc.SendVideo`. The ladder ceiling is lifted to 0 only
+  after the encoder has actually produced a frame — negotiation alone does not
+  buy the 4K rung. Geometry change rebuilds the encoder; a dead MFT retires the
+  H.264 path for that peer and the HTTPS frame stream carries on.
+
+**Native admin (`SCOPE:ADMIN`)**
+- `admin/src/Media/MediaFoundationInterop.cs` — same interop layer, admin
+  namespace (kept as a copy, not a cross-project link, so each release archive
+  stays self-contained).
+- `admin/src/Media/H264Decoder.cs` — Media Foundation H.264 decode, NV12 out,
+  stride-corrected into a tightly packed buffer.
+- `admin/src/Media/VideoPipeline.cs` — codec-aware. `UseH264Codec()` swaps the
+  decoder before the first packet; keyframe gating understands Annex-B NAL
+  types 5/7/8; the H.264 decode path reuses the existing failure accounting,
+  pacer, D3D presenter and telemetry.
+- `admin/src/Media/WebRtcClient.cs` — offers H.264 then VP8, selects the
+  decoder on `OnVideoFormatsNegotiated`, exposes `WireCodec`. Session recording
+  is declined on H.264 sessions because `.ivf` carries VP8 only.
+
+**Web console.** No change required: `src/lib/webrtc-live.ts` never filtered
+codecs, and browsers decode H.264 in hardware already.
+
+**Kill switch.** `CONNECTLIVE_CODEC=vp8` (the existing `CodecPolicy`) forces the
+old software VP8 path with no code rollback. H.264 is additionally gated on
+`HwEncoderProbe` finding real silicon.
+
+**Not yet verified.** This build has not been compiled or run on Windows — the
+Linux workspace has no .NET SDK for `net8.0-windows`. First Windows build must
+confirm: agent log shows `codec=h264-hw` with rising `h264frames`, admin log
+shows `negotiated H.264`, the ladder climbs past rung 2, and pulling the
+hardware (or setting the kill switch) still yields a working VP8 session.

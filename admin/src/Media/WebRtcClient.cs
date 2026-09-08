@@ -361,8 +361,12 @@ public sealed class WebRtcClient : IDisposable
                 // S24 — tee the exact bitstream to disk when recording. Reading
                 // the field without a lock is fine: it is swapped whole, and
                 // IvfWriter is itself thread-safe.
+                //
+                // The .ivf container only carries VP8, so an H.264 session is
+                // not recorded rather than written into a file no player can
+                // open. The recording button reports this to the technician.
                 var rec = _recorder;
-                if (rec != null)
+                if (rec != null && !_wireCodecIsH264)
                 {
                     try { rec.WriteFrame(frame); }
                     catch (Exception ex) { T("record write failed: " + ex.Message); }
@@ -376,15 +380,29 @@ public sealed class WebRtcClient : IDisposable
 
     private IvfWriter? _recorder;
 
+    /// <summary>True once SDP negotiation settled on H.264 rather than VP8.</summary>
+    private volatile bool _wireCodecIsH264;
+
+    /// <summary>Codec actually on the wire, for the session log and health line.</summary>
+    public string WireCodec => _wireCodecIsH264 ? "H264" : "VP8";
+
+
     public bool IsRecording => _recorder != null;
 
     /// <summary>
     /// Begin teeing decoded VP8 frames to an .ivf file under Videos\ConnectLive.
-    /// Returns the path, or null when the file cannot be created.
+    /// Returns the path, or null when the file cannot be created — or when the
+    /// session is running on H.264, which the .ivf container cannot hold.
     /// </summary>
     public string? StartRecording(int width = 0, int height = 0)
     {
+        if (_wireCodecIsH264)
+        {
+            Log.Warn("[record] not available on an H.264 session (.ivf carries VP8 only)");
+            return null;
+        }
         if (_recorder != null) return _recorder.Path;
+
         try
         {
             var dir = System.IO.Path.Combine(
