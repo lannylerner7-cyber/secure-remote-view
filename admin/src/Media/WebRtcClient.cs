@@ -361,8 +361,12 @@ public sealed class WebRtcClient : IDisposable
                 // S24 — tee the exact bitstream to disk when recording. Reading
                 // the field without a lock is fine: it is swapped whole, and
                 // IvfWriter is itself thread-safe.
+                //
+                // The .ivf container only carries VP8, so an H.264 session is
+                // not recorded rather than written into a file no player can
+                // open. The recording button reports this to the technician.
                 var rec = _recorder;
-                if (rec != null)
+                if (rec != null && !_wireCodecIsH264)
                 {
                     try { rec.WriteFrame(frame); }
                     catch (Exception ex) { T("record write failed: " + ex.Message); }
@@ -375,6 +379,13 @@ public sealed class WebRtcClient : IDisposable
     // ---- S24: session recording ------------------------------------------
 
     private IvfWriter? _recorder;
+
+    /// <summary>True once SDP negotiation settled on H.264 rather than VP8.</summary>
+    private volatile bool _wireCodecIsH264;
+
+    /// <summary>Codec actually on the wire, for the session log and health line.</summary>
+    public string WireCodec => _wireCodecIsH264 ? "H264" : "VP8";
+
 
     public bool IsRecording => _recorder != null;
 
