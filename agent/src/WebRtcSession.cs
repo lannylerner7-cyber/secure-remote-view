@@ -646,7 +646,9 @@ public sealed class WebRtcSession : IDisposable
         Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc video pipe: pushed={Interlocked.Read(ref _pushed)} " +
                  $"encoded={Interlocked.Read(ref _encoded)} dropped={Interlocked.Read(ref _dropped)} " +
                  $"formatReady={_formatReady} started={_videoStarted} " +
-                 $"size={_lastPushW}x{_lastPushH} pt={_negotiatedPt}");
+                 $"size={_lastPushW}x{_lastPushH} pt={_negotiatedPt} " +
+                 $"codec={(_h264Live ? "h264-hw" : "vp8-sw")} h264frames={Interlocked.Read(ref _h264Frames)}");
+
         // S17 step 1 — encode cost next to the pipe counters, so one log excerpt
         // answers both "are frames flowing?" and "what did they cost?".
         try { Log.Info($"[t={MonoClock.ElapsedMilliseconds}] {EncodeStats.Line()}"); } catch { }
