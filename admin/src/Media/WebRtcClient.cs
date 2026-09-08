@@ -391,11 +391,18 @@ public sealed class WebRtcClient : IDisposable
 
     /// <summary>
     /// Begin teeing decoded VP8 frames to an .ivf file under Videos\ConnectLive.
-    /// Returns the path, or null when the file cannot be created.
+    /// Returns the path, or null when the file cannot be created — or when the
+    /// session is running on H.264, which the .ivf container cannot hold.
     /// </summary>
     public string? StartRecording(int width = 0, int height = 0)
     {
+        if (_wireCodecIsH264)
+        {
+            Log.Warn("[record] not available on an H.264 session (.ivf carries VP8 only)");
+            return null;
+        }
         if (_recorder != null) return _recorder.Path;
+
         try
         {
             var dir = System.IO.Path.Combine(
