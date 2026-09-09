@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       admin_settings: {
         Row: {
+          notify_on_agent_stopped: boolean
           notify_on_control_taken: boolean
           notify_on_device_offline: boolean
           notify_on_session_start: boolean
@@ -28,6 +29,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          notify_on_agent_stopped?: boolean
           notify_on_control_taken?: boolean
           notify_on_device_offline?: boolean
           notify_on_session_start?: boolean
@@ -40,6 +42,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          notify_on_agent_stopped?: boolean
           notify_on_control_taken?: boolean
           notify_on_device_offline?: boolean
           notify_on_session_start?: boolean
@@ -249,6 +252,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      expected_devices: {
+        Row: {
+          created_at: string
+          hostname: string
+          id: string
+          note: string | null
+          owner_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hostname: string
+          id?: string
+          note?: string | null
+          owner_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hostname?: string
+          id?: string
+          note?: string | null
+          owner_id?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       license_lookups: {
         Row: {

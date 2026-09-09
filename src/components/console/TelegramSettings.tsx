@@ -4,6 +4,7 @@ export type TgState = {
   notify_on_session_start: boolean;
   notify_on_control_taken: boolean;
   notify_on_device_offline: boolean;
+  notify_on_agent_stopped: boolean;
 };
 
 export function TelegramSettings({
@@ -63,7 +64,15 @@ export function TelegramSettings({
             checked={tg.notify_on_device_offline}
             onChange={(e) => setTg({ ...tg, notify_on_device_offline: e.target.checked })}
           />{" "}
-          Notify on device offline
+          Notify on device unreachable
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={tg.notify_on_agent_stopped}
+            onChange={(e) => setTg({ ...tg, notify_on_agent_stopped: e.target.checked })}
+          />{" "}
+          Notify when agent process is stopped (Task Manager kill)
         </label>
       </div>
       <div className="flex items-center justify-between gap-2">

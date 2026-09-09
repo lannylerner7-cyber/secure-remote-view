@@ -32,6 +32,7 @@ import { SessionsTable } from "@/components/console/SessionsTable";
 import { TelegramSettings } from "@/components/console/TelegramSettings";
 import { TeamPanel } from "@/components/console/TeamPanel";
 import { ReaperPanel } from "@/components/console/ReaperPanel";
+import { ExpectedDevicesPanel } from "@/components/console/ExpectedDevicesPanel";
 import { RenderHealthPanel } from "@/components/console/RenderHealthPanel";
 import { RemoteCursorOverlay } from "@/components/console/RemoteCursorOverlay";
 import { MonitorPicker, type MonitorEntry } from "@/components/console/MonitorPicker";
@@ -143,6 +144,7 @@ function AdminPage() {
     notify_on_session_start: true,
     notify_on_control_taken: true,
     notify_on_device_offline: true,
+    notify_on_agent_stopped: true,
   });
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(
     null,
@@ -591,6 +593,7 @@ function AdminPage() {
         notify_on_session_start: data.notify_on_session_start,
         notify_on_control_taken: data.notify_on_control_taken,
         notify_on_device_offline: data.notify_on_device_offline,
+        notify_on_agent_stopped: (data as { notify_on_agent_stopped?: boolean }).notify_on_agent_stopped ?? true,
       });
   }
 
@@ -616,7 +619,11 @@ function AdminPage() {
     setTimeout(() => setTgSaved(null), 3000);
   }
 
-  const presenceOf = (d: Device): "online" | "reconnecting" | "offline" => {
+  const presenceOf = (d: Device): "online" | "reconnecting" | "offline" | "stopped" => {
+    // "stopped" is a hard state set by the watch-app beacon — a user killed
+    // ConnectLive.exe in Task Manager. It stays until the next heartbeat
+    // (via auto-relaunch) flips the row back to online.
+    if (d.status === "stopped") return "stopped";
     const last = d.last_seen_at ? new Date(d.last_seen_at).getTime() : 0;
     const age = now - last;
     if (d.status === "online" && age < STALE_MS) return "online";
@@ -628,7 +635,7 @@ function AdminPage() {
   // missing bot token, Telegram API errors) are visible in the console
   // instead of silently swallowed by a floating promise.
   async function pushNotify(
-    kind: "session_start" | "session_end" | "control_taken" | "control_released" | "device_offline",
+    kind: "session_start" | "session_end" | "control_taken" | "control_released" | "device_offline" | "agent_stopped",
     text: string,
   ) {
     try {
@@ -647,7 +654,7 @@ function AdminPage() {
 
   // device_offline: fire once per online → offline transition. A ref keeps the
   // last presence per device so the 5s refresh loop can't spam the channel.
-  const prevPresenceRef = useRef<Map<string, "online" | "reconnecting" | "offline">>(new Map());
+  const prevPresenceRef = useRef<Map<string, "online" | "reconnecting" | "offline" | "stopped">>(new Map());
   useEffect(() => {
     const prev = prevPresenceRef.current;
     for (const d of devices) {
@@ -655,10 +662,15 @@ function AdminPage() {
       const was = prev.get(d.id);
       prev.set(d.id, p);
       if (!was) continue;
-      if (was !== "offline" && p === "offline") {
+      if (was !== "stopped" && p === "stopped") {
+        void pushNotify(
+          "agent_stopped",
+          `🛑 Agent process was terminated on <b>${d.display_name ?? "Device"}</b> (${d.hostname ?? d.device_id}). It will relaunch within ~60s.`,
+        );
+      } else if (was !== "offline" && was !== "stopped" && p === "offline") {
         void pushNotify(
           "device_offline",
-          `🔌 <b>${d.display_name ?? "Device"}</b> went offline (last seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}).`,
+          `🔌 <b>${d.display_name ?? "Device"}</b> is unreachable (last seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}).`,
         );
       }
     }
@@ -1142,6 +1154,7 @@ function AdminPage() {
           <nav className="flex-1 space-y-1">
             <NavBtn id="dashboard" label="Dashboard" />
             <NavBtn id="devices" label="Devices" badge={onlineCount} />
+            <NavBtn id="expected" label="Expected devices" />
             <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
             <NavBtn id="audit" label="Audit log" />
             {role === "super_admin" && <NavBtn id="team" label="Team" />}
@@ -1189,6 +1202,7 @@ function AdminPage() {
               [
                 ["dashboard", "Dashboard"],
                 ["devices", "Devices"],
+                ["expected", "Expected"],
                 ["sessions", "Sessions"],
                 ["audit", "Audit"],
                 ...(role === "super_admin"
@@ -1322,6 +1336,8 @@ function AdminPage() {
                 }}
               />
             )}
+
+            {nav === "expected" && <ExpectedDevicesPanel />}
 
             {nav === "sessions" && (
               <SessionsTable

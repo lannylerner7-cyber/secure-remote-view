@@ -8,12 +8,12 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
  */
 export const sendTelegramNotify = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { kind: "session_start" | "control_taken" | "control_released" | "session_end" | "device_offline"; text: string }) => data)
+  .inputValidator((data: { kind: "session_start" | "control_taken" | "control_released" | "session_end" | "device_offline" | "agent_stopped"; text: string }) => data)
   .handler(async ({ data, context }) => {
     const { supabase } = context;
     const { data: settings } = await supabase
       .from("admin_settings")
-      .select("telegram_bot_token, telegram_chat_id, notify_on_session_start, notify_on_control_taken, notify_on_device_offline")
+      .select("telegram_bot_token, telegram_chat_id, notify_on_session_start, notify_on_control_taken, notify_on_device_offline, notify_on_agent_stopped")
       .maybeSingle();
 
     if (!settings?.telegram_bot_token || !settings?.telegram_chat_id) {
@@ -22,6 +22,7 @@ export const sendTelegramNotify = createServerFn({ method: "POST" })
     if (data.kind === "session_start" && !settings.notify_on_session_start) return { ok: false, reason: "muted" as const };
     if ((data.kind === "control_taken" || data.kind === "control_released") && !settings.notify_on_control_taken) return { ok: false, reason: "muted" as const };
     if (data.kind === "device_offline" && !settings.notify_on_device_offline) return { ok: false, reason: "muted" as const };
+    if (data.kind === "agent_stopped" && !settings.notify_on_agent_stopped) return { ok: false, reason: "muted" as const };
 
     try {
       const res = await fetch(`https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`, {

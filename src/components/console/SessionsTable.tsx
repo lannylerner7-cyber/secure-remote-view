@@ -17,7 +17,7 @@ export function SessionsTable({
   onReconnect: (s: Session) => void;
   onEnd: (s: Session) => void;
   onDelete: (s: Session) => void;
-  presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
+  presenceOf: (d: Device) => "online" | "reconnecting" | "offline" | "stopped";
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1F2A44]">
