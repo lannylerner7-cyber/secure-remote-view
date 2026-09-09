@@ -19,7 +19,7 @@ export function DevicesTable({
   onPower,
 }: {
   devices: Device[];
-  presenceOf: (d: Device) => "online" | "reconnecting" | "offline";
+  presenceOf: (d: Device) => "online" | "reconnecting" | "offline" | "stopped";
   selected: Set<string>;
   toggleSelect: (id: string) => void;
   onBulkEnd: () => void;
@@ -90,13 +90,16 @@ export function DevicesTable({
                           ? "bg-green-500/15 text-green-300"
                           : p === "reconnecting"
                             ? "bg-amber-500/15 text-amber-300"
-                            : "bg-white/10 text-white/50"
+                            : p === "stopped"
+                              ? "bg-red-500/15 text-red-300"
+                              : "bg-white/10 text-white/50"
                       }`}
+                      title={p === "stopped" ? "Agent process was stopped on the device" : undefined}
                     >
                       <span
-                        className={`h-1.5 w-1.5 rounded-full ${p === "online" ? "bg-green-400" : p === "reconnecting" ? "bg-amber-400 animate-pulse" : "bg-white/40"}`}
+                        className={`h-1.5 w-1.5 rounded-full ${p === "online" ? "bg-green-400" : p === "reconnecting" ? "bg-amber-400 animate-pulse" : p === "stopped" ? "bg-red-400" : "bg-white/40"}`}
                       />
-                      {p}
+                      {p === "stopped" ? "stopped" : p}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-white/60">

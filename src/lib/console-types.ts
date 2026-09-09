@@ -21,6 +21,7 @@ export type LiveCursor = {
 export const NAV_VALUES = [
   "dashboard",
   "devices",
+  "expected",
   "sessions",
   "audit",
   "settings",
@@ -28,6 +29,8 @@ export const NAV_VALUES = [
 ] as const;
 
 export type Nav = (typeof NAV_VALUES)[number];
+
+export type Presence = "online" | "reconnecting" | "offline" | "stopped";
 
 // Agent heartbeat cadence = 15s; backend flags reconnect after a 60s gap.
 // Give one missed beat of grace before "reconnecting", and match the backend
