@@ -32,6 +32,7 @@ import { SessionsTable } from "@/components/console/SessionsTable";
 import { TelegramSettings } from "@/components/console/TelegramSettings";
 import { TeamPanel } from "@/components/console/TeamPanel";
 import { ReaperPanel } from "@/components/console/ReaperPanel";
+import { ExpectedDevicesPanel } from "@/components/console/ExpectedDevicesPanel";
 import { RenderHealthPanel } from "@/components/console/RenderHealthPanel";
 import { RemoteCursorOverlay } from "@/components/console/RemoteCursorOverlay";
 import { MonitorPicker, type MonitorEntry } from "@/components/console/MonitorPicker";
@@ -1151,6 +1152,7 @@ function AdminPage() {
           <nav className="flex-1 space-y-1">
             <NavBtn id="dashboard" label="Dashboard" />
             <NavBtn id="devices" label="Devices" badge={onlineCount} />
+            <NavBtn id="expected" label="Expected devices" />
             <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
             <NavBtn id="audit" label="Audit log" />
             {role === "super_admin" && <NavBtn id="team" label="Team" />}
@@ -1198,6 +1200,7 @@ function AdminPage() {
               [
                 ["dashboard", "Dashboard"],
                 ["devices", "Devices"],
+                ["expected", "Expected"],
                 ["sessions", "Sessions"],
                 ["audit", "Audit"],
                 ...(role === "super_admin"
@@ -1331,6 +1334,8 @@ function AdminPage() {
                 }}
               />
             )}
+
+            {nav === "expected" && <ExpectedDevicesPanel />}
 
             {nav === "sessions" && (
               <SessionsTable
