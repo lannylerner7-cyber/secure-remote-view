@@ -144,6 +144,7 @@ function AdminPage() {
     notify_on_session_start: true,
     notify_on_control_taken: true,
     notify_on_device_offline: true,
+    notify_on_agent_stopped: true,
   });
   const [tgSaved, setTgSaved] = useState<null | "saved" | "testing" | "test_ok" | "test_fail">(
     null,
