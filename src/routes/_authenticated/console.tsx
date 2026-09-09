@@ -593,6 +593,7 @@ function AdminPage() {
         notify_on_session_start: data.notify_on_session_start,
         notify_on_control_taken: data.notify_on_control_taken,
         notify_on_device_offline: data.notify_on_device_offline,
+        notify_on_agent_stopped: (data as { notify_on_agent_stopped?: boolean }).notify_on_agent_stopped ?? true,
       });
   }
 
