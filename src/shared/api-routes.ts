@@ -16,6 +16,10 @@ export const API_ROUTES = {
   agentEnroll: "/api/public/agent/enroll",
   agentHello: "/api/public/agent/hello",
   agentHeartbeat: "/api/public/agent/heartbeat",
+  /** Watch-app beacon. Fired by ConnectLiveWatch.exe when it detects the main
+   *  ConnectLive.exe process is no longer running (Task Manager kill,
+   *  uninstall). Body: { reason: "stopped" | "starting" | "uninstalling" }. */
+  agentBeacon: "/api/public/agent/beacon",
   /** SSE wake channel. Consumed by agent/src/StreamListener.cs, which nudges
    *  the heartbeat loop on `event: wake` so revival is sub-second instead of
    *  waiting a full heartbeat tick. Heartbeat stays the source of truth. */
