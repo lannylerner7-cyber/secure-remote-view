@@ -39,6 +39,7 @@ import { Route as ApiPublicAgentIceRouteImport } from './routes/api/public/agent
 import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
 import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
 import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
+import { Route as ApiPublicAgentBeaconRouteImport } from './routes/api/public/agent/beacon'
 import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
 import { Route as ApiPublicAgentSessionSessionIdSignalRouteImport } from './routes/api/public/agent/session.$sessionId.signal'
 import { Route as ApiPublicAgentSessionSessionIdReconnectRouteImport } from './routes/api/public/agent/session.$sessionId.reconnect'
@@ -201,6 +202,11 @@ const ApiPublicAgentEnrollRoute = ApiPublicAgentEnrollRouteImport.update({
   path: '/api/public/agent/enroll',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAgentBeaconRoute = ApiPublicAgentBeaconRouteImport.update({
+  id: '/api/public/agent/beacon',
+  path: '/api/public/agent/beacon',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicAdminBootstrapRoute = ApiPublicAdminBootstrapRouteImport.update({
   id: '/api/public/admin/bootstrap',
   path: '/api/public/admin/bootstrap',
@@ -281,6 +287,7 @@ export interface FileRoutesByFullPath {
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
+  '/api/public/agent/beacon': typeof ApiPublicAgentBeaconRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
@@ -322,6 +329,7 @@ export interface FileRoutesByTo {
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
+  '/api/public/agent/beacon': typeof ApiPublicAgentBeaconRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
@@ -365,6 +373,7 @@ export interface FileRoutesById {
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
+  '/api/public/agent/beacon': typeof ApiPublicAgentBeaconRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
@@ -408,6 +417,7 @@ export interface FileRouteTypes {
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
+    | '/api/public/agent/beacon'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
@@ -449,6 +459,7 @@ export interface FileRouteTypes {
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
+    | '/api/public/agent/beacon'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
@@ -491,6 +502,7 @@ export interface FileRouteTypes {
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
+    | '/api/public/agent/beacon'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
@@ -532,6 +544,7 @@ export interface RootRouteChildren {
   PublicAgentLoginRoute: typeof PublicAgentLoginRoute
   PublicAgentPortalRoute: typeof PublicAgentPortalRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
+  ApiPublicAgentBeaconRoute: typeof ApiPublicAgentBeaconRoute
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
   ApiPublicAgentHelloRoute: typeof ApiPublicAgentHelloRoute
@@ -766,6 +779,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentEnrollRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/beacon': {
+      id: '/api/public/agent/beacon'
+      path: '/api/public/agent/beacon'
+      fullPath: '/api/public/agent/beacon'
+      preLoaderRoute: typeof ApiPublicAgentBeaconRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/admin/bootstrap': {
       id: '/api/public/admin/bootstrap'
       path: '/api/public/admin/bootstrap'
@@ -871,6 +891,7 @@ const rootRouteChildren: RootRouteChildren = {
   PublicAgentLoginRoute: PublicAgentLoginRoute,
   PublicAgentPortalRoute: PublicAgentPortalRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,
+  ApiPublicAgentBeaconRoute: ApiPublicAgentBeaconRoute,
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
   ApiPublicAgentHelloRoute: ApiPublicAgentHelloRoute,
