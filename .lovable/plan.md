@@ -1,64 +1,76 @@
-# Verify recent updates, address the "bypass UAC" ask, and recut all four zips
+# Detect "Agent killed" and "Agent never installed"
 
-Two things before packaging:
+Two gaps in the admin console today:
 
-1. Reconcile the recent Phase 1 (hardware H.264) work against the roadmap and the rest of the codebase so nothing is half-wired.
-2. Answer the UAC question honestly — with a design that gets you the same practical outcome without tripping SmartScreen, Defender, or EDR.
+1. When a user ends `ConnectLive.exe` from Task Manager, the process is force-killed — no goodbye packet is sent. The admin panel only notices ~60 s later, when the heartbeat gap sweep fires.
+2. Machines that have never enrolled don't appear anywhere. The admin can't see "we expected this laptop to have the agent, but it doesn't".
 
-Then recut the four release archives (Agent source, Agent build kit, Admin source, Admin build kit) with today's tag `2026-09-08a`, each self-contained and independently buildable.
+This plan closes both, without adding a SYSTEM service (User-mode only is the chosen elevation model).
 
-## About "bypass UAC without a security alert"
+## What the admin will see
 
-We are not going to auto-elevate silently, suppress the consent prompt, hide from SmartScreen, or evade AV. Any of those get the product classified as malware across Defender/EDR and kill the signing cert. That is not an RMM, that is a trojan.
+- A device that gets killed in Task Manager flips to a new `stopped` state within ~30 s, with a red badge "Agent stopped on device" and a Telegram alert "Agent process was terminated on {machine}".
+- A new "Expected devices" tab lets an admin paste hostnames (or upload a CSV). Any hostname on that list without a matching enrolled device shows as "Agent not installed" with a copy-link button to the installer.
+- The existing "device_offline" alert stays, but its wording changes to "unreachable" so it's distinct from "stopped".
 
-The legitimate way to get "no UAC prompt on end-user machines, survives reboot, sees the secure desktop" — which is what every real enterprise RMM does — is:
+## How we detect a Task Manager kill
 
-- Ship the Agent as a **signed MSI** installed once with admin rights (GPO / Intune / Jamf / a one-time technician install). That is the only UAC moment in the device's lifetime.
-- Run the Agent as a **Windows Service under LocalSystem**, auto-start. SYSTEM does not prompt for UAC, survives reboots, and can render on the Winlogon/UAC secure desktop.
-- For UI pieces that must live in the user's session (tray, curtain overlay, clipboard), have the service spawn a helper into the active session via `WTSQueryUserToken` + `CreateProcessAsUser`. Still no prompt.
-- Keep Authenticode signing (S25); move to an EV cert when volume justifies it so SmartScreen trusts the installer immediately.
+The agent process itself can't report its own death — `TerminateProcess` skips every cleanup path. We need a second, tiny process to notice.
 
-The current build is Phase 1 "standalone user-mode Agent." It is fine for the recut today, but the SYSTEM-service model should be a tracked roadmap item — it is the only path that both avoids UAC prompts and stays on the right side of Defender/EDR. This plan records it; it does not implement it in this pass.
+We already ship a **scheduled task** `ConnectLiveAgent` (ONLOGON, `/background`). Add a second scheduled task `ConnectLiveWatch` that runs every 1 minute under the same user:
 
-## Step 1 — Verify recent updates line up with the roadmap and codebase
+- If `ConnectLive.exe` **is** running: no-op (exit 0).
+- If `ConnectLive.exe` **is not** running and the machine has a stored device token:
+  1. POST `/api/public/agent/beacon` with `{ reason: "stopped" }` using the DPAPI-stored token.
+  2. Relaunch `ConnectLive.exe /background` (this is the self-heal we already do on logon, just moved to a 60 s tick).
 
-Read-only sweep, no edits outside `.lovable/plan.md`:
+The watch task is a ~5 KB console EXE (`ConnectLiveWatch.exe`) shipped alongside `ConnectLive.exe` and registered by `StartupSelfHeal.EnsureAll()`. It has no UI, no window, and exits immediately in the happy path.
 
-- Re-read `agent/src/WebRtcSession.cs`, `agent/src/HwH264Encoder.cs`, `agent/src/MediaFoundationInterop.cs`, `agent/src/CodecPolicy.cs`, `agent/src/HwEncoderProbe.cs`.
-- Re-read `admin/src/Media/VideoPipeline.cs`, `admin/src/Media/WebRtcClient.cs`, `admin/src/Media/H264Decoder.cs`, `admin/src/Media/MediaFoundationInterop.cs`.
-- Confirm the H.264 path is gated by `CodecPolicy.AllowH264` and the `CONNECTLIVE_CODEC=vp8` kill switch, and that VP8 fallback is intact on both sides.
-- Confirm `admin/src/ConnectLiveAdmin.csproj` and `agent/src/ConnectLiveAgent.csproj` have `AllowUnsafeBlocks` where the new interop needs it, and that no duplicate `MediaFoundationInterop` symbols leak between namespaces.
-- Verify route parity — 25 agent public routes and 5 payment routes — by running the existing `scripts/verify-agent-routes.ts` and `scripts/verify-payment-routes.ts` against `src/shared/api-routes.ts` and `src/routes/api/public/**`.
-- Check `PROJECT-MAP.md` and `.lovable/plan/brain-engine-upgrade-rdp-class-streaming-behaviour-2026-09-03.md`: Phase 1 marked done only if verification above holds; Phases 2–6 stay open.
-- Grep for hot-linked or duplicated modules that shouldn't ship: stale `ConsentPrompt`, old `AGENT_DEPLOYMENT_KEY`, `ConnectLiveUpdater.exe`, `ConnectLiveService.exe`, any leftover `VideoEncoder` (vs `VpxVideoEncoder`) references, and any `@/hooks/use-toast`/`react-helmet-async` imports.
+Trade-off the user should know: because the watch task also relaunches the agent, a user who kills it in Task Manager will see it come back within 60 s. That's standard RMM behaviour and the price of "we notice it stopped". If the user wants a true "off" state, they uninstall — which is what the "Agent not installed" view is for.
 
-Anything that fails verification gets listed back to you before packaging — I won't silently "fix" code in plan mode.
+## Server side
 
-## Step 2 — Add the SYSTEM-service track to the roadmap (doc only)
+- New route `POST /api/public/agent/beacon` (device-token authed, same shape as `/heartbeat`) accepting `{ reason: "stopped" | "starting" | "uninstalling" }`. On `stopped`, sets `devices.status = 'stopped'`, `last_seen_at = now`, and inserts a notification row.
+- Extend the `devices.status` check constraint to include `'stopped'`.
+- Extend `notify.functions.ts` and `admin_settings` with `notify_on_agent_stopped` (defaults true).
+- Console presence resolver: `stopped` wins over the age-based `online/reconnecting/offline` calculation, so a stopped machine reads "Stopped" until the next heartbeat flips it back to `online`.
 
-Append a new section to `PROJECT-MAP.md` (and a short new plan file under `.lovable/plan/`) capturing the elevation model above as the next milestone: signed MSI + LocalSystem service + session-launcher helper, replacing HKCU Run self-persistence. No code yet.
+## Expected-devices roster
 
-## Step 3 — Recut the four zips as `2026-09-08a`
+- New table `expected_devices(id, owner_id, hostname, note, created_at)` with RLS scoping to `auth.uid()` and the standard grants.
+- New serverfn `listExpectedWithStatus()` that left-joins against `devices.hostname` (case-insensitive) and returns `{ hostname, note, matched_device_id, status }` where status is `installed | not_installed`.
+- New tab in the technician console: "Expected devices" — paste-in textarea (one hostname per line), CSV upload, and a table showing installed vs not-installed rows. Rows without a match get an "Install link" button that copies the download URL.
 
-Each archive is self-contained (its own `src/`, `build.ps1`/`build.bat`, `tools/CodeSign.ps1`, `README-BUILD.txt`, `INSTALL.md`) and independently buildable on a clean Windows box with only the .NET 8 SDK (and WiX for the MSI kit):
+## Files touched
 
-- `ConnectLive-Agent-Source-2026-09-08a.zip` — `agent/src/`, `agent/assets/`, `agent/build.ps1`, `agent/build-developer.ps1`, `tools/CodeSign.ps1`, `agent/INSTALL.md`, `agent/README.md`.
-- `ConnectLive-Agent-BuildKit-2026-09-08a.zip` — same as source plus `agent/packaging/` (msi/inno/gpo/jamf/intune) and a top-level `BUILD-ON-WINDOWS.txt`.
-- `ConnectLive-Admin-Source-2026-09-08a.zip` — `admin/src/`, `admin/assets/`, `admin/build.ps1`, `tools/CodeSign.ps1`, `admin/INSTALL.md`, `admin/README.md`.
-- `ConnectLive-Admin-BuildKit-2026-09-08a.zip` — same as source plus a `BUILD-ON-WINDOWS.txt`.
+Server / web:
+- `supabase/migrations/<ts>_agent_stopped_and_expected.sql` — extend `devices.status` enum-ish check, add `expected_devices`, add `notify_on_agent_stopped`.
+- `src/routes/api/public/agent/beacon.ts` — new route.
+- `src/shared/api-routes.ts` — register `agentBeacon`.
+- `src/lib/notify.functions.ts` — add `agent_stopped` kind.
+- `src/lib/expected-devices.functions.ts` — new serverfns (list/upsert/delete).
+- `src/routes/_authenticated/console.tsx` — new "Expected devices" tab, `stopped` presence branch, updated Telegram wording.
 
-Exclusions on every archive: `bin/`, `obj/`, `.vs/`, `*.user`, `publish/`, `dist/`, NuGet caches, `.env*`, anything under `/mnt`.
+Agent / packaging:
+- `agent/src/Watch/Program.cs` — new tiny console app project `ConnectLiveWatch.csproj`.
+- `agent/src/StartupSelfHeal.cs` — also register the `ConnectLiveWatch` scheduled task (1-minute tick).
+- `agent/packaging/inno/ConnectLiveSetup.iss` — ship `ConnectLiveWatch.exe` next to `ConnectLive.exe`.
+- `agent/packaging/msi/ConnectLive.wxs` — same.
+- `agent/src/ApiClient.cs` — add `PostBeaconAsync(reason)` for the watch app to reuse via a shared assembly, or duplicate the ~30 LOC device-token POST inside the watch app to keep it dependency-free (leaning: duplicate; the watch app should be tiny and standalone).
 
-Before writing the zips: SHA-256 each staged tree, print the digests, and confirm the four archives differ from each other (no accidental duplicates like last time).
-
-## Deliverables
-
-- Verification report in chat: pass/fail for each item in Step 1, with any file:line issues found.
-- Updated `PROJECT-MAP.md` + new plan file for the SYSTEM-service milestone.
-- Four zips under `/mnt/documents/releases/2026-09-08a/` with SHA-256s printed.
+Docs:
+- `PROJECT-MAP.md` — new §10.37 "Agent stopped detection + expected-devices roster".
+- `ENDPOINTS.md` — add `/api/public/agent/beacon`.
 
 ## Out of scope
 
-- Any technique that suppresses UAC, SmartScreen, or AV prompts on end-user machines.
-- Implementing the SYSTEM-service model itself (tracked, not built, in this pass).
-- Phase 2–6 of the brain-engine upgrade.
+- Auto-discovering LAN hosts without an agent (would need a network scan from an enrolled device — separate scope).
+- SYSTEM-service elevation to make the agent unkillable — user chose User-mode only.
+- Removing the auto-relaunch (see trade-off above).
+
+## Technical details
+
+- `devices.status` today is a free `text` column populated with `'online'` and `'offline'`. Add a CHECK constraint `status IN ('online','offline','stopped')` in the same migration; existing rows are already one of the first two.
+- The beacon route reuses `verifyDevice(request)` from `src/lib/agent-auth.server.ts`; no new auth surface.
+- The watch app targets `net8.0-windows` with `PublishSingleFile=true`, `SelfContained=false` (matches the agent's runtime posture), so it inherits the same signed `.NET 8 Desktop Runtime` requirement already documented.
+- `expected_devices` matching is case-insensitive on `lower(hostname)`; both sides trim trailing dots and domain suffixes so `PC-42` matches `pc-42.corp.local`.
