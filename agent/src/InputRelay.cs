@@ -422,11 +422,13 @@ public static class InputRelay
     {
         if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("events", out var events) || events.ValueKind != JsonValueKind.Array)
             return;
+        int n = 0;
         foreach (var ev in events.EnumerateArray())
         {
+            if (++n > MaxSequenceEvents) { Log.Warn("input: key_sequence truncated"); break; }
             var vk = GetInt(ev, "vk");
-            var down = ev.TryGetProperty("down", out var d) && d.GetBoolean();
-            if (vk <= 0) continue;
+            var down = ev.ValueKind == JsonValueKind.Object && ev.TryGetProperty("down", out var d) && d.ValueKind == JsonValueKind.True;
+            if (!IsValidVk(vk)) continue;
             Key(vk, down);
             Thread.Sleep(10);
         }
