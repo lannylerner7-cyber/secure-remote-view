@@ -78,29 +78,52 @@ public static class InputRelay
         }
     }
 
+    // Security: every inbound message is treated as hostile. Only the closed
+    // set of kinds below is honoured; all numbers are clamped and text is
+    // length-capped before reaching Win32. Nothing here can launch a process.
+    private const int MaxTextChars = 256;
+    private const int MaxRelDelta = 500;
+    private const int MaxWheel = 1200;
+    private const int MaxSequenceEvents = 32;
+
     internal static void Apply(JsonElement it)
     {
-        var kind = it.GetProperty("kind").GetString();
-        var p = it.TryGetProperty("payload", out var pv) ? pv : default;
-        switch (kind)
+        if (it.ValueKind != JsonValueKind.Object) return;
+        if (!it.TryGetProperty("kind", out var kv) || kv.ValueKind != JsonValueKind.String) return;
+        var kind = kv.GetString();
+        var p = it.TryGetProperty("payload", out var pv) && pv.ValueKind == JsonValueKind.Object ? pv : default;
+        try
         {
-            case "mousemove": MoveTo(GetD(p, "x"), GetD(p, "y")); break;
-            case "mousemove_rel": MoveRel(GetInt(p, "dx"), GetInt(p, "dy")); break;
-            case "click": Click(GetInt(p, "button")); break;
-            case "mousedown": MouseButton(GetInt(p, "button"), true); break;
-            case "mouseup": MouseButton(GetInt(p, "button"), false); break;
-            case "wheel": Wheel(GetInt(p, "dy")); break;
-            case "keydown": Key(GetInt(p, "vk"), true); break;
-            case "keyup": Key(GetInt(p, "vk"), false); break;
-            case "key_sequence": KeySequence(p); break;
-            case "unicode_text": InjectUnicodeString(GetString(p, "text")); break;
-            case "text": InjectUnicodeString(GetString(p, "text")); break;
-            
-            case "curtain_on": EngageCurtain(); break;
-            case "curtain_off": ReleaseCurtain(); break;
-            case "release_inputs": ReleaseCurtain(); break;
+            switch (kind)
+            {
+                case "mousemove": MoveTo(Math.Clamp(GetD(p, "x"), 0.0, 1.0), Math.Clamp(GetD(p, "y"), 0.0, 1.0)); break;
+                case "mousemove_rel": MoveRel(Math.Clamp(GetInt(p, "dx"), -MaxRelDelta, MaxRelDelta), Math.Clamp(GetInt(p, "dy"), -MaxRelDelta, MaxRelDelta)); break;
+                case "click": Click(Math.Clamp(GetInt(p, "button"), 0, 2)); break;
+                case "mousedown": MouseButton(Math.Clamp(GetInt(p, "button"), 0, 2), true); break;
+                case "mouseup": MouseButton(Math.Clamp(GetInt(p, "button"), 0, 2), false); break;
+                case "wheel": Wheel(Math.Clamp(GetInt(p, "dy"), -MaxWheel, MaxWheel)); break;
+                case "keydown": { var vk = GetInt(p, "vk"); if (IsValidVk(vk)) Key(vk, true); break; }
+                case "keyup": { var vk = GetInt(p, "vk"); if (IsValidVk(vk)) Key(vk, false); break; }
+                case "key_sequence": KeySequence(p); break;
+                case "unicode_text":
+                case "text": InjectUnicodeString(CapText(GetString(p, "text"))); break;
+                case "curtain_on": EngageCurtain(); break;
+                case "curtain_off": ReleaseCurtain(); break;
+                case "release_inputs": ReleaseCurtain(); break;
+                default: Log.Warn($"input: rejected unknown kind '{Truncate(kind, 32)}'"); break;
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException or KeyNotFoundException)
+        {
+            Log.Warn($"input: malformed '{Truncate(kind, 32)}' payload rejected");
         }
     }
+
+    private static bool IsValidVk(int vk) => vk is > 0 and < 0xFF;
+
+    private static string CapText(string s) => s.Length > MaxTextChars ? s.Substring(0, MaxTextChars) : s;
+
+    private static string Truncate(string? s, int n) => s is null ? "" : (s.Length > n ? s.Substring(0, n) : s);
 
     private sealed class InputPump : IDisposable
     {
@@ -200,8 +223,17 @@ public static class InputRelay
     }
 
 
-    private static double GetD(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetDouble() : 0;
-    private static int GetInt(JsonElement o, string k) => o.TryGetProperty(k, out var v) ? v.GetInt32() : 0;
+    private static double GetD(JsonElement o, string k)
+    {
+        if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(k, out var v) || v.ValueKind != JsonValueKind.Number) return 0;
+        var d = v.GetDouble();
+        return double.IsFinite(d) ? d : 0;
+    }
+    private static int GetInt(JsonElement o, string k)
+    {
+        if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(k, out var v) || v.ValueKind != JsonValueKind.Number) return 0;
+        return v.TryGetInt32(out var i) ? i : 0;
+    }
     private static string GetString(JsonElement o, string k) =>
         o.ValueKind == JsonValueKind.Object && o.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString() ?? string.Empty
