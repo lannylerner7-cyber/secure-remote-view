@@ -1,5 +1,6 @@
 import type { Device } from "@/lib/console-types";
 import { PowerMenu } from "./PowerMenu";
+import { normalizePlatform } from "@/shared/platform";
 
 export function DevicesTable({
   devices,
@@ -72,6 +73,8 @@ export function DevicesTable({
             )}
             {devices.map((d) => {
               const p = presenceOf(d);
+              const platform = normalizePlatform((d as { platform?: string }).platform);
+              const version = (d.metadata as { agent_version?: string } | null)?.agent_version;
               return (
                 <tr key={d.id} className="border-t border-white/5">
                   <td className="px-4 py-2">
@@ -81,7 +84,15 @@ export function DevicesTable({
                       onChange={() => toggleSelect(d.id)}
                     />
                   </td>
-                  <td className="px-4 py-2 font-medium">{d.display_name}</td>
+                  <td className="px-4 py-2 font-medium">
+                    {d.display_name}
+                    <div className="mt-0.5 flex gap-2 text-[11px] font-normal text-white/50">
+                      <span className="rounded bg-white/10 px-1.5">
+                        {platform === "android" ? "Android" : "Windows"}
+                      </span>
+                      {version && <span className="font-mono">v{version}</span>}
+                    </div>
+                  </td>
                   <td className="px-4 py-2 text-white/60">{d.hostname ?? "—"}</td>
                   <td className="px-4 py-2">
                     <span
@@ -116,7 +127,7 @@ export function DevicesTable({
                           Connect
                         </button>
                       )}
-                      {canPower && p !== "online" && (
+                      {canPower && p !== "online" && platform === "windows" && (
                         <button
                           onClick={() => onWake(d)}
                           className="rounded border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
@@ -126,7 +137,11 @@ export function DevicesTable({
                         </button>
                       )}
                       {canPower && p === "online" && (
-                        <PowerMenu onSelect={(k) => onPower(d, k)} canShutdown={canShutdown} />
+                        <PowerMenu
+                          onSelect={(k) => onPower(d, k)}
+                          canShutdown={canShutdown}
+                          platform={platform}
+                        />
                       )}
                       {canDelete && (
                         <button

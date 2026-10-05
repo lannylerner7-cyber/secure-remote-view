@@ -210,6 +210,7 @@ export type Database = {
           license_state: string
           metadata: Json
           os: string | null
+          platform: string
           standing_consent: boolean
           status: string
         }
@@ -225,6 +226,7 @@ export type Database = {
           license_state?: string
           metadata?: Json
           os?: string | null
+          platform?: string
           standing_consent?: boolean
           status?: string
         }
@@ -240,6 +242,7 @@ export type Database = {
           license_state?: string
           metadata?: Json
           os?: string | null
+          platform?: string
           standing_consent?: boolean
           status?: string
         }
@@ -255,30 +258,50 @@ export type Database = {
       }
       expected_devices: {
         Row: {
+          claim_code: string | null
+          claimed_at: string | null
+          claimed_device_id: string | null
           created_at: string
           hostname: string
           id: string
           note: string | null
           owner_id: string
+          platform: string
           updated_at: string
         }
         Insert: {
+          claim_code?: string | null
+          claimed_at?: string | null
+          claimed_device_id?: string | null
           created_at?: string
           hostname: string
           id?: string
           note?: string | null
           owner_id: string
+          platform?: string
           updated_at?: string
         }
         Update: {
+          claim_code?: string | null
+          claimed_at?: string | null
+          claimed_device_id?: string | null
           created_at?: string
           hostname?: string
           id?: string
           note?: string | null
           owner_id?: string
+          platform?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "expected_devices_claimed_device_id_fkey"
+            columns: ["claimed_device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       license_lookups: {
         Row: {

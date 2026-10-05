@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import { isPowerKindAllowed, type Platform } from "@/shared/platform";
 
 export function PowerMenu({
   onSelect,
   canShutdown,
+  platform = "windows",
 }: {
   onSelect: (kind: "reboot" | "shutdown" | "lock" | "logoff") => void;
   canShutdown: boolean;
+  /** Commands not allowed for this platform are hidden (see src/shared/platform.ts). */
+  platform?: Platform;
 }) {
+  const allowed = (k: string) => isPowerKindAllowed(platform, k);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -28,7 +33,7 @@ export function PowerMenu({
       </button>
       {open && (
         <div className="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded border border-white/10 bg-[#0F172A] text-xs shadow-xl">
-          <button
+          {allowed("lock") && <button
             onClick={() => {
               setOpen(false);
               onSelect("lock");
@@ -36,8 +41,8 @@ export function PowerMenu({
             className="block w-full px-3 py-2 text-left hover:bg-white/5"
           >
             🔒 Lock
-          </button>
-          <button
+          </button>}
+          {allowed("logoff") && <button
             onClick={() => {
               setOpen(false);
               onSelect("logoff");
@@ -45,8 +50,8 @@ export function PowerMenu({
             className="block w-full px-3 py-2 text-left hover:bg-white/5"
           >
             👤 Sign out
-          </button>
-          {canShutdown && (
+          </button>}
+          {canShutdown && allowed("reboot") && (
             <button
               onClick={() => {
                 setOpen(false);
@@ -57,7 +62,7 @@ export function PowerMenu({
               🔁 Reboot
             </button>
           )}
-          {canShutdown && (
+          {canShutdown && allowed("shutdown") && (
             <button
               onClick={() => {
                 setOpen(false);

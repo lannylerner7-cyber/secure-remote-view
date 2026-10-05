@@ -6,6 +6,7 @@ import {
   findLicenseByMeetingId,
   normalizeMeetingId,
 } from "@/lib/licensing.server";
+import { normalizeClaimCode, normalizePlatform } from "@/shared/platform";
 
 /**
  * Agent auto-enrollment (deployment-key-free).
@@ -33,7 +34,13 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           displayName?: string;
           agentVersion?: string;
           meetingId?: string;
+          platform?: string;
+          claimCode?: string;
         };
+        // Platform is a closed enum; anything not "android" is a Windows agent
+        // (every pre-Android agent omits the field).
+        const platform = normalizePlatform(body.platform);
+        const claimCode = normalizeClaimCode(body.claimCode);
 
         const forwarded = request.headers.get("x-forwarded-for") ?? "";
         const ip = forwarded.split(",")[0]?.trim() || "unknown";
@@ -110,32 +117,57 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
         const rawToken = randomBytes(32).toString("hex");
         const tokenHash = createHash("sha256").update(rawToken).digest("hex");
 
-        const { error } = await admin.from("devices").insert({
-          device_id: deviceId,
-          display_name: body.displayName ?? body.hostname ?? "Unnamed device",
-          hostname: body.hostname ?? null,
-          os: body.os ?? null,
-          status: "online",
-          last_seen_at: new Date().toISOString(),
-          license_id: licenseId,
-          license_state: licenseState,
-          metadata: {
-            token_hash: tokenHash,
-            enrolled_via: "auto",
-            mac: body.mac ?? null,
-            agent_version: body.agentVersion ?? null,
-          },
-        });
+        const { data: inserted, error } = await admin
+          .from("devices")
+          .insert({
+            device_id: deviceId,
+            display_name: body.displayName ?? body.hostname ?? "Unnamed device",
+            hostname: body.hostname ?? null,
+            os: body.os ?? null,
+            platform,
+            status: "online",
+            last_seen_at: new Date().toISOString(),
+            license_id: licenseId,
+            license_state: licenseState,
+            metadata: {
+              token_hash: tokenHash,
+              enrolled_via: "auto",
+              mac: body.mac ?? null,
+              agent_version: body.agentVersion ?? null,
+            },
+          })
+          .select("id")
+          .single();
         if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 
+        // Android pairing: bind this device to the technician's roster row so
+        // "Expected devices" flips to installed. Only unclaimed rows of the
+        // same platform can be claimed; a wrong/used code never blocks
+        // enrollment, it just leaves the roster row pending.
+        let claimed = false;
+        if (claimCode) {
+          const { data: row } = await admin
+            .from("expected_devices")
+            .update({ claimed_device_id: inserted.id, claimed_at: new Date().toISOString() })
+            .eq("claim_code", claimCode)
+            .eq("platform", platform)
+            .is("claimed_device_id", null)
+            .select("id")
+            .maybeSingle();
+          claimed = !!row;
+        }
+
         await admin.from("audit_logs").insert({
+          device_id: inserted.id,
           event: "device.auto_enrolled",
           detail: {
             deviceId,
+            platform,
             hostname: body.hostname ?? null,
             ip: ipMasked,
             license_id: licenseId,
             license_state: licenseState,
+            claim: claimCode ? (claimed ? "claimed" : "unmatched") : null,
           },
         });
 
@@ -143,6 +175,8 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           JSON.stringify({
             deviceId,
             deviceToken: rawToken,
+            platform,
+            claimed,
             license: { state: licenseState, reason: licenseReason },
           }),
           {
