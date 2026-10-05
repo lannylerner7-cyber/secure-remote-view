@@ -31,6 +31,12 @@ signature).
 Retired: `/api/public/agent/pair` (meeting-code pairing) — removed with the
 auto-enrollment overhaul.
 
+Platform note: every route above is shared by the Windows agent and the planned
+Android agent. The discriminator is `devices.os` (`windows` | `android`), set at
+`/enroll`. Platform-specific behaviour (power-command allow-list, Watch beacon,
+release `product`) is documented in `roadmap.md` §4 — nothing branches on
+user-agent or hostname.
+
 ## Admin / console endpoints
 
 | Method | Path | Purpose | Auth |
