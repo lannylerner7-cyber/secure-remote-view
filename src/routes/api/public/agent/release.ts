@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { verifyDevice } from "@/lib/agent-auth.server";
 import { adminClient } from "@/lib/server-supabase";
+import { normalizePlatform, releaseProductFor } from "@/shared/platform";
 
 /**
  * S14 — release manifest.
@@ -24,7 +25,8 @@ import { adminClient } from "@/lib/server-supabase";
  *     min_supported_version, mandatory, published_at }
  */
 
-const PRODUCTS = new Set(["agent", "admin"]);
+// agent = Windows agent, android = Android APK, admin = native console.
+const PRODUCTS = new Set(["agent", "admin", "android"]);
 const CHANNELS = new Set(["stable", "beta"]);
 
 async function verifyTechnician(request: Request): Promise<boolean> {
@@ -51,7 +53,11 @@ export const Route = createFileRoute("/api/public/agent/release")({
         }
 
         const url = new URL(request.url);
-        const product = url.searchParams.get("product") ?? "agent";
+        // A device may only pull its own platform's build: a phone never
+        // receives an .exe and a PC never receives an APK.
+        const product = device
+          ? releaseProductFor(normalizePlatform((device.device as { platform?: string }).platform))
+          : (url.searchParams.get("product") ?? "agent");
         const channel = url.searchParams.get("channel") ?? "stable";
         if (!PRODUCTS.has(product) || !CHANNELS.has(channel)) {
           return new Response("bad request", { status: 400 });

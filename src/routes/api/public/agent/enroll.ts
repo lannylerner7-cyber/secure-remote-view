@@ -175,6 +175,8 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           JSON.stringify({
             deviceId,
             deviceToken: rawToken,
+            platform,
+            claimed,
             license: { state: licenseState, reason: licenseReason },
           }),
           {
