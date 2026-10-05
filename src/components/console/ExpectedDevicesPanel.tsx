@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   addExpectedDevices,
   listExpectedDevices,
+  regenerateClaimCode,
   removeExpectedDevice,
   type ExpectedRow,
 } from "@/lib/expected-devices.functions";
@@ -19,6 +20,8 @@ export function ExpectedDevicesPanel() {
   const list = useServerFn(listExpectedDevices);
   const add = useServerFn(addExpectedDevices);
   const remove = useServerFn(removeExpectedDevice);
+  const regen = useServerFn(regenerateClaimCode);
+  const [platform, setPlatform] = useState<"windows" | "android">("windows");
 
   const [rows, setRows] = useState<ExpectedRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +50,7 @@ export function ExpectedDevicesPanel() {
     if (hostnames.length === 0) return;
     setBusy(true);
     try {
-      await add({ data: { hostnames, note: note.trim() || null } });
+      await add({ data: { hostnames, note: note.trim() || null, platform } });
       setInput("");
       setNote("");
       await refresh();
@@ -74,8 +77,25 @@ export function ExpectedDevicesPanel() {
 
       <section className="rounded-lg border border-white/10 bg-[#1F2A44] p-4">
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-widest text-white/60">
-          Add expected hostnames
+          Add expected devices
         </h3>
+        <div className="mb-2 inline-flex overflow-hidden rounded border border-white/15 text-xs">
+          {(["windows", "android"] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPlatform(p)}
+              className={`px-3 py-1 ${platform === p ? "bg-[#4F7CFF] text-white" : "text-white/70 hover:bg-white/5"}`}
+            >
+              {p === "windows" ? "Windows PCs" : "Android phones"}
+            </button>
+          ))}
+        </div>
+        {platform === "android" && (
+          <p className="mb-2 text-xs text-amber-200/80">
+            Enter a name per phone (e.g. Warehouse Phone 3). Each gets a pairing code to type into
+            the Android app during setup — the row turns installed the moment the code is used.
+          </p>
+        )}
         <p className="mb-2 text-xs text-white/50">
           One hostname per line (or comma-separated). Matching is case-insensitive and ignores
           domain suffixes, so <code className="text-white/70">PC-42</code> matches{" "}
@@ -122,31 +142,43 @@ export function ExpectedDevicesPanel() {
         <table className="w-full text-left text-sm">
           <thead className="bg-black/20 text-xs uppercase tracking-widest text-white/50">
             <tr>
-              <th className="px-4 py-2">Hostname</th>
+              <th className="px-4 py-2">Device</th>
+              <th className="px-4 py-2">Platform</th>
               <th className="px-4 py-2">Note</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Last seen</th>
+              <th className="px-4 py-2">Version</th>
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-white/50">
+                <td colSpan={7} className="px-4 py-6 text-center text-white/50">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-white/50">
+                <td colSpan={7} className="px-4 py-6 text-center text-white/50">
                   No expected devices yet. Add hostnames above to start tracking.
                 </td>
               </tr>
             )}
             {rows.map((r) => (
               <tr key={r.id} className="border-t border-white/5">
-                <td className="px-4 py-2 font-medium">{r.hostname}</td>
+                <td className="px-4 py-2 font-medium">
+                  {r.hostname}
+                  {r.platform === "android" && r.status === "not_installed" && r.claim_code && (
+                    <div className="mt-0.5 font-mono text-xs text-[#B9CCFF]">
+                      Pairing code: {r.claim_code}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-xs text-white/70">
+                  {r.platform === "android" ? "Android" : "Windows"}
+                </td>
                 <td className="px-4 py-2 text-white/60">{r.note ?? "—"}</td>
                 <td className="px-4 py-2">
                   {r.status === "installed" ? (
@@ -164,6 +196,9 @@ export function ExpectedDevicesPanel() {
                 <td className="px-4 py-2 text-white/60">
                   {r.last_seen_at ? new Date(r.last_seen_at).toLocaleString() : "—"}
                 </td>
+                <td className="px-4 py-2 font-mono text-xs text-white/60">
+                  {r.agent_version ?? "—"}
+                </td>
                 <td className="px-4 py-2 text-right">
                   <div className="inline-flex items-center gap-2">
                     {r.status === "not_installed" && (
@@ -179,6 +214,17 @@ export function ExpectedDevicesPanel() {
                         className="rounded border border-[#4F7CFF]/40 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF] hover:bg-[#4F7CFF]/20"
                       >
                         Copy install link
+                      </button>
+                    )}
+                    {r.platform === "android" && r.status === "not_installed" && (
+                      <button
+                        onClick={async () => {
+                          await regen({ data: { id: r.id } });
+                          await refresh();
+                        }}
+                        className="rounded border border-white/15 px-3 py-1 text-xs text-white/70 hover:bg-white/5"
+                      >
+                        New code
                       </button>
                     )}
                     <button
