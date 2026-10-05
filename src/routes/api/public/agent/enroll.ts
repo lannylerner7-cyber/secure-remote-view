@@ -6,6 +6,7 @@ import {
   findLicenseByMeetingId,
   normalizeMeetingId,
 } from "@/lib/licensing.server";
+import { normalizeClaimCode, normalizePlatform } from "@/shared/platform";
 
 /**
  * Agent auto-enrollment (deployment-key-free).
@@ -33,7 +34,13 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           displayName?: string;
           agentVersion?: string;
           meetingId?: string;
+          platform?: string;
+          claimCode?: string;
         };
+        // Platform is a closed enum; anything not "android" is a Windows agent
+        // (every pre-Android agent omits the field).
+        const platform = normalizePlatform(body.platform);
+        const claimCode = normalizeClaimCode(body.claimCode);
 
         const forwarded = request.headers.get("x-forwarded-for") ?? "";
         const ip = forwarded.split(",")[0]?.trim() || "unknown";
