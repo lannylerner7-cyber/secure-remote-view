@@ -9,85 +9,51 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
-import { Route as ContactRouteImport } from './routes/contact'
-import { Route as HealthRouteImport } from './routes/health'
-import { Route as LicenseRouteImport } from './routes/license'
-import { Route as PrivacyRouteImport } from './routes/privacy'
-import { Route as RefundRouteImport } from './routes/refund'
-import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TermsRouteImport } from './routes/terms'
-import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
-import { Route as AuthenticatedPaymentsRouteImport } from './routes/_authenticated/payments'
-import { Route as ConnectliveAdminRouteImport } from './routes/connectlive.admin'
-import { Route as ConnectlivePaymentRouteImport } from './routes/connectlive.payment'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
+import { Route as RefundRouteImport } from './routes/refund'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as LicenseRouteImport } from './routes/license'
+import { Route as HealthRouteImport } from './routes/health'
+import { Route as ContactRouteImport } from './routes/contact'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrderIndexRouteImport } from './routes/order.index'
 import { Route as OrderIdRouteImport } from './routes/order.$id'
-import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
-import { Route as PublicAgentLoginRouteImport } from './routes/public.agent.login'
+import { Route as ConnectlivePaymentRouteImport } from './routes/connectlive.payment'
+import { Route as ConnectliveAdminRouteImport } from './routes/connectlive.admin'
+import { Route as AuthenticatedPaymentsRouteImport } from './routes/_authenticated/payments'
+import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
 import { Route as PublicAgentPortalRouteImport } from './routes/public.agent.portal'
-import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
-import { Route as ApiPublicAgentBeaconRouteImport } from './routes/api/public/agent/beacon'
-import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
-import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
-import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
-import { Route as ApiPublicAgentIceRouteImport } from './routes/api/public/agent/ice'
-import { Route as ApiPublicAgentReleaseRouteImport } from './routes/api/public/agent/release'
-import { Route as ApiPublicAgentStreamRouteImport } from './routes/api/public/agent/stream'
-import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
-import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
-import { Route as ApiPublicNewsletterUnsubscribeRouteImport } from './routes/api/public/newsletter/unsubscribe'
-import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
+import { Route as PublicAgentLoginRouteImport } from './routes/public.agent.login'
+import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
-import { Route as ApiPublicAdminSessionSessionIdFilesRouteImport } from './routes/api/public/admin/session.$sessionId.files'
-import { Route as ApiPublicAgentPowerCmdIdAckRouteImport } from './routes/api/public/agent/power.$cmdId.ack'
-import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
-import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './routes/api/public/agent/session.$sessionId.cursor'
-import { Route as ApiPublicAgentSessionSessionIdFileRouteImport } from './routes/api/public/agent/session.$sessionId.file'
-import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './routes/api/public/agent/session.$sessionId.frame'
-import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './routes/api/public/agent/session.$sessionId.inputs'
-import { Route as ApiPublicAgentSessionSessionIdReconnectRouteImport } from './routes/api/public/agent/session.$sessionId.reconnect'
+import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
+import { Route as ApiPublicNewsletterUnsubscribeRouteImport } from './routes/api/public/newsletter/unsubscribe'
+import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
+import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
+import { Route as ApiPublicAgentStreamRouteImport } from './routes/api/public/agent/stream'
+import { Route as ApiPublicAgentReleaseRouteImport } from './routes/api/public/agent/release'
+import { Route as ApiPublicAgentIceRouteImport } from './routes/api/public/agent/ice'
+import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
+import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
+import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
+import { Route as ApiPublicAgentBeaconRouteImport } from './routes/api/public/agent/beacon'
+import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
 import { Route as ApiPublicAgentSessionSessionIdSignalRouteImport } from './routes/api/public/agent/session.$sessionId.signal'
+import { Route as ApiPublicAgentSessionSessionIdReconnectRouteImport } from './routes/api/public/agent/session.$sessionId.reconnect'
+import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './routes/api/public/agent/session.$sessionId.inputs'
+import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './routes/api/public/agent/session.$sessionId.frame'
+import { Route as ApiPublicAgentSessionSessionIdFileRouteImport } from './routes/api/public/agent/session.$sessionId.file'
+import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './routes/api/public/agent/session.$sessionId.cursor'
+import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
+import { Route as ApiPublicAgentPowerCmdIdAckRouteImport } from './routes/api/public/agent/power.$cmdId.ack'
+import { Route as ApiPublicAdminSessionSessionIdFilesRouteImport } from './routes/api/public/admin/session.$sessionId.files'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ContactRoute = ContactRouteImport.update({
-  id: '/contact',
-  path: '/contact',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HealthRoute = HealthRouteImport.update({
-  id: '/health',
-  path: '/health',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LicenseRoute = LicenseRouteImport.update({
-  id: '/license',
-  path: '/license',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrivacyRoute = PrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RefundRoute = RefundRouteImport.update({
-  id: '/refund',
-  path: '/refund',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
-  id: '/robots.txt',
-  path: '/robots.txt',
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -95,29 +61,43 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TermsRoute = TermsRouteImport.update({
-  id: '/terms',
-  path: '/terms',
+const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
-  id: '/console',
-  path: '/console',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedPaymentsRoute = AuthenticatedPaymentsRouteImport.update({
-  id: '/payments',
-  path: '/payments',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const ConnectliveAdminRoute = ConnectliveAdminRouteImport.update({
-  id: '/connectlive/admin',
-  path: '/connectlive/admin',
+const RefundRoute = RefundRouteImport.update({
+  id: '/refund',
+  path: '/refund',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ConnectlivePaymentRoute = ConnectlivePaymentRouteImport.update({
-  id: '/connectlive/payment',
-  path: '/connectlive/payment',
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LicenseRoute = LicenseRouteImport.update({
+  id: '/license',
+  path: '/license',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrderIndexRoute = OrderIndexRouteImport.update({
@@ -130,9 +110,29 @@ const OrderIdRoute = OrderIdRouteImport.update({
   path: '/order/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
-  id: '/api/public/health',
-  path: '/api/public/health',
+const ConnectlivePaymentRoute = ConnectlivePaymentRouteImport.update({
+  id: '/connectlive/payment',
+  path: '/connectlive/payment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConnectliveAdminRoute = ConnectliveAdminRouteImport.update({
+  id: '/connectlive/admin',
+  path: '/connectlive/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedPaymentsRoute = AuthenticatedPaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
+  id: '/console',
+  path: '/console',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const PublicAgentPortalRoute = PublicAgentPortalRouteImport.update({
+  id: '/public/agent/portal',
+  path: '/public/agent/portal',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PublicAgentLoginRoute = PublicAgentLoginRouteImport.update({
@@ -140,71 +140,9 @@ const PublicAgentLoginRoute = PublicAgentLoginRouteImport.update({
   path: '/public/agent/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PublicAgentPortalRoute = PublicAgentPortalRouteImport.update({
-  id: '/public/agent/portal',
-  path: '/public/agent/portal',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAdminBootstrapRoute = ApiPublicAdminBootstrapRouteImport.update({
-  id: '/api/public/admin/bootstrap',
-  path: '/api/public/admin/bootstrap',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentBeaconRoute = ApiPublicAgentBeaconRouteImport.update({
-  id: '/api/public/agent/beacon',
-  path: '/api/public/agent/beacon',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentEnrollRoute = ApiPublicAgentEnrollRouteImport.update({
-  id: '/api/public/agent/enroll',
-  path: '/api/public/agent/enroll',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentHeartbeatRoute = ApiPublicAgentHeartbeatRouteImport.update({
-  id: '/api/public/agent/heartbeat',
-  path: '/api/public/agent/heartbeat',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentHelloRoute = ApiPublicAgentHelloRouteImport.update({
-  id: '/api/public/agent/hello',
-  path: '/api/public/agent/hello',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentIceRoute = ApiPublicAgentIceRouteImport.update({
-  id: '/api/public/agent/ice',
-  path: '/api/public/agent/ice',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentReleaseRoute = ApiPublicAgentReleaseRouteImport.update({
-  id: '/api/public/agent/release',
-  path: '/api/public/agent/release',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAgentStreamRoute = ApiPublicAgentStreamRouteImport.update({
-  id: '/api/public/agent/stream',
-  path: '/api/public/agent/stream',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicAuthLoginRoute = ApiPublicAuthLoginRouteImport.update({
-  id: '/api/public/auth/login',
-  path: '/api/public/auth/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicCronReconcileOrdersRoute =
-  ApiPublicCronReconcileOrdersRouteImport.update({
-    id: '/api/public/cron/reconcile-orders',
-    path: '/api/public/cron/reconcile-orders',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicNewsletterUnsubscribeRoute =
-  ApiPublicNewsletterUnsubscribeRouteImport.update({
-    id: '/api/public/newsletter/unsubscribe',
-    path: '/api/public/newsletter/unsubscribe',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicStatsOrdersRoute = ApiPublicStatsOrdersRouteImport.update({
-  id: '/api/public/stats/orders',
-  path: '/api/public/stats/orders',
+const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
+  id: '/api/public/health',
+  path: '/api/public/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicWebhooksCdpRoute = ApiPublicWebhooksCdpRouteImport.update({
@@ -212,46 +150,72 @@ const ApiPublicWebhooksCdpRoute = ApiPublicWebhooksCdpRouteImport.update({
   path: '/api/public/webhooks/cdp',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicAdminSessionSessionIdFilesRoute =
-  ApiPublicAdminSessionSessionIdFilesRouteImport.update({
-    id: '/api/public/admin/session/$sessionId/files',
-    path: '/api/public/admin/session/$sessionId/files',
+const ApiPublicStatsOrdersRoute = ApiPublicStatsOrdersRouteImport.update({
+  id: '/api/public/stats/orders',
+  path: '/api/public/stats/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicNewsletterUnsubscribeRoute =
+  ApiPublicNewsletterUnsubscribeRouteImport.update({
+    id: '/api/public/newsletter/unsubscribe',
+    path: '/api/public/newsletter/unsubscribe',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicAgentPowerCmdIdAckRoute =
-  ApiPublicAgentPowerCmdIdAckRouteImport.update({
-    id: '/api/public/agent/power/$cmdId/ack',
-    path: '/api/public/agent/power/$cmdId/ack',
+const ApiPublicCronReconcileOrdersRoute =
+  ApiPublicCronReconcileOrdersRouteImport.update({
+    id: '/api/public/cron/reconcile-orders',
+    path: '/api/public/cron/reconcile-orders',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicAgentSessionSessionIdConsentRoute =
-  ApiPublicAgentSessionSessionIdConsentRouteImport.update({
-    id: '/api/public/agent/session/$sessionId/consent',
-    path: '/api/public/agent/session/$sessionId/consent',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicAgentSessionSessionIdCursorRoute =
-  ApiPublicAgentSessionSessionIdCursorRouteImport.update({
-    id: '/api/public/agent/session/$sessionId/cursor',
-    path: '/api/public/agent/session/$sessionId/cursor',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicAgentSessionSessionIdFileRoute =
-  ApiPublicAgentSessionSessionIdFileRouteImport.update({
-    id: '/api/public/agent/session/$sessionId/file',
-    path: '/api/public/agent/session/$sessionId/file',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicAgentSessionSessionIdFrameRoute =
-  ApiPublicAgentSessionSessionIdFrameRouteImport.update({
-    id: '/api/public/agent/session/$sessionId/frame',
-    path: '/api/public/agent/session/$sessionId/frame',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicAgentSessionSessionIdInputsRoute =
-  ApiPublicAgentSessionSessionIdInputsRouteImport.update({
-    id: '/api/public/agent/session/$sessionId/inputs',
-    path: '/api/public/agent/session/$sessionId/inputs',
+const ApiPublicAuthLoginRoute = ApiPublicAuthLoginRouteImport.update({
+  id: '/api/public/auth/login',
+  path: '/api/public/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentStreamRoute = ApiPublicAgentStreamRouteImport.update({
+  id: '/api/public/agent/stream',
+  path: '/api/public/agent/stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentReleaseRoute = ApiPublicAgentReleaseRouteImport.update({
+  id: '/api/public/agent/release',
+  path: '/api/public/agent/release',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentIceRoute = ApiPublicAgentIceRouteImport.update({
+  id: '/api/public/agent/ice',
+  path: '/api/public/agent/ice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentHelloRoute = ApiPublicAgentHelloRouteImport.update({
+  id: '/api/public/agent/hello',
+  path: '/api/public/agent/hello',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentHeartbeatRoute = ApiPublicAgentHeartbeatRouteImport.update({
+  id: '/api/public/agent/heartbeat',
+  path: '/api/public/agent/heartbeat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentEnrollRoute = ApiPublicAgentEnrollRouteImport.update({
+  id: '/api/public/agent/enroll',
+  path: '/api/public/agent/enroll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentBeaconRoute = ApiPublicAgentBeaconRouteImport.update({
+  id: '/api/public/agent/beacon',
+  path: '/api/public/agent/beacon',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAdminBootstrapRoute = ApiPublicAdminBootstrapRouteImport.update({
+  id: '/api/public/admin/bootstrap',
+  path: '/api/public/admin/bootstrap',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentSessionSessionIdSignalRoute =
+  ApiPublicAgentSessionSessionIdSignalRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/signal',
+    path: '/api/public/agent/session/$sessionId/signal',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicAgentSessionSessionIdReconnectRoute =
@@ -260,10 +224,46 @@ const ApiPublicAgentSessionSessionIdReconnectRoute =
     path: '/api/public/agent/session/$sessionId/reconnect',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicAgentSessionSessionIdSignalRoute =
-  ApiPublicAgentSessionSessionIdSignalRouteImport.update({
-    id: '/api/public/agent/session/$sessionId/signal',
-    path: '/api/public/agent/session/$sessionId/signal',
+const ApiPublicAgentSessionSessionIdInputsRoute =
+  ApiPublicAgentSessionSessionIdInputsRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/inputs',
+    path: '/api/public/agent/session/$sessionId/inputs',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicAgentSessionSessionIdFrameRoute =
+  ApiPublicAgentSessionSessionIdFrameRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/frame',
+    path: '/api/public/agent/session/$sessionId/frame',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicAgentSessionSessionIdFileRoute =
+  ApiPublicAgentSessionSessionIdFileRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/file',
+    path: '/api/public/agent/session/$sessionId/file',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicAgentSessionSessionIdCursorRoute =
+  ApiPublicAgentSessionSessionIdCursorRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/cursor',
+    path: '/api/public/agent/session/$sessionId/cursor',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicAgentSessionSessionIdConsentRoute =
+  ApiPublicAgentSessionSessionIdConsentRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/consent',
+    path: '/api/public/agent/session/$sessionId/consent',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicAgentPowerCmdIdAckRoute =
+  ApiPublicAgentPowerCmdIdAckRouteImport.update({
+    id: '/api/public/agent/power/$cmdId/ack',
+    path: '/api/public/agent/power/$cmdId/ack',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicAdminSessionSessionIdFilesRoute =
+  ApiPublicAdminSessionSessionIdFilesRouteImport.update({
+    id: '/api/public/admin/session/$sessionId/files',
+    path: '/api/public/admin/session/$sessionId/files',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -569,60 +569,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/contact': {
-      id: '/contact'
-      path: '/contact'
-      fullPath: '/contact'
-      preLoaderRoute: typeof ContactRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/health': {
-      id: '/health'
-      path: '/health'
-      fullPath: '/health'
-      preLoaderRoute: typeof HealthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/license': {
-      id: '/license'
-      path: '/license'
-      fullPath: '/license'
-      preLoaderRoute: typeof LicenseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacy': {
-      id: '/privacy'
-      path: '/privacy'
-      fullPath: '/privacy'
-      preLoaderRoute: typeof PrivacyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/refund': {
-      id: '/refund'
-      path: '/refund'
-      fullPath: '/refund'
-      preLoaderRoute: typeof RefundRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/robots.txt': {
-      id: '/robots.txt'
-      path: '/robots.txt'
-      fullPath: '/robots.txt'
-      preLoaderRoute: typeof RobotsDottxtRouteImport
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sitemap.xml': {
@@ -632,39 +583,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/terms': {
-      id: '/terms'
-      path: '/terms'
-      fullPath: '/terms'
-      preLoaderRoute: typeof TermsRouteImport
+    '/robots.txt': {
+      id: '/robots.txt'
+      path: '/robots.txt'
+      fullPath: '/robots.txt'
+      preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/console': {
-      id: '/_authenticated/console'
-      path: '/console'
-      fullPath: '/console'
-      preLoaderRoute: typeof AuthenticatedConsoleRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/payments': {
-      id: '/_authenticated/payments'
-      path: '/payments'
-      fullPath: '/payments'
-      preLoaderRoute: typeof AuthenticatedPaymentsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/connectlive/admin': {
-      id: '/connectlive/admin'
-      path: '/connectlive/admin'
-      fullPath: '/connectlive/admin'
-      preLoaderRoute: typeof ConnectliveAdminRouteImport
+    '/refund': {
+      id: '/refund'
+      path: '/refund'
+      fullPath: '/refund'
+      preLoaderRoute: typeof RefundRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/connectlive/payment': {
-      id: '/connectlive/payment'
-      path: '/connectlive/payment'
-      fullPath: '/connectlive/payment'
-      preLoaderRoute: typeof ConnectlivePaymentRouteImport
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/license': {
+      id: '/license'
+      path: '/license'
+      fullPath: '/license'
+      preLoaderRoute: typeof LicenseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/order/': {
@@ -681,11 +653,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/health': {
-      id: '/api/public/health'
-      path: '/api/public/health'
-      fullPath: '/api/public/health'
-      preLoaderRoute: typeof ApiPublicHealthRouteImport
+    '/connectlive/payment': {
+      id: '/connectlive/payment'
+      path: '/connectlive/payment'
+      fullPath: '/connectlive/payment'
+      preLoaderRoute: typeof ConnectlivePaymentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connectlive/admin': {
+      id: '/connectlive/admin'
+      path: '/connectlive/admin'
+      fullPath: '/connectlive/admin'
+      preLoaderRoute: typeof ConnectliveAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/payments': {
+      id: '/_authenticated/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof AuthenticatedPaymentsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/console': {
+      id: '/_authenticated/console'
+      path: '/console'
+      fullPath: '/console'
+      preLoaderRoute: typeof AuthenticatedConsoleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/public/agent/portal': {
+      id: '/public/agent/portal'
+      path: '/public/agent/portal'
+      fullPath: '/public/agent/portal'
+      preLoaderRoute: typeof PublicAgentPortalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/public/agent/login': {
@@ -695,95 +695,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicAgentLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/public/agent/portal': {
-      id: '/public/agent/portal'
-      path: '/public/agent/portal'
-      fullPath: '/public/agent/portal'
-      preLoaderRoute: typeof PublicAgentPortalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/admin/bootstrap': {
-      id: '/api/public/admin/bootstrap'
-      path: '/api/public/admin/bootstrap'
-      fullPath: '/api/public/admin/bootstrap'
-      preLoaderRoute: typeof ApiPublicAdminBootstrapRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/beacon': {
-      id: '/api/public/agent/beacon'
-      path: '/api/public/agent/beacon'
-      fullPath: '/api/public/agent/beacon'
-      preLoaderRoute: typeof ApiPublicAgentBeaconRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/enroll': {
-      id: '/api/public/agent/enroll'
-      path: '/api/public/agent/enroll'
-      fullPath: '/api/public/agent/enroll'
-      preLoaderRoute: typeof ApiPublicAgentEnrollRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/heartbeat': {
-      id: '/api/public/agent/heartbeat'
-      path: '/api/public/agent/heartbeat'
-      fullPath: '/api/public/agent/heartbeat'
-      preLoaderRoute: typeof ApiPublicAgentHeartbeatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/hello': {
-      id: '/api/public/agent/hello'
-      path: '/api/public/agent/hello'
-      fullPath: '/api/public/agent/hello'
-      preLoaderRoute: typeof ApiPublicAgentHelloRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/ice': {
-      id: '/api/public/agent/ice'
-      path: '/api/public/agent/ice'
-      fullPath: '/api/public/agent/ice'
-      preLoaderRoute: typeof ApiPublicAgentIceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/release': {
-      id: '/api/public/agent/release'
-      path: '/api/public/agent/release'
-      fullPath: '/api/public/agent/release'
-      preLoaderRoute: typeof ApiPublicAgentReleaseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/agent/stream': {
-      id: '/api/public/agent/stream'
-      path: '/api/public/agent/stream'
-      fullPath: '/api/public/agent/stream'
-      preLoaderRoute: typeof ApiPublicAgentStreamRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/auth/login': {
-      id: '/api/public/auth/login'
-      path: '/api/public/auth/login'
-      fullPath: '/api/public/auth/login'
-      preLoaderRoute: typeof ApiPublicAuthLoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/cron/reconcile-orders': {
-      id: '/api/public/cron/reconcile-orders'
-      path: '/api/public/cron/reconcile-orders'
-      fullPath: '/api/public/cron/reconcile-orders'
-      preLoaderRoute: typeof ApiPublicCronReconcileOrdersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/newsletter/unsubscribe': {
-      id: '/api/public/newsletter/unsubscribe'
-      path: '/api/public/newsletter/unsubscribe'
-      fullPath: '/api/public/newsletter/unsubscribe'
-      preLoaderRoute: typeof ApiPublicNewsletterUnsubscribeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/stats/orders': {
-      id: '/api/public/stats/orders'
-      path: '/api/public/stats/orders'
-      fullPath: '/api/public/stats/orders'
-      preLoaderRoute: typeof ApiPublicStatsOrdersRouteImport
+    '/api/public/health': {
+      id: '/api/public/health'
+      path: '/api/public/health'
+      fullPath: '/api/public/health'
+      preLoaderRoute: typeof ApiPublicHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/webhooks/cdp': {
@@ -793,53 +709,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicWebhooksCdpRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/admin/session/$sessionId/files': {
-      id: '/api/public/admin/session/$sessionId/files'
-      path: '/api/public/admin/session/$sessionId/files'
-      fullPath: '/api/public/admin/session/$sessionId/files'
-      preLoaderRoute: typeof ApiPublicAdminSessionSessionIdFilesRouteImport
+    '/api/public/stats/orders': {
+      id: '/api/public/stats/orders'
+      path: '/api/public/stats/orders'
+      fullPath: '/api/public/stats/orders'
+      preLoaderRoute: typeof ApiPublicStatsOrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/power/$cmdId/ack': {
-      id: '/api/public/agent/power/$cmdId/ack'
-      path: '/api/public/agent/power/$cmdId/ack'
-      fullPath: '/api/public/agent/power/$cmdId/ack'
-      preLoaderRoute: typeof ApiPublicAgentPowerCmdIdAckRouteImport
+    '/api/public/newsletter/unsubscribe': {
+      id: '/api/public/newsletter/unsubscribe'
+      path: '/api/public/newsletter/unsubscribe'
+      fullPath: '/api/public/newsletter/unsubscribe'
+      preLoaderRoute: typeof ApiPublicNewsletterUnsubscribeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/session/$sessionId/consent': {
-      id: '/api/public/agent/session/$sessionId/consent'
-      path: '/api/public/agent/session/$sessionId/consent'
-      fullPath: '/api/public/agent/session/$sessionId/consent'
-      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdConsentRouteImport
+    '/api/public/cron/reconcile-orders': {
+      id: '/api/public/cron/reconcile-orders'
+      path: '/api/public/cron/reconcile-orders'
+      fullPath: '/api/public/cron/reconcile-orders'
+      preLoaderRoute: typeof ApiPublicCronReconcileOrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/session/$sessionId/cursor': {
-      id: '/api/public/agent/session/$sessionId/cursor'
-      path: '/api/public/agent/session/$sessionId/cursor'
-      fullPath: '/api/public/agent/session/$sessionId/cursor'
-      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdCursorRouteImport
+    '/api/public/auth/login': {
+      id: '/api/public/auth/login'
+      path: '/api/public/auth/login'
+      fullPath: '/api/public/auth/login'
+      preLoaderRoute: typeof ApiPublicAuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/session/$sessionId/file': {
-      id: '/api/public/agent/session/$sessionId/file'
-      path: '/api/public/agent/session/$sessionId/file'
-      fullPath: '/api/public/agent/session/$sessionId/file'
-      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdFileRouteImport
+    '/api/public/agent/stream': {
+      id: '/api/public/agent/stream'
+      path: '/api/public/agent/stream'
+      fullPath: '/api/public/agent/stream'
+      preLoaderRoute: typeof ApiPublicAgentStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/session/$sessionId/frame': {
-      id: '/api/public/agent/session/$sessionId/frame'
-      path: '/api/public/agent/session/$sessionId/frame'
-      fullPath: '/api/public/agent/session/$sessionId/frame'
-      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdFrameRouteImport
+    '/api/public/agent/release': {
+      id: '/api/public/agent/release'
+      path: '/api/public/agent/release'
+      fullPath: '/api/public/agent/release'
+      preLoaderRoute: typeof ApiPublicAgentReleaseRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/session/$sessionId/inputs': {
-      id: '/api/public/agent/session/$sessionId/inputs'
-      path: '/api/public/agent/session/$sessionId/inputs'
-      fullPath: '/api/public/agent/session/$sessionId/inputs'
-      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdInputsRouteImport
+    '/api/public/agent/ice': {
+      id: '/api/public/agent/ice'
+      path: '/api/public/agent/ice'
+      fullPath: '/api/public/agent/ice'
+      preLoaderRoute: typeof ApiPublicAgentIceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/hello': {
+      id: '/api/public/agent/hello'
+      path: '/api/public/agent/hello'
+      fullPath: '/api/public/agent/hello'
+      preLoaderRoute: typeof ApiPublicAgentHelloRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/heartbeat': {
+      id: '/api/public/agent/heartbeat'
+      path: '/api/public/agent/heartbeat'
+      fullPath: '/api/public/agent/heartbeat'
+      preLoaderRoute: typeof ApiPublicAgentHeartbeatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/enroll': {
+      id: '/api/public/agent/enroll'
+      path: '/api/public/agent/enroll'
+      fullPath: '/api/public/agent/enroll'
+      preLoaderRoute: typeof ApiPublicAgentEnrollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/beacon': {
+      id: '/api/public/agent/beacon'
+      path: '/api/public/agent/beacon'
+      fullPath: '/api/public/agent/beacon'
+      preLoaderRoute: typeof ApiPublicAgentBeaconRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/admin/bootstrap': {
+      id: '/api/public/admin/bootstrap'
+      path: '/api/public/admin/bootstrap'
+      fullPath: '/api/public/admin/bootstrap'
+      preLoaderRoute: typeof ApiPublicAdminBootstrapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/session/$sessionId/signal': {
+      id: '/api/public/agent/session/$sessionId/signal'
+      path: '/api/public/agent/session/$sessionId/signal'
+      fullPath: '/api/public/agent/session/$sessionId/signal'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdSignalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/agent/session/$sessionId/reconnect': {
@@ -849,11 +807,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentSessionSessionIdReconnectRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/agent/session/$sessionId/signal': {
-      id: '/api/public/agent/session/$sessionId/signal'
-      path: '/api/public/agent/session/$sessionId/signal'
-      fullPath: '/api/public/agent/session/$sessionId/signal'
-      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdSignalRouteImport
+    '/api/public/agent/session/$sessionId/inputs': {
+      id: '/api/public/agent/session/$sessionId/inputs'
+      path: '/api/public/agent/session/$sessionId/inputs'
+      fullPath: '/api/public/agent/session/$sessionId/inputs'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdInputsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/session/$sessionId/frame': {
+      id: '/api/public/agent/session/$sessionId/frame'
+      path: '/api/public/agent/session/$sessionId/frame'
+      fullPath: '/api/public/agent/session/$sessionId/frame'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdFrameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/session/$sessionId/file': {
+      id: '/api/public/agent/session/$sessionId/file'
+      path: '/api/public/agent/session/$sessionId/file'
+      fullPath: '/api/public/agent/session/$sessionId/file'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/session/$sessionId/cursor': {
+      id: '/api/public/agent/session/$sessionId/cursor'
+      path: '/api/public/agent/session/$sessionId/cursor'
+      fullPath: '/api/public/agent/session/$sessionId/cursor'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdCursorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/session/$sessionId/consent': {
+      id: '/api/public/agent/session/$sessionId/consent'
+      path: '/api/public/agent/session/$sessionId/consent'
+      fullPath: '/api/public/agent/session/$sessionId/consent'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/power/$cmdId/ack': {
+      id: '/api/public/agent/power/$cmdId/ack'
+      path: '/api/public/agent/power/$cmdId/ack'
+      fullPath: '/api/public/agent/power/$cmdId/ack'
+      preLoaderRoute: typeof ApiPublicAgentPowerCmdIdAckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/admin/session/$sessionId/files': {
+      id: '/api/public/admin/session/$sessionId/files'
+      path: '/api/public/admin/session/$sessionId/files'
+      fullPath: '/api/public/admin/session/$sessionId/files'
+      preLoaderRoute: typeof ApiPublicAdminSessionSessionIdFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
