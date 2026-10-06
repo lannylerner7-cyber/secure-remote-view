@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import { isPowerKindAllowed, isUpdateAvailable, normalizeClaimCode, normalizePlatform, releaseProductFor } from "../src/shared/platform";
+
+assert.equal(normalizePlatform("Microsoft Windows NT 10.0.26200.0"), "windows");
+assert.equal(normalizePlatform(null), "windows");
+assert.equal(normalizePlatform("android"), "android");
+for (const kind of ["wake", "wake_agent", "shutdown", "logoff", "switch_monitor", "restart_agent"]) assert.equal(isPowerKindAllowed("android", kind), false, kind);
+for (const kind of ["reboot", "lock", "restart_stream", "restart_app"]) assert.equal(isPowerKindAllowed("android", kind), true, kind);
+assert.equal(isPowerKindAllowed("windows", "restart_app"), false);
+assert.equal(isPowerKindAllowed("windows", "shutdown"), true);
+assert.equal(releaseProductFor("windows"), "agent");
+assert.equal(releaseProductFor("android"), "android");
+assert.equal(isUpdateAvailable("1.9.1", "1.10.0"), true);
+assert.equal(isUpdateAvailable("1.10.0", "1.9.1"), false);
+assert.equal(isUpdateAvailable("1.9.1", "1.9.1"), false);
+assert.equal(isUpdateAvailable(null, "1.9.1"), false);
+assert.equal(normalizeClaimCode("ab23cd45"), "AB23-CD45");
+assert.equal(normalizeClaimCode("AB23-CD45"), "AB23-CD45");
+assert.equal(normalizeClaimCode("AB23CD4"), null);
+assert.equal(normalizeClaimCode("AB01CD45"), null);
+const code = normalizeClaimCode("23456789");
+assert.ok(code);
+console.log("Platform rules verified");
