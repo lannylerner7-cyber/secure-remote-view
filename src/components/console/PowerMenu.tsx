@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { isPowerKindAllowed, type Platform } from "@/shared/platform";
+import { isPowerKindAllowed, type Platform, type PowerKind } from "@/shared/platform";
 
 export function PowerMenu({
   onSelect,
   canShutdown,
   platform = "windows",
 }: {
-  onSelect: (kind: "reboot" | "shutdown" | "lock" | "logoff") => void;
+  onSelect: (kind: PowerKind) => void;
   canShutdown: boolean;
   /** Commands not allowed for this platform are hidden (see src/shared/platform.ts). */
   platform?: Platform;
@@ -51,6 +51,17 @@ export function PowerMenu({
           >
             👤 Sign out
           </button>}
+          {platform === "android" && allowed("restart_app") && (
+            <button
+              onClick={() => {
+                setOpen(false);
+                onSelect("restart_app");
+              }}
+              className="block w-full px-3 py-2 text-left text-amber-200 hover:bg-white/5"
+            >
+              ↻ Restart app
+            </button>
+          )}
           {canShutdown && allowed("reboot") && (
             <button
               onClick={() => {

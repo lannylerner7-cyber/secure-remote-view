@@ -1,9 +1,11 @@
 import type { Device } from "@/lib/console-types";
 import { PowerMenu } from "./PowerMenu";
-import { normalizePlatform } from "@/shared/platform";
+import { isUpdateAvailable, normalizePlatform, releaseProductFor, type PowerKind } from "@/shared/platform";
+import { useState } from "react";
 
 export function DevicesTable({
   devices,
+  latestVersions,
   presenceOf,
   selected,
   toggleSelect,
@@ -20,6 +22,7 @@ export function DevicesTable({
   onPower,
 }: {
   devices: Device[];
+  latestVersions: { agent: string | null; android: string | null };
   presenceOf: (d: Device) => "online" | "reconnecting" | "offline" | "stopped";
   selected: Set<string>;
   toggleSelect: (id: string) => void;
@@ -33,10 +36,28 @@ export function DevicesTable({
   canPower: boolean;
   canShutdown: boolean;
   onWake: (d: Device) => void;
-  onPower: (d: Device, kind: "reboot" | "shutdown" | "lock" | "logoff") => void;
+  onPower: (d: Device, kind: PowerKind) => void;
 }) {
+  const [updatesOnly, setUpdatesOnly] = useState(false);
+  const hasUpdate = (d: Device) => {
+    const platform = normalizePlatform(d.platform);
+    const running = (d.metadata as { agent_version?: string } | null)?.agent_version;
+    return isUpdateAvailable(running, latestVersions[releaseProductFor(platform)]);
+  };
+  const visibleDevices = updatesOnly ? devices.filter(hasUpdate) : devices;
+
   return (
     <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span className="text-xs text-white/50">{devices.length} devices</span>
+        <button
+          onClick={() => setUpdatesOnly((value) => !value)}
+          aria-pressed={updatesOnly}
+          className={`rounded border px-3 py-1 text-xs ${updatesOnly ? "border-amber-400/50 bg-amber-400/10 text-amber-200" : "border-white/15 text-white/70 hover:bg-white/5"}`}
+        >
+          {updatesOnly ? "Showing updates · Clear" : "Updates available"}
+        </button>
+      </div>
       {selected.size > 0 && (
         <div className="mb-3 flex items-center gap-2 text-xs">
           <span className="text-white/60">{selected.size} selected</span>
@@ -44,7 +65,7 @@ export function DevicesTable({
             End sessions
           </button>
           <button onClick={onBulkRestart} className="rounded bg-white/10 px-2 py-1">
-            Restart agent
+            Restart agent app
           </button>
           <button onClick={onClearSelected} className="rounded border border-white/15 px-2 py-1">
             Clear
@@ -64,17 +85,18 @@ export function DevicesTable({
             </tr>
           </thead>
           <tbody>
-            {devices.length === 0 && (
+            {visibleDevices.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-white/40">
-                  No devices enrolled yet.
+                  {updatesOnly ? "No devices need an update." : "No devices enrolled yet."}
                 </td>
               </tr>
             )}
-            {devices.map((d) => {
+            {visibleDevices.map((d) => {
               const p = presenceOf(d);
               const platform = normalizePlatform((d as { platform?: string }).platform);
               const version = (d.metadata as { agent_version?: string } | null)?.agent_version;
+              const updateAvailable = hasUpdate(d);
               return (
                 <tr key={d.id} className="border-t border-white/5">
                   <td className="px-4 py-2">
@@ -91,6 +113,11 @@ export function DevicesTable({
                         {platform === "android" ? "Android" : "Windows"}
                       </span>
                       {version && <span className="font-mono">v{version}</span>}
+                      {updateAvailable && (
+                        <span className="rounded bg-amber-400/15 px-1.5 text-amber-200">
+                          update available
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-2 text-white/60">{d.hostname ?? "—"}</td>

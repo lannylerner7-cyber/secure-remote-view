@@ -73,8 +73,10 @@ export function normalizeClaimCode(v: unknown): string | null {
   for (const ch of s) if (!CODE_ALPHABET.includes(ch)) return null;
   return `${s.slice(0, 4)}-${s.slice(4)}`;
 }
-export function generateClaimCode(rand: (n: number) => number = (n) => Math.floor(Math.random() * n)) {
+export function generateClaimCode() {
+  const random = new Uint32Array(8);
+  globalThis.crypto.getRandomValues(random);
   let s = "";
-  for (let i = 0; i < 8; i++) s += CODE_ALPHABET[rand(CODE_ALPHABET.length)];
+  for (const value of random) s += CODE_ALPHABET[value % CODE_ALPHABET.length];
   return `${s.slice(0, 4)}-${s.slice(4)}`;
 }

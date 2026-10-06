@@ -113,6 +113,8 @@ export const addExpectedDevices = createServerFn({ method: "POST" })
         hostname: h,
         note: data.note ?? null,
         platform,
+        claimed_device_id: null,
+        claimed_at: null,
         // Windows rows match on hostname and need no code.
         claim_code: platform === "android" ? generateClaimCode() : null,
       }));
