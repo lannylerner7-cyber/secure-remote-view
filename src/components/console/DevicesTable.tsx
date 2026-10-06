@@ -1,6 +1,6 @@
 import type { Device } from "@/lib/console-types";
 import { PowerMenu } from "./PowerMenu";
-import { normalizePlatform } from "@/shared/platform";
+import { normalizePlatform, type PowerKind } from "@/shared/platform";
 
 export function DevicesTable({
   devices,
@@ -33,7 +33,7 @@ export function DevicesTable({
   canPower: boolean;
   canShutdown: boolean;
   onWake: (d: Device) => void;
-  onPower: (d: Device, kind: "reboot" | "shutdown" | "lock" | "logoff") => void;
+  onPower: (d: Device, kind: PowerKind) => void;
 }) {
   return (
     <div>
@@ -44,7 +44,7 @@ export function DevicesTable({
             End sessions
           </button>
           <button onClick={onBulkRestart} className="rounded bg-white/10 px-2 py-1">
-            Restart agent
+            Restart agent app
           </button>
           <button onClick={onClearSelected} className="rounded border border-white/15 px-2 py-1">
             Clear

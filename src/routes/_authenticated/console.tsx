@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 
 import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
 import type { Tables } from "@/integrations/supabase/types";
+import { isPowerKindAllowed, normalizePlatform, releaseProductFor, isUpdateAvailable, type PowerKind } from "@/shared/platform";
 import {
   type Device,
   type Session,
@@ -99,6 +100,7 @@ function AdminPage() {
   const pointerLockRelRef = useRef({ dx: 0, dy: 0 });
 
   const [devices, setDevices] = useState<Device[]>([]);
+  const [latestVersions, setLatestVersions] = useState<{ agent: string | null; android: string | null }>({ agent: null, android: null });
   const [sessions, setSessions] = useState<Session[]>([]);
   const [audit, setAudit] = useState<Tables<"audit_logs">[]>([]);
   const [userEmail, setUserEmail] = useState<string>("");
@@ -574,12 +576,14 @@ function AdminPage() {
   }, [liveId, sessions]);
 
   async function refresh() {
-    const [d, s, a] = await Promise.all([
+    const [d, s, a, releases] = await Promise.all([
       supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
       supabase.from("sessions").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(50),
+      supabase.from("releases").select("product, version, published_at").eq("published", true).eq("channel", "stable").in("product", ["agent", "android"]).order("published_at", { ascending: false }),
     ]);
     if (d.data) setDevices(d.data);
+    if (a.data) setAudit(a.data);
     if (s.data) setSessions(s.data);
     if (a.data) setAudit(a.data);
   }
@@ -729,16 +733,25 @@ function AdminPage() {
     if (error) alert(error.message);
   }
 
-  type PowerKind = "wake" | "reboot" | "shutdown" | "lock" | "logoff";
   async function queuePower(d: Device, kind: PowerKind) {
+    const platform = normalizePlatform(d.platform);
+    if (!isPowerKindAllowed(platform, kind)) {
+      alert("That action is not supported on this device.");
+      return;
+    }
     const labels: Record<PowerKind, string> = {
       wake: "Send Wake-on-LAN magic packet",
-      reboot: "Reboot the remote machine in 5 seconds",
+      wake_agent: "Wake the Windows agent",
+      reboot: platform === "android" ? "Reboot the Android device" : "Reboot the remote machine in 5 seconds",
       shutdown: "Shut down the remote machine in 5 seconds",
-      lock: "Lock the remote workstation",
+      lock: "Lock the remote device",
       logoff: "Sign out the current user",
+      restart_stream: "Restart the live stream",
+      restart_agent: "Restart the Windows agent",
+      switch_monitor: "Switch monitor",
+      restart_app: "Restart the Android app",
     };
-    if (kind === "reboot" || kind === "shutdown") {
+    if (kind === "reboot" || kind === "shutdown" || kind === "restart_app") {
       if (!confirm(`${labels[kind]} on ${d.display_name}?`)) return;
     }
     const { data: u } = await supabase.auth.getUser();
@@ -1062,7 +1075,7 @@ function AdminPage() {
     if (!auth.user) return;
     const rows = selectedDevices.map((d) => ({
       device_id: d.id,
-      kind: "restart_agent",
+      kind: normalizePlatform(d.platform) === "android" ? "restart_app" : "restart_agent",
       payload: {} as never,
       state: "queued",
       requested_by: auth.user.id,
@@ -1302,6 +1315,7 @@ function AdminPage() {
             {nav === "devices" && (
               <DevicesTable
                 devices={devices}
+                latestVersions={latestVersions}
                 presenceOf={presenceOf}
                 selected={selected}
                 toggleSelect={toggleSelect}
