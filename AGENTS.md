@@ -10,3 +10,4 @@
 <!-- LOVABLE:END -->
 
 - Agent input (InputRelay.Apply) accepts only a closed set of kinds, clamps every number and caps text at 256 chars; never add free-form command/script execution — why: datachannel/queue messages are treated as hostile.
+- Platform-specific agent behavior uses the shared `src/shared/platform.ts` rules and the persisted `devices.platform` enum only; keep database, API, and UI allow-lists in sync so Windows and Android commands and releases cannot cross — why: OS/version text is free-form and cannot safely discriminate agent capabilities.
