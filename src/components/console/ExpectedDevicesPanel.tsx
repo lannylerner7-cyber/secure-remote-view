@@ -173,6 +173,11 @@ export function ExpectedDevicesPanel() {
                   {r.platform === "android" && r.status === "not_installed" && r.claim_code && (
                     <div className="mt-0.5 font-mono text-xs text-[#B9CCFF]">
                       Pairing code: {r.claim_code}
+                      {r.claim_code_expires_at && (
+                        <span className="ml-2 font-sans text-white/50">
+                          expires {new Date(r.claim_code_expires_at).toLocaleString()}
+                        </span>
+                      )}
                     </div>
                   )}
                 </td>

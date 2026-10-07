@@ -41,6 +41,16 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
         // (every pre-Android agent omits the field).
         const platform = normalizePlatform(body.platform);
         const claimCode = normalizeClaimCode(body.claimCode);
+        if (
+          body.platform !== undefined &&
+          body.platform !== "windows" &&
+          body.platform !== "android"
+        ) {
+          return new Response(JSON.stringify({ error: "invalid_platform" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
+        }
 
         const forwarded = request.headers.get("x-forwarded-for") ?? "";
         const ip = forwarded.split(",")[0]?.trim() || "unknown";

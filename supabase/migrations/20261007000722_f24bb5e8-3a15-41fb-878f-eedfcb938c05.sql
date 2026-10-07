@@ -1,0 +1,2 @@
+ALTER TABLE public.expected_devices ADD COLUMN IF NOT EXISTS claim_code_expires_at timestamptz;
+UPDATE public.expected_devices SET claim_code_expires_at = now() + interval '24 hours' WHERE claim_code IS NOT NULL AND claimed_device_id IS NULL AND claim_code_expires_at IS NULL;

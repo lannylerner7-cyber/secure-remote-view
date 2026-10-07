@@ -259,6 +259,7 @@ export type Database = {
       expected_devices: {
         Row: {
           claim_code: string | null
+          claim_code_expires_at: string | null
           claimed_at: string | null
           claimed_device_id: string | null
           created_at: string
@@ -271,6 +272,7 @@ export type Database = {
         }
         Insert: {
           claim_code?: string | null
+          claim_code_expires_at?: string | null
           claimed_at?: string | null
           claimed_device_id?: string | null
           created_at?: string
@@ -283,6 +285,7 @@ export type Database = {
         }
         Update: {
           claim_code?: string | null
+          claim_code_expires_at?: string | null
           claimed_at?: string | null
           claimed_device_id?: string | null
           created_at?: string

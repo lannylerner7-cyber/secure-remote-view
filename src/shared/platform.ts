@@ -35,7 +35,9 @@ export const POWER_KINDS_BY_PLATFORM: Record<Platform, readonly PowerKind[]> = {
     "restart_agent",
     "switch_monitor",
   ],
-  android: ["reboot", "lock", "restart_stream", "restart_app"],
+  // Device reboot remains unavailable until managed-device capability is
+  // attested and validated by the service; app restart is a separate action.
+  android: ["lock", "restart_stream", "restart_app"],
 };
 
 export function isPowerKindAllowed(platform: Platform, kind: string): boolean {
