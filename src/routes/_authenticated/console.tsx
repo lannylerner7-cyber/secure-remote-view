@@ -583,9 +583,16 @@ function AdminPage() {
       supabase.from("releases").select("product, version, published_at").eq("published", true).eq("channel", "stable").in("product", ["agent", "android"]).order("published_at", { ascending: false }),
     ]);
     if (d.data) setDevices(d.data);
-    if (a.data) setAudit(a.data);
     if (s.data) setSessions(s.data);
     if (a.data) setAudit(a.data);
+    if (releases.data) {
+      const latest = { agent: null as string | null, android: null as string | null };
+      for (const row of releases.data) {
+        if (row.product === "agent" && latest.agent === null) latest.agent = row.version;
+        if (row.product === "android" && latest.android === null) latest.android = row.version;
+      }
+      setLatestVersions(latest);
+    }
   }
 
   async function loadTg() {
