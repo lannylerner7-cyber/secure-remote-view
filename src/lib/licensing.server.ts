@@ -12,6 +12,7 @@ export type LicenseState = "unlicensed" | "active" | "blocked" | "expired";
 
 export type LicenseRow = {
   id: string;
+  user_id: string | null;
   meeting_id: string;
   seat_limit: number;
   status: string;
@@ -43,7 +44,7 @@ export async function findLicenseByMeetingId(
 ): Promise<LicenseRow | null> {
   const { data } = await admin
     .from("licenses")
-    .select("id, meeting_id, seat_limit, status, starts_at, expires_at")
+    .select("id, user_id, meeting_id, seat_limit, status, starts_at, expires_at")
     .eq("meeting_id", normalizeMeetingId(meetingId))
     .maybeSingle();
   return (data as LicenseRow | null) ?? null;

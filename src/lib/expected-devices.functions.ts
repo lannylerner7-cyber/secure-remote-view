@@ -28,6 +28,7 @@ export type ExpectedRow = {
   note: string | null;
   platform: Platform;
   claim_code: string | null;
+  claim_code_expires_at: string | null;
   status: "installed" | "not_installed";
   matched_device_id: string | null;
   last_seen_at: string | null;
@@ -42,7 +43,7 @@ export const listExpectedDevices = createServerFn({ method: "GET" })
     const [{ data: expected }, { data: devices }] = await Promise.all([
       supabase
         .from("expected_devices")
-        .select("id, hostname, note, platform, claim_code, claimed_device_id")
+        .select("id, hostname, note, platform, claim_code, claim_code_expires_at, claimed_device_id")
         .order("hostname", { ascending: true }),
       supabase.from("devices").select("id, hostname, status, last_seen_at, metadata"),
     ]);
@@ -81,6 +82,7 @@ export const listExpectedDevices = createServerFn({ method: "GET" })
         note: e.note,
         platform,
         claim_code: e.claim_code,
+        claim_code_expires_at: e.claim_code_expires_at,
         status: match ? ("installed" as const) : ("not_installed" as const),
         matched_device_id: match?.id ?? null,
         last_seen_at: match?.last_seen_at ?? null,
@@ -117,6 +119,9 @@ export const addExpectedDevices = createServerFn({ method: "POST" })
         claimed_at: null,
         // Windows rows match on hostname and need no code.
         claim_code: platform === "android" ? generateClaimCode() : null,
+        claim_code_expires_at: platform === "android"
+          ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          : null,
       }));
 
     if (rows.length === 0) return { ok: true, inserted: 0 };
@@ -146,7 +151,12 @@ export const regenerateClaimCode = createServerFn({ method: "POST" })
     const code = generateClaimCode();
     const { error } = await context.supabase
       .from("expected_devices")
-      .update({ claim_code: code, claimed_device_id: null, claimed_at: null })
+      .update({
+        claim_code: code,
+        claim_code_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        claimed_device_id: null,
+        claimed_at: null,
+      })
       .eq("id", data.id)
       .eq("platform", "android");
     return error ? { ok: false as const, error: error.message } : { ok: true as const, code };
