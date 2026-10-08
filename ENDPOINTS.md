@@ -13,7 +13,7 @@ signature).
 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
-| POST | `/api/public/agent/enroll` | Auto-enrollment; returns the device id + machine token persisted (DPAPI) in `%LOCALAPPDATA%\ConnectLive\device.dat`. | none + IP rate limit |
+| POST | `/api/public/agent/enroll` | Shared auto-enrollment. Legacy Windows callers omit `platform` and use the Windows default; Android must explicitly send `platform=android`. Returns per-device credentials; Windows currently persists them using DPAPI. Android client/Keystore persistence is not built. Android may send a one-use 24-hour `claimCode`; claim succeeds only for an unclaimed Android expected-device row owned by the matching license account. | none + IP rate limit |
 | POST | `/api/public/agent/hello` | First contact after enrollment; reports OS, hostname, MAC/subnet. | device token |
 | POST | `/api/public/agent/heartbeat` | Adaptive cadence presence ping; returns the active session, mode, power commands. | device token |
 | POST | `/api/public/agent/session/{sessionId}/frame` | Uploads the JPEG screen frame (`frame` column, base64). | device token |
@@ -26,16 +26,17 @@ signature).
 | POST | `/api/public/agent/power/{cmdId}/ack` | Acknowledges a queued power command (restart, shutdown, wake, restart_stream, switch_monitor). | device token |
 | GET | `/api/public/agent/stream` | SSE wake channel — **live on both ends**. Client is `agent/src/StreamListener.cs`, which nudges the heartbeat loop on `event: wake` for sub-second revival. Heartbeat stays the source of truth; SSE only shortens the latency. | device token |
 | GET | `/api/public/agent/ice` | **S9 — ICE gateway.** Single source of truth for the ICE server set: STUN always, plus TURN when configured. Preferred: Cloudflare Calls TURN credentials minted per request via `CLOUDFLARE_CALLS_APP_ID` + `CLOUDFLARE_CALLS_APP_TOKEN`. Fallback: coturn REST creds from `TURN_STATIC_SECRET`, then static `TURN_USERNAME`/`TURN_PASSWORD`. Consumed by `agent/src/WebRtcSession.cs`, `admin/src/Media/WebRtcClient.cs` and `src/lib/webrtc-live.ts`; every caller falls back to hardcoded STUN if the call fails. | device token **or** technician bearer JWT |
-| GET | `/api/public/agent/release` | **S14 — release manifest.** `?product=agent\|admin&channel=stable\|beta` returns the newest `published` row in `public.releases` (`version`, `download_url`, `sha256`, `notes`, `min_supported_version`, `mandatory`), or **204** when nothing is published. Consumed by `agent/src/SelfUpdate.cs` (via `ApiClient.GetReleaseAsync`; refuses any row without `sha256`) and `admin/src/Api/ApiClient.GetReleaseAsync`; publishers insert the row after `build.ps1` uploads the zip. | device token **or** technician bearer JWT |
+| GET | `/api/public/agent/release` | Returns the newest published row for `product=agent|admin|android` and `channel=stable|beta` (`version`, `download_url`, `sha256`, `notes`, `min_supported_version`, `mandatory`), or **204**. Authenticated device callers are forced to the product mapped from stored `devices.platform`, so Windows cannot fetch Android and Android cannot fetch Windows. The Windows agent/admin clients consume their products; Android product support is a manifest contract only—no Android app, updater or published Android artifact exists yet. | device token **or** technician bearer JWT |
 
 Retired: `/api/public/agent/pair` (meeting-code pairing) — removed with the
 auto-enrollment overhaul.
 
-Platform note: every route above is shared by the Windows agent and the planned
-Android agent. The discriminator is `devices.os` (`windows` | `android`), set at
-`/enroll`. Platform-specific behaviour (power-command allow-list, Watch beacon,
-release `product`) is documented in `roadmap.md` §4 — nothing branches on
-user-agent or hostname.
+Platform note: some routes are intended for both agents, but only the Windows
+client is implemented and end-to-end verified today. The discriminator is
+`devices.platform` (`windows` | `android`); `devices.os` is free-form OS/build
+text. Platform-specific behavior and unbuilt Android work are tracked in
+`roadmap.md`. Android reboot is rejected server-side until Device Owner status
+can be attested safely; its app/runtime is not yet implemented.
 
 ## Admin / console endpoints
 
