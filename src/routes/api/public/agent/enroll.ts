@@ -103,6 +103,7 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
         // hard failure so the prompt can reappear with a clear message; a
         // known ID that is full/expired still enrols, but dormant (blocked).
         let licenseId: string | null = null;
+        let licenseOwnerId: string | null = null;
         let licenseState: "unlicensed" | "active" | "blocked" | "expired" = "unlicensed";
         let licenseReason: string | null = "no_license";
         if (typeof body.meetingId === "string" && body.meetingId.trim().length > 0) {
@@ -118,6 +119,7 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
           }
           const verdict = await evaluateLicense(admin as never, license, null);
           licenseId = license.id;
+          licenseOwnerId = license.user_id;
           licenseState = verdict.state === "unlicensed" ? "blocked" : verdict.state;
           licenseReason = verdict.reason;
         }
@@ -155,7 +157,7 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
         // same platform can be claimed; a wrong/used code never blocks
         // enrollment, it just leaves the roster row pending.
         let claimed = false;
-        if (claimCode) {
+        if (claimCode && platform === "android" && licenseId && licenseOwnerId) {
           const { data: row } = await admin
             .from("expected_devices")
             .update({
@@ -166,6 +168,7 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
             })
             .eq("claim_code", claimCode)
             .eq("platform", platform)
+            .eq("owner_id", licenseOwnerId)
             .is("claimed_device_id", null)
             .gt("claim_code_expires_at", new Date().toISOString())
             .select("id")
