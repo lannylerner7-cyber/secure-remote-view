@@ -5,13 +5,11 @@ export function PowerMenu({
   onSelect,
   canShutdown,
   platform = "windows",
-  canRebootAndroid = false,
 }: {
   onSelect: (kind: PowerKind) => void;
   canShutdown: boolean;
   /** Commands not allowed for this platform are hidden (see src/shared/platform.ts). */
   platform?: Platform;
-  canRebootAndroid?: boolean;
 }) {
   const allowed = (k: string) => isPowerKindAllowed(platform, k);
   const [open, setOpen] = useState(false);
@@ -64,7 +62,7 @@ export function PowerMenu({
               ↻ Restart app
             </button>
           )}
-          {allowed("reboot") && (platform === "windows" ? canShutdown : canRebootAndroid) && (
+          {allowed("reboot") && canShutdown && (
             <button
               onClick={() => {
                 setOpen(false);

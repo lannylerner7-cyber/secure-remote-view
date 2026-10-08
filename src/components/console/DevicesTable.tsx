@@ -97,8 +97,6 @@ export function DevicesTable({
               const platform = normalizePlatform((d as { platform?: string }).platform);
               const version = (d.metadata as { agent_version?: string } | null)?.agent_version;
               const updateAvailable = hasUpdate(d);
-              const deviceOwner =
-                (d.metadata as { device_owner?: boolean } | null)?.device_owner === true;
               return (
                 <tr key={d.id} className="border-t border-white/5">
                   <td className="px-4 py-2">
@@ -170,7 +168,6 @@ export function DevicesTable({
                           onSelect={(k) => onPower(d, k)}
                           canShutdown={canShutdown}
                           platform={platform}
-                          canRebootAndroid={deviceOwner}
                         />
                       )}
                       {canDelete && (

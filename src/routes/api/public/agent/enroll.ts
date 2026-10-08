@@ -158,10 +158,16 @@ export const Route = createFileRoute("/api/public/agent/enroll")({
         if (claimCode) {
           const { data: row } = await admin
             .from("expected_devices")
-            .update({ claimed_device_id: inserted.id, claimed_at: new Date().toISOString() })
+            .update({
+              claimed_device_id: inserted.id,
+              claimed_at: new Date().toISOString(),
+              claim_code: null,
+              claim_code_expires_at: null,
+            })
             .eq("claim_code", claimCode)
             .eq("platform", platform)
             .is("claimed_device_id", null)
+            .gt("claim_code_expires_at", new Date().toISOString())
             .select("id")
             .maybeSingle();
           claimed = !!row;
