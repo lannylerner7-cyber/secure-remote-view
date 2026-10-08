@@ -4,8 +4,8 @@ import { isPowerKindAllowed, isUpdateAvailable, normalizeClaimCode, normalizePla
 assert.equal(normalizePlatform("Microsoft Windows NT 10.0.26200.0"), "windows");
 assert.equal(normalizePlatform(null), "windows");
 assert.equal(normalizePlatform("android"), "android");
-for (const kind of ["wake", "wake_agent", "shutdown", "logoff", "switch_monitor", "restart_agent"]) assert.equal(isPowerKindAllowed("android", kind), false, kind);
-for (const kind of ["reboot", "lock", "restart_stream", "restart_app"]) assert.equal(isPowerKindAllowed("android", kind), true, kind);
+for (const kind of ["wake", "wake_agent", "shutdown", "logoff", "switch_monitor", "restart_agent", "reboot"]) assert.equal(isPowerKindAllowed("android", kind), false, kind);
+for (const kind of ["lock", "restart_stream", "restart_app"]) assert.equal(isPowerKindAllowed("android", kind), true, kind);
 assert.equal(isPowerKindAllowed("windows", "restart_app"), false);
 assert.equal(isPowerKindAllowed("windows", "shutdown"), true);
 assert.equal(releaseProductFor("windows"), "agent");
