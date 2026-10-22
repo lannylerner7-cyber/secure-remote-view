@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { Gift, Mail, PlayCircle, Sparkles, Tag } from "lucide-react";
 import { subscribeNewsletter } from "@/lib/newsletter.functions";
-import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
+import bannerImage from "@/assets/connectlive-banner.jpg";
 import logoMark from "@/assets/hero-float-2.png";
 
 
@@ -109,9 +109,9 @@ export const Route = createFileRoute("/")({
           "Authorised remote support for 10 to unlimited devices. Precise, secure, auditable.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: `https://www.connectliveagent.com${bannerAsset.url}` },
+      { property: "og:image", content: new URL(bannerImage, "https://connectliveagent.com").href },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: `https://www.connectliveagent.com${bannerAsset.url}` },
+      { name: "twitter:image", content: new URL(bannerImage, "https://connectliveagent.com").href },
 
     ],
     links: [{ rel: "canonical", href: "https://www.connectliveagent.com/" }],
@@ -562,7 +562,7 @@ function Home() {
           {/* Banner tile */}
           <section className="relative overflow-hidden rounded-2xl border border-white/10 lg:col-span-12">
             <img
-              src={bannerAsset.url}
+              src={bannerImage}
               alt="ConnectLive multi-participant collaboration surface"
               className="h-56 w-full object-cover sm:h-72"
               loading="lazy"
