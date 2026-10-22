@@ -223,7 +223,8 @@ public static class InputRelay
         {
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (permission.Allows("control")) CurtainOverlay.Show();
+                if (permission.Allows("control") && !CurtainOverlay.Show())
+                    InputBlocker.Release("curtain_display_failed");
             }));
         }
         else

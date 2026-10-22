@@ -15,7 +15,7 @@
 #   powershell -ExecutionPolicy Bypass -File build.ps1
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipMsi       # Inno only
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInno      # MSI only
-#   powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.2.0.0
+#   powershell -File build.ps1 -Version 1.9.3
 #
 # A missing toolchain is a HARD FAILURE unless the matching -Skip switch is
 # passed. Silent "Skipping." warnings used to produce half-built runs.
@@ -50,15 +50,23 @@ if ($signHelper) {
 }
 
 # -- 0. Version ----------------------------------------------------------------
-# MSI ProductVersion must be 4 numeric fields. A moving version guarantees each
-# build is a genuine major upgrade of the last, never a same-version collision.
+# MSI compares three fields, bounded to 255.255.65535. Use the same reviewed
+# version for the assembly and installers; timestamps are not valid MSI versions.
 
 if (-not $Version) {
-    $now = Get-Date
-    $Version = "1.0.{0}.{1}" -f $now.ToString("yyMMdd"), $now.ToString("HHmm")
+    [xml]$project = Get-Content src/ConnectLiveAgent.csproj
+    $Version = [string]($project.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1)
 }
-if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-    throw "-Version must be four numeric fields (e.g. 1.0.260730.1948). Got: $Version"
+if ($Version -notmatch '^\d{1,3}\.\d{1,3}\.\d{1,5}$') {
+    throw "-Version must use three numeric fields (e.g. 1.9.3). Got: $Version"
+}
+$parts = $Version.Split('.') | ForEach-Object { [int]$_ }
+if ($parts[0] -gt 255 -or $parts[1] -gt 255 -or $parts[2] -gt 65535) { throw "Version exceeds MSI limits." }
+if ($SkipMsi -and $SkipInno) { throw "Select at least one installer target." }
+# Remove only generated installer outputs so skipped targets cannot leak from
+# an earlier build into this run's archive or signature summary.
+foreach ($artifact in @("dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi", "dist/ConnectLiveAgent.zip", "dist/Intune-app.json")) {
+    if (Test-Path $artifact) { Remove-Item $artifact -Force }
 }
 Write-Host "==> Build version: $Version"
 
@@ -78,6 +86,7 @@ dotnet publish src/ConnectLiveAgent.csproj `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
+    -p:Version=$Version `
     -o publish/agent
 if ($LASTEXITCODE -ne 0) { throw "Agent publish failed (exit $LASTEXITCODE). See the compiler error above." }
 
@@ -172,6 +181,19 @@ if (-not $SkipMsi) {
             -arch x64 `
             -o (Join-Path $root "dist/ConnectLiveAgent.msi")
         if ($LASTEXITCODE -ne 0) { throw "WiX build failed (exit $LASTEXITCODE)" }
+        # Generate deployment metadata from this MSI, never from its UpgradeCode.
+        $msiReader = New-Object -ComObject WindowsInstaller.Installer
+        $msiDb = $msiReader.OpenDatabase((Join-Path $root "dist/ConnectLiveAgent.msi"), 0)
+        $propertyView = $msiDb.OpenView("SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = 'ProductCode'")
+        $propertyView.Execute()
+        $propertyRow = $propertyView.Fetch()
+        if (-not $propertyRow) { throw "Built MSI has no ProductCode." }
+        $productCode = $propertyRow.StringData(1)
+        $propertyView.Close()
+        $template = Get-Content (Join-Path $root "packaging/intune/intune-app.json") -Raw
+        $template = $template.Replace("REPLACE_WITH_BUILT_MSI_PRODUCT_CODE", $productCode)
+        $template = $template.Replace("REPLACE_WITH_BUILT_MSI_VERSION", $Version)
+        $template | Set-Content (Join-Path $root "dist/Intune-app.json") -Encoding UTF8
         Write-Host "  Built: dist\ConnectLiveAgent.msi  (ProductVersion $Version)"
     } finally { Pop-Location }
 }
@@ -179,7 +201,13 @@ if (-not $SkipMsi) {
 # -- 5b. Sign the installers (S25) ---------------------------------------------
 # Signed after build, before zipping, so the archive carries signed installers.
 
-Invoke-ConnectLiveSign -Paths @("dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi") -Skip:$SkipSign
+$builtInstallers = @()
+if (-not $SkipInno) { $builtInstallers += "dist/ConnectLiveSetup.exe" }
+if (-not $SkipMsi) { $builtInstallers += "dist/ConnectLiveAgent.msi" }
+foreach ($installer in $builtInstallers) {
+    if (-not (Test-Path $installer)) { throw "Missing expected installer: $installer" }
+}
+Invoke-ConnectLiveSign -Paths $builtInstallers -Skip:$SkipSign
 
 # -- 6. Package the installer(s) for distribution ------------------------------
 
@@ -187,9 +215,8 @@ Write-Host "==> Creating distribution ZIP..."
 if (Test-Path dist/ConnectLiveAgent.zip) { Remove-Item dist/ConnectLiveAgent.zip }
 if (Test-Path INSTALL.md) { Copy-Item INSTALL.md dist/README-INSTALL.txt -Force }
 
-$zipItems = @()
-if (Test-Path dist/ConnectLiveSetup.exe) { $zipItems += "dist/ConnectLiveSetup.exe" }
-if (Test-Path dist/ConnectLiveAgent.msi) { $zipItems += "dist/ConnectLiveAgent.msi" }
+$zipItems = @($builtInstallers)
+if (-not $SkipMsi) { $zipItems += "dist/Intune-app.json" }
 if (Test-Path dist/README-INSTALL.txt)   { $zipItems += "dist/README-INSTALL.txt" }
 
 if ($zipItems.Count -eq 0) { throw "No installer was built -- nothing to package." }

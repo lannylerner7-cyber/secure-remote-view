@@ -84,6 +84,22 @@ public static class ScreenCapture
         int idleCount = 0;
         int uploadFails = 0;
         int framesSinceKeyframe = 0;
+        // HTTP fallback must not pace DXGI/WebRTC. At most one upload runs and
+        // one fresh frame waits; older pending JPEGs are replaced, not replayed.
+        using var uploadsLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct, permission.Token);
+        await using var uploads = new LatestWorkPump<(byte[] Bytes, int Width, int Height)>(
+            async (pending, token) =>
+            {
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+                deadline.CancelAfter(TimeSpan.FromSeconds(3));
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                bool posted = await api.PostFrameAsync(sessionId, pending.Bytes,
+                    pending.Width, pending.Height, deadline.Token).ConfigureAwait(false);
+                NoteUploadLatency(watch.ElapsedMilliseconds);
+                if (posted) uploadFails = 0;
+                else if (!token.IsCancellationRequested && (++uploadFails == 1 || uploadFails % 10 == 0))
+                    Log.Warn($"fallback upload failed ({uploadFails}); capture continues");
+            }, uploadsLifetime.Token);
 
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
@@ -346,23 +362,9 @@ public static class ScreenCapture
                     encodeSw.Stop();
                     EncodeStats.NoteJpegEncode(
                         encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, w, h);
-                    var uploadSw = System.Diagnostics.Stopwatch.StartNew();
-                    bool posted = await api.PostFrameAsync(sessionId, ms.ToArray(), w, h, ct);
-                    uploadSw.Stop();
-                    NoteUploadLatency(uploadSw.ElapsedMilliseconds);
+                    if (!uploads.Offer((ms.ToArray(), w, h)) && !ct.IsCancellationRequested)
+                        Log.Warn("fallback upload worker stopped accepting frames");
                     MaybeLogEncodeStats();
-
-                    if (posted)
-                    {
-                        if (uploadFails > 0) Log.Info($"frame upload recovered after {uploadFails} failure(s)");
-                        uploadFails = 0;
-                    }
-                    else
-                    {
-                        uploadFails++;
-                        if (uploadFails == 1 || uploadFails % 10 == 0)
-                            Log.Warn($"frame upload failed ({uploadFails}) for session {sessionId}");
-                    }
                 }
             }
             catch (Exception ex)

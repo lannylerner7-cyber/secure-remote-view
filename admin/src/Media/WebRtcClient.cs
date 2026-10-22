@@ -62,6 +62,11 @@ public sealed class WebRtcClient : IDisposable
 
     /// <summary>Number of admin-initiated ICE restarts this session (Phase 4 evidence).</summary>
     public int IceRestarts => _restarts;
+    public void RecoverTransport()
+    {
+        if (_cts == null || _cts.IsCancellationRequested) return;
+        TryIceRestart("authorized transport recovery");
+    }
 
     public WebRtcClient(string sessionId) => _sessionId = sessionId;
 

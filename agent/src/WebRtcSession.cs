@@ -341,6 +341,8 @@ public sealed class WebRtcSession : IDisposable
 
             // Do not buffer commands across permission changes. Every input
             // callback is checked against this peer's own revocable permission.
+            if (dc.label != "input") { dc.close(); return; }
+            var inputPeer = _pc;
             dc.onmessage += (_, __, data) =>
             {
                 try
@@ -352,6 +354,33 @@ public sealed class WebRtcSession : IDisposable
                     // assembly. The old reflection bridge existed only when
                     // this file lived outside the agent assembly.
                     _inputPermission.TryApply(() => InputRelay.Apply(root, _inputPermission));
+                    // The overlay application is queued on the UI dispatcher by
+                    // InputRelay. Queue acknowledgement behind it, not on send.
+                    if (root.TryGetProperty("kind", out var command) &&
+                        command.GetString() is "curtain_on" or "curtain_off" &&
+                        root.TryGetProperty("payload", out var payload) &&
+                        payload.TryGetProperty("request_id", out var id) &&
+                        id.ValueKind == JsonValueKind.String)
+                    {
+                        var requestId = id.GetString();
+                        var sentAt = payload.TryGetProperty("sent_at", out var sent) &&
+                                     sent.TryGetInt64(out var stamp) ? stamp : -1;
+                        if (requestId?.Length <= 64)
+                            System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (_closed || !ReferenceEquals(_pc, inputPeer)) return;
+                                try
+                                {
+                                    dc.send(JsonSerializer.Serialize(new {
+                                        kind = "curtain_status", request_id = requestId,
+                                        sent_at = sentAt,
+                                        applied = _inputPermission.Allows("control") &&
+                                                  InputBlocker.IsEngaged && CurtainOverlay.IsShown
+                                    }));
+                                }
+                                catch (Exception ex) { Log.Warn("curtain acknowledgement: " + ex.Message); }
+                            }));
+                    }
                 }
                 catch (Exception ex) { Log.Warn($"webrtc dc apply: {ex.Message}"); }
             };

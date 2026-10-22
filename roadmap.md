@@ -4,6 +4,23 @@ Status legend: `[x]` implemented and verified in this repository/backend · `[~]
 
 ## Connection reliability update — 2026-10-22
 
+### Native streaming stabilization — release hold
+
+- `[~]` HTTP JPEG upload separated from DXGI/WebRTC capture using one in-flight
+  upload plus one latest-only pending frame; cancellation regression tested.
+- `[~]` DXGI display fallback/frame ownership and Admin duplicate-start/reconnect
+  guards corrected; Windows runtime measurements still required.
+- `[~]` MSI version and selected-output staging corrected; WiX compilation and
+  Windows install/upgrade/uninstall remain unverified.
+- `[~]` Native data-channel curtain applied/failed acknowledgement with stale
+  receipt rejection; REST fallback remains explicitly unconfirmed.
+- `[~]` Native reconnect no longer reactivates paused/closed sessions. Recorded
+  control-grant transition migration applied and negative authorization checked;
+  full Windows lifecycle/multiwindow tests remain blocked.
+- `[ ]` Measured before/after p50/p95 latency on direct and TURN connections.
+- Source-only ZIPs are review snapshots, not signed installers or production
+  releases. See `docs/native-streaming-progress.md` for remaining blockers.
+
 ### Email flows and templates
 
 - `[x]` Shared order/newsletter/contact/booking/test templates corrected and

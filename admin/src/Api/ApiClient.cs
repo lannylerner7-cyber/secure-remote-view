@@ -501,10 +501,15 @@ public sealed class ApiClient
     /// </summary>
     public async Task ResumeSessionAsync(string sessionId, CancellationToken ct)
     {
-        using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
-        req.Content = JsonContent.Create(new { state = "active", mode = "view", updated_at = DateTime.UtcNow });
+        // Transport recovery never grants consent or reopens paused/closed rows.
+        using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}&state=eq.active");
+        req.Headers.TryAddWithoutValidation("Prefer", "return=representation");
+        req.Content = JsonContent.Create(new { mode = "view", updated_at = DateTime.UtcNow });
         using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         await EnsureOkAsync(res, "resume session", ct).ConfigureAwait(false);
+        using var body = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        if (body.RootElement.ValueKind != JsonValueKind.Array || body.RootElement.GetArrayLength() != 1)
+            throw new InvalidOperationException("Session is no longer active or accessible. Start a new authorized session.");
     }
 
 

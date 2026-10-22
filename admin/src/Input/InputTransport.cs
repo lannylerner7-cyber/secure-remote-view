@@ -26,8 +26,8 @@ namespace ConnectLive.Admin.Input;
 ///   * safety kinds (<c>curtain_off</c>, <c>release_inputs</c>) always take
 ///     REST — they must land precisely when media is broken, which is when
 ///     the channel is least trustworthy;
-///   * wire shape is identical on both paths (<c>{ kind, ...payload }</c>)
-///     so the agent's switch does not need to know which pipe delivered it.
+///   * wire shape is identical on both paths (<c>{ kind, payload }</c>)
+    ///     so the agent's switch does not need to know which pipe delivered it.
 /// </summary>
 public static class InputTransport
 {
@@ -43,6 +43,7 @@ public static class InputTransport
     private static bool _open;
     private static bool _demoted;
     private static long _sent, _restFallback;
+    public static event Action<string, string, bool>? CurtainAcknowledged;
 
     /// <summary>Called by <see cref="Media.WebRtcClient"/> after it creates the peer.</summary>
     public static void Attach(string sessionId, RTCDataChannel dc)
@@ -57,18 +58,34 @@ public static class InputTransport
         }
         dc.onopen += () =>
         {
-            lock (_gate) _open = true;
+            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; _open = true; }
             Log.Write($"[input] datachannel OPEN — native input now rides SCTP (session={sessionId})");
         };
         dc.onclose += () =>
         {
-            lock (_gate) { _open = false; _demoted = true; }
+            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; _open = false; _demoted = true; }
             Log.Write("[input] datachannel CLOSED — REST fallback carries input");
         };
         dc.onerror += (err) =>
         {
-            lock (_gate) { _open = false; _demoted = true; }
+            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; _open = false; _demoted = true; }
             Log.Write("[input] datachannel error: " + err);
+        };
+        dc.onmessage += (_, __, data) =>
+        {
+            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; }
+            try
+            {
+                using var doc = JsonDocument.Parse(data);
+                var root = doc.RootElement;
+                if (root.GetProperty("kind").GetString() != "curtain_status") return;
+                var age = Environment.TickCount64 - root.GetProperty("sent_at").GetInt64();
+                if (age < 0 || age > 3000) return;
+                var id = root.GetProperty("request_id").GetString();
+                if (id == null || id.Length > 64) return;
+                CurtainAcknowledged?.Invoke(sessionId, id, root.GetProperty("applied").GetBoolean());
+            }
+            catch { /* Unknown/invalid peer messages do not change UI state. */ }
         };
     }
 
@@ -106,6 +123,7 @@ public static class InputTransport
     /// </summary>
     public static Task SendAsync(string sessionId, string kind, object payload, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (AlwaysRest.Contains(kind))
             return SendRestAsync(sessionId, kind, payload, ct);
 
@@ -129,7 +147,10 @@ public static class InputTransport
         }
         catch (Exception ex)
         {
-            lock (_gate) { _open = false; _demoted = true; }
+            lock (_gate)
+            {
+                if (ReferenceEquals(_dc, dc)) { _open = false; _demoted = true; }
+            }
             Log.Write("[input] dc send failed, demoting to REST: " + ex.Message);
             return SendRestAsync(sessionId, kind, payload, ct);
         }
@@ -141,18 +162,9 @@ public static class InputTransport
         return App.Api.PushInputAsync(sessionId, kind, payload, ct);
     }
 
-    /// <summary>Merge <c>{ kind }</c> with an anonymous payload into one JSON object.</summary>
+    /// <summary>Match the REST row envelope consumed by Agent InputRelay.Apply.</summary>
     private static string MergeEnvelope(string kind, object payload)
     {
-        // Serialise payload first, then splice `kind` in. Cheaper than
-        // building a dictionary per event and preserves numeric precision.
-        var payloadJson = JsonSerializer.Serialize(payload);
-        if (payloadJson.Length < 2 || payloadJson[0] != '{')
-            return JsonSerializer.Serialize(new { kind, value = payload });
-        if (payloadJson == "{}") return "{\"kind\":\"" + JsonEncoded(kind) + "\"}";
-        return "{\"kind\":\"" + JsonEncoded(kind) + "\"," + payloadJson.Substring(1);
+        return JsonSerializer.Serialize(new { kind, payload });
     }
-
-    private static string JsonEncoded(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

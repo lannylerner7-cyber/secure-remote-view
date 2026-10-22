@@ -94,11 +94,11 @@ public sealed class DxgiCapture : IDisposable
 
             // The named display could not be duplicated (RDP, mirrored driver,
             // Session 0, protected content). Rather than losing the session,
-            // fall back to whatever the default adapter's first output is —
-            // the GDI path in ScreenCapture stays available beneath that.
-            Log.Warn($"DXGI: '{target.DeviceName}' not duplicable — trying default adapter output 0");
+            // use GDI on the requested display rather than exposing a different
+            // monitor or repeatedly rebuilding a mismatched duplication.
+            Log.Warn($"DXGI: '{target.DeviceName}' not duplicable — use GDI for the selected display");
             Dispose();
-            return TryBuildDefault();
+            return false;
         }
         catch (SharpGenException ex)
         {
@@ -291,6 +291,8 @@ public sealed class DxgiCapture : IDisposable
 
         IDXGIResource? desktopResource = null;
         ID3D11Texture2D? desktopTexture = null;
+        var acquiredFrom = _duplication;
+        bool frameAcquired = false;
         try
         {
             var acquire = _duplication.AcquireNextFrame((uint)timeoutMs, out var frameInfo, out desktopResource);
@@ -319,6 +321,7 @@ public sealed class DxgiCapture : IDisposable
                 return null;
             }
 
+            frameAcquired = true;
             _lastFrameChanged = frameInfo.TotalMetadataBufferSize > 0 ||
                                 frameInfo.LastMouseUpdateTime > 0;
 
@@ -386,7 +389,9 @@ public sealed class DxgiCapture : IDisposable
         {
             desktopTexture?.Dispose();
             desktopResource?.Dispose();
-            try { _duplication?.ReleaseFrame(); } catch { }
+            // Never release a frame on a newly rebuilt duplication, or after
+            // WAIT_TIMEOUT where AcquireNextFrame did not grant ownership.
+            if (frameAcquired) { try { acquiredFrom.ReleaseFrame(); } catch { } }
         }
     }
 

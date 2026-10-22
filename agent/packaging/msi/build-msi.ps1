@@ -5,7 +5,7 @@
 
   Usage:
     ./build-msi.ps1                       # MSI only
-    ./build-msi.ps1 -Version 1.2.0.0      # explicit ProductVersion
+    ./build-msi.ps1 -Version 1.9.3        # explicit ProductVersion
 
   Prereqs (install once):
     dotnet tool install --global wix

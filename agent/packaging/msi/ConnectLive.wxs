@@ -12,7 +12,7 @@
     4. Install metadata under HKLM\Software\ConnectLive
 
   build.ps1 injects the version:
-    wix build ConnectLive.wxs -d Version=1.0.20260801.1200 ...
+    wix build ConnectLive.wxs -d Version=1.9.3 ...
 
   Silent install / upgrade:
     msiexec /i ConnectLiveAgent.msi /qn
@@ -22,7 +22,7 @@
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
 
   <?ifndef Version ?>
-  <?define Version = "1.0.0.0" ?>
+  <?define Version = "1.9.2" ?>
   <?endif ?>
 
   <Package Name="ConnectLive Agent"

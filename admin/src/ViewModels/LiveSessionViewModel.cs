@@ -50,6 +50,23 @@ public partial class LiveSessionViewModel : ObservableObject
     [ObservableProperty] private string? statusMessage;
 
     private CancellationTokenSource? _cts;
+    private int _started;
+    private int _stopped;
+    private readonly SemaphoreSlim _reconnectGate = new(1, 1);
+    private string? _curtainRequestId;
+    private DateTime _curtainConfirmedUtc = DateTime.MinValue;
+
+    private void OnCurtainAcknowledged(string session, string request, bool applied)
+    {
+        Application.Current?.Dispatcher.InvokeAsync(() =>
+        {
+            if (session != SessionId || request != _curtainRequestId ||
+                _cts?.IsCancellationRequested != false || TakenOver || Mode != "control") return;
+            _curtainConfirmedUtc = DateTime.UtcNow;
+            CurtainOn = applied;
+            StatusMessage = applied ? null : "Agent reports curtain not applied; check its permissions and display support.";
+        });
+    }
     private FrameFallbackPump? _framePump;
     private CursorPollPump? _cursorPump;
     private WebRtcClient? _rtc;
@@ -176,6 +193,8 @@ public partial class LiveSessionViewModel : ObservableObject
     public void Start()
 
     {
+        if (Volatile.Read(ref _stopped) != 0 || Interlocked.Exchange(ref _started, 1) != 0) return;
+        ConnectLive.Admin.Input.InputTransport.CurtainAcknowledged += OnCurtainAcknowledged;
         _cts = new CancellationTokenSource();
         _framePump = new FrameFallbackPump(SessionId,
             bmp => Application.Current?.Dispatcher.Invoke(() => { if (!NativeVideo) CurrentFrame = bmp; }),
@@ -476,6 +495,14 @@ public partial class LiveSessionViewModel : ObservableObject
                     state = age < 2 ? "live" : age < 10 ? $"stalled {(int)age}s" : $"no frames {(int)age}s";
                 }
                 Application.Current?.Dispatcher.InvokeAsync(() => LinkState = state);
+                Application.Current?.Dispatcher.InvokeAsync(() =>
+                {
+                    if (CurtainOn && (DateTime.UtcNow - _curtainConfirmedUtc).TotalSeconds > 5)
+                    {
+                        CurtainOn = false;
+                        StatusMessage = "Curtain confirmation expired — remote display state is unknown.";
+                    }
+                });
             }
         }, CancellationToken.None);
     }
@@ -483,6 +510,9 @@ public partial class LiveSessionViewModel : ObservableObject
 
     public void Stop()
     {
+        if (Interlocked.Exchange(ref _stopped, 1) != 0) return;
+        ConnectLive.Admin.Input.InputTransport.CurtainAcknowledged -= OnCurtainAcknowledged;
+        _curtainRequestId = null;
         StopCurtainHeartbeat();
         StopNetworkWatch();
 
@@ -539,7 +569,8 @@ public partial class LiveSessionViewModel : ObservableObject
     private void StartCurtainHeartbeat()
     {
         StopCurtainHeartbeat();
-        var cts = new CancellationTokenSource();
+        if (_cts == null || _cts.IsCancellationRequested || TakenOver || Volatile.Read(ref _stopped) != 0) return;
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         _curtainCts = cts;
         var ct = cts.Token;
         _ = Task.Run(async () =>
@@ -551,7 +582,7 @@ public partial class LiveSessionViewModel : ObservableObject
                 try
                 {
                     await ConnectLive.Admin.Input.InputTransport
-                        .SendAsync(SessionId, "curtain_on", new { }, ct).ConfigureAwait(false);
+                        .SendAsync(SessionId, "curtain_on", new { request_id = _curtainRequestId, sent_at = Environment.TickCount64 }, ct).ConfigureAwait(false);
                 }
                 catch { /* transient — the next tick retries */ }
             }
@@ -632,20 +663,31 @@ public partial class LiveSessionViewModel : ObservableObject
     [RelayCommand]
     private async Task ReconnectAgent()
     {
-        StopCurtainHeartbeat();
-        CurtainOn = false;
-        Mode = "view";
-        TakenOver = false;
+        if (_cts == null || _cts.IsCancellationRequested || TakenOver ||
+            Volatile.Read(ref _stopped) != 0 || !await _reconnectGate.WaitAsync(0)) return;
         try
         {
-            await App.Api.PushInputAsync(SessionId, "curtain_off", new { }, CancellationToken.None);
-            await App.Api.ResumeSessionAsync(SessionId, CancellationToken.None);
-            await App.Api.EnqueuePowerCommandAsync(
-                Device.RowId, "wake_agent", new { session_id = SessionId }, CancellationToken.None);
-            StatusMessage = "Wake sent — waiting for the agent to rejoin this session.";
+        // Recheck after acquiring the gate; stop/takeover may race a network event.
+        if (_cts.IsCancellationRequested || TakenOver || Volatile.Read(ref _stopped) != 0) return;
+        StopCurtainHeartbeat();
+        CurtainOn = false;
+        _curtainRequestId = null;
+        Mode = "view";
+        try
+        {
+            var token = _cts.Token;
+            await App.Api.PushInputAsync(SessionId, "curtain_off", new { }, token);
+            token.ThrowIfCancellationRequested();
+            await App.Api.ResumeSessionAsync(SessionId, token);
+            token.ThrowIfCancellationRequested();
+            _rtc?.RecoverTransport();
+            StatusMessage = "Reconnecting the active session — waiting for fresh frames.";
         }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }
         catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
         catch (Exception ex) { SurfaceError(ex.Message); }
+        }
+        finally { _reconnectGate.Release(); }
     }
 
     /// <summary>
@@ -658,14 +700,23 @@ public partial class LiveSessionViewModel : ObservableObject
     [RelayCommand]
     private async Task ToggleControl()
     {
+        if (_cts == null || _cts.IsCancellationRequested || TakenOver || Volatile.Read(ref _stopped) != 0) return;
+        var token = _cts.Token;
         var takeControl = Mode != "control";
+        _curtainRequestId = Guid.NewGuid().ToString("N");
+        CurtainOn = false;
         try
         {
-            await App.Api.SetSessionModeAsync(SessionId, takeControl ? "control" : "view", CancellationToken.None);
-            await App.Api.PushInputAsync(SessionId, takeControl ? "curtain_on" : "curtain_off",
-                new { }, CancellationToken.None);
+            await App.Api.SetSessionModeAsync(SessionId, takeControl ? "control" : "view", token);
+            token.ThrowIfCancellationRequested();
+            await ConnectLive.Admin.Input.InputTransport.SendAsync(SessionId,
+                takeControl ? "curtain_on" : "curtain_off",
+                new { request_id = _curtainRequestId, sent_at = Environment.TickCount64 }, token);
+            token.ThrowIfCancellationRequested();
             Mode = takeControl ? "control" : "view";
-            CurtainOn = takeControl;
+            StatusMessage = takeControl
+                ? "Curtain requested — application on the remote display is not confirmed."
+                : "Curtain release requested.";
             if (takeControl)
             {
                 StartCurtainHeartbeat();
@@ -673,15 +724,17 @@ public partial class LiveSessionViewModel : ObservableObject
             else
             {
                 StopCurtainHeartbeat();
-                await App.Api.PushInputAsync(SessionId, "release_inputs", new { }, CancellationToken.None);
+                await App.Api.PushInputAsync(SessionId, "release_inputs", new { }, token);
             }
-            StatusMessage = null;
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
         catch (Exception ex) { SurfaceError(ex.Message); }
     }
 
-    public string ControlButtonLabel => Mode == "control" ? "Release curtain" : "Curtain (take control)";
+    public string ControlButtonLabel => Mode == "control"
+        ? (CurtainOn ? "Release curtain" : "Cancel curtain request")
+        : "Request curtain (take control)";
 
     partial void OnModeChanged(string value)
     {
@@ -691,7 +744,11 @@ public partial class LiveSessionViewModel : ObservableObject
 
     // SCOPE:RENDER — the predictive cursor listens on InputAuthoritative, so
     // every input on which it depends must republish it.
-    partial void OnCurtainOnChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
+    partial void OnCurtainOnChanged(bool value)
+    {
+        OnPropertyChanged(nameof(InputAuthoritative));
+        OnPropertyChanged(nameof(ControlButtonLabel));
+    }
     partial void OnTakenOverChanged(bool value) => OnPropertyChanged(nameof(InputAuthoritative));
 
     // ---------------------------------------------------------------------

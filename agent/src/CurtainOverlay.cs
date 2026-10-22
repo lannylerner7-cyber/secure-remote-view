@@ -38,26 +38,35 @@ public sealed class CurtainOverlay
 
     public static bool IsShown => _active;
 
-    public static void Show()
+    public static bool Show()
     {
-        if (_active) return;
-        _active = true;
-
-        foreach (var screen in Screen.AllScreens)
+        if (_active) return true;
+        try
         {
-            var w = BuildWindow(screen);
-            _windows.Add(w);
-            w.Show();
-            var hwnd = new WindowInteropHelper(w).Handle;
-            ApplyGhostStyles(hwnd);
-            // Hide from screen capture so admin sees the desktop, not the curtain.
-            SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+            foreach (var screen in Screen.AllScreens)
+            {
+                var w = BuildWindow(screen);
+                _windows.Add(w);
+                w.Show();
+                var hwnd = new WindowInteropHelper(w).Handle;
+                ApplyGhostStyles(hwnd);
+                if (SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) == 0)
+                    throw new InvalidOperationException("Windows rejected curtain capture exclusion.");
+            }
+            if (_windows.Count == 0) throw new InvalidOperationException("No display available for curtain.");
+            _active = true;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("curtain not applied: " + ex.Message);
+            Hide();
+            return false;
         }
     }
 
     public static void Hide()
     {
-        if (!_active) return;
         _active = false;
         foreach (var w in _windows)
         {
