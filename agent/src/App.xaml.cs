@@ -11,16 +11,32 @@ public partial class App : Application
     private Mutex? _singleInstance;
     private SplashWindow? _splash;
     private Agent? _agent;
+    private ApiClient? _api;
+    private bool _authorizing;
+    private bool _stopping;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
+        // Check before enrollment, network, session restore or recovery.
+        // Background/watchdog launches must not undo local withdrawal.
+        if (LocalAccessState.IsDisabled() && Array.Exists(e.Args, a =>
+            a.Equals("/BACKGROUND", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--background", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("/WAKE", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--wake", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("/MINIMIZED", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))
+        {
+            Shutdown();
+            return;
+        }
+
         _singleInstance = new Mutex(true, @"Global\ConnectLive.Agent", out var firstInstance);
         if (!firstInstance)
         {
-            // Headless build: a second launch simply exits. The already-running
-            // instance keeps its session; there is no tray surface to reveal.
+            // The running instance remains accessible from its taskbar window.
             Shutdown();
             return;
         }
@@ -35,7 +51,6 @@ public partial class App : Application
             if (a == "--api-url" && i + 1 < e.Args.Length)
             {
                 apiUrl = e.Args[i + 1];
-                ApiClient.SaveConfig(new ApiClient.AgentConfig(apiUrl));
             }
             else if (string.Equals(a, "/BACKGROUND", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(a, "--background", StringComparison.OrdinalIgnoreCase) ||
@@ -59,28 +74,59 @@ public partial class App : Application
             }
         }
 
-        // Only visible surface: the ~5s splash on a foreground launch. It
-        // doubles as the connection banner (device id + session). Wake and
-        // background launches stay silent — no window, no tray, no toast.
-        if (!background)
+        // No grant prompts on background launch. Keep a taskbar status surface
+        // available for local withdrawal and explicit foreground review.
+        _splash = new SplashWindow();
+        _splash.DisableAccessRequested += DisableRemoteAccess;
+        _splash.AuthorizationRequested += ReviewAuthorization;
+        _splash.Closing += (_, args) =>
         {
-            _splash = new SplashWindow();
-            _splash.Show();
-        }
-
-        var api = new ApiClient(apiUrl);
-        // Only foreground launches can surface the Meeting-ID prompt. A
-        // /BACKGROUND or /WAKE start with no prior enrollment must stay silent
-        // and simply defer until the user opens the agent themselves.
-        if (!background)
-        {
-            api.MeetingIdProvider = (err) => MeetingIdPrompt.Ask(err);
-        }
-        api.OnLicenseChanged += OnLicenseChanged;
-        var dispatcher = new WpfDispatcher(Current.Dispatcher);
+            if (_stopping) return;
+            args.Cancel = true;
+            // Defer shutdown until this Closing event has returned.
+            Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
+        };
+        if (background) _splash.WindowState = WindowState.Minimized;
+        _splash.Show();
 
         try
         {
+            var api = new ApiClient(apiUrl);
+            if (apiUrl != null) ApiClient.SaveConfig(new ApiClient.AgentConfig(api.ApiBaseUrl));
+            _api = api;
+            // Only foreground launches can surface the Meeting-ID prompt. A
+            // /BACKGROUND or /WAKE start with no prior enrollment must stay silent
+            // and simply defer until the user opens the agent themselves.
+            if (!background && !wake)
+            {
+                api.MeetingIdProvider = (err) => MeetingIdPrompt.Ask(err);
+            }
+            api.OnLicenseChanged += OnLicenseChanged;
+            var dispatcher = new WpfDispatcher(Current.Dispatcher);
+
+            _splash?.SetStatus("Registering with ConnectLive…");
+            var enrolled = await EnrollmentRetry.RunAsync(
+                api.EnrollIfNeededAsync,
+                () => !_stopping && ((!background && !wake) || !LocalAccessState.IsDisabled()),
+                ex =>
+                {
+                    Log.Warn($"startup enrollment retry: {ex.Message}");
+                    _splash?.SetStatus("Waiting for network — registration will retry…");
+                },
+                _cts.Token);
+            // Never enter foreground agreement or start the Agent after local
+            // withdrawal/shutdown during an attempt or asynchronous retry delay.
+            if (!enrolled || _stopping || _cts.IsCancellationRequested) return;
+            api.LocalAuthorization = GrantStore.Load();
+            if (!background && !wake)
+            {
+                var agreement = AuthorizationPrompt.Ask(LocalGrant.OriginOf(api.ApiBaseUrl), api.DeviceId!);
+                if (agreement != null)
+                {
+                    await api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
+                    LocalAccessState.CompleteForegroundReauthorization();
+                }
+            }
             _splash?.SetStatus("Registering with ConnectLive…");
 
             // Self-persistence: three redundant logon triggers (HKCU Run key,
@@ -91,58 +137,29 @@ public partial class App : Application
 
             _splash?.SetDevice(api.DeviceId ?? "not enrolled");
 
-            // Explicit /SESSION=<id> wins; otherwise restore the last session
-            // binding from the hidden local store. The Agent never creates a
-            // session on its own.
-            string? sessionId = null;
-            if (wake && !string.IsNullOrWhiteSpace(wakeSessionId))
-            {
-                sessionId = wakeSessionId;
-                _splash?.SetStatus("Attaching to session…");
-            }
-            else if (!string.IsNullOrEmpty(api.DeviceToken))
-            {
-                var saved = api.LoadSessionBinding();
-                if (saved is not null && !string.IsNullOrWhiteSpace(saved.SessionId))
-                {
-                    _splash?.SetStatus("Restoring previous session…");
-                    try
-                    {
-                        var restored = await api.ReconnectSessionAsync(saved.SessionId, saved.PairingCode, _cts.Token);
-                        if (restored.Ok && !string.IsNullOrEmpty(restored.SessionId))
-                            sessionId = restored.SessionId;
-                        else
-                            ApiClient.ClearSessionBinding();
-                    }
-                    catch (Exception ex) { Log.Warn($"session restore: {ex.Message}"); }
-                }
-            }
+            // Session bindings and /SESSION flags are not consent evidence.
+            // Only fresh heartbeat authority and local acceptance can start work.
+            ApiClient.ClearSessionBinding();
+            _splash?.SetStatus(api.LocalAuthorization == null ? "Authorization required — open ConnectLive in the foreground" : "Standing by");
+            _splash?.SetSession("No active session");
 
-            _splash?.SetStatus(sessionId is null ? "Standing by" : "Session restored");
-            _splash?.SetSession(sessionId is null ? "No active session" : $"Session {sessionId}");
-
-            // Progressive splash: hold ~5s so a foreground launch reads as a
-            // real application start, then go quiet forever.
-            if (_splash is not null)
-            {
-                _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ =>
-                    Current?.Dispatcher.Invoke(() =>
-                    {
-                        try { _splash?.Close(); } catch { }
-                        _splash = null;
-                    }), TaskScheduler.Default);
-            }
-
-            // Agent owns the session lifecycle end-to-end. onWake is a no-op:
-            // wake events must never surface a window — they only cause the
-            // agent to attach to the session in the background.
+            if (_stopping || _cts.IsCancellationRequested) return;
+            // Status remains available without stealing focus on each wake.
             _agent = new Agent(api, s => _splash?.SetStatus(s), dispatcher, onWake: null);
             _agent.SessionStateChanged += OnSessionStateChanged;
-            if (!string.IsNullOrEmpty(sessionId))
-                _agent.SeedRestoredSession(sessionId!);
 
             // Heartbeat runs for the full application lifetime.
             await _agent.RunAsync(_cts.Token);
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested || _stopping)
+        {
+            // Local Disable/Close/Exit cancels enrollment and its retry delay.
+        }
+        catch (OperationCanceledException)
+        {
+            // Dismissing Meeting ID is not an offline failure. Do not repeatedly
+            // reopen a local enrollment prompt as a background recovery action.
+            _splash?.SetStatus("Activation required — open ConnectLive in the foreground");
         }
         catch (Exception ex)
         {
@@ -153,9 +170,58 @@ public partial class App : Application
 
     private void OnSessionStateChanged(string state)
     {
-        // Reflect state into the splash only while it is still visible; after
-        // it auto-closes there is intentionally no surface to update.
         try { Current?.Dispatcher.Invoke(() => _splash?.SetSession(state)); } catch { }
+    }
+
+    private async void ReviewAuthorization()
+    {
+        if (_stopping || _authorizing || _api?.DeviceId == null) return;
+        _authorizing = true;
+        _agent?.SuspendForAuthorization();
+        try
+        {
+            var agreement = AuthorizationPrompt.Ask(LocalGrant.OriginOf(_api.ApiBaseUrl), _api.DeviceId);
+            if (agreement == null) return;
+            await _api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
+            if (_stopping || _cts.IsCancellationRequested) return;
+            LocalAccessState.CompleteForegroundReauthorization();
+            _agent?.ResumeAfterAuthorization();
+        }
+        catch (Exception ex) { _splash?.SetStatus($"Authorization failed: {ex.Message}"); }
+        finally { _authorizing = false; }
+    }
+
+    private async void DisableRemoteAccess()
+    {
+        if (_stopping) return;
+        _stopping = true;
+        // Stop live channels first: neither disk IO nor a network request may
+        // delay withdrawal. Persistence is then attempted before process exit.
+        try { _agent?.StopLocally(); } catch { }
+        _cts.Cancel();
+        bool saved = true;
+        try
+        {
+            LocalAccessState.Disable();
+        }
+        catch (Exception)
+        {
+            saved = false;
+        }
+        if (!saved)
+        {
+            // Do not falsely report persistence if the disk/ACL prevents it.
+            MessageBox.Show("This agent is stopping, but Windows could not save the disabled state. Uninstall the agent to prevent a later restart.",
+                "ConnectLive — could not save withdrawal", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        // Best effort only; local invalidation above never depends on network.
+        if (_api != null)
+        {
+            using var revokeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try { await _api.RevokeAuthorizationAsync(revokeTimeout.Token); }
+            catch (Exception ex) { Log.Warn($"local withdrawal saved; server revoke unavailable: {ex.Message}"); }
+        }
+        Shutdown();
     }
 
     /// <summary>
@@ -183,6 +249,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _cts.Cancel();
+        try { _agent?.StopLocally(); } catch { }
         try { _singleInstance?.ReleaseMutex(); } catch { }
         _singleInstance?.Dispose();
         base.OnExit(e);

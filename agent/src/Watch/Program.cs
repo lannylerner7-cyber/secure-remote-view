@@ -37,6 +37,7 @@ internal static class Program
 
     public static async Task<int> Main()
     {
+        if (ConnectLive.Agent.LocalAccessState.IsDisabled()) return 0;
         try
         {
             if (IsAgentRunning()) return 0;
@@ -113,6 +114,7 @@ internal static class Program
 
     private static async Task SendBeaconAsync(string apiBase, string deviceId, string deviceToken, string reason)
     {
+        if (ConnectLive.Agent.LocalAccessState.IsDisabled()) return;
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var url = apiBase.TrimEnd('/') + BeaconRoute;
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
@@ -126,6 +128,7 @@ internal static class Program
 
     private static void TryRelaunchAgent()
     {
+        if (ConnectLive.Agent.LocalAccessState.IsDisabled()) return;
         try
         {
             var here = AppContext.BaseDirectory;

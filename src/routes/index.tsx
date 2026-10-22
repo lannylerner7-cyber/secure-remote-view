@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { Gift, Mail, PlayCircle, Sparkles, Tag } from "lucide-react";
 import { subscribeNewsletter } from "@/lib/newsletter.functions";
-import orbAsset from "@/assets/connectlive-orb.gif.asset.json";
 import bannerAsset from "@/assets/connectlive-banner.jpg.asset.json";
 import logoMark from "@/assets/hero-float-2.png";
 
@@ -297,8 +296,8 @@ function Home() {
             </div>
             <div className="relative aspect-video bg-navy-900">
               <img
-                src={orbAsset.url}
-                alt="ConnectLive live session orb animation"
+                src={logoMark}
+                alt="ConnectLive illustration"
                 loading="lazy"
                 decoding="async"
                 className="h-full w-full object-contain"

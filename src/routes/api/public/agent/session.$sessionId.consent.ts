@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { currentAuthorization } from "@/lib/authorization.server";
 
 /**
  * The end-user's answer to the on-screen consent dialog on the device.
@@ -12,8 +13,12 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/conse
         const ctx = await verifyDevice(request);
         if (!ctx) return new Response("unauthorized", { status: 401 });
 
-        const body = (await request.json().catch(() => ({}))) as { decision?: string };
-        const decision = body.decision === "accept" ? "accept" : "decline";
+        const body = (await request.json().catch(() => ({}))) as {
+          decision?: string; authorizationId?: string; noticeVersion?: number;
+        };
+        if (!body || !["accept", "decline"].includes(body.decision ?? ""))
+          return new Response("invalid_decision", { status: 400 });
+        const decision = body.decision;
 
         const { data: session } = await ctx.admin
           .from("sessions")
@@ -31,14 +36,36 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/conse
         }
 
         const nextState = decision === "accept" ? "active" : "declined";
-        await ctx.admin
+        let grant = null;
+        if (decision === "accept") {
+          try {
+            grant = await currentAuthorization(ctx.admin, ctx.device.id);
+          } catch {
+            return new Response("authorization_unavailable", { status: 503 });
+          }
+          if (!grant || grant.revokedAt !== null || body.noticeVersion !== 1 ||
+              body.authorizationId !== grant.id || !grant.capabilities.view ||
+              !["view", "control"].includes(session.mode) ||
+              (session.mode === "control" && !grant.capabilities.control))
+            return new Response("authorization_required", { status: 403 });
+        }
+        const { data: updated, error: updateError } = await ctx.admin
           .from("sessions")
           .update({
             state: nextState,
             consent_at: decision === "accept" ? new Date().toISOString() : null,
             ended_at: decision === "accept" ? null : new Date().toISOString(),
+            authorization_id: grant?.id ?? null,
+            authorization_mode: grant?.mode ?? null,
           })
-          .eq("id", session.id);
+          .eq("id", session.id)
+          .eq("device_id", ctx.device.id)
+          .eq("state", "invited")
+          .select("id")
+          .maybeSingle();
+
+        if (updateError) return new Response("consent_update_failed", { status: 500 });
+        if (!updated) return new Response("session_changed", { status: 409 });
 
         await ctx.admin.from("audit_logs").insert({
           session_id: session.id,

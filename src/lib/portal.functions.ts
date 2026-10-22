@@ -249,15 +249,11 @@ export const requestSupportSession = createServerFn({ method: "POST" })
       const { loadSmtpSettings, sendMail } = await import("./smtp.server");
       const settings = await loadSmtpSettings();
       if (settings) {
+        const { renderSupportBooking } = await import("./system-emails.server");
         await sendMail(settings, {
           to: "support@connectliveagent.com",
-          subject: `Session request — ${data.topic}`,
-          html: `<p><strong>${email}</strong> requested a support session.</p>
-<p>Meeting ID: ${license?.meeting_id ?? "—"}<br/>
-When: ${when.toISOString()} (${data.timezone})<br/>
-Topic: ${data.topic}</p>
-<p>${(data.notes ?? "").replace(/</g, "&lt;")}</p>`,
-          text: `${email} requested a support session.\nMeeting ID: ${license?.meeting_id ?? "-"}\nWhen: ${when.toISOString()} (${data.timezone})\nTopic: ${data.topic}\n${data.notes ?? ""}`,
+          ...renderSupportBooking({ email, meeting: license?.meeting_id ?? "—", when: when.toISOString(),
+            timezone: data.timezone, topic: data.topic, notes: data.notes ?? "" }),
         });
       }
     } catch {

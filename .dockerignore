@@ -14,6 +14,17 @@ dist
 npm-debug.log*
 .lovable
 agent
+admin
+**/bin
+**/obj
+**/publish
+generated-artifacts
+attached_assets
+*.zip
+*.pfx
+*.p12
+*.key
+*.pem
 public/*.zip
 /mnt
 README.md

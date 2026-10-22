@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { getOrderPublic } from "@/lib/orders.functions";
 import { Footer } from "@/components/Footer";
+import { orderReference } from "@/shared/payment-identity";
 
 type Invoice = {
   id: string;
@@ -119,6 +120,11 @@ function InvoicePage() {
           <div className="mt-1 text-xs text-white/50">
             ≈ ${Number(inv.amount_usd).toFixed(2)} USD · {COIN_LABEL[inv.coin]}
           </div>
+          <p className="mt-3 text-xs text-amber-200">
+            Pay the exact crypto amount shown. Quotes may include a matching adjustment
+            of up to {inv.coin === "BTC" ? "0.00000099 BTC" : `0.000099 ${inv.coin.split("_")[0]}`}.
+            Do not round the amount or subtract network fees from it.
+          </p>
 
           <div className="mt-6">
             <div className="text-xs uppercase tracking-wider text-white/50">
@@ -214,7 +220,9 @@ function InvoicePage() {
 
           <div className="mt-6 space-y-1 text-xs text-white/60">
             <div>
-              <span className="text-white/40">Order ID:</span> <code>{inv.id}</code>
+              <span className="text-white/40">Order reference:</span>{" "}
+              <code className="break-all">{orderReference(inv.id)}</code>
+              <p className="mt-1">Use this reference for tracking and support; it is not a required blockchain memo.</p>
             </div>
             <div>
               <span className="text-white/40">Name:</span> {inv.full_name}

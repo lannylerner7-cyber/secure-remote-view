@@ -929,10 +929,15 @@ public partial class LiveSessionViewModel : ObservableObject
 
     [ObservableProperty] private bool isRecording;
     [ObservableProperty] private string recordLabel = "Record";
+    private long _recordingAllowedUntil;
+    private long _recordingGeneration;
+    private bool RecordingPermissionCurrent() =>
+        Environment.TickCount64 < Interlocked.Read(ref _recordingAllowedUntil)
+        && _cts != null && !_cts.IsCancellationRequested;
 
     /// <summary>Start/stop teeing the decoded VP8 stream to an .ivf file.</summary>
     [RelayCommand]
-    private void ToggleRecording()
+    private async Task ToggleRecording()
     {
         var rtc = _rtc;
         if (rtc == null)
@@ -943,6 +948,8 @@ public partial class LiveSessionViewModel : ObservableObject
 
         if (rtc.IsRecording)
         {
+            Interlocked.Increment(ref _recordingGeneration);
+            Interlocked.Exchange(ref _recordingAllowedUntil, 0);
             var path = rtc.StopRecording();
             IsRecording = false;
             RecordLabel = "Record";
@@ -952,9 +959,19 @@ public partial class LiveSessionViewModel : ObservableObject
             return;
         }
 
+        var token = _cts?.Token ?? new CancellationToken(true);
+        if (!await App.Api.CanRecordSessionAsync(SessionId, token) || token.IsCancellationRequested
+            || _rtc != rtc)
+        {
+            SurfaceError("Recording is not authorized for this session, or authorization is unavailable.");
+            return;
+        }
+        Interlocked.Exchange(ref _recordingAllowedUntil, Environment.TickCount64 + 5000);
+        var generation = Interlocked.Increment(ref _recordingGeneration);
         var started = rtc.StartRecording(
             rtc.Pipeline?.SourceWidth ?? 0,
-            rtc.Pipeline?.SourceHeight ?? 0);
+            rtc.Pipeline?.SourceHeight ?? 0,
+            () => Interlocked.Read(ref _recordingGeneration) == generation && RecordingPermissionCurrent());
         if (started == null)
         {
             SurfaceError("Recording could not start — check disk permissions.");
@@ -963,6 +980,39 @@ public partial class LiveSessionViewModel : ObservableObject
         IsRecording = true;
         RecordLabel = "Stop recording";
         FilesStatus = $"Recording to {started}";
+        _ = RenewRecordingPermissionAsync(rtc, token, generation);
+    }
+
+    private async Task RenewRecordingPermissionAsync(WebRtcClient rtc, CancellationToken token, long generation)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested && _rtc == rtc && rtc.IsRecording
+                   && Interlocked.Read(ref _recordingGeneration) == generation)
+            {
+                await Task.Delay(2000, token);
+                if (!await App.Api.CanRecordSessionAsync(SessionId, token)) break;
+                if (Interlocked.Read(ref _recordingGeneration) != generation) break;
+                // An expired lease cannot be revived by a slow response.
+                if (!RecordingPermissionCurrent() || !rtc.IsRecording) break;
+                Interlocked.Exchange(ref _recordingAllowedUntil, Environment.TickCount64 + 5000);
+            }
+        }
+        catch { }
+        finally
+        {
+            if (Interlocked.Read(ref _recordingGeneration) == generation)
+            {
+                Interlocked.Exchange(ref _recordingAllowedUntil, 0);
+                rtc.StopRecording();
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    IsRecording = false;
+                    RecordLabel = "Record";
+                    FilesStatus = "Recording stopped. Authorization expired, was withdrawn, or the session ended.";
+                });
+            }
+        }
     }
 
 

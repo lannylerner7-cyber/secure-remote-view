@@ -303,6 +303,9 @@ function AdminPage() {
     }
     const live = startWebRtcLive(liveId);
     rtcRef.current = live;
+    live.onRecording((active) => {
+      if (rtcRef.current === live) setRecording(active);
+    });
     setRtcState(live.state());
     live.onState((s) => {
       if (rtcRef.current === live) setRtcState(s);
@@ -422,11 +425,11 @@ function AdminPage() {
       });
       return;
     }
-    if (live.startRecording()) {
+    if (await live.startRecording()) {
       setRecording(true);
       toast.success("Recording started");
     } else {
-      toast.error("Recording could not start in this browser");
+      toast.error("Recording unavailable: permission was denied, expired, or could not be verified.");
     }
   }
 
@@ -825,7 +828,11 @@ function AdminPage() {
 
   async function toggleControl(s: Session) {
     const nextMode = s.mode === "control" ? "view" : "control";
-    await supabase.from("sessions").update({ mode: nextMode }).eq("id", s.id);
+    const { error: modeError } = await supabase.from("sessions").update({ mode: nextMode }).eq("id", s.id);
+    if (modeError) {
+      alert(modeError.message);
+      return;
+    }
     // Fire the curtain command through the same input relay the agent already polls.
     // curtain_on doubles as the watchdog heartbeat on the agent — if these stop
     // arriving for >5s, the agent auto-releases BlockInput.

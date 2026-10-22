@@ -134,9 +134,11 @@ public sealed class WebRtcClient : IDisposable
         // A gateway failure returns an empty list and we keep the STUN fallback.
         var iceServers = new System.Collections.Generic.List<RTCIceServer>();
         int relayCount = 0;
+        using var iceTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        iceTimeout.CancelAfter(ConnectLive.Native.NativeGatewayPolicy.IceBudget);
         try
         {
-            foreach (var s in await App.Api.GetIceServersAsync(ct).ConfigureAwait(false))
+            foreach (var s in await App.Api.GetIceServersAsync(_sessionId, iceTimeout.Token).ConfigureAwait(false))
                 foreach (var url in s.Urls)
                 {
                     iceServers.Add(new RTCIceServer { urls = url, username = s.Username, credential = s.Credential });
@@ -144,7 +146,14 @@ public sealed class WebRtcClient : IDisposable
                         url.StartsWith("turns:", StringComparison.OrdinalIgnoreCase)) relayCount++;
                 }
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            T(ex.Message);
+            lock (_restartGate) { _surrendered = true; }
+            return false;
+        }
         catch (Exception ex) { T("ice gateway failed: " + ex.Message); }
+        if (ct.IsCancellationRequested) return false;
         if (iceServers.Count == 0)
             iceServers.Add(new RTCIceServer { urls = "stun:stun.l.google.com:19302" });
         HasRelay = relayCount > 0;
@@ -368,6 +377,11 @@ public sealed class WebRtcClient : IDisposable
                 var rec = _recorder;
                 if (rec != null && !_wireCodecIsH264)
                 {
+                    if (_recordingAllowed?.Invoke() != true)
+                    {
+                        StopRecording();
+                        return;
+                    }
                     try { rec.WriteFrame(frame); }
                     catch (Exception ex) { T("record write failed: " + ex.Message); }
                 }
@@ -379,6 +393,7 @@ public sealed class WebRtcClient : IDisposable
     // ---- S24: session recording ------------------------------------------
 
     private IvfWriter? _recorder;
+    private Func<bool>? _recordingAllowed;
 
     /// <summary>True once SDP negotiation settled on H.264 rather than VP8.</summary>
     private volatile bool _wireCodecIsH264;
@@ -394,8 +409,10 @@ public sealed class WebRtcClient : IDisposable
     /// Returns the path, or null when the file cannot be created — or when the
     /// session is running on H.264, which the .ivf container cannot hold.
     /// </summary>
-    public string? StartRecording(int width = 0, int height = 0)
+    public string? StartRecording(int width = 0, int height = 0, Func<bool>? recordingAllowed = null)
     {
+        if (recordingAllowed?.Invoke() != true) return null;
+        _recordingAllowed = recordingAllowed;
         if (_wireCodecIsH264)
         {
             Log.Warn("[record] not available on an H.264 session (.ivf carries VP8 only)");

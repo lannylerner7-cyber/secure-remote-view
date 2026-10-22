@@ -13,4 +13,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationManifest>..\app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\LocalAccessState.cs" Link="LocalAccessState.cs" />
+  </ItemGroup>
 </Project>

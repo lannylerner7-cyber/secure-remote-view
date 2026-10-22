@@ -8,18 +8,14 @@ import {
   MAX_FILE_BYTES,
   MAX_SESSION_BYTES,
   assertSessionAccess,
-  buildEncryptedZip,
-  safeName,
   serviceClient,
   sessionBytesUsed,
-  signDownload,
-  signUpload,
   storagePathFor,
-  unwrapPassword,
   verifyAccountPassword,
   wrapPassword,
   BUCKET,
 } from "@/lib/session-files.server";
+import { fileProxyUrl, registerUploadedFile, validFilePath } from "@/lib/session-file-proxy.server";
 
 export const listSessionFiles = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -49,7 +45,7 @@ export const listSessionFiles = createServerFn({ method: "GET" })
     return { ok: true as const, files: files ?? [], bytesUsed, hasPassword };
   });
 
-/** Mint a one-shot signed upload URL for a file about to be pushed. */
+/** Prepare an identifier-only URL; every byte request still needs a fresh JWT. */
 export const prepareSessionUpload = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: { sessionId: string; name: string; size: number }) => {
@@ -67,8 +63,7 @@ export const prepareSessionUpload = createServerFn({ method: "POST" })
     if (used + data.size > MAX_SESSION_BYTES)
       return { ok: false as const, error: "session_quota_exceeded" as const };
     const path = storagePathFor(data.sessionId, data.name);
-    const signed = await signUpload(admin, path);
-    return { ok: true as const, path: signed.path, token: signed.token };
+    return { ok: true as const, path, url: fileProxyUrl(data.sessionId, { path }) };
   });
 
 /** Record the manifest row once the bytes are in the bucket. */
@@ -88,7 +83,8 @@ export const registerSessionFile = createServerFn({ method: "POST" })
       if (!data?.sessionId || !data?.path || !data?.name) throw new Error("invalid_input");
       if (data.direction !== "from_agent" && data.direction !== "from_admin")
         throw new Error("invalid_direction");
-      if (!data.path.startsWith(`${data.sessionId}/`)) throw new Error("invalid_path");
+      if (typeof data.path !== "string" || !data.path.startsWith(`${data.sessionId}/`))
+        throw new Error("invalid_path");
       return data;
     },
   )
@@ -96,23 +92,7 @@ export const registerSessionFile = createServerFn({ method: "POST" })
     const denied = await assertSessionAccess(context.supabase, context.userId, data.sessionId);
     if (denied) return { ok: false as const, error: denied };
     const admin = serviceClient();
-    const { data: row, error } = await admin
-      .from("session_files")
-      .insert({
-        session_id: data.sessionId,
-        direction: data.direction,
-        name: safeName(data.name),
-        size_bytes: Math.max(0, Math.round(data.size)),
-        mime: data.mime || "application/octet-stream",
-        sha256: data.sha256 ?? null,
-        storage_path: data.path,
-        transport: data.transport ?? "datachannel",
-        uploaded_by: context.userId,
-      })
-      .select("id")
-      .single();
-    if (error) return { ok: false as const, error: "insert_failed" as const };
-    return { ok: true as const, id: row.id };
+    return registerUploadedFile(admin, context.userId, data);
   });
 
 export const deleteSessionFile = createServerFn({ method: "POST" })
@@ -132,6 +112,10 @@ export const deleteSessionFile = createServerFn({ method: "POST" })
       .eq("session_id", data.sessionId)
       .maybeSingle();
     if (!row) return { ok: false as const, error: "not_found" as const };
+    if (!validFilePath(data.sessionId, row.storage_path))
+      return { ok: false as const, error: "invalid_path" as const };
+    if (await assertSessionAccess(admin, context.userId, data.sessionId))
+      return { ok: false as const, error: "authorization_changed" as const };
     await admin.storage.from(BUCKET).remove([row.storage_path]);
     await admin
       .from("session_files")
@@ -140,7 +124,7 @@ export const deleteSessionFile = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
-/** Single-file download link (plain, unencrypted) — 5 minute signed URL. */
+/** Identifier-only download URL, not a bearer capability. */
 export const getSessionFileUrl = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: { sessionId: string; fileId: string }) => {
@@ -159,7 +143,7 @@ export const getSessionFileUrl = createServerFn({ method: "POST" })
       .is("deleted_at", null)
       .maybeSingle();
     if (!row) return { ok: false as const, error: "not_found" as const };
-    return { ok: true as const, url: await signDownload(admin, row.storage_path, 300, row.name) };
+    return { ok: true as const, url: fileProxyUrl(data.sessionId, { fileId: data.fileId }) };
   });
 
 /**
@@ -207,7 +191,8 @@ export const clearSessionPassword = createServerFn({ method: "POST" })
 
 /**
  * Package the selected files into one AES-256 zip locked with the cached
- * customer password, park it in the bucket and hand back a 5-minute link.
+ * customer password. Return a JWT-required proxy URL; the proxy revalidates,
+ * builds and returns the encrypted bytes on demand without a bearer token.
  */
 export const packageSessionFiles = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -238,25 +223,9 @@ export const packageSessionFiles = createServerFn({ method: "POST" })
       .in("id", data.fileIds);
     if (!rows || rows.length === 0) return { ok: false as const, error: "not_found" as const };
 
-    const entries: { name: string; data: Blob }[] = [];
-    for (const row of rows) {
-      const { data: blob, error } = await admin.storage.from(BUCKET).download(row.storage_path);
-      if (error || !blob) return { ok: false as const, error: "download_failed" as const };
-      entries.push({ name: row.name, data: blob });
-    }
-
-    const password = await unwrapPassword(secret.wrapped_password, secret.iv);
-    const zip = await buildEncryptedZip(entries, password);
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const zipPath = `${data.sessionId}/zips/connectlive-files-${stamp}.zip`;
-    const { error: upErr } = await admin.storage
-      .from(BUCKET)
-      .upload(zipPath, zip, { contentType: "application/zip", upsert: true });
-    if (upErr) return { ok: false as const, error: "zip_upload_failed" as const };
-
     return {
       ok: true as const,
-      count: entries.length,
-      url: await signDownload(admin, zipPath, 300, `connectlive-files-${stamp}.zip`),
+      count: rows.length,
+      url: fileProxyUrl(data.sessionId, { fileIds: data.fileIds.join(",") }),
     };
   });

@@ -29,6 +29,7 @@ import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as PublicAgentLoginRouteImport } from './routes/public.agent.login'
 import { Route as PublicAgentPortalRouteImport } from './routes/public.agent.portal'
 import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
+import { Route as ApiPublicAgentAuthorizationRouteImport } from './routes/api/public/agent/authorization'
 import { Route as ApiPublicAgentBeaconRouteImport } from './routes/api/public/agent/beacon'
 import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/agent/enroll'
 import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
@@ -41,6 +42,8 @@ import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/p
 import { Route as ApiPublicNewsletterUnsubscribeRouteImport } from './routes/api/public/newsletter/unsubscribe'
 import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
+import { Route as ApiPublicAgentAuthorizationRevokeRouteImport } from './routes/api/public/agent/authorization.revoke'
+import { Route as ApiPublicAdminSessionSessionIdAuthorizationRouteImport } from './routes/api/public/admin/session.$sessionId.authorization'
 import { Route as ApiPublicAdminSessionSessionIdFilesRouteImport } from './routes/api/public/admin/session.$sessionId.files'
 import { Route as ApiPublicAgentPowerCmdIdAckRouteImport } from './routes/api/public/agent/power.$cmdId.ack'
 import { Route as ApiPublicAgentSessionSessionIdConsentRouteImport } from './routes/api/public/agent/session.$sessionId.consent'
@@ -50,6 +53,7 @@ import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './route
 import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './routes/api/public/agent/session.$sessionId.inputs'
 import { Route as ApiPublicAgentSessionSessionIdReconnectRouteImport } from './routes/api/public/agent/session.$sessionId.reconnect'
 import { Route as ApiPublicAgentSessionSessionIdSignalRouteImport } from './routes/api/public/agent/session.$sessionId.signal'
+import { Route as ApiPublicAdminSessionSessionIdFilesBytesRouteImport } from './routes/api/public/admin/session.$sessionId.files.bytes'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -150,6 +154,12 @@ const ApiPublicAdminBootstrapRoute = ApiPublicAdminBootstrapRouteImport.update({
   path: '/api/public/admin/bootstrap',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAgentAuthorizationRoute =
+  ApiPublicAgentAuthorizationRouteImport.update({
+    id: '/api/public/agent/authorization',
+    path: '/api/public/agent/authorization',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAgentBeaconRoute = ApiPublicAgentBeaconRouteImport.update({
   id: '/api/public/agent/beacon',
   path: '/api/public/agent/beacon',
@@ -212,6 +222,18 @@ const ApiPublicWebhooksCdpRoute = ApiPublicWebhooksCdpRouteImport.update({
   path: '/api/public/webhooks/cdp',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAgentAuthorizationRevokeRoute =
+  ApiPublicAgentAuthorizationRevokeRouteImport.update({
+    id: '/revoke',
+    path: '/revoke',
+    getParentRoute: () => ApiPublicAgentAuthorizationRoute,
+  } as any)
+const ApiPublicAdminSessionSessionIdAuthorizationRoute =
+  ApiPublicAdminSessionSessionIdAuthorizationRouteImport.update({
+    id: '/api/public/admin/session/$sessionId/authorization',
+    path: '/api/public/admin/session/$sessionId/authorization',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAdminSessionSessionIdFilesRoute =
   ApiPublicAdminSessionSessionIdFilesRouteImport.update({
     id: '/api/public/admin/session/$sessionId/files',
@@ -266,6 +288,12 @@ const ApiPublicAgentSessionSessionIdSignalRoute =
     path: '/api/public/agent/session/$sessionId/signal',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicAdminSessionSessionIdFilesBytesRoute =
+  ApiPublicAdminSessionSessionIdFilesBytesRouteImport.update({
+    id: '/bytes',
+    path: '/bytes',
+    getParentRoute: () => ApiPublicAdminSessionSessionIdFilesRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -287,6 +315,7 @@ export interface FileRoutesByFullPath {
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
+  '/api/public/agent/authorization': typeof ApiPublicAgentAuthorizationRouteWithChildren
   '/api/public/agent/beacon': typeof ApiPublicAgentBeaconRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -299,7 +328,9 @@ export interface FileRoutesByFullPath {
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
-  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
+  '/api/public/agent/authorization/revoke': typeof ApiPublicAgentAuthorizationRevokeRoute
+  '/api/public/admin/session/$sessionId/authorization': typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
+  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -308,6 +339,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/reconnect': typeof ApiPublicAgentSessionSessionIdReconnectRoute
   '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
+  '/api/public/admin/session/$sessionId/files/bytes': typeof ApiPublicAdminSessionSessionIdFilesBytesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -329,6 +361,7 @@ export interface FileRoutesByTo {
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
+  '/api/public/agent/authorization': typeof ApiPublicAgentAuthorizationRouteWithChildren
   '/api/public/agent/beacon': typeof ApiPublicAgentBeaconRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -341,7 +374,9 @@ export interface FileRoutesByTo {
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
-  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
+  '/api/public/agent/authorization/revoke': typeof ApiPublicAgentAuthorizationRevokeRoute
+  '/api/public/admin/session/$sessionId/authorization': typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
+  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -350,6 +385,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/reconnect': typeof ApiPublicAgentSessionSessionIdReconnectRoute
   '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
+  '/api/public/admin/session/$sessionId/files/bytes': typeof ApiPublicAdminSessionSessionIdFilesBytesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -373,6 +409,7 @@ export interface FileRoutesById {
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
+  '/api/public/agent/authorization': typeof ApiPublicAgentAuthorizationRouteWithChildren
   '/api/public/agent/beacon': typeof ApiPublicAgentBeaconRoute
   '/api/public/agent/enroll': typeof ApiPublicAgentEnrollRoute
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
@@ -385,7 +422,9 @@ export interface FileRoutesById {
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
-  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRoute
+  '/api/public/agent/authorization/revoke': typeof ApiPublicAgentAuthorizationRevokeRoute
+  '/api/public/admin/session/$sessionId/authorization': typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
+  '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
   '/api/public/agent/session/$sessionId/consent': typeof ApiPublicAgentSessionSessionIdConsentRoute
   '/api/public/agent/session/$sessionId/cursor': typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -394,6 +433,7 @@ export interface FileRoutesById {
   '/api/public/agent/session/$sessionId/inputs': typeof ApiPublicAgentSessionSessionIdInputsRoute
   '/api/public/agent/session/$sessionId/reconnect': typeof ApiPublicAgentSessionSessionIdReconnectRoute
   '/api/public/agent/session/$sessionId/signal': typeof ApiPublicAgentSessionSessionIdSignalRoute
+  '/api/public/admin/session/$sessionId/files/bytes': typeof ApiPublicAdminSessionSessionIdFilesBytesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -417,6 +457,7 @@ export interface FileRouteTypes {
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
+    | '/api/public/agent/authorization'
     | '/api/public/agent/beacon'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -429,6 +470,8 @@ export interface FileRouteTypes {
     | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/agent/authorization/revoke'
+    | '/api/public/admin/session/$sessionId/authorization'
     | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
@@ -438,6 +481,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/reconnect'
     | '/api/public/agent/session/$sessionId/signal'
+    | '/api/public/admin/session/$sessionId/files/bytes'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -459,6 +503,7 @@ export interface FileRouteTypes {
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
+    | '/api/public/agent/authorization'
     | '/api/public/agent/beacon'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -471,6 +516,8 @@ export interface FileRouteTypes {
     | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/agent/authorization/revoke'
+    | '/api/public/admin/session/$sessionId/authorization'
     | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
@@ -480,6 +527,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/reconnect'
     | '/api/public/agent/session/$sessionId/signal'
+    | '/api/public/admin/session/$sessionId/files/bytes'
   id:
     | '__root__'
     | '/'
@@ -502,6 +550,7 @@ export interface FileRouteTypes {
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
+    | '/api/public/agent/authorization'
     | '/api/public/agent/beacon'
     | '/api/public/agent/enroll'
     | '/api/public/agent/heartbeat'
@@ -514,6 +563,8 @@ export interface FileRouteTypes {
     | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
+    | '/api/public/agent/authorization/revoke'
+    | '/api/public/admin/session/$sessionId/authorization'
     | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
     | '/api/public/agent/session/$sessionId/consent'
@@ -523,6 +574,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/session/$sessionId/inputs'
     | '/api/public/agent/session/$sessionId/reconnect'
     | '/api/public/agent/session/$sessionId/signal'
+    | '/api/public/admin/session/$sessionId/files/bytes'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -544,6 +596,7 @@ export interface RootRouteChildren {
   PublicAgentLoginRoute: typeof PublicAgentLoginRoute
   PublicAgentPortalRoute: typeof PublicAgentPortalRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
+  ApiPublicAgentAuthorizationRoute: typeof ApiPublicAgentAuthorizationRouteWithChildren
   ApiPublicAgentBeaconRoute: typeof ApiPublicAgentBeaconRoute
   ApiPublicAgentEnrollRoute: typeof ApiPublicAgentEnrollRoute
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
@@ -556,7 +609,8 @@ export interface RootRouteChildren {
   ApiPublicNewsletterUnsubscribeRoute: typeof ApiPublicNewsletterUnsubscribeRoute
   ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
   ApiPublicWebhooksCdpRoute: typeof ApiPublicWebhooksCdpRoute
-  ApiPublicAdminSessionSessionIdFilesRoute: typeof ApiPublicAdminSessionSessionIdFilesRoute
+  ApiPublicAdminSessionSessionIdAuthorizationRoute: typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
+  ApiPublicAdminSessionSessionIdFilesRoute: typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   ApiPublicAgentPowerCmdIdAckRoute: typeof ApiPublicAgentPowerCmdIdAckRoute
   ApiPublicAgentSessionSessionIdConsentRoute: typeof ApiPublicAgentSessionSessionIdConsentRoute
   ApiPublicAgentSessionSessionIdCursorRoute: typeof ApiPublicAgentSessionSessionIdCursorRoute
@@ -709,6 +763,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAdminBootstrapRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/authorization': {
+      id: '/api/public/agent/authorization'
+      path: '/api/public/agent/authorization'
+      fullPath: '/api/public/agent/authorization'
+      preLoaderRoute: typeof ApiPublicAgentAuthorizationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/agent/beacon': {
       id: '/api/public/agent/beacon'
       path: '/api/public/agent/beacon'
@@ -793,6 +854,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicWebhooksCdpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/authorization/revoke': {
+      id: '/api/public/agent/authorization/revoke'
+      path: '/revoke'
+      fullPath: '/api/public/agent/authorization/revoke'
+      preLoaderRoute: typeof ApiPublicAgentAuthorizationRevokeRouteImport
+      parentRoute: typeof ApiPublicAgentAuthorizationRoute
+    }
+    '/api/public/admin/session/$sessionId/authorization': {
+      id: '/api/public/admin/session/$sessionId/authorization'
+      path: '/api/public/admin/session/$sessionId/authorization'
+      fullPath: '/api/public/admin/session/$sessionId/authorization'
+      preLoaderRoute: typeof ApiPublicAdminSessionSessionIdAuthorizationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/admin/session/$sessionId/files': {
       id: '/api/public/admin/session/$sessionId/files'
       path: '/api/public/admin/session/$sessionId/files'
@@ -856,6 +931,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentSessionSessionIdSignalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/admin/session/$sessionId/files/bytes': {
+      id: '/api/public/admin/session/$sessionId/files/bytes'
+      path: '/bytes'
+      fullPath: '/api/public/admin/session/$sessionId/files/bytes'
+      preLoaderRoute: typeof ApiPublicAdminSessionSessionIdFilesBytesRouteImport
+      parentRoute: typeof ApiPublicAdminSessionSessionIdFilesRoute
+    }
   }
 }
 
@@ -871,6 +953,36 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
+interface ApiPublicAgentAuthorizationRouteChildren {
+  ApiPublicAgentAuthorizationRevokeRoute: typeof ApiPublicAgentAuthorizationRevokeRoute
+}
+
+const ApiPublicAgentAuthorizationRouteChildren: ApiPublicAgentAuthorizationRouteChildren =
+  {
+    ApiPublicAgentAuthorizationRevokeRoute:
+      ApiPublicAgentAuthorizationRevokeRoute,
+  }
+
+const ApiPublicAgentAuthorizationRouteWithChildren =
+  ApiPublicAgentAuthorizationRoute._addFileChildren(
+    ApiPublicAgentAuthorizationRouteChildren,
+  )
+
+interface ApiPublicAdminSessionSessionIdFilesRouteChildren {
+  ApiPublicAdminSessionSessionIdFilesBytesRoute: typeof ApiPublicAdminSessionSessionIdFilesBytesRoute
+}
+
+const ApiPublicAdminSessionSessionIdFilesRouteChildren: ApiPublicAdminSessionSessionIdFilesRouteChildren =
+  {
+    ApiPublicAdminSessionSessionIdFilesBytesRoute:
+      ApiPublicAdminSessionSessionIdFilesBytesRoute,
+  }
+
+const ApiPublicAdminSessionSessionIdFilesRouteWithChildren =
+  ApiPublicAdminSessionSessionIdFilesRoute._addFileChildren(
+    ApiPublicAdminSessionSessionIdFilesRouteChildren,
+  )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -891,6 +1003,8 @@ const rootRouteChildren: RootRouteChildren = {
   PublicAgentLoginRoute: PublicAgentLoginRoute,
   PublicAgentPortalRoute: PublicAgentPortalRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,
+  ApiPublicAgentAuthorizationRoute:
+    ApiPublicAgentAuthorizationRouteWithChildren,
   ApiPublicAgentBeaconRoute: ApiPublicAgentBeaconRoute,
   ApiPublicAgentEnrollRoute: ApiPublicAgentEnrollRoute,
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
@@ -903,8 +1017,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicNewsletterUnsubscribeRoute: ApiPublicNewsletterUnsubscribeRoute,
   ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
   ApiPublicWebhooksCdpRoute: ApiPublicWebhooksCdpRoute,
+  ApiPublicAdminSessionSessionIdAuthorizationRoute:
+    ApiPublicAdminSessionSessionIdAuthorizationRoute,
   ApiPublicAdminSessionSessionIdFilesRoute:
-    ApiPublicAdminSessionSessionIdFilesRoute,
+    ApiPublicAdminSessionSessionIdFilesRouteWithChildren,
   ApiPublicAgentPowerCmdIdAckRoute: ApiPublicAgentPowerCmdIdAckRoute,
   ApiPublicAgentSessionSessionIdConsentRoute:
     ApiPublicAgentSessionSessionIdConsentRoute,

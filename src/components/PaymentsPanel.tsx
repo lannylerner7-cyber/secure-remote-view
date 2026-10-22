@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { orderReference } from "@/shared/payment-identity";
 import { useServerFn } from "@tanstack/react-start";
 import {
   listOrdersAdmin,
@@ -249,6 +250,7 @@ export function PaymentsPanel({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                 <td className="p-2 text-white/60">{new Date(o.created_at).toLocaleString()}</td>
                 <td className="p-2">
                   <div>{o.full_name}</div>
+                  <div className="max-w-64 break-all font-mono text-[10px] text-white/60">{orderReference(o.id)}</div>
                   <div className="text-[10px] text-white/40">{o.email}</div>
                 </td>
                 <td className="p-2">{o.plan_code}</td>

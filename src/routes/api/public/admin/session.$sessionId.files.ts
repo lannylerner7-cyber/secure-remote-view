@@ -1,19 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { sessionAuthorized } from "@/lib/authorization.server";
 import { adminClient } from "@/lib/server-supabase";
 import {
   BUCKET,
   MAX_FILE_BYTES,
   MAX_SESSION_BYTES,
-  buildEncryptedZip,
   safeName,
   sessionBytesUsed,
-  signDownload,
-  signUpload,
   storagePathFor,
-  unwrapPassword,
   verifyAccountPassword,
   wrapPassword,
 } from "@/lib/session-files.server";
+import { fileProxyUrl, registerUploadedFile, validFilePath } from "@/lib/session-file-proxy.server";
 
 /**
  * Authenticated native-admin routes for in-session file transfer.
@@ -22,8 +20,6 @@ import {
  * call those, so this route exposes the same operations as stable HTTP
  * endpoints secured with the technician's Supabase JWT.
  */
-
-const EXPIRES_MINUTES = 5;
 
 async function getUser(req: Request) {
   const header = req.headers.get("authorization") ?? "";
@@ -40,12 +36,13 @@ async function assertAccess(
   userId: string,
   sessionId: string,
 ): Promise<"not_found" | "forbidden" | null> {
-  const [{ data: session }, { data: isSuper }] = await Promise.all([
+  const [{ data: session }, { data: isSuper, error: roleError }] = await Promise.all([
     admin.from("sessions").select("id, technician_id").eq("id", sessionId).maybeSingle(),
     admin.rpc("has_role", { _user_id: userId, _role: "super_admin" as never }),
   ]);
   if (!session) return "not_found";
-  if (!isSuper && session.technician_id !== userId) return "forbidden";
+  if (session.technician_id !== userId && (roleError || isSuper !== true)) return "forbidden";
+  if (!(await sessionAuthorized(admin, sessionId, "files"))) return "forbidden";
   return null;
 }
 
@@ -81,7 +78,7 @@ export const Route = createFileRoute("/api/public/admin/session/$sessionId/files
         return Response.json({ ok: true, files: files ?? [], bytesUsed, hasPassword });
       },
 
-      // Mint a one-shot signed upload URL for a file the admin is pushing.
+      // Prepare an identifier-only proxy URL; it confers no access by itself.
       POST: async ({ request, params }) => {
         const ctx = await getUser(request);
         if (!ctx) return bad(401, "unauthorized");
@@ -104,8 +101,9 @@ export const Route = createFileRoute("/api/public/admin/session/$sessionId/files
           const used = await sessionBytesUsed(ctx.admin, params.sessionId);
           if (used + size > MAX_SESSION_BYTES) return bad(413, "session_quota_exceeded");
           const path = storagePathFor(params.sessionId, name);
-          const signed = await signUpload(ctx.admin, path);
-          return Response.json({ ok: true, path: signed.path, token: signed.token, signedUrl: signed.signedUrl });
+          const url = fileProxyUrl(params.sessionId, { path });
+          // signedUrl is a compatibility DTO field for native Admin, not a signed URL.
+          return Response.json({ ok: true, path, url, signedUrl: url });
         }
 
         if (action === "register") {
@@ -123,29 +121,12 @@ export const Route = createFileRoute("/api/public/admin/session/$sessionId/files
           } catch {
             return bad(400, "invalid_json");
           }
-          const path = body.path ?? "";
-          const name = safeName(body.name ?? "file");
-          const size = Math.max(0, Math.round(Number(body.size ?? 0)));
-          if (!path.startsWith(`${params.sessionId}/`)) return bad(400, "invalid_path");
-          if (body.direction !== "from_agent" && body.direction !== "from_admin")
-            return bad(400, "invalid_direction");
-          const { data: row, error } = await ctx.admin
-            .from("session_files")
-            .insert({
-              session_id: params.sessionId,
-              direction: body.direction,
-              name,
-              size_bytes: size,
-              mime: body.mime || "application/octet-stream",
-              sha256: body.sha256 ?? null,
-              storage_path: path,
-              transport: body.transport ?? "http",
-              uploaded_by: ctx.user.id,
-            })
-            .select("id")
-            .single();
-          if (error) return bad(500, "insert_failed");
-          return Response.json({ ok: true, id: row.id });
+          const result = await registerUploadedFile(ctx.admin, ctx.user.id, {
+            sessionId: params.sessionId, path: body.path ?? "", name: body.name ?? "file",
+            size: body.size ?? -1, direction: body.direction ?? "",
+            mime: body.mime, sha256: body.sha256, transport: body.transport,
+          });
+          return Response.json(result, { status: result.ok ? 200 : 400 });
         }
 
         if (action === "package") {
@@ -174,26 +155,10 @@ export const Route = createFileRoute("/api/public/admin/session/$sessionId/files
             .in("id", body.fileIds);
           if (!rows || rows.length === 0) return bad(404, "not_found");
 
-          const entries: { name: string; data: Blob }[] = [];
-          for (const row of rows) {
-            const { data: blob, error } = await ctx.admin.storage.from(BUCKET).download(row.storage_path);
-            if (error || !blob) return bad(500, "download_failed");
-            entries.push({ name: row.name, data: blob });
-          }
-
-          const password = await unwrapPassword(secret.wrapped_password, secret.iv);
-          const zip = await buildEncryptedZip(entries, password);
-          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-          const zipPath = `${params.sessionId}/zips/connectlive-files-${stamp}.zip`;
-          const { error: upErr } = await ctx.admin.storage
-            .from(BUCKET)
-            .upload(zipPath, zip, { contentType: "application/zip", upsert: true });
-          if (upErr) return bad(500, "zip_upload_failed");
-
           return Response.json({
             ok: true,
-            count: entries.length,
-            url: await signDownload(ctx.admin, zipPath, EXPIRES_MINUTES * 60, `connectlive-files-${stamp}.zip`),
+            count: rows.length,
+            url: fileProxyUrl(params.sessionId, { fileIds: body.fileIds.join(",") }),
           });
         }
 
@@ -244,6 +209,8 @@ export const Route = createFileRoute("/api/public/admin/session/$sessionId/files
           .eq("session_id", params.sessionId)
           .maybeSingle();
         if (!row) return bad(404, "not_found");
+        if (!validFilePath(params.sessionId, row.storage_path)) return bad(400, "invalid_path");
+        if (await assertAccess(ctx.admin, ctx.user.id, params.sessionId)) return bad(403, "authorization_changed");
         await ctx.admin.storage.from(BUCKET).remove([row.storage_path]);
         await ctx.admin
           .from("session_files")

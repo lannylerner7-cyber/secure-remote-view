@@ -1,0 +1,102 @@
+[
+  {
+    "archive": "ConnectLive-Agent-Windows-x64.zip",
+    "sha256": "3e3ec2ad6a67a6ccbec99c6a2d6156e36f82bfa5882e26dfb12bd687f1f9e512",
+    "bytes": 80047848,
+    "manifestHashMatches": true,
+    "crcValid": true,
+    "duplicatePaths": false,
+    "unsafePaths": [],
+    "members": [
+      {
+        "path": "ConnectLive-Agent-Windows-x64/ConnectLive.exe",
+        "bytes": 201986507,
+        "sha256": "716aa60f9cbfb9ebcd54c3629f0647eb8f8dd54a9b0f1f14167b7eab71b27218",
+        "checksumMatches": true,
+        "peValid": true,
+        "machine": "0x8664",
+        "pe32Plus": true,
+        "certificateTableBytes": 0,
+        "embeddedVersionHints": [
+          "1.9.1+63b9f3d5b4ace4df33430547a109c9964a41f061"
+        ],
+        "matchesPublishedStagingExe": true,
+        "windowsRuntimeVerified": false
+      },
+      {
+        "path": "ConnectLive-Agent-Windows-x64/README.txt",
+        "bytes": 1967,
+        "sha256": "74abe5615eec8560f9200a444ed95251f349482d8cda4e1c64d0337d9bd9c818",
+        "checksumMatches": true
+      },
+      {
+        "path": "ConnectLive-Agent-Windows-x64/Start-Agent.cmd",
+        "bytes": 98,
+        "sha256": "e43599567a0fdb3dc214401228104d3df75dbff52d7560b9225cebeaae613365",
+        "checksumMatches": true,
+        "launcherProductionOriginMatches": true
+      },
+      {
+        "path": "ConnectLive-Agent-Windows-x64/SHA256SUMS.txt",
+        "bytes": 241,
+        "sha256": "aba01263a54c830f3c683801dff8ccc29e5a66b08e883deb50d963bfdcca7eb2",
+        "checksumMatches": null
+      }
+    ],
+    "everyPayloadChecksummed": true
+  },
+  {
+    "archive": "ConnectLive-Admin-Windows-x64.zip",
+    "sha256": "b75464c72b277ea2fdda203e07debcbe9ce73e9b17aba33950b0c0b9a9b5a908",
+    "bytes": 79761153,
+    "manifestHashMatches": true,
+    "crcValid": true,
+    "duplicatePaths": false,
+    "unsafePaths": [],
+    "members": [
+      {
+        "path": "ConnectLive-Admin-Windows-x64/ConnectLiveAdmin.exe",
+        "bytes": 201120071,
+        "sha256": "16d810140d9024e871637ffe5885cd465540f9a959c353ad29196096286afc44",
+        "checksumMatches": true,
+        "peValid": true,
+        "machine": "0x8664",
+        "pe32Plus": true,
+        "certificateTableBytes": 0,
+        "embeddedVersionHints": [
+          "1.7.2+63b9f3d5b4ace4df33430547a109c9964a41f061"
+        ],
+        "matchesPublishedStagingExe": true,
+        "windowsRuntimeVerified": false
+      },
+      {
+        "path": "ConnectLive-Admin-Windows-x64/README.txt",
+        "bytes": 1951,
+        "sha256": "88b6702cfd0fdf05cf5fba75096831868b44933959cecb3a86784c3656f120e9",
+        "checksumMatches": true
+      },
+      {
+        "path": "ConnectLive-Admin-Windows-x64/admin.config.json",
+        "bytes": 180,
+        "sha256": "719092cae526477b0690c97b81111e06393c26d859289e19389a6519c2514a0a",
+        "checksumMatches": true,
+        "configFields": [
+          "baseUrl",
+          "supabaseAnonKey",
+          "supabaseUrl"
+        ],
+        "productionOriginMatches": true,
+        "supabaseOriginMatches": true,
+        "keyType": "publishable",
+        "privilegedConfigFields": false
+      },
+      {
+        "path": "ConnectLive-Admin-Windows-x64/SHA256SUMS.txt",
+        "bytes": 248,
+        "sha256": "60fbf414f684d73267527584d149c08fed21f3ebf36f07b2ece169869f53b27e",
+        "checksumMatches": null
+      }
+    ],
+    "everyPayloadChecksummed": true
+  }
+]

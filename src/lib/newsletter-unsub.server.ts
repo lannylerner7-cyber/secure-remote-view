@@ -16,7 +16,10 @@ function b64url(bytes: Uint8Array): string {
 }
 
 async function key(): Promise<CryptoKey> {
-  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || "connectlive-newsletter-fallback";
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret?.trim()) {
+    throw new Error("Newsletter token signing is unavailable: server configuration is missing.");
+  }
   return crypto.subtle.importKey(
     "raw",
     enc.encode(`newsletter-unsub:${secret}`),
@@ -34,6 +37,7 @@ export async function unsubToken(email: string): Promise<string> {
 
 export async function verifyUnsubToken(email: string, token: string): Promise<boolean> {
   if (!email || !token) return false;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) return false;
   const expected = await unsubToken(email);
   if (expected.length !== token.length) return false;
   let diff = 0;

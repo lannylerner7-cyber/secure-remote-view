@@ -45,10 +45,15 @@ export const createOrderPublic = createServerFn({ method: "POST" })
 
     // Address (may be null if operator hasn't configured this coin yet)
     const address = await issueReceiveAddress(data.coin);
+    if (!address) throw new Error("Receiving wallet is not configured for this currency.");
 
-    const { data: inserted, error } = await supabaseAdmin
-      .from("orders")
-      .insert({
+    // The RPC atomically reserves the amount and creates the invoice. Never
+    // fall back to a shared, non-unique amount if the migration is missing.
+    const { data: quoted, error } = await supabaseAdmin.rpc(
+      "create_unique_payment_order" as never,
+      {
+        _base_amount: String(amountCoin),
+        _order: {
         email: data.email.trim().toLowerCase(),
         full_name: data.full_name.trim(),
         phone: data.phone?.trim() || null,
@@ -56,15 +61,16 @@ export const createOrderPublic = createServerFn({ method: "POST" })
         plan_code: plan.code,
         amount_usd: plan.amount_usd,
         coin: data.coin,
-        amount_coin: amountCoin,
         price_locked_at: now.toISOString(),
         price_expires_at: expires.toISOString(),
         receive_address: address,
-        status: "pending",
-      })
-      .select("id")
-      .single();
+        },
+      } as never,
+    );
     if (error) throw new Error(error.message);
+    const rows = quoted as unknown as Array<{ order_id: string; quoted_amount: string | number }>;
+    const inserted = rows?.[0] ? { id: rows[0].order_id } : null;
+    if (!inserted) throw new Error("Quote creation returned no order.");
 
     // Order received email (never blocks or fails the order).
     try {
@@ -163,19 +169,25 @@ export const setOrderAccessLink = createServerFn({ method: "POST" })
     z
       .object({
         id: z.string().uuid(),
-        access_link: z.string().url().max(2048),
+        access_link: z.string().url().max(2048).refine((value) => {
+          const u = new URL(value);
+          return u.protocol === "https:" && !u.username && !u.password;
+        }, "Use an HTTPS access link without embedded credentials."),
       })
       .parse(raw),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
+    const { data: updated, error } = await context.supabase
       .from("orders")
-      .update({ access_link: data.access_link, access_link_sent_at: new Date().toISOString() })
-      .eq("id", data.id);
+      .update({ access_link: data.access_link, access_link_sent_at: null })
+      .eq("id", data.id).eq("status", "paid").select("id");
     if (error) throw new Error(error.message);
+    if (!updated?.length) throw new Error("A paid order is required.");
     // Delivery email. Never throws — SMTP being down must not fail the update.
     const { sendOrderEmailById } = await import("./order-emails.server");
-    await sendOrderEmailById("access_ready", data.id);
+    const delivery = await sendOrderEmailById("access_ready", data.id);
+    if (!delivery.ok) throw new Error(`Access link saved, but email was not confirmed: ${delivery.reason}. Retry from the email log.`);
+    if (delivery.warning) throw new Error("Email accepted, but delivery tracking could not be saved. Do not resend automatically.");
     return { ok: true };
   });
 

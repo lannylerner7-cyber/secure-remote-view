@@ -30,6 +30,28 @@ interface Wire {
   close(): Promise<void>;
 }
 
+class MailTransportError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "MailTransportError";
+  }
+}
+
+/** Safe for UI/logs: never returns provider replies, addresses or credentials. */
+export function mailErrorReason(error: unknown): string {
+  return error instanceof MailTransportError ? error.reason : "SMTP delivery failed";
+}
+
+function fail(reason: string): never {
+  throw new MailTransportError(reason);
+}
+
+function checkAbort(signal: AbortSignal): void {
+  if (signal.aborted) fail("SMTP delivery timed out");
+}
+
+const MAX_REPLY_BYTES = 64 * 1024;
+
 async function loadCloudflareSockets(): Promise<{
   connect: (
     addr: { hostname: string; port: number },
@@ -52,28 +74,38 @@ type CfSocket = {
   close: () => Promise<void>;
 };
 
-function cfWire(initial: CfSocket): Wire {
+function cfWire(initial: CfSocket, signal: AbortSignal): Wire {
   let socket = initial;
   let reader = socket.readable.getReader();
   let writer = socket.writable.getWriter();
+  const abort = () => { void socket.close().catch(() => {}); };
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) abort();
   return {
     async read() {
+      checkAbort(signal);
       const { value, done } = await reader.read();
+      checkAbort(signal);
       return done ? null : (value ?? null);
     },
     async write(data) {
+      checkAbort(signal);
       await writer.write(data);
+      checkAbort(signal);
     },
     async startTls() {
-      await reader.cancel().catch(() => {});
+      checkAbort(signal);
+      // Cloudflare requires unlocked streams, not cancelled/closed streams.
+      // No read/write is pending here: the STARTTLS reply was fully consumed.
       reader.releaseLock();
-      await writer.close().catch(() => {});
       writer.releaseLock();
       socket = socket.startTls();
       reader = socket.readable.getReader();
       writer = socket.writable.getWriter();
+      checkAbort(signal);
     },
     async close() {
+      signal.removeEventListener("abort", abort);
       try {
         await socket.close();
       } catch {
@@ -83,15 +115,20 @@ function cfWire(initial: CfSocket): Wire {
   };
 }
 
-async function nodeWire(host: string, port: number, tlsFromStart: boolean): Promise<Wire> {
+async function nodeWire(host: string, port: number, tlsFromStart: boolean, signal: AbortSignal): Promise<Wire> {
   const net = await import("node:net");
   const tls = await import("node:tls");
+  checkAbort(signal);
 
   type Sock = import("node:net").Socket;
-  let socket: Sock;
+  let socket: Sock | undefined;
   const queue: Uint8Array[] = [];
+  let queuedBytes = 0;
   let waiter: ((v: Uint8Array | null) => void) | null = null;
   let ended = false;
+  let overflow = false;
+  const abort = () => { socket?.destroy(); };
+  signal.addEventListener("abort", abort, { once: true });
 
   const attach = (s: Sock) => {
     s.on("data", (chunk: Buffer) => {
@@ -100,7 +137,13 @@ async function nodeWire(host: string, port: number, tlsFromStart: boolean): Prom
         const w = waiter;
         waiter = null;
         w(u8);
-      } else queue.push(u8);
+      } else {
+        queuedBytes += u8.byteLength;
+        if (queuedBytes > MAX_REPLY_BYTES) {
+          overflow = true;
+          s.destroy();
+        } else queue.push(u8);
+      }
     });
     const finish = () => {
       ended = true;
@@ -115,42 +158,81 @@ async function nodeWire(host: string, port: number, tlsFromStart: boolean): Prom
     s.on("error", finish);
   };
 
-  socket = await new Promise<Sock>((resolve, reject) => {
-    const s = tlsFromStart
-      ? tls.connect({ host, port, servername: host }, () => resolve(s as unknown as Sock))
-      : net.connect({ host, port }, () => resolve(s));
-    s.once("error", reject);
-  });
-  attach(socket);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => reject(new MailTransportError("SMTP delivery timed out"));
+      const connected = () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      // Store the socket before connection/DNS/TLS completes so abort destroys it.
+      socket = tlsFromStart
+        ? tls.connect({ host, port, servername: host }, connected)
+        : net.connect({ host, port }, connected);
+      attach(socket);
+      signal.addEventListener("abort", onAbort, { once: true });
+      socket.once("error", (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      });
+      if (signal.aborted) { abort(); onAbort(); }
+    });
+    checkAbort(signal);
+  } catch (error) {
+    signal.removeEventListener("abort", abort);
+    socket?.destroy();
+    throw error;
+  }
 
   return {
     read() {
+      checkAbort(signal);
+      if (overflow) fail("SMTP reply exceeded size limit");
       const next = queue.shift();
-      if (next) return Promise.resolve(next);
+      if (next) {
+        queuedBytes -= next.byteLength;
+        return Promise.resolve(next);
+      }
       if (ended) return Promise.resolve(null);
       return new Promise((resolve) => {
         waiter = resolve;
       });
     },
     write(data) {
+      checkAbort(signal);
       return new Promise((resolve, reject) => {
-        socket.write(Buffer.from(data), (err) => (err ? reject(err) : resolve()));
+        socket!.write(Buffer.from(data), (err) => (err ? reject(err) : resolve()));
       });
     },
     async startTls(servername) {
-      const plain = socket;
+      checkAbort(signal);
+      const plain = socket!;
       plain.removeAllListeners("data");
       plain.removeAllListeners("end");
       plain.removeAllListeners("close");
-      socket = await new Promise<Sock>((resolve, reject) => {
-        const s = tls.connect({ socket: plain, servername }, () => resolve(s as unknown as Sock));
-        s.once("error", reject);
+      queue.length = 0;
+      queuedBytes = 0;
+      ended = false;
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => reject(new MailTransportError("SMTP delivery timed out"));
+        socket = tls.connect({ socket: plain, servername }, () => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        });
+        attach(socket);
+        signal.addEventListener("abort", onAbort, { once: true });
+        socket.once("error", (error) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error);
+        });
+        if (signal.aborted) { abort(); onAbort(); }
       });
-      attach(socket);
+      checkAbort(signal);
     },
     async close() {
+      signal.removeEventListener("abort", abort);
       try {
-        socket.destroy();
+        socket?.destroy();
       } catch {
         /* ignore */
       }
@@ -181,7 +263,8 @@ class SmtpSession {
         }
       }
       const chunk = await this.wire.read();
-      if (chunk === null) throw new Error("SMTP connection closed unexpectedly");
+      if (chunk === null) fail("SMTP connection closed unexpectedly");
+      if (this.buffer.length + chunk.byteLength > MAX_REPLY_BYTES) fail("SMTP reply exceeded size limit");
       this.buffer += dec.decode(chunk);
     }
   }
@@ -189,7 +272,7 @@ class SmtpSession {
   async expect(codes: number[]): Promise<string> {
     const block = await this.readLineBlock();
     const code = Number(block.slice(0, 3));
-    if (!codes.includes(code)) throw new Error(`SMTP ${block.replace(/\s+/g, " ").slice(0, 300)}`);
+    if (!codes.includes(code)) fail(`SMTP server rejected request (${code})`);
     return block;
   }
 
@@ -232,6 +315,86 @@ export type MailMessage = {
   headers?: Record<string, string>;
 };
 
+function singleLine(value: unknown, field: string, max = 998): asserts value is string {
+  if (typeof value !== "string" || value.length > max || /[\x00-\x1f\x7f]/.test(value)) {
+    fail(`Invalid SMTP ${field}`);
+  }
+}
+
+function address(value: unknown, field: string): asserts value is string {
+  singleLine(value, field, 254);
+  // Deliberately accept only a single bare mailbox, never SMTP paths or lists.
+  if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(value) ||
+      value.includes("..") || value.startsWith(".") || value.includes(".@") ||
+      value.split("@")[0]!.length > 64 ||
+      !value.split("@")[1]!.split(".").every((label) => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label))) {
+    fail(`Invalid SMTP ${field}`);
+  }
+}
+
+/** Throws a sanitized error; does not normalize or silently repair invalid input. */
+export function validateSmtpSettings(settings: SmtpSettings): void {
+  if (!settings || typeof settings !== "object") fail("Invalid SMTP settings");
+  singleLine(settings.host, "host", 253);
+  if (settings.host.includes(":")) {
+    try {
+      // URL's IPv6 parser validates syntax without DNS/network activity.
+      if (!/^[A-Fa-f0-9:.]+$/.test(settings.host)) fail("Invalid SMTP host");
+      new URL(`http://[${settings.host}]/`);
+    } catch { fail("Invalid SMTP host"); }
+  } else if (!settings.host.split(".").every((label) =>
+    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label))) {
+    fail("Invalid SMTP host");
+  }
+  if (!Number.isInteger(settings.port) || settings.port < 1 || settings.port > 65535) fail("Invalid SMTP port");
+  if (!["none", "starttls", "ssl"].includes(settings.encryption)) fail("Invalid SMTP encryption");
+  if (typeof settings.enabled !== "boolean") fail("Invalid SMTP enabled flag");
+  singleLine(settings.username, "username", 1024);
+  singleLine(settings.password, "password", 4096);
+  if (settings.encryption === "none" && (settings.username || settings.password)) {
+    fail("SMTP authentication requires TLS");
+  }
+  if (settings.password && !settings.username) fail("SMTP password requires username");
+  singleLine(settings.from_name, "sender name", 200);
+  address(settings.from_address, "sender address");
+  singleLine(settings.reply_to, "reply address", 254);
+  if (settings.reply_to) address(settings.reply_to, "reply address");
+}
+
+function validateMessage(msg: MailMessage): void {
+  if (!msg || typeof msg !== "object") fail("Invalid SMTP message");
+  address(msg.to, "recipient address");
+  singleLine(msg.subject, "subject");
+  if (typeof msg.text !== "string" || typeof msg.html !== "string") fail("Invalid SMTP message body");
+  if (msg.replyTo !== undefined) {
+    formatReplyTo(msg.replyTo);
+  }
+  if (msg.headers !== undefined && (!msg.headers || typeof msg.headers !== "object" || Array.isArray(msg.headers))) {
+    fail("Invalid SMTP headers");
+  }
+  for (const [name, value] of Object.entries(msg.headers ?? {})) {
+    if (!/^[A-Za-z0-9-]{1,78}$/.test(name) ||
+        /^(?:from|to|cc|bcc|reply-to|subject|date|message-id|mime-version|content-.*|received|return-path)$/i.test(name)) {
+      fail("Invalid SMTP header name");
+    }
+    singleLine(value, "header value");
+  }
+}
+
+function formatReplyTo(value: string): string {
+  singleLine(value, "reply address");
+  const display = /^([^<>]*)<([^<>]+)>$/.exec(value);
+  if (!display) {
+    address(value, "reply address");
+    return `<${value}>`;
+  }
+  const name = display[1]!.trim();
+  address(display[2], "reply address");
+  singleLine(name, "reply name", 200);
+  // Encode display text, so commas/quotes in contact names cannot create lists.
+  return `${name ? `=?UTF-8?B?${b64(name)}?= ` : ""}<${display[2]}>`;
+}
+
 /** Default hard cap on a single SMTP conversation, so callers can never hang. */
 const SMTP_TIMEOUT_MS = 12_000;
 
@@ -245,37 +408,49 @@ export async function sendMail(
   msg: MailMessage,
   timeoutMs: number = SMTP_TIMEOUT_MS,
 ): Promise<void> {
+  validateSmtpSettings(settings);
+  validateMessage(msg);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) fail("Invalid SMTP timeout");
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      sendMailInner(settings, msg),
+      sendMailInner(settings, msg, controller.signal),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`SMTP timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new MailTransportError("SMTP delivery timed out"));
+        }, timeoutMs);
       }),
     ]);
+  } catch (error) {
+    if (controller.signal.aborted) fail("SMTP delivery timed out");
+    if (error instanceof MailTransportError) throw error;
+    fail("SMTP connection or delivery failed");
   } finally {
     if (timer) clearTimeout(timer);
+    controller.abort();
   }
 }
 
-async function sendMailInner(settings: SmtpSettings, msg: MailMessage): Promise<void> {
-  if (!settings.host || !settings.from_address) throw new Error("SMTP is not configured");
-
-  const host = settings.host.trim();
-  const port = Number(settings.port) || (settings.encryption === "ssl" ? 465 : 587);
+async function sendMailInner(settings: SmtpSettings, msg: MailMessage, signal: AbortSignal): Promise<void> {
+  const host = settings.host;
+  const port = settings.port;
   const implicitTls = settings.encryption === "ssl";
 
   const cf = await loadCloudflareSockets();
+  checkAbort(signal);
   let wire: Wire;
   if (cf) {
     wire = cfWire(
       cf.connect(
         { hostname: host, port },
-        { secureTransport: implicitTls ? "on" : "starttls", allowHalfOpen: false },
+        { secureTransport: implicitTls ? "on" : settings.encryption === "starttls" ? "starttls" : "off", allowHalfOpen: false },
       ),
+      signal,
     );
   } else {
-    wire = await nodeWire(host, port, implicitTls);
+    wire = await nodeWire(host, port, implicitTls, signal);
   }
 
   const s = new SmtpSession(wire);
@@ -285,7 +460,7 @@ async function sendMailInner(settings: SmtpSettings, msg: MailMessage): Promise<
     let greeting = await s.send(`EHLO ${ehloName}`, [250]);
 
     if (settings.encryption === "starttls") {
-      if (!/STARTTLS/i.test(greeting)) throw new Error("Server does not advertise STARTTLS");
+      if (!/^250[ -]STARTTLS(?:\s|$)/im.test(greeting)) fail("SMTP server does not advertise STARTTLS");
       await s.send("STARTTLS", [220]);
       await wire.startTls(host);
       greeting = await s.send(`EHLO ${ehloName}`, [250]);
@@ -307,14 +482,14 @@ async function sendMailInner(settings: SmtpSettings, msg: MailMessage): Promise<
 
     const boundary = `cl_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
     const fromHeader = settings.from_name
-      ? `${headerEncode(settings.from_name)} <${settings.from_address}>`
+      ? `=?UTF-8?B?${b64(settings.from_name)}?= <${settings.from_address}>`
       : settings.from_address;
 
     const headers = [
       `From: ${fromHeader}`,
       `To: <${msg.to}>`,
       msg.replyTo
-        ? `Reply-To: ${msg.replyTo.replace(/[\r\n]+/g, " ").trim()}`
+        ? `Reply-To: ${formatReplyTo(msg.replyTo)}`
         : settings.reply_to
           ? `Reply-To: <${settings.reply_to}>`
           : null,
@@ -324,7 +499,7 @@ async function sendMailInner(settings: SmtpSettings, msg: MailMessage): Promise<
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       ...Object.entries(msg.headers ?? {}).map(
-        ([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, " ").trim()}`,
+        ([k, v]) => `${k}: ${v}`,
       ),
     ].filter(Boolean) as string[];
 
@@ -349,9 +524,11 @@ async function sendMailInner(settings: SmtpSettings, msg: MailMessage): Promise<
 
     await s.sendRaw(body);
     await s.expect([250]);
-    await s.send("QUIT", [221, 250]).catch(() => undefined);
+    // DATA 250 is the delivery commit point. Do not wait for QUIT: a stalled
+    // courtesy reply must not turn an accepted message into a retry/duplicate.
   } finally {
-    await wire.close();
+    // Closing is best effort and cannot hold the delivery result hostage.
+    void wire.close().catch(() => {});
   }
 }
 
@@ -365,10 +542,17 @@ export function envSmtpSettings(): SmtpSettings | null {
   const host = (process.env["SMTP_HOST"] ?? "").trim();
   const from_address = (process.env["SMTP_FROM_ADDRESS"] ?? "").trim().toLowerCase();
   const password = process.env["SMTP_PASSWORD"] ?? "";
-  if (!host || !from_address) return null;
-
-  const rawPort = Number(process.env["SMTP_PORT"] ?? "");
-  const rawEnc = (process.env["SMTP_ENCRYPTION"] ?? "").trim().toLowerCase();
+  const portValue = process.env["SMTP_PORT"];
+  const encValue = process.env["SMTP_ENCRYPTION"];
+  // Only omitted values are inferred. Explicit empty/malformed values are
+  // configuration errors, not an invitation to silently choose another port.
+  if (portValue !== undefined && !/^\d+$/.test(portValue.trim())) fail("Invalid SMTP port");
+  const rawPort = portValue === undefined ? undefined : Number(portValue);
+  if (rawPort !== undefined && (!Number.isInteger(rawPort) || rawPort < 1 || rawPort > 65535)) fail("Invalid SMTP port");
+  const rawEnc = encValue?.trim().toLowerCase();
+  if (rawEnc !== undefined && !["none", "ssl", "starttls"].includes(rawEnc)) fail("Invalid SMTP encryption");
+  if (!host && !from_address) return null;
+  if (!host || !from_address) fail("Incomplete SMTP environment configuration");
   const encryption: SmtpEncryption =
     rawEnc === "none" || rawEnc === "ssl" || rawEnc === "starttls"
       ? rawEnc
@@ -378,7 +562,7 @@ export function envSmtpSettings(): SmtpSettings | null {
           ? "none"
           : "starttls";
   const port =
-    Number.isFinite(rawPort) && rawPort > 0 && rawPort < 65536
+    rawPort !== undefined
       ? rawPort
       : encryption === "ssl"
         ? 465
@@ -386,7 +570,7 @@ export function envSmtpSettings(): SmtpSettings | null {
           ? 25
           : 587;
 
-  return {
+  const settings: SmtpSettings = {
     host,
     port,
     username: (process.env["SMTP_USERNAME"] ?? "").trim(),
@@ -398,6 +582,8 @@ export function envSmtpSettings(): SmtpSettings | null {
     enabled: true,
     updated_at: new Date(0).toISOString(),
   };
+  validateSmtpSettings(settings);
+  return settings;
 }
 
 /** Which source the mailer will use right now. */
@@ -405,17 +591,25 @@ export async function resolveSmtpSource(): Promise<{
   source: "custom" | "builtin" | "none";
   settings: SmtpSettings | null;
 }> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("smtp_settings")
-    .select(
-      "host, port, username, password, from_name, from_address, reply_to, encryption, enabled, updated_at",
-    )
-    .eq("id", true)
-    .maybeSingle();
+  let data: unknown;
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const result = await supabaseAdmin
+      .from("smtp_settings")
+      .select(
+        "host, port, username, password, from_name, from_address, reply_to, encryption, enabled, updated_at",
+      )
+      .eq("id", true)
+      .maybeSingle();
+    if (result.error) fail("SMTP settings could not be loaded");
+    data = result.data;
+  } catch {
+    fail("SMTP settings could not be loaded");
+  }
 
   const row = data as unknown as SmtpSettings | null;
-  if (row && row.enabled && row.host && row.from_address) {
+  if (row && row.enabled) {
+    validateSmtpSettings(row);
     return { source: "custom", settings: row };
   }
   const env = envSmtpSettings();

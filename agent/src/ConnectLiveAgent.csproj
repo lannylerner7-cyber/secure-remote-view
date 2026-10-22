@@ -4,6 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -16,7 +17,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>1.9.1</Version>
+    <Version>1.9.2</Version>
     <Company>ConnectLive</Company>
     <Product>ConnectLive Agent</Product>
     <AssemblyTitle>ConnectLive Agent</AssemblyTitle>
@@ -27,7 +28,7 @@
   <ItemGroup>
     <PackageReference Include="System.Net.WebSockets.Client" Version="4.3.2" />
     <!-- WebRTC (pure-managed; single-file publish safe). -->
-    <PackageReference Include="SIPSorcery" Version="10.0.13" />
+    <PackageReference Include="SIPSorcery" Version="10.0.17" />
     <PackageReference Include="SIPSorceryMedia.Encoders" Version="10.0.4" />
     <!-- DXGI Desktop Duplication + D3D11 (pure-managed, single-file safe). -->
     <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
@@ -35,6 +36,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Watch is a separate project, not source for the WPF Agent. -->
+    <Compile Remove="Watch\**\*.cs" />
+    <Compile Remove="Tests\**\*.cs" />
+    <EmbeddedResource Remove="Watch\**\*" />
+    <None Remove="Watch\**\*" />
     <Resource Include="..\assets\logo.png" Link="Assets\logo.png" Condition="Exists('..\assets\logo.png')" />
   </ItemGroup>
 

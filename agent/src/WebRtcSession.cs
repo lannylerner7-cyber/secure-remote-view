@@ -53,7 +53,7 @@ public sealed class WebRtcSession : IDisposable
     private long _h264Frames = 0;
 
     private long _sinceSignal = 0;
-    private bool _closed = false;
+    private volatile bool _closed = false;
 
     // The encoder only accepts raw samples once SDP negotiation has told us
     // which video format won. Until then ExternalVideoSourceRawSample() drops
@@ -90,8 +90,11 @@ public sealed class WebRtcSession : IDisposable
     // admin boxes can't tear each other down mid-negotiation.
     private readonly SemaphoreSlim _handoffLock = new(1, 1);
 
-    public WebRtcSession(ApiClient api, string sessionId)
+    private readonly PeerInputPermission _inputPermission;
+
+    internal WebRtcSession(ApiClient api, string sessionId, PeerInputPermission? inputPermission)
     {
+        _inputPermission = inputPermission ?? new PeerInputPermission("view");
         _api = api;
         _sessionId = sessionId;
         _cts = new CancellationTokenSource();
@@ -133,25 +136,40 @@ public sealed class WebRtcSession : IDisposable
     }
 
 
-    public Task StartAsync()
+    private async Task LoadIceAsync()
     {
-        // S9 — warm the ICE set before the first offer arrives. Fire-and-forget:
-        // BuildPeer falls back to STUN if this hasn't landed yet.
-        _ = Task.Run(async () =>
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        timeout.CancelAfter(ConnectLive.Native.NativeGatewayPolicy.IceBudget);
+        // Never retain expired credentials or an earlier fallback. Every offer
+        // (including restart/takeover) gets a fresh allocation configuration.
+        _iceServers = new() { new RTCIceServer { urls = "stun:stun.l.google.com:19302" } };
+        try
         {
-            var cfg = await _api.GetIceConfigAsync(_cts.Token).ConfigureAwait(false);
-            if (cfg == null) return;
+            var cfg = await _api.GetIceConfigAsync(_sessionId, timeout.Token).ConfigureAwait(false);
+            if (cfg == null)
+            {
+                Log.Warn("webrtc ICE gateway unavailable; direct-only fallback");
+                return;
+            }
             var list = new List<RTCIceServer>();
             foreach (var s in cfg.IceServers!)
                 foreach (var url in s.UrlList())
                     list.Add(new RTCIceServer { urls = url, username = s.Username, credential = s.Credential });
-            if (list.Count > 0)
+            if (list.Count > 0 && !_cts.IsCancellationRequested && !_closed && _inputPermission.Allows("view"))
             {
                 _iceServers = list;
                 Log.Info($"webrtc ice gateway: {list.Count} server(s), turn={cfg.Turn}");
             }
-        }, _cts.Token);
+        }
+        catch (OperationCanceledException) when (!_cts.IsCancellationRequested) { Log.Warn("webrtc ICE deadline exceeded; direct-only fallback"); }
+        catch (OperationCanceledException) { throw; }
+        catch (UnauthorizedAccessException) { throw; }
+        catch { Log.Warn("webrtc ICE gateway failed; direct-only fallback"); }
+    }
 
+    public Task StartAsync()
+    {
+        if (_closed || !_inputPermission.Allows("view")) return Task.CompletedTask;
         // Peer creation is deferred until the first offer arrives — we need
         // the admin_client_id from that offer to build the routing binding
         // before any ICE candidate goes out.
@@ -167,6 +185,7 @@ public sealed class WebRtcSession : IDisposable
 
     private void BuildPeer()
     {
+        if (_closed || !_inputPermission.Allows("view")) return;
         // S9 — STUN always, TURN when the deployment configures a relay.
         var cfg = new RTCConfiguration
         {
@@ -246,6 +265,7 @@ public sealed class WebRtcSession : IDisposable
 
         _videoEnd.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
         {
+            if (_closed || !_inputPermission.Allows("view")) return;
             // Guard: if H.264 won the negotiation this endpoint should be idle.
             // Sending its output would interleave VP8 payloads into an H.264
             // stream and produce exactly the "connected but garbage" failure
@@ -292,6 +312,7 @@ public sealed class WebRtcSession : IDisposable
 
         _pc.ondatachannel += (dc) =>
         {
+            if (_closed || !_inputPermission.Allows("view")) { dc.close(); return; }
             Log.Info($"webrtc dc open: {dc.label}");
 
             // ---- Step 10 — file exchange channel --------------------------
@@ -301,7 +322,8 @@ public sealed class WebRtcSession : IDisposable
             // the InputRelay parser below.
             if (dc.label == "files")
             {
-                FileTransfer.Attach(_api, _sessionId, dc);
+                if (_inputPermission.Allows("files")) FileTransfer.Attach(_api, _sessionId, dc, _inputPermission);
+                else dc.close();
                 return;
             }
 
@@ -311,39 +333,25 @@ public sealed class WebRtcSession : IDisposable
             // but routing explicitly keeps the intent readable).
             if (dc.label == "clip")
             {
-                ClipboardRelay.Attach(dc);
+                if (_inputPermission.Allows("clipboard")) ClipboardRelay.Attach(dc, _inputPermission);
+                else dc.close();
                 return;
             }
 
 
-            // Ingress coalescer: consecutive `mousemove` messages collapse to
-            // the latest before hitting the input pump. Any other kind (click,
-            // key, wheel, text, curtain_*) flushes the pending move first to
-            // preserve ordering with click landing sites.
-            JsonElement? pendingMove = null;
-            var moveLock = new object();
+            // Do not buffer commands across permission changes. Every input
+            // callback is checked against this peer's own revocable permission.
             dc.onmessage += (_, __, data) =>
             {
                 try
                 {
                     var json = System.Text.Encoding.UTF8.GetString(data);
-                    var doc = JsonDocument.Parse(json);
+                    using var doc = JsonDocument.Parse(json);
                     var root = doc.RootElement;
-                    var kind = root.TryGetProperty("kind", out var kv) ? kv.GetString() : null;
-                    if (kind == "mousemove")
-                    {
-                        lock (moveLock) { pendingMove = root.Clone(); }
-                        doc.Dispose();
-                        return;
-                    }
-                    JsonElement? flush;
-                    lock (moveLock) { flush = pendingMove; pendingMove = null; }
                     // Direct call — InputRelay.Apply is internal, same
                     // assembly. The old reflection bridge existed only when
                     // this file lived outside the agent assembly.
-                    if (flush.HasValue) InputRelay.Apply(flush.Value);
-                    InputRelay.Apply(root);
-                    doc.Dispose();
+                    _inputPermission.TryApply(() => InputRelay.Apply(root, _inputPermission));
                 }
                 catch (Exception ex) { Log.Warn($"webrtc dc apply: {ex.Message}"); }
             };
@@ -419,9 +427,12 @@ public sealed class WebRtcSession : IDisposable
 
 
 
+        var boundPeer = _pc;
+        var boundAdminClientId = _currentAdminClientId;
         _pc.onicecandidate += async (c) =>
         {
-            if (c == null) return;
+            if (c == null || !ReferenceEquals(_pc, boundPeer) || _closed ||
+                !_inputPermission.Allows("view")) return;
             try
             {
                 var payload = new
@@ -430,13 +441,14 @@ public sealed class WebRtcSession : IDisposable
                     sdpMid = c.sdpMid,
                     sdpMLineIndex = c.sdpMLineIndex,
                 };
-                await _api.PostSignalReliableAsync(_sessionId, "ice", payload, _cts.Token, _currentAdminClientId);
+                await _api.PostSignalReliableAsync(_sessionId, "ice", payload, _cts.Token, boundAdminClientId);
             }
             catch (Exception ex) { Log.Warn($"webrtc ice post: {ex.Message}"); }
         };
 
         _pc.onconnectionstatechange += async (s) =>
         {
+            if (!ReferenceEquals(_pc, boundPeer)) return;
             Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc pc state: {s}");
             if (s == RTCPeerConnectionState.connected)
             {
@@ -478,12 +490,15 @@ public sealed class WebRtcSession : IDisposable
 
     private void TearDownPeer()
     {
+        // Detach first so close callbacks from an old peer cannot tear down
+        // its replacement or recurse through this method.
+        var oldPeer = _pc;
+        _pc = null;
         try { _videoEnd?.PauseVideo(); } catch { }
         try { _videoEnd?.CloseVideo(); } catch { }
-        try { _pc?.close(); } catch { }
+        try { oldPeer?.close(); } catch { }
         DisposeH264("peer torn down");
         _videoEnd = null;
-        _pc = null;
         _formatReady = false;
         _videoStarted = false;
         _h264Negotiated = false;
@@ -513,6 +528,7 @@ public sealed class WebRtcSession : IDisposable
     /// </summary>
     public void PushFrame(byte[] bgra, int width, int height)
     {
+        if (_closed || !_inputPermission.Allows("view")) return;
         if (width < 2 || height < 2 || (width & 1) != 0 || (height & 1) != 0 ||
             bgra.Length != checked(width * height * 4))
         {
@@ -630,6 +646,7 @@ public sealed class WebRtcSession : IDisposable
 
         // 90 kHz clock: one frame at the current cadence.
         uint duration = (uint)(90000 / Math.Max(1, BitrateController.Current.Fps));
+        if (_closed || !_inputPermission.Allows("view")) return;
         pc.SendVideo(duration, au);
         Interlocked.Increment(ref _encoded);
         Interlocked.Increment(ref _h264Frames);
@@ -681,6 +698,7 @@ public sealed class WebRtcSession : IDisposable
 
     private async Task ApplyAdminSignal(JsonElement it)
     {
+        if (_closed || !_inputPermission.Allows("view")) return;
         var kind = it.GetProperty("kind").GetString();
         var payload = it.GetProperty("payload");
         string? incomingAdminId = null;
@@ -694,6 +712,7 @@ public sealed class WebRtcSession : IDisposable
                 await _handoffLock.WaitAsync(_cts.Token);
                 try
                 {
+                    if (_closed || !_inputPermission.Allows("view")) return;
                     // Take-over: a *different* admin machine is offering while we
                     // already have a peer. Tell the old admin its session was
                     // superseded, then rebuild the peer for the new one.
@@ -717,6 +736,11 @@ public sealed class WebRtcSession : IDisposable
                     }
 
                     _currentAdminClientId = incomingAdminId;
+                    await LoadIceAsync().ConfigureAwait(false);
+                    if (_cts.IsCancellationRequested || _closed || !_inputPermission.Allows("view")) return;
+                    // Rebuild on every offer: mutating a cached list does not
+                    // update an already-created SIPSorcery peer's ICE servers.
+                    if (_pc != null) TearDownPeer();
                     if (_pc == null) BuildPeer();
                     if (_pc == null) return;
 
@@ -777,6 +801,7 @@ public sealed class WebRtcSession : IDisposable
 
     public void Close()
     {
+        _inputPermission.Revoke();
         if (_closed) return;
         _closed = true;
         if (Current == this)
@@ -800,8 +825,8 @@ public sealed class WebRtcSession : IDisposable
         // previously only cancelled, never released. Over a long shift of
         // connect/disconnect cycles the agent accrued a CTS timer registration
         // and a semaphore handle per session.
-        try { _cts.Dispose(); } catch { }
-        try { _handoffLock.Dispose(); } catch { }
+        // Async signaling/handoff callbacks may still be unwinding. Do not
+        // dispose their synchronization primitives underneath those callbacks.
 
         Log.Info($"webrtc closed — keyframe requests={Interlocked.Read(ref _keyFrameRequests)} " +
                  $"forced={Interlocked.Read(ref _keyFramesForced)}");

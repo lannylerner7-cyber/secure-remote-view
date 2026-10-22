@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { sessionAuthorized } from "@/lib/authorization.server";
 
 /**
  * Reusable session resume after reboot/network loss.
@@ -16,14 +17,17 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/recon
         if (!ctx) return new Response("unauthorized", { status: 401 });
 
         const body = (await request.json().catch(() => ({}))) as { code?: string };
-        const code = (body.code ?? "").trim();
+         if (body === null || typeof body !== "object" ||
+             (body.code !== undefined && typeof body.code !== "string"))
+           return new Response(JSON.stringify({ error: "invalid_code" }), { status: 400 });
+         const code = (body.code ?? "").trim();
         if (code && !/^\d{6}$/.test(code)) {
           return new Response(JSON.stringify({ error: "invalid_code" }), { status: 400 });
         }
 
         const { data: session } = await ctx.admin
           .from("sessions")
-          .select("id, device_id, state, mode, pairing_code")
+           .select("id, device_id, state, mode, pairing_code, consent_at")
           .eq("id", params.sessionId)
           .maybeSingle();
 
@@ -33,8 +37,9 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/recon
         if (session.device_id !== ctx.device.id) {
           return new Response(JSON.stringify({ error: "wrong_device" }), { status: 403 });
         }
-        if (session.state === "ended") {
-          return new Response(JSON.stringify({ error: "session_ended" }), { status: 409 });
+         // Reconnect is transport recovery, never a consent/state transition.
+         if (session.state !== "active" || !(await sessionAuthorized(ctx.admin, session.id))) {
+           return new Response(JSON.stringify({ error: "session_not_authorized" }), { status: 409 });
         }
         if (code && session.pairing_code && session.pairing_code !== code) {
           return new Response(JSON.stringify({ error: "code_mismatch" }), { status: 403 });
@@ -44,14 +49,17 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/recon
         const { data: updated, error } = await ctx.admin
           .from("sessions")
           .update({
-            state: "active",
-            mode: "view",
             updated_at: now,
           })
           .eq("id", session.id)
+           .eq("device_id", ctx.device.id)
+           .eq("state", "active")
+           .eq("consent_at", session.consent_at)
+           .eq("mode", session.mode)
           .select("id, mode, state")
-          .single();
-        if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+           .maybeSingle();
+         if (error) return new Response(JSON.stringify({ error: "reconnect_failed" }), { status: 500 });
+         if (!updated) return new Response(JSON.stringify({ error: "session_changed" }), { status: 409 });
 
         await Promise.all([
           ctx.admin

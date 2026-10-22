@@ -2,6 +2,93 @@
 
 Status legend: `[x]` implemented and verified in this repository/backend · `[~]` partial or code-only, not end-to-end verified · `[ ]` not built.
 
+## Connection reliability update — 2026-10-22
+
+### Email flows and templates
+
+- `[x]` Shared order/newsletter/contact/booking/test templates corrected and
+  synthetic renders checked; desktop/mobile browser layout review completed.
+- `[x]` Reconciler confirmation dispatch, correct access-ready resend, paid-state/
+  HTTPS guards, persistent send claims and truthful SMTP acceptance states.
+- `[x]` SMTP cancellation, validation, sanitized errors, source precedence and
+  newsletter unsubscribe/suppression checks covered with isolated tests.
+- `[~]` Real provider delivery, sender-domain authentication and signed-in email
+  settings interactions still require controlled verification. Existing booking
+  email remains best-effort; in-app alerts were not converted to email.
+- See `docs/email-verification.md` in the workspace for the full event matrix,
+  test results and limitations. No production emails/settings/schema changed.
+
+### Independent source/package review — release hold
+
+The three parallel reviews and independent second pass are complete; see
+workspace `docs/review/README.md`, the file-coverage ledger and detailed reports.
+ZIP integrity and isolated tests passed, but **these packages are not certified
+release-ready**. Earlier implementation/check marks below are scoped evidence,
+not proof that the complete Windows journey works.
+
+- `[ ]` Fix fresh-profile Agent launcher configuration-directory initialization.
+- `[ ]` Reconcile native consent-to-RTC startup, input payloads, web/native
+  control/reconnect state transitions and ownership-safe teardown/logout.
+- `[ ]` Protect buyer delivery/order lookup and unify exact-quote, monotonic
+  payment event handling; existing unique quotes alone are insufficient.
+- `[ ]` Resolve multi-monitor input, installer identity/update handover and
+  default source-build configuration before production packaging.
+- `[~]` Coverage is explicit: reviewed, automatic-only, excluded and blocked
+  files are distinguished. Windows runtime, reproducible package provenance,
+  signed installers and fleet performance remain unverified.
+- No product fixes, deployment, GitHub push or ZIP replacement were performed
+  during this audit. Existing authorization boundaries remain intact.
+
+### Pre-push deployment/database checks
+
+- `[~]` Agent hello authorization review: six live missing/invalid-credential
+  requests rejected with 401; 44 server, 18 recorded-grant and 22 portable native
+  checks passed. Windows Hello/lock/unlock runtime is not verified. Hello write
+  error handling remains a reliability finding. See workspace
+  `docs/agent-auth-verification.md`.
+
+- `[x]` Public production `/health`, `/api/public/health`, technician and payment
+  login routes return 200; anonymous ICE returns 401. Built Node bundle repeats
+  those results on explicitly overridden port 31317 (temporary process stopped).
+- `[x]` Coolify Dockerfile uses the actual Bun text lockfile with frozen install,
+  explicit public build arguments, Node 24, and a PORT-aware GET health check.
+  Added missing `.env.sample`; expanded source/build secret and binary exclusions.
+- `[x]` Read-only managed Supabase audit: 33 tables/RLS, 303 typed columns,
+  33 validated foreign keys, 22 typed public relationships, 15 required indexes
+  and 64 reviewed migration records match. Fixed missing generated types for
+  device_authorizations and payment_quote_reservations.
+- `[~]` audit_logs is not in the realtime publication; existing console polling
+  updates it every five seconds. Live publication changes require a separate
+  incremental deployment action, not rerunning the fresh installer.
+- `[ ]` GitHub push is blocked on a usable workspace GitHub connection. Do not
+  treat authorization metadata as proof that repository access/push succeeded.
+- `[ ]` Container image build and actual Coolify proxy/SSE settings are not
+  verified by the Node-bundle smoke test. No production deployment was triggered.
+
+Full evidence: workspace `docs/database-release-alignment.md` and
+`docs/pre-push-verification.md`.
+
+This update supersedes the open **code defects** in
+`docs/cloudflare-ice-audit.md`; it does not claim Windows runtime certification.
+
+| Priority | Work | Status / evidence |
+| --- | --- | --- |
+| 1 | Session-bound relay permission | `[x]` Gateway requires sessionId, active state, view grant, matching device or technician/admin role plus ownership (super-admin exception). Anonymous 401, missing session 400 and nonexistent session 403 verified live. |
+| 1 | Relay mint throttling | `[~]` Ten requests/minute per authenticated principal per process, bounded memory, 429/Retry-After, tests pass. Shared limits across Coolify replicas/edge still need deployment configuration. |
+| 2 | Request budgets | `[x]` Gateway auth budget 4s and provider budget 5s; browser/native budgets 12s. Provider parsing/cancellation tests and native delayed-response/deadline checks pass. |
+| 3 | Browser cancellation and renewal | `[x]` Bind first, then fetch; close/generation guards; TTL refresh and restart refresh; bounded fallback retry; no late offers after abandoned startup. 17 isolated scenarios pass. |
+| 3 | Native renewal and takeover | `[x]` Agent fetches fresh settings for each new offer/peer; Admin refreshes each negotiation. Old-peer callbacks cannot act on replacements. Existing live peers are not forced offline at TTL expiry. |
+| 4 | Native destination configuration | `[x]` HTTPS origin validation; no credentials/query/fragment; redirects disabled including SSE; old embedded Admin Supabase defaults removed. 22 portable checks pass. |
+| 4 | Release configuration | `[x]` User confirmed https://connectliveagent.com; both portable Windows x64 ZIPs now packaged. Admin output includes validated public Supabase configuration; source template remains free of keys. No privileged keys or passwords bundled. See docs/windows-desktop-packaging.md. |
+| 4 | Signed installers | `[ ]` Portable desktop verification ZIPs are unsigned, not setup/MSI installers. Signing and Windows installer verification remain separate. |
+| 5 | Build/regression evidence | `[x]` 16 gateway tests, 17 browser ICE scenarios, 13 recording regressions, 22 native policy checks; web production build and both Windows-targeted builds pass. Existing native warnings remain. |
+| 5 | Actual Windows direct/relay validation | `[ ]` Two Windows devices: selected relay candidate, first frame, DXGI/encode/decode latency, reconnect/takeover, expiry and local revocation. Linux compilation is not this test. |
+
+Implementation detail and limits: `docs/browser-ice-hardening.md`,
+`docs/native-ice-hardening.md`, and `docs/cloudflare-ice-audit.md`.
+Portable desktop verification ZIPs were produced; no Coolify rollout, real remote session, or signed client release was performed.
+Do not start Android media work by assuming these Windows runtime gates passed.
+
 ## Executive status
 
 - `[x]` Windows is the existing production agent (`agent/`, C#/.NET) and the native technician app (`admin/`).

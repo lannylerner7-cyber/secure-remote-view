@@ -15,8 +15,7 @@ namespace ConnectLive.Agent;
 /// idle/NAT disconnects and keeps the agent behind any egress-restricted
 /// network as long as HTTPS works.
 ///
-/// The Agent is headless: no tray, no banner. Curtain / input-block are
-/// gated by explicit admin commands with dead-man release safeguards.
+/// The application provides persistent status and local withdrawal.
 /// </summary>
 public sealed class Agent
 {
@@ -26,6 +25,7 @@ public sealed class Agent
     private readonly Action? _onWake;
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private WebRtcSession? _rtc;
+    private PeerInputPermission? _peerInputPermission;
     private readonly HashSet<string> _acceptedSessions = new();
     // Invites whose consent dialog is currently on screen. The heartbeat
     // re-lists an `invited` session every cycle; without this the user would
@@ -34,11 +34,54 @@ public sealed class Agent
 
     private string? _currentSessionId;
     private string? _loopSessionId;
+    private string? _loopMode;
     private CancellationTokenSource? _sessionCts;
     private Task? _screenTask;
     private Task? _inputTask;
     private Task? _cursorTask;
     private CancellationToken _outerCt;
+    private volatile bool _locallyStopped;
+    private volatile bool _authorityMatches;
+    private volatile bool _authorizationSuspended;
+    private long _authorityEpoch;
+    private HashSet<string> _eligibleInvites = new();
+
+    private bool HasAuthority => !_locallyStopped && !_authorizationSuspended &&
+        !LocalAccessState.IsDisabled() && _authorityMatches &&
+        _api.LocalAuthorization?.DeviceId == _api.DeviceId && _api.DeviceId != null;
+
+    private bool CheckAuthority(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var remote = doc.RootElement.TryGetProperty("authorization", out var a) ? AuthorizationGrant.Parse(a) : null;
+            _authorityMatches = _api.LocalAuthorization?.Matches(_api.ApiBaseUrl, _api.DeviceId, remote) == true;
+        }
+        catch { _authorityMatches = false; }
+        if (!_authorityMatches) EndSession();
+        return HasAuthority;
+    }
+
+    public void StopLocally()
+    {
+        _locallyStopped = true;
+        EndSession();
+    }
+
+    internal void SuspendForAuthorization()
+    {
+        _authorizationSuspended = true;
+        _authorityMatches = false;
+        EndSession();
+    }
+
+    internal void ResumeAfterAuthorization()
+    {
+        _authorityMatches = false; // A new heartbeat must validate the saved replacement.
+        _authorizationSuspended = false;
+        RequestWake();
+    }
 
     /// <summary>Raised with a human-readable session state for tray/status UI.</summary>
     public event Action<string>? SessionStateChanged;
@@ -49,15 +92,12 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Pre-seed a session id restored from disk on cold boot so the next
-    /// heartbeat's "active" entry is treated as an already-consented session
-    /// rather than a fresh invite.
+    /// Retained for source compatibility only. A disk session ID is never
+    /// interpreted as attended consent or as a recorded endpoint grant.
     /// </summary>
     public void SeedRestoredSession(string sessionId)
     {
-        if (string.IsNullOrWhiteSpace(sessionId)) return;
-        _acceptedSessions.Add(sessionId);
-        _currentSessionId = sessionId;
+        // Disk session bindings are not consent evidence.
     }
 
     /// <summary>
@@ -73,8 +113,18 @@ public sealed class Agent
     public Agent(ApiClient api, Action<string> splashStatus, Dispatcher ui, Action? onWake = null)
     {
         _api = api;
-        _splashStatus = splashStatus;
         _ui = ui;
+        _api.LiveAuthorityRejected += () =>
+        {
+            _authorityMatches = false;
+            // The HTTP rejection may arrive on a capture/input worker.
+            // Close its permission immediately, then serialize coordinator
+            // collections and peer teardown on the application dispatcher.
+            _peerInputPermission?.Revoke();
+            try { _sessionCts?.Cancel(); } catch { }
+            _ui.Invoke(EndSession);
+        };
+        _splashStatus = splashStatus;
         _onWake = onWake;
         PowerRelay.OnWakeAgent = RequestWake;
         PowerRelay.OnRestartStream = RestartStreamAsync;
@@ -89,6 +139,7 @@ public sealed class Agent
     /// <summary>Rebuild the WebRTC peer + capture pipeline for the current session without exiting.</summary>
     public Task RestartStreamAsync()
     {
+        if (!HasAuthority || _outerCt.IsCancellationRequested) return Task.CompletedTask;
         var sid = _currentSessionId;
         if (string.IsNullOrEmpty(sid))
         {
@@ -96,6 +147,7 @@ public sealed class Agent
             return Task.CompletedTask;
         }
         Log.Info($"restart_stream: rebuilding pipeline for session {sid}");
+        _peerInputPermission?.Revoke();
         try { _sessionCts?.Cancel(); } catch { }
         _sessionCts = null;
         _loopSessionId = null;
@@ -107,7 +159,7 @@ public sealed class Agent
         StartSessionLoops(sid!, "view");
         try
         {
-            _rtc = new WebRtcSession(_api, sid!);
+            _rtc = new WebRtcSession(_api, sid!, _peerInputPermission);
             _ = _rtc.StartAsync();
         }
         catch (Exception ex) { Log.Warn($"restart_stream webrtc: {ex.Message}"); }
@@ -154,6 +206,7 @@ public sealed class Agent
 
     public async Task RunAsync(CancellationToken ct)
     {
+        if (_locallyStopped || ct.IsCancellationRequested) return;
         _outerCt = ct;
         SubscribeNetworkChange(ct);
 
@@ -195,12 +248,13 @@ public sealed class Agent
             }
         }
 
+        if (_locallyStopped || ct.IsCancellationRequested) return;
         _splashStatus("Sending heartbeat…");
-        try { await _api.HeartbeatAsync(ct); } catch (Exception ex) { Log.Warn($"first heartbeat: {ex.Message}"); }
+        try { CheckAuthority(await _api.HeartbeatAsync(ct)); } catch (Exception ex) { Log.Warn($"first heartbeat: {ex.Message}"); EndSession(); }
 
         // If a session was pre-seeded (cold-boot reconnect), start its loops
         // immediately so we don't wait a whole heartbeat cycle for pixels.
-        if (_currentSessionId != null)
+        if (!_locallyStopped && !ct.IsCancellationRequested && _currentSessionId != null)
             JoinActiveSession(_currentSessionId, "view");
 
         // SCOPE:WAKE — the SSE listener runs alongside the heartbeat. It
@@ -244,8 +298,9 @@ public sealed class Agent
                 errDelay = TimeSpan.FromSeconds(1);
                 deadManTripped = false;
 
-                await DispatchPendingSessions(body, ct);
-                await DispatchPowerCommands(body, ct);
+                if (CheckAuthority(body))
+                    await DispatchPendingSessions(body, ct);
+                // Presence/wake is not authority for arbitrary remote power actions.
 
                 // S14 — self-update. Only when idle (no live session) and at
                 // most hourly; returns true once the replacement process has
@@ -270,15 +325,16 @@ public sealed class Agent
             catch (Exception ex)
             {
                 fails++;
+                _authorityMatches = false;
+                EndSession();
                 Log.Warn($"heartbeat failed ({fails}): {ex.Message}");
                 if (fails >= 3 && !deadManTripped)
                 {
-                    // Dead-man fallback: release the input block + drop the curtain
-                    // so the user is never left with a frozen machine on a broken link.
+                    // Loss of authority/presence must stop all live-session channels,
+                    // not only release local input blocking. Presence retries remain.
                     deadManTripped = true;
-                    try { InputBlocker.Release("heartbeat_lost"); } catch { }
-                    try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
-                    Log.Warn("dead-man: released input block, dropped curtain");
+                    EndSession();
+                    Log.Warn("dead-man: live session stopped after heartbeat loss");
                 }
                 try { await Task.Delay(errDelay, ct); } catch { }
                 errDelay = TimeSpan.FromSeconds(Math.Min(30, errDelay.TotalSeconds * 2));
@@ -288,6 +344,7 @@ public sealed class Agent
 
     private async Task DispatchPowerCommands(string body, CancellationToken ct)
     {
+        if (_locallyStopped || ct.IsCancellationRequested) return;
         try
         {
             using var doc = JsonDocument.Parse(body);
@@ -306,6 +363,7 @@ public sealed class Agent
 
     private async Task DispatchPendingSessions(string body, CancellationToken ct)
     {
+        if (!HasAuthority || ct.IsCancellationRequested) return;
         List<(string id, string state, string mode)> pending = new();
         try
         {
@@ -316,16 +374,28 @@ public sealed class Agent
                 {
                     var id = el.TryGetProperty("id", out var i) ? i.GetString() : null;
                     var state = el.TryGetProperty("state", out var s) ? s.GetString() : null;
-                    var mode = el.TryGetProperty("mode", out var m) ? m.GetString() : "view";
+                    var mode = el.TryGetProperty("mode", out var m) ? m.GetString() : null;
                     if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(state))
-                        pending.Add((id!, state!, mode ?? "view"));
+                        pending.Add((id!, state!, mode ?? ""));
                 }
             }
         }
-        catch (Exception ex) { Log.Warn($"heartbeat parse: {ex.Message}"); return; }
+        catch (Exception ex)
+        {
+            Log.Warn($"heartbeat parse: {ex.Message}");
+            EndSession();
+            return;
+        }
 
+        _eligibleInvites = new HashSet<string>(pending.FindAll(p => p.state == "invited").ConvertAll(p => p.id + "|" + p.mode));
         foreach (var s in pending)
         {
+            if (s.mode is not ("view" or "control") ||
+                !_api.LocalAuthorization!.Authorization.Capabilities.Allows(s.mode))
+            {
+                if (_currentSessionId == s.id) EndSession();
+                continue;
+            }
             if (s.state == "invited" && !_acceptedSessions.Contains(s.id))
             {
                 // Fire-and-forget: the consent dialog can sit on screen for up
@@ -338,7 +408,7 @@ public sealed class Agent
             {
                 // G4: pause means STOP THE PIXELS, keep the session. Nothing
                 // leaves the machine while the user works on their own window.
-                _acceptedSessions.Add(s.id);
+                if (!_acceptedSessions.Contains(s.id)) continue;
                 _currentSessionId = s.id;
                 PauseSessionLoops(s.id);
             }
@@ -350,12 +420,14 @@ public sealed class Agent
             {
                 if (!_acceptedSessions.Contains(s.id) || _currentSessionId != s.id)
                 {
-                    // Cold-boot / reconnect edge: server already has an active
-                    // state for this session, but this agent process never joined it.
-                    // Start the loops immediately so the admin does not see a stale
-                    // live view while waiting for a modal that may be hidden/minimized.
-                    _acceptedSessions.Add(s.id);
-                    JoinActiveSession(s.id, s.mode);
+                    // A current matching local unattended grant permits a
+                    // server-validated active row without a recurring prompt.
+                    // Attended cold restarts require a fresh invite instead.
+                    if (_api.LocalAuthorization!.Authorization.Mode == "unattended")
+                    {
+                        _acceptedSessions.Add(s.id);
+                        JoinActiveSession(s.id, s.mode);
+                    }
                 }
                 else
                 {
@@ -368,7 +440,8 @@ public sealed class Agent
         }
 
         // Session ended on the server side: tear down local session state.
-        if (_currentSessionId != null && !pending.Exists(p => p.id == _currentSessionId))
+        if (_currentSessionId != null && !pending.Exists(p =>
+            p.id == _currentSessionId && (p.state == "active" || p.state == "paused" || p.state == "invited")))
             EndSession();
     }
 
@@ -384,9 +457,20 @@ public sealed class Agent
 
     private void EnsureSessionLoops(string sessionId, string mode)
     {
+        if (_loopMode != mode)
+        {
+            JoinActiveSession(sessionId, mode);
+            return;
+        }
+        _peerInputPermission?.SetMode(mode);
+        if (mode != "control")
+        {
+            try { InputBlocker.Release("control_permission_removed"); } catch { }
+            try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
+        }
         if (SessionLoopsHealthy(sessionId)) return;
         Log.Warn($"session {sessionId} loop health check failed; restarting loops");
-        StartSessionLoops(sessionId, mode);
+        JoinActiveSession(sessionId, mode);
     }
 
     private Task RunSessionLoop(string name, string sessionId, Func<CancellationToken, Task> body, CancellationToken token)
@@ -414,10 +498,21 @@ public sealed class Agent
 
     private void StartSessionLoops(string sessionId, string mode)
     {
+        if (!HasAuthority || _outerCt.IsCancellationRequested ||
+            !_api.LocalAuthorization!.Authorization.Capabilities.Allows(mode)) return;
+        _peerInputPermission?.Revoke();
+        try { InputRelay.ReleaseHeldInputs(); } catch { }
+        try { _rtc?.Close(); } catch { }
+        _rtc = null;
+        _peerInputPermission = new PeerInputPermission(mode,
+            _api.LocalAuthorization!.Authorization.Capabilities, () => HasAuthority);
+        _api.LivePermission = _peerInputPermission;
+        _api.LiveSessionId = sessionId;
         _sessionCts?.Cancel();
         _sessionCts = CancellationTokenSource.CreateLinkedTokenSource(_outerCt);
         var t = _sessionCts.Token;
         _loopSessionId = sessionId;
+        _loopMode = mode;
         _screenTask = RunSessionLoop("screen", sessionId, ct => ScreenCapture.RunAsync(_api, sessionId, ct), t);
         _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct), t);
         _cursorTask = RunSessionLoop("cursor", sessionId, ct => CursorPump.RunAsync(_api, sessionId, ct), t);
@@ -427,12 +522,13 @@ public sealed class Agent
 
     private void JoinActiveSession(string sessionId, string mode)
     {
+        if (!HasAuthority || _outerCt.IsCancellationRequested) return;
         _currentSessionId = sessionId;
         try { _onWake?.Invoke(); } catch { }
         StartSessionLoops(sessionId, mode);
         try
         {
-            _rtc = new WebRtcSession(_api, sessionId);
+            _rtc = new WebRtcSession(_api, sessionId, _peerInputPermission);
             _ = _rtc.StartAsync();
         }
         catch (Exception ex) { Log.Warn($"webrtc start: {ex.Message}"); }
@@ -442,6 +538,9 @@ public sealed class Agent
 
     private async Task HandleInvite(string sessionId, string mode, CancellationToken ct)
     {
+        if (!HasAuthority || ct.IsCancellationRequested ||
+            !_api.LocalAuthorization!.Authorization.Capabilities.Allows(mode)) return;
+        var epoch = Interlocked.Read(ref _authorityEpoch);
         const string technician = "Helpdesk";
 
         // Never process the same invite twice: the heartbeat re-lists the
@@ -450,17 +549,21 @@ public sealed class Agent
 
         try
         {
-            // Consent prompting was removed from the agent by product decision:
-            // authorisation is granted once by the account owner at enrollment
-            // (Meeting ID) and enforced server-side, so there is no Allow/Deny
-            // dialog on the endpoint. Invites are accepted automatically.
-            try { _onWake?.Invoke(); } catch { }
+            var accepted = _api.LocalAuthorization!.Authorization.Mode == "unattended" ||
+                await _ui.InvokeAsync(() => System.Windows.MessageBox.Show(
+                    $"Helpdesk requests a {mode} session. Your recorded capability limits still apply. Allow this session?",
+                    "ConnectLive — session request", System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Question, System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes);
+            if (!HasAuthority || ct.IsCancellationRequested || epoch != Interlocked.Read(ref _authorityEpoch) ||
+                ( _api.LocalAuthorization!.Authorization.Mode == "attended" && !_eligibleInvites.Contains(sessionId + "|" + mode))) return;
 
-            try { await _api.SubmitConsentAsync(sessionId, true, ct); }
+            try { await _api.SubmitConsentAsync(sessionId, accepted, ct); }
             catch (Exception ex) { Log.Warn($"session accept submit: {ex.Message}"); return; }
+            if (!accepted) return;
         }
         finally { _promptingSessions.Remove(sessionId); }
 
+        if (!HasAuthority || ct.IsCancellationRequested || epoch != Interlocked.Read(ref _authorityEpoch)) return;
 
         _acceptedSessions.Add(sessionId);
         _currentSessionId = sessionId;
@@ -475,7 +578,7 @@ public sealed class Agent
         // NAT, no TURN), the HTTPS loops above already carry the whole session.
         try
         {
-            _rtc = new WebRtcSession(_api, sessionId);
+            _rtc = new WebRtcSession(_api, sessionId, _peerInputPermission);
             await _rtc.StartAsync();
         }
         catch (Exception ex) { Log.Warn($"webrtc start: {ex.Message}"); }
@@ -484,34 +587,47 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// G4 — session paused: cancel the capture/input/cursor loops so no pixels
-    /// and no injected input flow, but keep the session (and WebRTC) alive so
-    /// resume is instant instead of a full renegotiation.
+    /// Pause stops live channels, including peer clipboard/files/input.
+    /// Keep the server session identity and authorized presence, not the peer.
     /// </summary>
     private void PauseSessionLoops(string sessionId)
     {
-        if (_loopSessionId == null && _sessionCts == null) return;
-        if (_sessionCts == null || _sessionCts.IsCancellationRequested) return;
-        try { _sessionCts.Cancel(); } catch { }
-        _sessionCts = null;
-        _loopSessionId = null;
-        _screenTask = null;
-        _inputTask = null;
-        _cursorTask = null;
-        ReportState("Session paused");
-        Log.Info($"session {sessionId} paused — capture and input stopped");
-    }
-
-    private void EndSession()
-    {
+        Interlocked.Increment(ref _authorityEpoch);
+        _peerInputPermission?.Revoke();
+        try { InputRelay.ReleaseHeldInputs(); } catch { }
         try { _sessionCts?.Cancel(); } catch { }
         _sessionCts = null;
         _loopSessionId = null;
         _screenTask = null;
         _inputTask = null;
         _cursorTask = null;
-        try { _rtc?.Close(); _rtc = null; } catch { }
+        try { _rtc?.Close(); } catch (Exception ex) { Log.Warn($"pause peer close: {ex.Message}"); }
+        _rtc = null;
+        // No cached acceptance may restore a paused session without the next
+        // authoritative active-state observation.
+        try { InputBlocker.Release("session_paused"); } catch { }
+        try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
+        ReportState("Session paused");
+        Log.Info($"session {sessionId} paused — live channels stopped");
+    }
+
+    private void EndSession()
+    {
+        Interlocked.Increment(ref _authorityEpoch);
+        _peerInputPermission?.Revoke();
+        try { InputRelay.ReleaseHeldInputs(); } catch { }
+        try { _sessionCts?.Cancel(); } catch { }
+        _sessionCts = null;
+        _loopSessionId = null;
+        _screenTask = null;
+        _inputTask = null;
+        _cursorTask = null;
+        try { _rtc?.Close(); } catch (Exception ex) { Log.Warn($"end peer close: {ex.Message}"); }
+        _rtc = null;
+        _acceptedSessions.Clear();
         _currentSessionId = null;
+        try { InputBlocker.Release("session_ended"); } catch { }
+        try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
         ReportState("No active session");
         Log.Info("session ended");
     }

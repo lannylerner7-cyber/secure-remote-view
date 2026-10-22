@@ -7,7 +7,7 @@ namespace ConnectLive.Admin.Api;
 
 public sealed class AppConfig
 {
-    [JsonPropertyName("baseUrl")] public string BaseUrl { get; set; } = "https://connectliveagent.com";
+    [JsonPropertyName("baseUrl")] public string BaseUrl { get; set; } = "";
     [JsonPropertyName("supabaseUrl")] public string SupabaseUrl { get; set; } = "";
     [JsonPropertyName("supabaseAnonKey")] public string SupabaseAnonKey { get; set; } = "";
 
@@ -25,17 +25,22 @@ public sealed class AppConfig
         }
         if (!File.Exists(candidate))
         {
-            // Fall back to embedded defaults
-            return new AppConfig
-            {
-                BaseUrl = "https://connectliveagent.com",
-                SupabaseUrl = "https://usjygjxpzunpzngmmrqy.supabase.co",
-                SupabaseAnonKey = "sb_publishable_-6LC9u-eg5GW9n2yHRrZog_2lbuB7j_",
-            };
+            throw new InvalidOperationException(
+                "Missing admin.config.json. Ask your deployment administrator for baseUrl, supabaseUrl and supabaseAnonKey. Place the file beside the executable or in %AppData%\\ConnectLiveAdmin, then restart.");
         }
 
         var json = File.ReadAllText(candidate);
-        return JsonSerializer.Deserialize<AppConfig>(json)
+        var config = JsonSerializer.Deserialize<AppConfig>(json)
                ?? throw new InvalidOperationException("admin.config.json is invalid");
+        config.Validate();
+        return config;
+    }
+
+    public void Validate()
+    {
+        BaseUrl = ConnectLive.Native.NativeGatewayPolicy.ValidateOrigin(BaseUrl, "admin.config.json baseUrl");
+        SupabaseUrl = ConnectLive.Native.NativeGatewayPolicy.ValidateOrigin(SupabaseUrl, "admin.config.json supabaseUrl");
+        if (string.IsNullOrWhiteSpace(SupabaseAnonKey))
+            throw new InvalidOperationException("Set supabaseAnonKey in admin.config.json to your deployment's publishable key, then restart. Never use a service-role key.");
     }
 }

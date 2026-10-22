@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { currentAuthorization, sessionAuthorized } from "@/lib/authorization.server";
 import { evaluateLicense, type LicenseRow } from "@/lib/licensing.server";
 
 /**
@@ -20,6 +21,12 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
       POST: async ({ request }) => {
         const ctx = await verifyDevice(request);
         if (!ctx) return new Response("unauthorized", { status: 401 });
+        let authorization;
+        try {
+          authorization = await currentAuthorization(ctx.admin, ctx.device.id);
+        } catch {
+          return new Response("authorization_unavailable", { status: 503 });
+        }
 
         // Optional LAN fingerprint (best-effort) used for Wake-on-LAN peer selection.
         const body = (await request.json().catch(() => ({}))) as {
@@ -203,7 +210,14 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           .in("state", ["invited", "consented", "active", "paused"])
           .order("created_at", { ascending: false });
 
-        const pending = (pendingAll ?? []).slice(0, 1);
+        const authorizedSessions = [];
+        for (const session of pendingAll ?? []) {
+          if (authorization && authorization.revokedAt === null && authorization.capabilities.view &&
+              (session.mode === "view" || (session.mode === "control" && authorization.capabilities.control)) &&
+              (session.state === "invited" || await sessionAuthorized(ctx.admin, session.id)))
+            authorizedSessions.push(session);
+        }
+        const pending = authorizedSessions.slice(0, 1);
         const staleIds = (pendingAll ?? []).slice(1).map((r) => r.id);
         if (staleIds.length > 0) {
           await ctx.admin
@@ -257,6 +271,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         return new Response(
           JSON.stringify({
             ok: true,
+            authorization,
             is_session_active: isSessionActive,
             sessions: licensed ? (pending ?? []) : [],
             power_commands: licensed ? powerCommands : [],

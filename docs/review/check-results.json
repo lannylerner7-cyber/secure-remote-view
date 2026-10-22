@@ -1,0 +1,68 @@
+[
+  {
+    "command": "node scripts/server-authorization-check.cjs",
+    "exitCode": 0,
+    "seconds": 1.57,
+    "evidence": "docs/review/check-1.log"
+  },
+  {
+    "command": "node scripts/recorded-authorization-check.cjs",
+    "exitCode": 0,
+    "seconds": 1.5,
+    "evidence": "docs/review/check-2.log"
+  },
+  {
+    "command": "node scripts/recording-authority-check.cjs",
+    "exitCode": 0,
+    "seconds": 0.6,
+    "evidence": "docs/review/check-3.log"
+  },
+  {
+    "command": "node scripts/file-proxy-check.cjs",
+    "exitCode": 0,
+    "seconds": 1.25,
+    "evidence": "docs/review/check-4.log"
+  },
+  {
+    "command": "node scripts/payment-identity-check.cjs",
+    "exitCode": 0,
+    "seconds": 0.58,
+    "evidence": "docs/review/check-5.log"
+  },
+  {
+    "command": "node scripts/browser-ice-check.cjs",
+    "exitCode": 0,
+    "seconds": 0.86,
+    "evidence": "docs/review/check-6.log"
+  },
+  {
+    "command": "node scripts/browser-recording-check.cjs",
+    "exitCode": 0,
+    "seconds": 0.78,
+    "evidence": "docs/review/check-7.log"
+  },
+  {
+    "command": "node scripts/newsletter-config-check.cjs",
+    "exitCode": 0,
+    "seconds": 0.66,
+    "evidence": "docs/review/check-8.log"
+  },
+  {
+    "command": "node --test scripts/check-connectlive-config.test.cjs scripts/ice-gateway.test.cjs",
+    "exitCode": 0,
+    "seconds": 1.13,
+    "evidence": "docs/review/check-9.log"
+  },
+  {
+    "command": "dotnet run --project agent/src/Tests/NativeGatewayTests.csproj",
+    "exitCode": 0,
+    "seconds": 31.84,
+    "evidence": "docs/review/check-10.log"
+  },
+  {
+    "command": "node scripts/verify-supabase-alignment.cjs --live",
+    "exitCode": 2,
+    "seconds": 13.13,
+    "evidence": "docs/review/check-11.log"
+  }
+]

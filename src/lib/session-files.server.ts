@@ -3,8 +3,8 @@
  *
  * Bytes never touch Postgres: every payload lands in the private
  * `session-files` storage bucket, and the row in `public.session_files` is
- * only the manifest entry. The bucket is private, so browsers get short-lived
- * signed URLs minted per request instead of a durable public link.
+ * only the manifest entry. The bucket is private; clients use a JWT-authenticated
+ * byte proxy that rechecks session authority instead of signed bearer URLs.
  *
  * The "download selected as .zip" path builds a WinZip AE-2 (AES-256)
  * archive in memory with zip.js — Worker-safe, no native bindings — using the
@@ -13,9 +13,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { configure, BlobWriter, BlobReader, ZipWriter } from "@zip.js/zip.js";
+import { sessionAuthorized } from "./authorization.server";
 
 export const BUCKET = "session-files";
-/** Per-file ceiling. Anything larger is rejected before a signed URL is minted. */
+/** Per-file ceiling, enforced during preparation, byte upload and registration. */
 export const MAX_FILE_BYTES = 500 * 1024 * 1024;
 /** Cumulative per-session ceiling across both directions. */
 export const MAX_SESSION_BYTES = 5 * 1024 * 1024 * 1024;
@@ -50,12 +51,13 @@ export async function assertSessionAccess(
   userId: string,
   sessionId: string,
 ): Promise<"not_found" | "forbidden" | null> {
-  const [{ data: session }, { data: isSuper }] = await Promise.all([
+  const [{ data: session }, { data: isSuper, error: roleError }] = await Promise.all([
     supabase.from("sessions").select("id, technician_id").eq("id", sessionId).maybeSingle(),
     supabase.rpc("has_role", { _user_id: userId, _role: "super_admin" as never }),
   ]);
   if (!session) return "not_found";
-  if (!isSuper && session.technician_id !== userId) return "forbidden";
+  if (session.technician_id !== userId && (roleError || isSuper !== true)) return "forbidden";
+  if (!(await sessionAuthorized(supabase, sessionId, "files"))) return "forbidden";
   return null;
 }
 
@@ -69,25 +71,6 @@ export async function sessionBytesUsed(
     .eq("session_id", sessionId)
     .is("deleted_at", null);
   return (data ?? []).reduce((sum, r) => sum + Number(r.size_bytes ?? 0), 0);
-}
-
-export async function signUpload(admin: SupabaseClient<Database>, path: string) {
-  const { data, error } = await admin.storage.from(BUCKET).createSignedUploadUrl(path);
-  if (error || !data) throw new Error(error?.message ?? "sign_upload_failed");
-  return { path: data.path, token: data.token, signedUrl: data.signedUrl };
-}
-
-export async function signDownload(
-  admin: SupabaseClient<Database>,
-  path: string,
-  seconds = 300,
-  downloadName?: string,
-) {
-  const { data, error } = await admin.storage
-    .from(BUCKET)
-    .createSignedUrl(path, seconds, downloadName ? { download: downloadName } : undefined);
-  if (error || !data) throw new Error(error?.message ?? "sign_download_failed");
-  return data.signedUrl;
 }
 
 // ---- session_secrets: AES-GCM wrapping of the verified customer password --

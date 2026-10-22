@@ -8,6 +8,13 @@ non-root user with a `/health` probe wired for zero-downtime deploys.
 - **Build Pack:** `Dockerfile`
 - **Exposed Port:** `3000` (must match `EXPOSE 3000` in the Dockerfile)
 - **Health Check Path:** `/health` (Coolify + the Docker `HEALTHCHECK` both hit this)
+- **Domain:** `https://connectliveagent.com` routes HTTPS 443 to container port
+  3000. Do not map the Replit preview port 21268 into Coolify.
+- **Build context:** repository root when this imported code is the repository
+  root; `imports/connectlive` when using the entire Replit workspace repository.
+  Dockerfile path is relative to that build context.
+- **Auto-deploy:** a GitHub push may trigger Coolify if enabled. Confirm that
+  policy before merging a release branch; this check does not change it.
 
 ## 2. Environment variables
 Copy `.env.sample` into Coolify's Environment Variables tab and replace the
@@ -23,13 +30,38 @@ placeholder values with your real production keys. Required:
 rebuild. Server-only values (`SUPABASE_SERVICE_ROLE_KEY`, etc.) are read at
 request time and can be rotated without rebuilding.
 
+Mark `VITE_*` as build-time variables/build arguments in Coolify. The Dockerfile
+explicitly accepts the three public Supabase arguments and fails if URL/key is
+missing. Never mark service-role, SMTP, session or Cloudflare secrets as public
+build arguments. See `docs/coolify-configuration-guide.md` in the Replit workspace
+for the full runtime inventory, including `SESSION_SECRET_KEY` and SMTP/TURN.
+The build uses Bun 1.3.6 with its checked-in text lockfile and no unlocked fallback;
+runtime uses Node 24.
+
 ## 3. Health endpoints
 - `GET /health` → `200 OK` (Dockerfile `HEALTHCHECK` uses this)
 - `GET /api/public/health` → `200 OK` (mirror for external monitors)
 
 Neither route touches the database, so probes stay cheap.
 
-## 4. Notes
+The container probe follows `PORT` (default 3000), performs GET rather than HEAD
+and requires the `OK` body. For a custom port, change both `PORT` and Coolify's
+exposed/target port together.
+
+## 4. Connection ports
+
+| Traffic | Direction / mapping |
+| --- | --- |
+| Web, REST API, SSE signaling | HTTPS 443 through Coolify proxy to HTTP 3000 |
+| Supabase REST/Auth/Realtime | Outbound HTTPS/WSS 443 to the managed project |
+| Cloudflare credential API | Server outbound HTTPS 443; never expose the API token |
+| TURN/STUN media | Clients use the UDP/TCP/TLS URLs returned by ICE; do not proxy RTP/DXGI through port 3000 |
+| SMTP | Server outbound TLS 465 for the configured provider |
+
+Preserve long-lived SSE responses in the proxy (no response buffering or short
+idle timeouts). The ordinary HTTP health probe does not test this or TURN media.
+
+## 5. Notes
 - The Windows agent binaries live under `agent/` and are unrelated to this
   container — they are excluded via `.dockerignore`.
 - The default Lovable-hosted deploy uses the Cloudflare Workers preset; this

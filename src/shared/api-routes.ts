@@ -16,6 +16,8 @@ export const API_ROUTES = {
   agentEnroll: "/api/public/agent/enroll",
   agentHello: "/api/public/agent/hello",
   agentHeartbeat: "/api/public/agent/heartbeat",
+  agentAuthorization: "/api/public/agent/authorization",
+  agentAuthorizationRevoke: "/api/public/agent/authorization/revoke",
   /** Watch-app beacon. Fired by ConnectLiveWatch.exe when it detects the main
    *  ConnectLive.exe process is no longer running (Task Manager kill,
    *  uninstall). Body: { reason: "stopped" | "starting" | "uninstalling" }. */
@@ -54,6 +56,8 @@ export const API_ROUTES = {
 
   // One-time bootstrap (gated by BOOTSTRAP_TOKEN)
   adminBootstrap: "/api/public/admin/bootstrap",
+  adminSessionAuthorization: (sessionId: string) => `/api/public/admin/session/${sessionId}/authorization`,
+  adminSessionFileBytes: (sessionId: string) => `/api/public/admin/session/${sessionId}/files/bytes`,
 } as const;
 
 

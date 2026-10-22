@@ -4,6 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -18,7 +19,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>1.7.2</Version>
+    <Version>1.7.3</Version>
     <Company>ConnectLive</Company>
     <Product>ConnectLive Admin</Product>
     <AssemblyTitle>ConnectLive Admin</AssemblyTitle>
@@ -26,8 +27,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\agent\src\NativeGatewayPolicy.cs" Link="Api\NativeGatewayPolicy.cs" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
-    <PackageReference Include="SIPSorcery" Version="10.0.13" />
+    <PackageReference Include="SIPSorcery" Version="10.0.17" />
     <PackageReference Include="SIPSorceryMedia.Encoders" Version="10.0.4" />
   </ItemGroup>
 

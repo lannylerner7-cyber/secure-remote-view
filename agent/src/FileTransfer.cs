@@ -47,6 +47,7 @@ internal static class FileTransfer
     private static bool _demoted;
     private static Incoming? _incoming;
     private static ApiClient? _api;
+    private static PeerInputPermission? _permission;
 
     /// <summary>Fired after an inbound file is fully written to disk.</summary>
     public static event Action<string>? FileLanded;
@@ -89,10 +90,12 @@ internal static class FileTransfer
         }
     }
 
-    public static void Attach(ApiClient api, string sessionId, RTCDataChannel dc)
+    internal static void Attach(ApiClient api, string sessionId, RTCDataChannel dc, PeerInputPermission permission)
     {
+        if (!permission.Allows("files")) return;
         lock (_gate)
         {
+            _permission = permission;
             _api = api;
             _sessionId = sessionId;
             _dc = dc;
@@ -103,6 +106,7 @@ internal static class FileTransfer
 
         dc.onopen += () =>
         {
+            if (!permission.Allows("files")) return;
             lock (_gate) _open = true;
             Log.Info($"[files] datachannel OPEN (session={sessionId})");
         };
@@ -116,7 +120,7 @@ internal static class FileTransfer
             lock (_gate) { _open = false; _demoted = true; _incoming = null; }
             Log.Warn("[files] datachannel error: " + err);
         };
-        dc.onmessage += (_, __, data) => OnMessage(data);
+        dc.onmessage += (_, __, data) => { if (permission.Allows("files")) OnMessage(data, permission); };
     }
 
     public static void Detach()
@@ -124,6 +128,7 @@ internal static class FileTransfer
         lock (_gate)
         {
             _dc = null;
+            _permission = null;
             _open = false;
             _demoted = false;
             _sessionId = "";
@@ -133,8 +138,9 @@ internal static class FileTransfer
 
     // ---- Inbound -----------------------------------------------------------
 
-    private static void OnMessage(byte[] data)
+    private static void OnMessage(byte[] data, PeerInputPermission permission)
     {
+        if (!permission.Allows("files")) return;
         if (data == null || data.Length == 0) return;
         if (data.Length < 512 && data[0] == (byte)'{')
         {
@@ -165,7 +171,7 @@ internal static class FileTransfer
                 {
                     Incoming? done;
                     lock (_gate) { done = _incoming; _incoming = null; }
-                    if (done != null) Complete(done);
+                    if (done != null) Complete(done, permission);
                 }
                 else if (type == "file_error")
                 {
@@ -192,8 +198,9 @@ internal static class FileTransfer
         }
     }
 
-    private static void Complete(Incoming done)
+    private static void Complete(Incoming done, PeerInputPermission permission)
     {
+        if (!permission.Allows("files")) return;
         try
         {
             done.Hasher?.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
@@ -205,12 +212,21 @@ internal static class FileTransfer
             var folder = DropFolder;
             var target = UniquePath(folder, done.Name);
             var tmp = target + ".part";
-            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            try
             {
-                foreach (var part in done.Parts) fs.Write(part, 0, part.Length);
+                if (!permission.Allows("files")) return;
+                using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    foreach (var part in done.Parts)
+                    {
+                        if (!permission.Allows("files")) return;
+                        fs.Write(part, 0, part.Length);
+                    }
+                }
+                if (!permission.Allows("files")) return;
+                File.Move(tmp, target);
             }
-            if (File.Exists(target)) { try { File.Delete(target); } catch { } }
-            File.Move(tmp, target);
+            finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { } }
             done.Parts.Clear();
 
             Log.Info($"[files] inbound complete {target} ({done.Received} bytes, sha256={sha})");
@@ -231,6 +247,11 @@ internal static class FileTransfer
     /// </summary>
     public static async Task<bool> SendFileAsync(string filePath, CancellationToken ct)
     {
+        PeerInputPermission? permission;
+        lock (_gate) permission = _permission;
+        if (ct.IsCancellationRequested || permission?.Allows("files") != true) return false;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct, permission.Token);
+        ct = lifetime.Token;
         var fi = new FileInfo(filePath);
         if (!fi.Exists) { Log.Warn($"[files] send: missing {filePath}"); return false; }
         if (fi.Length > MaxFileBytes) { Log.Warn("[files] send: file exceeds 500 MiB cap"); return false; }
@@ -240,11 +261,11 @@ internal static class FileTransfer
         lock (_gate) { sessionId = _sessionId; api = _api; }
         if (string.IsNullOrEmpty(sessionId) || api == null) return false;
 
-        if (await SendOverChannelAsync(sessionId, fi, ct).ConfigureAwait(false)) return true;
-        return await SendOverHttpAsync(api, sessionId, fi, ct).ConfigureAwait(false);
+        if (await SendOverChannelAsync(sessionId, fi, ct, permission).ConfigureAwait(false)) return true;
+        return await SendOverHttpAsync(api, sessionId, fi, ct, permission).ConfigureAwait(false);
     }
 
-    private static async Task<bool> SendOverChannelAsync(string sessionId, FileInfo fi, CancellationToken ct)
+    private static async Task<bool> SendOverChannelAsync(string sessionId, FileInfo fi, CancellationToken ct, PeerInputPermission permission)
     {
         RTCDataChannel? dc;
         bool open;
@@ -253,7 +274,7 @@ internal static class FileTransfer
             dc = _dc;
             open = _open && !_demoted && _sessionId == sessionId;
         }
-        if (dc == null || !open) return false;
+        if (dc == null || !open || !permission.Allows("files") || ct.IsCancellationRequested) return false;
 
         var name = fi.Name;
         var size = fi.Length;
@@ -272,11 +293,13 @@ internal static class FileTransfer
             long sent = 0;
             while (sent < size)
             {
+                if (!permission.Allows("files") || ct.IsCancellationRequested) return false;
                 var read = await fs.ReadAsync(buffer.AsMemory(0, ChunkBytes), ct).ConfigureAwait(false);
                 if (read <= 0) break;
                 while (dc.bufferedAmount > BufferedAmountBackpressure)
                 {
                     await Task.Delay(20, ct).ConfigureAwait(false);
+                    if (!permission.Allows("files")) return false;
                     lock (_gate)
                     {
                         dc = _dc;
@@ -284,9 +307,11 @@ internal static class FileTransfer
                     }
                     if (dc == null || !open) throw new InvalidOperationException("channel closed mid-transfer");
                 }
+                if (!permission.Allows("files") || ct.IsCancellationRequested) return false;
                 dc.send(buffer.AsSpan(0, read).ToArray());
                 sent += read;
             }
+            if (!permission.Allows("files")) return false;
             dc.send(JsonSerializer.Serialize(new { type = "file_end", name, size }));
             Log.Info($"[files] sent {name} over datachannel ({sent} bytes)");
             return true;
@@ -295,30 +320,34 @@ internal static class FileTransfer
         {
             lock (_gate) { _open = false; _demoted = true; }
             Log.Warn("[files] datachannel send failed, demoting to HTTP: " + ex.Message);
-            try { dc?.send(JsonSerializer.Serialize(new { type = "file_error", name, message = "switching to http" })); }
+            try { if (permission.Allows("files")) dc?.send(JsonSerializer.Serialize(new { type = "file_error", name, message = "switching to http" })); }
             catch { }
             return false;
         }
     }
 
-    private static async Task<bool> SendOverHttpAsync(ApiClient api, string sessionId, FileInfo fi, CancellationToken ct)
+    private static async Task<bool> SendOverHttpAsync(ApiClient api, string sessionId, FileInfo fi, CancellationToken ct, PeerInputPermission permission)
     {
+        if (!permission.Allows("files") || ct.IsCancellationRequested) return false;
         var fileId = Guid.NewGuid().ToString("N");
         var name = fi.Name;
         var mime = GuessMime(name);
         try
         {
-            var sha = await Sha256FileAsync(fi.FullName, ct).ConfigureAwait(false);
+            var sha = await Sha256FileAsync(fi.FullName, ct, permission).ConfigureAwait(false);
+            if (!permission.Allows("files")) return false;
             using var fs = new FileStream(fi.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
             var buffer = new byte[HttpChunkBytes];
             var seq = 0;
             long sent = 0;
             while (true)
             {
+                if (!permission.Allows("files") || ct.IsCancellationRequested) return false;
                 var read = await fs.ReadAsync(buffer.AsMemory(0, HttpChunkBytes), ct).ConfigureAwait(false);
                 var eof = sent + read >= fi.Length;
                 if (read <= 0 && sent > 0 && !eof) break;
                 var chunk = read > 0 ? buffer.AsSpan(0, read).ToArray() : Array.Empty<byte>();
+                if (!permission.Allows("files") || ct.IsCancellationRequested) return false;
                 var ok = await api.UploadSessionFileChunkAsync(
                     sessionId, fileId, seq, eof, name, mime, sha, fi.Length, chunk, ct).ConfigureAwait(false);
                 if (!ok) { Log.Warn($"[files] http chunk {seq} rejected for {name}"); return false; }
@@ -338,11 +367,19 @@ internal static class FileTransfer
 
     // ---- helpers -----------------------------------------------------------
 
-    private static async Task<string> Sha256FileAsync(string path, CancellationToken ct)
+    private static async Task<string> Sha256FileAsync(string path, CancellationToken ct, PeerInputPermission permission)
     {
-        using var sha = SHA256.Create();
+        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var hash = await Task.Run(() => sha.ComputeHash(fs), ct).ConfigureAwait(false);
+        var buffer = new byte[ChunkBytes];
+        while (true)
+        {
+            if (!permission.Allows("files")) throw new OperationCanceledException("File authorization withdrawn.");
+            var read = await fs.ReadAsync(buffer.AsMemory(), ct).ConfigureAwait(false);
+            if (read == 0) break;
+            sha.AppendData(buffer, 0, read);
+        }
+        var hash = sha.GetHashAndReset();
         return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
     }
 

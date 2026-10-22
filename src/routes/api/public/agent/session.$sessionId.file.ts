@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { sessionAuthorized } from "@/lib/authorization.server";
 import {
   BUCKET,
   MAX_FILE_BYTES,
@@ -46,7 +47,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/file"
           .maybeSingle();
         if (!session || session.device_id !== ctx.device.id)
           return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
-        if (session.state !== "active")
+        if (session.state !== "active" || !(await sessionAuthorized(ctx.admin, session.id, "files")))
           return new Response(JSON.stringify({ error: "not_active", state: session.state }), {
             status: 409,
           });
@@ -54,6 +55,8 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/file"
         const bytes = new Uint8Array(await request.arrayBuffer());
         if (bytes.byteLength > MAX_CHUNK_BYTES)
           return new Response(JSON.stringify({ error: "chunk_too_large" }), { status: 413 });
+        if (!(await sessionAuthorized(ctx.admin, session.id, "files")))
+          return new Response("authorization_changed", { status: 409 });
 
         const partPath = `${session.id}/parts/${fileId}/${String(seq).padStart(6, "0")}`;
         if (bytes.byteLength > 0) {
@@ -70,6 +73,8 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/file"
           .list(`${session.id}/parts/${fileId}`, { limit: 10_000, sortBy: { column: "name", order: "asc" } });
         const blobs: Blob[] = [];
         for (const part of parts ?? []) {
+          if (!(await sessionAuthorized(ctx.admin, session.id, "files")))
+            return new Response("authorization_changed", { status: 409 });
           const { data: blob } = await ctx.admin.storage
             .from(BUCKET)
             .download(`${session.id}/parts/${fileId}/${part.name}`);
@@ -87,12 +92,14 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/file"
         const mime = request.headers.get("x-file-mime") ?? "application/octet-stream";
         const sha256 = request.headers.get("x-file-sha256");
         const finalPath = `${session.id}/${fileId}-${name}`;
+        if (!(await sessionAuthorized(ctx.admin, session.id, "files")))
+          return new Response("authorization_changed", { status: 409 });
         const { error: upErr } = await ctx.admin.storage
           .from(BUCKET)
           .upload(finalPath, merged, { contentType: mime, upsert: true });
         if (upErr) return new Response(JSON.stringify({ error: upErr.message }), { status: 500 });
 
-        await ctx.admin.from("session_files").insert({
+        const { error: manifestError } = await ctx.admin.from("session_files").insert({
           session_id: session.id,
           direction: "from_agent",
           name,
@@ -102,6 +109,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/file"
           storage_path: finalPath,
           transport: "http",
         });
+        if (manifestError) return new Response("manifest_not_recorded", { status: 409 });
 
         const stale = (parts ?? []).map((p) => `${session.id}/parts/${fileId}/${p.name}`);
         if (stale.length) await ctx.admin.storage.from(BUCKET).remove(stale);

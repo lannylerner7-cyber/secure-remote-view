@@ -57,11 +57,12 @@ export const subscribeNewsletter = createServerFn({ method: "POST" })
 
     // Rate limit: at most 5 signups per IP per hour.
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { count } = await supabaseAdmin
+    const { count, error: countError } = await supabaseAdmin
       .from("newsletter_subscribers")
       .select("id", { count: "exact", head: true })
       .eq("ip_hash", ip_hash)
       .gte("created_at", since);
+    if (countError) return { ok: false, status: "error", message: "Signup is temporarily unavailable. Please try again later." };
     if ((count ?? 0) >= 5) {
       return {
         ok: false,
@@ -70,22 +71,21 @@ export const subscribeNewsletter = createServerFn({ method: "POST" })
       };
     }
 
-    const { data: existing } = await supabaseAdmin
+    const { data: existing, error: lookupError } = await supabaseAdmin
       .from("newsletter_subscribers")
-      .select("id, status")
+      .select("id, status, welcome_sent_at")
       .eq("email", email)
       .maybeSingle();
 
-    if (existing && (existing as { status: string }).status === "subscribed") {
+    if (lookupError) return { ok: false, status: "error", message: "Signup is temporarily unavailable. Please try again later." };
+    if (existing?.status === "unsubscribed") {
+      return { ok: false, status: "unsubscribed", message: "This address previously unsubscribed. Contact support to request re-subscription." };
+    }
+    if (existing?.status === "subscribed" && existing.welcome_sent_at) {
       return { ok: true, status: "already", message: "You're already on the list — thanks!" };
     }
 
-    if (existing) {
-      await supabaseAdmin
-        .from("newsletter_subscribers")
-        .update({ status: "subscribed", unsubscribed_at: null, ip_hash })
-        .eq("id", (existing as { id: string }).id);
-    } else {
+    if (!existing) {
       const { error } = await supabaseAdmin
         .from("newsletter_subscribers")
         .insert({ email, source, ip_hash });
@@ -97,11 +97,12 @@ export const subscribeNewsletter = createServerFn({ method: "POST" })
     const { sendNewsletterWelcome } = await import("./newsletter-emails.server");
     const result = await sendNewsletterWelcome(email);
     if (result.sent) {
-      await supabaseAdmin
+      const { error: stampError } = await supabaseAdmin
         .from("newsletter_subscribers")
         .update({ welcome_sent_at: new Date().toISOString() })
-        .eq("email", email);
-      return { ok: true, status: "subscribed", message: "You're in — check your inbox for a welcome note." };
+        .eq("email", email).eq("status", "subscribed");
+      if (stampError) return { ok: true, status: "mail_pending", message: "You're subscribed. The relay accepted your welcome email, but its tracking update is delayed." };
+      return { ok: true, status: "subscribed", message: "You're subscribed. Our mail relay accepted your welcome note; check your inbox and spam folder." };
     }
 
     // A failed welcome must leave a trace: otherwise the subscriber is stored,
@@ -114,7 +115,7 @@ export const subscribeNewsletter = createServerFn({ method: "POST" })
     return {
       ok: true,
       status: "mail_pending",
-      message: "You're subscribed. The welcome email is on its way shortly.",
+      message: "You're subscribed, but we couldn't confirm the welcome email was sent. Contact support if you need help; no automatic resend is scheduled.",
     };
   });
 

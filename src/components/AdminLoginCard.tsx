@@ -31,6 +31,7 @@ export function AdminLoginCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: technicianId, password }),
+        signal: AbortSignal.timeout(20_000),
       });
       const data = (await res.json()) as {
         session?: { access_token: string; refresh_token: string };

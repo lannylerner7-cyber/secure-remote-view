@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { fetchInboundTxs, type CoinKey } from "@/lib/cdp.server";
+import { exactPaymentAmount, orderReference } from "@/shared/payment-identity";
 
 /**
  * Cron endpoint — invoked every 60s by pg_cron.
@@ -44,7 +45,6 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
 
 
         const CONF: Record<CoinKey, number> = { BTC: 2, USDT_ERC20: 12, USDC_ERC20: 12 };
-        const AMOUNT_EPSILON = 1e-6;
 
         const { data: orders, error } = await supabaseAdmin
           .from("orders")
@@ -62,8 +62,7 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
           const txs = await fetchInboundTxs(coin, o.receive_address!);
           const match = txs.find(
             (t) =>
-              Math.abs(t.amountCoin - Number(o.amount_coin)) <=
-              AMOUNT_EPSILON * Number(o.amount_coin) + AMOUNT_EPSILON,
+              exactPaymentAmount(t.amountCoin, o.amount_coin, coin),
           );
 
           if (!match) {
@@ -78,14 +77,18 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
 
           const target = CONF[coin];
           const nextStatus = match.confirmations >= target ? "paid" : "detected";
-          await supabaseAdmin
+          const { data: updated, error: updateError } = await supabaseAdmin
             .from("orders")
             .update({
               status: nextStatus,
               tx_hash: match.txHash,
               confirmations: match.confirmations,
             })
-            .eq("id", o.id);
+            .eq("id", o.id)
+            .in("status", ["pending", "detected"])
+            .select("id");
+          if (updateError) return Response.json({ ok: false, reason: "order_update_failed" }, { status: 503 });
+          if (!updated?.length) continue;
 
           await supabaseAdmin.from("payment_events").upsert(
             {
@@ -94,12 +97,16 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
               event_type: nextStatus,
               tx_hash: match.txHash,
               confirmations: match.confirmations,
-              raw: { amount_coin: match.amountCoin },
+              raw: { amount_coin: match.amountCoin, order_reference: orderReference(o.id) },
             },
             { onConflict: "order_id,tx_hash,event_type", ignoreDuplicates: true },
           );
 
           processed += 1;
+          if (nextStatus === "paid") {
+            const { sendOrderEmailById } = await import("@/lib/order-emails.server");
+            await sendOrderEmailById("order_confirmed", o.id);
+          }
         }
 
         return Response.json({ ok: true, checked: orders?.length ?? 0, processed });

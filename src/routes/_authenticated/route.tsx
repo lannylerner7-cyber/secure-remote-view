@@ -21,9 +21,11 @@ export const Route = createFileRoute("/_authenticated")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
     const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/connectlive/admin" });
+    if (error || !data.user) throw redirect({
+      to: location.pathname === "/payments" ? "/connectlive/payment" : "/connectlive/admin",
+    });
     return { user: data.user };
   },
   component: () => <Outlet />,

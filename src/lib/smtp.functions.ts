@@ -24,13 +24,14 @@ export const getSmtpSettings = createServerFn({ method: "GET" })
     await assertSuperAdmin(context as never);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { envSmtpSettings } = await import("./smtp.server");
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("smtp_settings")
       .select(
         "host, port, username, password, from_name, from_address, reply_to, encryption, enabled, updated_at",
       )
       .eq("id", true)
       .maybeSingle();
+    if (error) throw new Error("Email settings are temporarily unavailable.");
     const row = (data ?? {}) as Record<string, unknown>;
     const builtin = envSmtpSettings();
     const customUsable = Boolean(row.enabled && row.host && row.from_address);
@@ -75,6 +76,10 @@ export const saveSmtpSettings = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context as never);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { validateSmtpSettings } = await import("./smtp.server");
+    const { data: stored, error: storedError } = await supabaseAdmin.from("smtp_settings")
+      .select("password").eq("id", true).maybeSingle();
+    if (storedError) throw new Error("Email settings are temporarily unavailable.");
 
     const patch = {
       host: data.host.trim(),
@@ -87,11 +92,12 @@ export const saveSmtpSettings = createServerFn({ method: "POST" })
       enabled: data.enabled,
       updated_at: new Date().toISOString(),
       updated_by: context.userId,
-      ...(data.password && data.password.length > 0 ? { password: data.password } : {}),
+      password: data.password || stored?.password || "",
     };
 
-    const { error } = await supabaseAdmin.from("smtp_settings").update(patch).eq("id", true);
-    if (error) throw new Error(error.message);
+    if (patch.enabled) validateSmtpSettings(patch);
+    const { error } = await supabaseAdmin.from("smtp_settings").upsert({ id: true, ...patch });
+    if (error) throw new Error("Email settings could not be saved.");
 
     await supabaseAdmin.from("audit_logs").insert({
       actor: context.userId,
@@ -107,22 +113,20 @@ export const sendSmtpTest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context as never);
-    const { sendMail, resolveSmtpSource } = await import("./smtp.server");
-
-    const { source, settings } = await resolveSmtpSource();
-    if (!settings) return { ok: false, error: "SMTP is not configured yet" };
+    const { sendMail, resolveSmtpSource, mailErrorReason } = await import("./smtp.server");
 
     try {
+      const { source, settings } = await resolveSmtpSource();
+      if (!settings) return { ok: false, error: "SMTP is not configured yet" };
+      const { renderSmtpTest } = await import("./system-emails.server");
       await sendMail(settings, {
         to: data.to,
-        subject: "ConnectLive SMTP test",
-        html: `<p style="font-family:Arial,sans-serif;font-size:14px">Your ConnectLive SMTP relay is working (${source} credentials). Sent ${new Date().toUTCString()}.</p>`,
-        text: `Your ConnectLive SMTP relay is working (${source} credentials). Sent ${new Date().toUTCString()}.`,
+        ...renderSmtpTest(source),
       });
       return { ok: true };
 
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : "Unknown SMTP error" };
+      return { ok: false, error: mailErrorReason(e) };
     }
   });
 
@@ -146,11 +150,11 @@ export const listOrderEmails = createServerFn({ method: "GET" })
 
 /** Admin: re-send an order email by hand. */
 export const resendOrderEmail = createServerFn({ method: "POST" })
-  .inputValidator((raw: { order_id: string; kind: "order_received" | "order_confirmed" }) =>
+  .inputValidator((raw: { order_id: string; kind: "order_received" | "order_confirmed" | "access_ready" }) =>
     z
       .object({
         order_id: z.string().uuid(),
-        kind: z.enum(["order_received", "order_confirmed"]),
+        kind: z.enum(["order_received", "order_confirmed", "access_ready"]),
       })
       .parse(raw),
   )
@@ -158,5 +162,5 @@ export const resendOrderEmail = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context as never);
     const { sendOrderEmailById } = await import("./order-emails.server");
-    return sendOrderEmailById(data.kind, data.order_id);
+    return sendOrderEmailById(data.kind, data.order_id, true);
   });

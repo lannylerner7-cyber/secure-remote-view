@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { sessionAuthorized } from "@/lib/authorization.server";
 
 /**
  * WebRTC signaling channel — SDP offer/answer + ICE candidates + "terminated"
@@ -85,7 +86,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         if (!session || session.device_id !== ctx.device.id) {
           return errJson("not_found", 404);
         }
-        if (session.state !== "active") {
+        if (session.state !== "active" || !(await sessionAuthorized(ctx.admin, session.id))) {
           return errJson("not_active", 409);
         }
         if (adminClientId && session.admin_client_id && adminClientId !== session.admin_client_id) {
@@ -130,6 +131,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         }
 
         // A restarted agent begins at cursor 0. Anchor its first page at the
+        if (!(await sessionAuthorized(ctx.admin, session.id))) return errJson("not_authorized", 403);
         // newest offer so stale negotiations cannot consume the 100-row limit.
         let effectiveSince = since;
         if (since === 0) {

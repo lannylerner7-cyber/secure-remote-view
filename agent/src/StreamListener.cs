@@ -44,6 +44,7 @@ internal sealed class StreamListener
         _wakeNudge = wakeNudge;
         _http = new HttpClient(new SocketsHttpHandler
         {
+            AllowAutoRedirect = false,
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
             // No response drain deadline — SSE frames arrive whenever they arrive.
         })

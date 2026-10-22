@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { sessionAuthorized } from "@/lib/authorization.server";
 
 /**
  * Agent uploads a JPEG screen frame (base64) for a live session.
@@ -32,7 +33,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/frame
         if (!session || session.device_id !== ctx.device.id) {
           return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
         }
-        if (session.state !== "active") {
+        if (session.state !== "active" || !(await sessionAuthorized(ctx.admin, session.id))) {
           return new Response(JSON.stringify({ error: "not_active", state: session.state }), {
             status: 409,
           });

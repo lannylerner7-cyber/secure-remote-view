@@ -1,0 +1,32 @@
+[
+  {
+    "path": "/health",
+    "status": 403,
+    "expected": 200
+  },
+  {
+    "path": "/api/public/health",
+    "status": 200,
+    "expected": 200
+  },
+  {
+    "path": "/connectlive/admin",
+    "status": 403,
+    "expected": 200
+  },
+  {
+    "path": "/connectlive/payment",
+    "status": 403,
+    "expected": 200
+  },
+  {
+    "path": "/api/public/agent/ice",
+    "status": 401,
+    "expected": 401
+  },
+  {
+    "path": "/api/public/agent/hello",
+    "status": 401,
+    "expected": 401
+  }
+]

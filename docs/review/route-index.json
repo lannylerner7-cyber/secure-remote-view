@@ -1,0 +1,943 @@
+{
+  "declarations": [
+    {
+      "file": "src/routes/_authenticated/console.tsx",
+      "route": "/_authenticated/console",
+      "methods": [],
+      "staticAuthMarkers": [
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/_authenticated/payments.tsx",
+      "route": "/_authenticated/payments",
+      "methods": [],
+      "staticAuthMarkers": [
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/_authenticated/route.tsx",
+      "route": "/_authenticated",
+      "methods": [],
+      "staticAuthMarkers": [
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/admin/bootstrap.ts",
+      "route": "/api/public/admin/bootstrap",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/admin/session.$sessionId.authorization.ts",
+      "route": "/api/public/admin/session/$sessionId/authorization",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [
+        "sessionAuthorized",
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/admin/session.$sessionId.files.bytes.ts",
+      "route": "/api/public/admin/session/$sessionId/files/bytes",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "staticAuthMarkers": [
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/admin/session.$sessionId.files.ts",
+      "route": "/api/public/admin/session/$sessionId/files",
+      "methods": [
+        "DELETE",
+        "GET",
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "sessionAuthorized",
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/authorization.revoke.ts",
+      "route": "/api/public/agent/authorization/revoke",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/authorization.ts",
+      "route": "/api/public/agent/authorization",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/beacon.ts",
+      "route": "/api/public/agent/beacon",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/enroll.ts",
+      "route": "/api/public/agent/enroll",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/heartbeat.ts",
+      "route": "/api/public/agent/heartbeat",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/hello.ts",
+      "route": "/api/public/agent/hello",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/ice.ts",
+      "route": "/api/public/agent/ice",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized",
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/power.$cmdId.ack.ts",
+      "route": "/api/public/agent/power/$cmdId/ack",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/release.ts",
+      "route": "/api/public/agent/release",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.consent.ts",
+      "route": "/api/public/agent/session/$sessionId/consent",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.cursor.ts",
+      "route": "/api/public/agent/session/$sessionId/cursor",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.file.ts",
+      "route": "/api/public/agent/session/$sessionId/file",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.frame.ts",
+      "route": "/api/public/agent/session/$sessionId/frame",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.inputs.ts",
+      "route": "/api/public/agent/session/$sessionId/inputs",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.reconnect.ts",
+      "route": "/api/public/agent/session/$sessionId/reconnect",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.signal.ts",
+      "route": "/api/public/agent/session/$sessionId/signal",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice",
+        "sessionAuthorized"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/agent/stream.ts",
+      "route": "/api/public/agent/stream",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [
+        "verifyDevice"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/auth/login.ts",
+      "route": "/api/public/auth/login",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/cron/reconcile-orders.ts",
+      "route": "/api/public/cron/reconcile-orders",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/health.ts",
+      "route": "/api/public/health",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/newsletter/unsubscribe.ts",
+      "route": "/api/public/newsletter/unsubscribe",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/stats/orders.ts",
+      "route": "/api/public/stats/orders",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/api/public/webhooks/cdp.ts",
+      "route": "/api/public/webhooks/cdp",
+      "methods": [
+        "POST"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/connectlive.admin.tsx",
+      "route": "/connectlive/admin",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/connectlive.payment.tsx",
+      "route": "/connectlive/payment",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/contact.tsx",
+      "route": "/contact",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/health.ts",
+      "route": "/health",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/index.tsx",
+      "route": "/",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/license.tsx",
+      "route": "/license",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/order.$id.tsx",
+      "route": "/order/$id",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/order.index.tsx",
+      "route": "/order/",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/privacy.tsx",
+      "route": "/privacy",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/public.agent.login.tsx",
+      "route": "/public/agent/login",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/public.agent.portal.tsx",
+      "route": "/public/agent/portal",
+      "methods": [],
+      "staticAuthMarkers": [
+        "getUser"
+      ],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/refund.tsx",
+      "route": "/refund",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/robots[.]txt.ts",
+      "route": "/robots.txt",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/sitemap[.]xml.ts",
+      "route": "/sitemap.xml",
+      "methods": [
+        "GET"
+      ],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    },
+    {
+      "file": "src/routes/terms.tsx",
+      "route": "/terms",
+      "methods": [],
+      "staticAuthMarkers": [],
+      "reviewLimit": "Declaration index only; markers do not prove enforcement"
+    }
+  ],
+  "literalReferences": [
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 81,
+      "pathFragment": "/api/public/agent/authorization",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 103,
+      "pathFragment": "/api/public/agent/authorization/revoke",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 224,
+      "pathFragment": "/api/public/agent/enroll",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 286,
+      "pathFragment": "/api/public/agent/session/",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 287,
+      "pathFragment": "/api/public/agent/ice",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 288,
+      "pathFragment": "/api/public/agent/authorization",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 330,
+      "pathFragment": "/api/public/agent/hello",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 408,
+      "pathFragment": "/api/public/agent/heartbeat",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 459,
+      "pathFragment": "/api/public/agent/release",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 483,
+      "pathFragment": "/api/public/agent/power/{cmdId}/ack",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 497,
+      "pathFragment": "/api/public/agent/session/{sessionId}/consent",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 520,
+      "pathFragment": "/api/public/agent/session/{sessionId}/reconnect",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 558,
+      "pathFragment": "/api/public/agent/session/{sessionId}/frame",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 582,
+      "pathFragment": "/api/public/agent/session/{sessionId}/file",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 613,
+      "pathFragment": "/api/public/agent/session/{sessionId}/cursor",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 630,
+      "pathFragment": "/api/public/agent/session/{sessionId}/inputs",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 660,
+      "pathFragment": "/api/public/agent/session/{sessionId}/signal",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/ApiClient.cs",
+      "line": 696,
+      "pathFragment": "/api/public/agent/session/{sessionId}/signal",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/NativeGatewayPolicy.cs",
+      "line": 31,
+      "pathFragment": "/api/public/agent/ice",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/StreamListener.cs",
+      "line": 94,
+      "pathFragment": "/api/public/agent/stream",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/Tests/Program.cs",
+      "line": 30,
+      "pathFragment": "/api/public/agent/ice",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "agent/src/Watch/Program.cs",
+      "line": 30,
+      "pathFragment": "/api/public/agent/beacon",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 366,
+      "pathFragment": "/rest/v1/devices",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 381,
+      "pathFragment": "/rest/v1/devices",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 391,
+      "pathFragment": "/rest/v1/devices",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 405,
+      "pathFragment": "/rest/v1/sessions",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 416,
+      "pathFragment": "/rest/v1/sessions",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 433,
+      "pathFragment": "/rest/v1/sessions",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 469,
+      "pathFragment": "/rest/v1/sessions",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 492,
+      "pathFragment": "/rest/v1/sessions",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 504,
+      "pathFragment": "/rest/v1/sessions",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 514,
+      "pathFragment": "/rest/v1/session_inputs",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 534,
+      "pathFragment": "/rest/v1/session_telemetry",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 549,
+      "pathFragment": "/rest/v1/session_signals",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 609,
+      "pathFragment": "/rest/v1/rpc/bind_admin",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 632,
+      "pathFragment": "/rest/v1/session_signals",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 658,
+      "pathFragment": "/rest/v1/session_frames",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 682,
+      "pathFragment": "/rest/v1/session_cursors",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "admin/src/Api/ApiClient.cs",
+      "line": 713,
+      "pathFragment": "/rest/v1/power_commands",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/components/AdminLoginCard.tsx",
+      "line": 30,
+      "pathFragment": "/api/public/auth/login",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/admin/bootstrap.ts",
+      "line": 12,
+      "pathFragment": "/api/public/admin/bootstrap",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/admin/session.$sessionId.authorization.ts",
+      "line": 7,
+      "pathFragment": "/api/public/admin/session/$sessionId/authorization",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/admin/session.$sessionId.files.bytes.ts",
+      "line": 14,
+      "pathFragment": "/api/public/admin/session/$sessionId/files/bytes",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/admin/session.$sessionId.files.ts",
+      "line": 53,
+      "pathFragment": "/api/public/admin/session/$sessionId/files",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/authorization.revoke.ts",
+      "line": 4,
+      "pathFragment": "/api/public/agent/authorization/revoke",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/authorization.ts",
+      "line": 5,
+      "pathFragment": "/api/public/agent/authorization",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/beacon.ts",
+      "line": 13,
+      "pathFragment": "/api/public/agent/beacon",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/enroll.ts",
+      "line": 26,
+      "pathFragment": "/api/public/agent/enroll",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/heartbeat.ts",
+      "line": 18,
+      "pathFragment": "/api/public/agent/heartbeat",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/hello.ts",
+      "line": 8,
+      "pathFragment": "/api/public/agent/hello",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/ice.ts",
+      "line": 265,
+      "pathFragment": "/api/public/agent/ice",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/power.$cmdId.ack.ts",
+      "line": 10,
+      "pathFragment": "/api/public/agent/power/$cmdId/ack",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/release.ts",
+      "line": 46,
+      "pathFragment": "/api/public/agent/release",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.consent.ts",
+      "line": 9,
+      "pathFragment": "/api/public/agent/session/$sessionId/consent",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.cursor.ts",
+      "line": 18,
+      "pathFragment": "/api/public/agent/session/$sessionId/cursor",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.file.ts",
+      "line": 29,
+      "pathFragment": "/api/public/agent/session/$sessionId/file",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.frame.ts",
+      "line": 11,
+      "pathFragment": "/api/public/agent/session/$sessionId/frame",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.inputs.ts",
+      "line": 10,
+      "pathFragment": "/api/public/agent/session/$sessionId/inputs",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.reconnect.ts",
+      "line": 12,
+      "pathFragment": "/api/public/agent/session/$sessionId/reconnect",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/session.$sessionId.signal.ts",
+      "line": 28,
+      "pathFragment": "/api/public/agent/session/$sessionId/signal",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/agent/stream.ts",
+      "line": 16,
+      "pathFragment": "/api/public/agent/stream",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/auth/login.ts",
+      "line": 23,
+      "pathFragment": "/api/public/auth/login",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/cron/reconcile-orders.ts",
+      "line": 22,
+      "pathFragment": "/api/public/cron/reconcile-orders",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/health.ts",
+      "line": 4,
+      "pathFragment": "/api/public/health",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/newsletter/unsubscribe.ts",
+      "line": 38,
+      "pathFragment": "/api/public/newsletter/unsubscribe",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/stats/orders.ts",
+      "line": 4,
+      "pathFragment": "/api/public/stats/orders",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/api/public/webhooks/cdp.ts",
+      "line": 10,
+      "pathFragment": "/api/public/webhooks/cdp",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/routes/index.tsx",
+      "line": 135,
+      "pathFragment": "/api/public/stats/orders",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 16,
+      "pathFragment": "/api/public/agent/enroll",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 17,
+      "pathFragment": "/api/public/agent/hello",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 18,
+      "pathFragment": "/api/public/agent/heartbeat",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 19,
+      "pathFragment": "/api/public/agent/authorization",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 20,
+      "pathFragment": "/api/public/agent/authorization/revoke",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 24,
+      "pathFragment": "/api/public/agent/beacon",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 28,
+      "pathFragment": "/api/public/agent/stream",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 33,
+      "pathFragment": "/api/public/agent/ice",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 38,
+      "pathFragment": "/api/public/agent/release",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 52,
+      "pathFragment": "/api/public/health",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 55,
+      "pathFragment": "/api/public/auth/login",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 58,
+      "pathFragment": "/api/public/admin/bootstrap",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 74,
+      "pathFragment": "/api/public/webhooks/cdp",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 75,
+      "pathFragment": "/api/public/cron/reconcile-orders",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    },
+    {
+      "file": "src/shared/api-routes.ts",
+      "line": 76,
+      "pathFragment": "/api/public/stats/orders",
+      "reviewLimit": "May be declaration/comment or interpolated fragment, not executed request"
+    }
+  ]
+}

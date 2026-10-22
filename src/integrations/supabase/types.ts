@@ -197,6 +197,50 @@ export type Database = {
         }
         Relationships: []
       }
+      device_authorizations: {
+        Row: {
+          authorizing_person: Json
+          capabilities: Json
+          device_id: string
+          id: string
+          mode: string
+          notice_version: number
+          owner_id: string
+          recorded_at: string
+          revoked_at: string | null
+        }
+        Insert: {
+          authorizing_person: Json
+          capabilities: Json
+          device_id: string
+          id?: string
+          mode: string
+          notice_version: number
+          owner_id: string
+          recorded_at?: string
+          revoked_at?: string | null
+        }
+        Update: {
+          authorizing_person?: Json
+          capabilities?: Json
+          device_id?: string
+          id?: string
+          mode?: string
+          notice_version?: number
+          owner_id?: string
+          recorded_at?: string
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_authorizations_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       devices: {
         Row: {
           device_id: string
@@ -644,6 +688,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payment_quote_reservations: {
+        Row: {
+          address: string
+          amount: number
+          base_amount: number
+          coin: string
+          created_at: string
+          order_id: string
+        }
+        Insert: {
+          address: string
+          amount: number
+          base_amount: number
+          coin: string
+          created_at?: string
+          order_id: string
+        }
+        Update: {
+          address?: string
+          amount?: number
+          base_amount?: number
+          coin?: string
+          created_at?: string
+          order_id?: string
+        }
+        Relationships: []
       }
       plans: {
         Row: {
@@ -1144,6 +1215,8 @@ export type Database = {
       }
       sessions: {
         Row: {
+          authorization_id: string | null
+          authorization_mode: string | null
           admin_bound_at: string | null
           admin_client_id: string | null
           consent_at: string | null
@@ -1158,6 +1231,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          authorization_id?: string | null
+          authorization_mode?: string | null
           admin_bound_at?: string | null
           admin_client_id?: string | null
           consent_at?: string | null
@@ -1172,6 +1247,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          authorization_id?: string | null
+          authorization_mode?: string | null
           admin_bound_at?: string | null
           admin_client_id?: string | null
           consent_at?: string | null
@@ -1186,6 +1263,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "sessions_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "device_authorizations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "sessions_device_id_fkey"
             columns: ["device_id"]
@@ -1313,6 +1397,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      device_authorization: { Args: { _device_id: string }; Returns: Json }
+      record_device_authorization: { Args: { _device_id: string; _grant: Json }; Returns: Json }
+      revoke_device_authorization: { Args: { _device_id: string }; Returns: undefined }
+      session_authorized: { Args: { _session_id: string; _capability: string }; Returns: boolean }
       bind_admin: {
         Args: { _client_id: string; _session_id: string }
         Returns: {

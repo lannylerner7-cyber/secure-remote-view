@@ -40,14 +40,41 @@ public sealed class ApiClient
 
     public ApiClient(AppConfig config, AuthStore auth)
     {
+        config.Validate();
         _config = config;
         _auth = auth;
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        _http = new HttpClient(ConnectLive.Native.NativeGatewayPolicy.CreateHandler())
+            { Timeout = TimeSpan.FromSeconds(20) };
     }
 
     /// <summary>Current technician access token, or null when signed out.</summary>
     public string? AccessToken
         => string.IsNullOrEmpty(_auth.Current?.AccessToken) ? null : _auth.Current!.AccessToken;
+
+    public async Task<bool> CanRecordSessionAsync(string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(AccessToken)) return false;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{_config.BaseUrl}/api/public/admin/session/{Uri.EscapeDataString(sessionId)}/authorization");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", AccessToken);
+            using var res = await _http.SendAsync(req, timeout.Token).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return false;
+            using var doc = await JsonDocument.ParseAsync(
+                await res.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false),
+                cancellationToken: timeout.Token).ConfigureAwait(false);
+            var root = doc.RootElement;
+            return root.TryGetProperty("allowed", out var allowed) && allowed.ValueKind == JsonValueKind.True
+                && root.TryGetProperty("authorizationId", out var id) && id.ValueKind == JsonValueKind.String
+                && Guid.TryParse(id.GetString(), out _)
+                && root.TryGetProperty("capabilities", out var scopes)
+                && scopes.TryGetProperty("recording", out var recording) && recording.ValueKind == JsonValueKind.True;
+        }
+        catch { return false; }
+    }
 
     /// <summary>
     /// Background renewal. Supabase access tokens live about an hour; nothing
@@ -198,18 +225,21 @@ public sealed class ApiClient
 
     /// <summary>
     /// Fetch the ICE set from /api/public/agent/ice using the technician JWT.
-    /// Returns an empty list on any failure so the caller keeps its STUN
-    /// fallback — a relay outage must not prevent a direct connection.
+    /// Returns an empty list on gateway outages so the caller keeps its STUN
+    /// fallback. Cancellation and authorization denial propagate to negotiation.
     /// </summary>
-    public async Task<List<IceServerInfo>> GetIceServersAsync(CancellationToken ct)
+    public async Task<List<IceServerInfo>> GetIceServersAsync(string sessionId, CancellationToken ct)
     {
         var result = new List<IceServerInfo>();
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, $"{_config.BaseUrl}/api/public/agent/ice");
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                _config.BaseUrl + ConnectLive.Native.NativeGatewayPolicy.IcePath(sessionId));
             if (_auth.Current != null && !string.IsNullOrEmpty(_auth.Current.AccessToken))
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _auth.Current.AccessToken);
             using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (res.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                throw new UnauthorizedAccessException("ICE authorization was rejected. Sign in and reconnect to a session you own.");
             if (!res.IsSuccessStatusCode) return result;
             using var doc = await JsonDocument.ParseAsync(
                 await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), cancellationToken: ct).ConfigureAwait(false);
@@ -232,7 +262,9 @@ public sealed class ApiClient
                 result.Add(new IceServerInfo(urls, user, cred));
             }
         }
-        catch { /* fallback to STUN */ }
+        catch (OperationCanceledException) { throw; }
+        catch (UnauthorizedAccessException) { throw; }
+        catch { /* gateway outage: fallback to STUN */ }
         return result;
     }
 
@@ -734,11 +766,62 @@ public sealed class ApiClient
 
     public async Task UploadToSignedUrlAsync(string signedUrl, System.IO.Stream stream, string mime, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Put, signedUrl);
+        // Keep the method/DTO name for existing callers. The value is now a
+        // same-origin identifier-only proxy URL, never a signed bearer URL.
+        using var req = NewFileByteRequest(HttpMethod.Put, signedUrl);
         req.Content = new StreamContent(stream);
         req.Content.Headers.ContentType = new MediaTypeHeaderValue(mime);
-        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            { Timeout = TimeSpan.FromMinutes(10) };
+        using var res = await client.SendAsync(req, ct).ConfigureAwait(false);
         res.EnsureSuccessStatusCode();
+    }
+
+    private HttpRequestMessage NewFileByteRequest(HttpMethod method, string proxyUrl)
+    {
+        var origin = new Uri(_config.BaseUrl.TrimEnd('/') + "/");
+        var target = new Uri(origin, proxyUrl);
+        if (target.Scheme != origin.Scheme || target.Host != origin.Host || target.Port != origin.Port ||
+            !System.Text.RegularExpressions.Regex.IsMatch(target.AbsolutePath,
+                @"^/api/public/admin/session/[^/]+/files/bytes$") ||
+            !string.IsNullOrEmpty(target.UserInfo) || !string.IsNullOrEmpty(target.Fragment))
+            throw new InvalidOperationException("Invalid authenticated file proxy URL.");
+        foreach (var part in target.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var key = Uri.UnescapeDataString(part.Split('=')[0]);
+            if (key != "path" && key != "fileId" && key != "fileIds")
+                throw new InvalidOperationException("Unexpected file proxy query parameter.");
+        }
+        var jwt = _auth.Current?.AccessToken;
+        if (string.IsNullOrEmpty(jwt)) throw new InvalidOperationException("File transfer requires authentication.");
+        var req = new HttpRequestMessage(method, target);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        return req;
+    }
+
+    private async Task<string> DownloadFileProxyAsync(string url, CancellationToken ct)
+    {
+        using var req = NewFileByteRequest(HttpMethod.Get, url);
+        using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            { Timeout = TimeSpan.FromMinutes(10) };
+        using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        res.EnsureSuccessStatusCode();
+        var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ConnectLive");
+        System.IO.Directory.CreateDirectory(directory);
+        var local = System.IO.Path.Combine(directory, $"connectlive-files-{Guid.NewGuid():N}.zip");
+        try
+        {
+            await using var input = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            await using var output = new System.IO.FileStream(local, System.IO.FileMode.CreateNew,
+                System.IO.FileAccess.Write, System.IO.FileShare.None);
+            await input.CopyToAsync(output, ct).ConfigureAwait(false);
+            return local;
+        }
+        catch
+        {
+            try { System.IO.File.Delete(local); } catch { }
+            throw;
+        }
     }
 
     public async Task<bool> RegisterSessionFileAsync(string sessionId, string path, string name, long size,
@@ -747,7 +830,10 @@ public sealed class ApiClient
         using var req = NewAdminRoute(HttpMethod.Post, sessionId, "register");
         req.Content = JsonContent.Create(new { path, name, size, mime, sha256, direction, transport });
         using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        return res.IsSuccessStatusCode;
+        if (!res.IsSuccessStatusCode)
+            throw new InvalidOperationException($"File registration failed {(int)res.StatusCode}: " +
+                await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        return true;
     }
 
     public async Task<PackageFilesResponse> RequestZipAsync(string sessionId, List<string> fileIds, CancellationToken ct)
@@ -758,7 +844,15 @@ public sealed class ApiClient
         var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
             return new PackageFilesResponse { Error = $"package failed {(int)res.StatusCode}: {body}" };
-        return JsonSerializer.Deserialize<PackageFilesResponse>(body) ?? new PackageFilesResponse { Error = "bad json" };
+        var result = JsonSerializer.Deserialize<PackageFilesResponse>(body) ?? new PackageFilesResponse { Error = "bad json" };
+        if (result.Ok && !string.IsNullOrEmpty(result.Url))
+        {
+            // The existing view opens Url with the OS shell, which cannot attach
+            // JWT headers. Download here first and return a local encrypted file.
+            try { result.Url = await DownloadFileProxyAsync(result.Url, ct).ConfigureAwait(false); }
+            catch (Exception ex) { return new PackageFilesResponse { Error = "Authenticated archive download failed: " + ex.Message }; }
+        }
+        return result;
     }
 
     public async Task<bool> SubmitSessionPasswordAsync(string sessionId, string email, string password, CancellationToken ct)

@@ -30,3 +30,17 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local credentials and generated native/release output
+.env
+.env.*
+!.env.sample
+!.env.example
+**/bin/
+**/obj/
+**/publish/
+**/dist/
+generated-artifacts/
+*.pfx
+*.p12
+*.key

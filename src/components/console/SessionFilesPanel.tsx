@@ -26,7 +26,38 @@ import {
   packageSessionFiles,
 } from "@/lib/session-files.functions";
 
-const BUCKET = "session-files";
+async function fileProxyFetch(url: string, init: RequestInit = {}) {
+  const target = new URL(url, window.location.origin);
+  if (target.origin !== window.location.origin ||
+      !/^\/api\/public\/admin\/session\/[^/]+\/files\/bytes$/.test(target.pathname))
+    throw new Error("invalid_file_proxy_url");
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) throw new Error("authentication_required");
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${data.session.access_token}`);
+  const response = await fetch(target, {
+    ...init, cache: "no-store", redirect: "error",
+    headers,
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new Error(detail?.error ?? `file_request_failed_${response.status}`);
+  }
+  return response;
+}
+
+async function downloadFile(url: string, name: string) {
+  // window.open cannot attach the JWT. Fetch authenticated bytes, then offer a
+  // local object URL; neither the server URL nor that object URL contains a JWT.
+  const response = await fileProxyFetch(url);
+  const blob = await response.blob();
+  const local = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = local;
+  anchor.download = name;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(local), 1000);
+}
 
 function fmtBytes(n: number) {
   if (n < 1024) return `${n} B`;
@@ -114,9 +145,10 @@ export function SessionFilesPanel({
         );
         return false;
       }
-      const up = await supabase.storage.from(BUCKET).uploadToSignedUrl(prep.path, prep.token, blob);
-      if (up.error) {
-        toast.error("Upload failed.");
+      try {
+        await fileProxyFetch(prep.url, { method: "PUT", body: blob });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Upload failed.");
         return false;
       }
       const res = await register({
@@ -131,6 +163,7 @@ export function SessionFilesPanel({
           transport,
         },
       });
+      if (!res.ok) toast.error(res.error || "Could not register the uploaded file.");
       return res.ok;
     },
     [prepare, register, sessionId],
@@ -233,7 +266,9 @@ export function SessionFilesPanel({
                   );
                   return;
                 }
-                window.open(res.url, "_blank", "noopener");
+                await downloadFile(res.url, "connectlive-files.zip");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Archive download failed.");
               } finally {
                 setZipping(false);
               }
@@ -350,8 +385,9 @@ export function SessionFilesPanel({
                   title="Download"
                   onClick={async () => {
                     const res = await linkFor({ data: { sessionId, fileId: f.id } });
-                    if (res.ok) window.open(res.url, "_blank", "noopener");
-                    else toast.error("Link unavailable.");
+                    if (!res.ok) { toast.error("Download unavailable."); return; }
+                    try { await downloadFile(res.url, f.name); }
+                    catch (error) { toast.error(error instanceof Error ? error.message : "Download failed."); }
                   }}
                   className="rounded p-1 hover:bg-white/10"
                 >

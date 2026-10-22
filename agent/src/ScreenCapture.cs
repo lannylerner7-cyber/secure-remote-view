@@ -66,6 +66,8 @@ public static class ScreenCapture
 
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
+        var permission = api.LivePermission;
+        if (permission?.Allows("view") != true || ct.IsCancellationRequested) return;
         var codecs = ImageCodecInfo.GetImageEncoders();
         ImageCodecInfo? jpegEnc = null;
         foreach (var e in codecs) if (e.MimeType == "image/jpeg") { jpegEnc = e; break; }
@@ -112,7 +114,7 @@ public static class ScreenCapture
         // GDI-fallback rebuild clock, mirrors the DXGI reinit rate limit.
         var lastDxgiRetryUtc = DateTime.UtcNow;
 
-        while (!ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested && permission.Allows("view"))
         {
             // Read the ladder once per frame: rung changes land on the very
             // next capture without restarting the loop.
@@ -199,6 +201,7 @@ public static class ScreenCapture
                     // WebRtcSession, which forces a keyframe on actual loss.
                     bool forceRefresh = framesSinceKeyframe >= PeriodicRefreshFrames;
 
+                    if (!permission.Allows("view") || ct.IsCancellationRequested) break;
                     using var dxFrame = dxgi.TryCapture(15, forceRefresh);
                     if (dxFrame != null)
                     {
@@ -227,6 +230,7 @@ public static class ScreenCapture
                 if (!haveFreshRaw)
                 {
                     using var g = Graphics.FromImage(rawBmp);
+                    if (!permission.Allows("view") || ct.IsCancellationRequested) break;
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                     framesSinceKeyframe++;
                 }

@@ -11,6 +11,7 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { sessionAuthorized } from "./authorization.server";
 
 const CLIENT_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 const KINDS = new Set(["offer", "ice", "bye"]);
@@ -42,7 +43,7 @@ export const postAdminSignal = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     // Verify ownership: technician_id matches or the caller is super_admin.
-    const [{ data: session, error: sErr }, { data: isSuper }] = await Promise.all([
+    const [{ data: session, error: sErr }, { data: isSuper, error: roleError }] = await Promise.all([
       supabase
         .from("sessions")
         .select("id, technician_id, state, admin_client_id")
@@ -51,9 +52,9 @@ export const postAdminSignal = createServerFn({ method: "POST" })
       supabase.rpc("has_role", { _user_id: userId, _role: "super_admin" as never }),
     ]);
     if (sErr || !session) return { ok: false as const, error: "not_found" as const };
-    if (!isSuper && session.technician_id !== userId)
+    if (session.technician_id !== userId && (roleError || isSuper !== true))
       return { ok: false as const, error: "forbidden" as const };
-    if (!["invited", "consented", "active", "paused"].includes(session.state))
+    if (!(await sessionAuthorized(supabase, data.sessionId)))
       return { ok: false as const, error: "not_active" as const };
     if (session.admin_client_id && session.admin_client_id !== data.clientId)
       return { ok: false as const, error: "superseded" as const };
@@ -79,6 +80,7 @@ export const postAdminSignal = createServerFn({ method: "POST" })
 export const bindAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { sessionId: string; clientId: string }) => {
+    if (!input || typeof input !== "object") throw new Error("invalid_input");
     if (typeof input.sessionId !== "string" || input.sessionId.length < 10)
       throw new Error("invalid_session_id");
     if (typeof input.clientId !== "string" || !CLIENT_ID_RE.test(input.clientId))
@@ -86,7 +88,20 @@ export const bindAdmin = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }) => {
-    const { supabase } = context;
+    const { supabase, userId } = context;
+    // The RPC also enforces ownership; this guard avoids relying on whether
+    // the target database has received the defensive migration yet.
+    const [{ data: session, error: sessionError }, { data: isSuper, error: roleError }] =
+      await Promise.all([
+        supabase.from("sessions").select("technician_id").eq("id", data.sessionId).maybeSingle(),
+        supabase.rpc("has_role", { _user_id: userId, _role: "super_admin" as never }),
+      ]);
+    if (sessionError || !session)
+      return { bound: false, admin_client_id: null, reason: "not_found" };
+    if (session.technician_id !== userId && (roleError || isSuper !== true))
+      return { bound: false, admin_client_id: null, reason: "forbidden" };
+    if (!(await sessionAuthorized(supabase, data.sessionId)))
+      return { bound: false, admin_client_id: null, reason: "not_authorized" };
     const { data: rows, error } = await supabase.rpc("bind_admin", {
       _session_id: data.sessionId,
       _client_id: data.clientId,

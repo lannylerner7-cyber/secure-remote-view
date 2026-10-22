@@ -41,6 +41,8 @@ public static class CursorPump
 
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
+        var permission = api.LivePermission;
+        if (permission?.Allows("view") != true) return;
         EnsureCursorsLoaded();
 
         int lastX = int.MinValue, lastY = int.MinValue;
@@ -48,7 +50,7 @@ public static class CursorPump
         bool lastVisible = true;
         long lastPostTicks = 0;
 
-        while (!ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested && permission.Allows("view"))
         {
             try
             {

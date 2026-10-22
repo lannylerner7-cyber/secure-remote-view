@@ -7,15 +7,13 @@
  * Apple Mail. No web fonts, no external CSS, no <style> block.
  */
 
-import logoAsset from "@/assets/connectlive-logo.png.asset.json";
-
 export const SITE = "https://www.connectliveagent.com";
 export const SUPPORT_EMAIL = "support@connectliveagent.com";
-export const BRAND = "#4F7CFF";
+export const BRAND = "#315CCB";
 export const INK = "#0B1220";
 
-/** Absolute logo URL — email clients cannot resolve site-relative paths. */
-export const LOGO_URL = `${SITE}${logoAsset.url}`;
+// Text wordmark avoids the unavailable legacy Lovable asset endpoint and
+// remains readable when email clients block remote images.
 
 export const escapeHtml = (v: string) =>
   v
@@ -25,10 +23,37 @@ export const escapeHtml = (v: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+/**
+ * Return a normalised https:// URL safe to put in an href, or throw.
+ * Rejects javascript:, data:, http:, credentials-in-URL and control chars.
+ */
+export function safeHttpsUrl(raw: string | null | undefined): string {
+  const v = (raw ?? "").trim();
+  if (!v || /[\u0000-\u001f\u007f\s]/.test(v)) throw new Error("email_render: invalid link");
+  let u: URL;
+  try {
+    u = new URL(v);
+  } catch {
+    throw new Error("email_render: invalid link");
+  }
+  if (u.protocol !== "https:" || u.username || u.password || !u.hostname)
+    throw new Error("email_render: link must be https");
+  return u.toString();
+}
+
+/** Same as safeHttpsUrl but returns null instead of throwing. */
+export function trySafeHttpsUrl(raw: string | null | undefined): string | null {
+  try {
+    return safeHttpsUrl(raw);
+  } catch {
+    return null;
+  }
+}
+
 export type ShellOptions = {
   /** Small line under the header, e.g. "Order #A1B2C3D4". */
   eyebrow?: string;
-  /** Grey note above the footer links. */
+  /** Grey note above the footer links. TRUSTED HTML — callers must escape interpolated values. */
   footerNote?: string;
   /** Hidden inbox preview line. */
   preheader?: string;
@@ -50,7 +75,7 @@ export function emailShell(title: string, inner: string, opts: ShellOptions = {}
 <body style="margin:0;padding:0;background:#ffffff;">
 ${
   preheader
-    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#ffffff;font-size:1px;line-height:1px">${escapeHtml(preheader)}</div>`
+    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#ffffff;font-size:1px;line-height:1px;mso-hide:all">${escapeHtml(preheader)}${"&#847;&zwnj;&nbsp;".repeat(30)}</div>`
     : ""
 }
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;padding:24px 12px">
@@ -64,8 +89,7 @@ ${
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td width="36" style="vertical-align:middle">
-                  <img src="${LOGO_URL}" width="32" height="32" alt="ConnectLive"
-                       style="display:block;width:32px;height:32px;border-radius:8px;border:0;object-fit:cover" />
+                  <span style="display:block;width:32px;line-height:32px;text-align:center;background:#315CCB;color:#ffffff;border-radius:8px;font-size:12px;font-weight:700">CL</span>
                 </td>
                 <td style="vertical-align:middle;padding-left:10px">
                   <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:0.2px">ConnectLive</span>
@@ -82,7 +106,7 @@ ${
 
         <!-- body -->
         <tr>
-          <td style="padding:28px 24px;color:#111827">
+          <td style="padding:28px 24px;color:#111827;word-break:break-word;overflow-wrap:anywhere">
             <h1 style="margin:0 0 14px;font-size:20px;line-height:1.3;color:#111827;font-weight:700">${escapeHtml(title)}</h1>
             ${inner}
           </td>
@@ -94,10 +118,9 @@ ${
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td width="30" style="vertical-align:top">
-                  <img src="${LOGO_URL}" width="26" height="26" alt=""
-                       style="display:block;width:26px;height:26px;border-radius:6px;border:0;opacity:0.9" />
+                  <span style="display:block;width:26px;line-height:26px;text-align:center;background:#315CCB;color:#ffffff;border-radius:6px;font-size:10px;font-weight:700">CL</span>
                 </td>
-                <td style="vertical-align:top;padding-left:10px;font-size:12px;line-height:1.7;color:#6b7280">
+                <td style="vertical-align:top;padding-left:10px;font-size:12px;line-height:1.7;color:#4b5563;word-break:break-word;overflow-wrap:anywhere">
                   <strong style="color:#374151">ConnectLive</strong> — authorised remote support for IT teams and enterprise fleets.<br />
                   ${footerNote ? `${footerNote}<br />` : ""}
                   <a href="${SITE}" style="color:${BRAND};text-decoration:none">connectliveagent.com</a>
@@ -110,7 +133,7 @@ ${
                   &nbsp;·&nbsp;
                   <a href="mailto:${SUPPORT_EMAIL}" style="color:${BRAND};text-decoration:none">${SUPPORT_EMAIL}</a>
                   <br />
-                  <span style="color:#9ca3af">© ${year} ConnectLive. All rights reserved.</span>
+                  <span style="color:#6b7280">© ${year} ConnectLive. All rights reserved.</span>
                 </td>
               </tr>
             </table>
@@ -127,14 +150,15 @@ ${
 
 /** Primary call-to-action button, table-based so Outlook renders it. */
 export function emailButton(href: string, label: string) {
+  const safe = escapeHtml(safeHttpsUrl(href));
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0">
   <tr><td style="background:${BRAND};border-radius:8px">
-    <a href="${href}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none">${escapeHtml(label)}</a>
+    <a href="${safe}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none">${escapeHtml(label)}</a>
   </td></tr>
 </table>`;
 }
 
 /** Plain-text footer that mirrors the HTML one. */
-export function textFooter() {
-  return `\n\n—\nConnectLive · ${SITE}\nSupport: ${SUPPORT_EMAIL}\nPrivacy: ${SITE}/privacy · Terms: ${SITE}/terms · Refunds: ${SITE}/refund`;
+export function textFooter(note?: string) {
+  return `\n\n—\n${note ? `${note}\n` : ""}ConnectLive — authorised remote support for IT teams and enterprise fleets.\nConnectLive · ${SITE}\nSupport: ${SUPPORT_EMAIL}\nPrivacy: ${SITE}/privacy · Terms: ${SITE}/terms · Refunds: ${SITE}/refund\n© ${new Date().getFullYear()} ConnectLive. All rights reserved.`;
 }

@@ -1,0 +1,146 @@
+{
+  ".local": {
+    "category": ".local",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  ".git": {
+    "category": ".git",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "generated-artifacts": {
+    "category": "generated-artifacts",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  ".cache/typescript/5.9/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "artifacts/mockup-sandbox/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "artifacts/api-server/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "artifacts/connectlive-preview/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "scripts/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "lib/api-spec/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "lib/api-client-react/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "lib/api-zod/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "lib/db/node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "node_modules": {
+    "category": "node_modules",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  ".tanstack": {
+    "category": ".tanstack",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  ".output": {
+    "category": ".output",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "admin/spikes/d3d-present/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "admin/spikes/d3d-present/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "admin/spikes/vp8-decode/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "admin/spikes/vp8-decode/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "admin/src/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "admin/src/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "agent/src/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "agent/src/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "agent/src/Watch/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "agent/src/Watch/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "agent/src/Tests/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "agent/src/Tests/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "imports/client-archives/agent/src/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "imports/client-archives/agent/src/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "imports/client-archives/admin/src/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "imports/client-archives/admin/src/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "tests/local-access-state/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "tests/local-access-state/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "tests/agent-grants/bin": {
+    "category": "bin",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  },
+  "tests/agent-grants/obj": {
+    "category": "obj",
+    "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
+  }
+}

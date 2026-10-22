@@ -1,7 +1,7 @@
 /**
  * One-click newsletter unsubscribe (RFC 8058).
  *
- * GET  — the link in the email footer; flips the row and renders a small page.
+ * GET  — confirmation only, so mail scanners cannot unsubscribe recipients.
  * POST — what Gmail/Apple Mail call for the List-Unsubscribe-Post header.
  *
  * Public by design: the address is authenticated by an HMAC token, so no
@@ -17,7 +17,8 @@ async function unsubscribe(email: string, token: string): Promise<boolean> {
     .from("newsletter_subscribers")
     .update({ status: "unsubscribed", unsubscribed_at: new Date().toISOString() })
     .eq("email", email.trim().toLowerCase());
-  return !error;
+  if (error) throw new Error("Unsubscribe storage unavailable");
+  return true;
 }
 
 function page(title: string, body: string, status: number) {
@@ -40,9 +41,10 @@ export const Route = createFileRoute("/api/public/newsletter/unsubscribe")({
     handlers: {
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const ok = await unsubscribe(url.searchParams.get("e") ?? "", url.searchParams.get("t") ?? "");
+        const ok = await verifyUnsubToken(url.searchParams.get("e") ?? "", url.searchParams.get("t") ?? "");
+        const action = `${url.pathname}?${url.searchParams.toString()}`.replace(/&/g, "&amp;");
         return ok
-          ? page("You're unsubscribed", "That address will not receive any more ConnectLive newsletters. Support and order emails are unaffected.", 200)
+          ? page("Unsubscribe from newsletters", `Support and order emails are unaffected. Confirm below to stop newsletters.<form method="post" action="${action}"><button type="submit" style="margin-top:20px;padding:12px 20px">Unsubscribe</button></form>`, 200)
           : page("Link not valid", "This unsubscribe link is incomplete or expired. Email support@connectliveagent.com and we'll remove you the same day.", 400);
       },
       POST: async ({ request }) => {
@@ -55,8 +57,13 @@ export const Route = createFileRoute("/api/public/newsletter/unsubscribe")({
           email = email || form.get("e") || "";
           token = token || form.get("t") || "";
         }
-        const ok = await unsubscribe(email, token);
-        return new Response(ok ? "unsubscribed" : "invalid", { status: ok ? 200 : 400 });
+        try {
+          const ok = await unsubscribe(email, token);
+          return ok ? page("You're unsubscribed", "Newsletter emails are stopped. Support and order emails are unaffected.", 200)
+            : page("Link not valid", "Check the link or contact support@connectliveagent.com.", 400);
+        } catch {
+          return page("Please try again", "We could not save your unsubscribe request. Please retry or contact support@connectliveagent.com.", 503);
+        }
       },
     },
   },

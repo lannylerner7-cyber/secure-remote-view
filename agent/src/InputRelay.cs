@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
@@ -16,11 +17,27 @@ namespace ConnectLive.Agent;
 /// </summary>
 public static class InputRelay
 {
+    [ThreadStatic] private static PeerInputPermission? _applyingPermission;
+    private static readonly object NativeGate = new();
+    private static readonly HashSet<int> HeldKeys = new();
+    private static readonly HashSet<int> HeldButtons = new();
+
+    internal static void ReleaseHeldInputs()
+    {
+        lock (NativeGate)
+        {
+            foreach (var vk in new List<int>(HeldKeys)) Key(vk, false, cleanup: true);
+            foreach (var button in new List<int>(HeldButtons)) MouseButton(button, false, cleanup: true);
+            HeldKeys.Clear();
+            HeldButtons.Clear();
+        }
+    }
 
     public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
     {
+        var permission = api.LivePermission;
         long since = 0;
-        using var pump = new InputPump();
+        using var pump = new InputPump(permission);
         // Auto-release the curtain if the token gets cancelled from anywhere.
         using var _ = ct.Register(() =>
         {
@@ -86,8 +103,10 @@ public static class InputRelay
     private const int MaxWheel = 1200;
     private const int MaxSequenceEvents = 32;
 
-    internal static void Apply(JsonElement it)
+    internal static void Apply(JsonElement it, PeerInputPermission permission)
     {
+        if (!permission.Allows("control")) return;
+        _applyingPermission = permission;
         if (it.ValueKind != JsonValueKind.Object) return;
         if (!it.TryGetProperty("kind", out var kv) || kv.ValueKind != JsonValueKind.String) return;
         var kind = kv.GetString();
@@ -129,9 +148,11 @@ public static class InputRelay
     {
         private readonly BlockingCollection<Action> _queue = new(new ConcurrentQueue<Action>());
         private readonly Thread _thread;
+        private readonly PeerInputPermission? _permission;
 
-        public InputPump()
+        public InputPump(PeerInputPermission? permission)
         {
+            _permission = permission;
             _thread = new Thread(Run) { IsBackground = true, Name = "connectlive-input-pump" };
             _thread.SetApartmentState(ApartmentState.STA);
             _thread.Start();
@@ -140,7 +161,7 @@ public static class InputRelay
         public void Enqueue(JsonElement item)
         {
             var clone = item.Clone();
-            _queue.Add(() => Apply(clone));
+            _queue.Add(() => { if (_permission?.Allows("control") == true) Apply(clone, _permission); });
         }
 
         public void Release(string reason)
@@ -187,15 +208,23 @@ public static class InputRelay
 
     private static void EngageCurtain()
     {
+        var permission = _applyingPermission;
+        if (permission?.Allows("control") != true) return;
         // Every curtain_on message doubles as the watchdog heartbeat.
         InputBlocker.Heartbeat();
         bool ok = InputBlocker.Engage(_ => HideCurtainOnUiThread());
+        if (!permission.Allows("control"))
+        {
+            // Withdrawal may have occurred while Windows installed hooks.
+            InputBlocker.Release("authority_withdrawn_during_engage");
+            return;
+        }
         if (ok)
         {
-            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
             {
-                CurtainOverlay.Show();
-            });
+                if (permission.Allows("control")) CurtainOverlay.Show();
+            }));
         }
         else
         {
@@ -216,10 +245,10 @@ public static class InputRelay
 
     private static void HideCurtainOnUiThread()
     {
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
         {
             CurtainOverlay.Hide();
-        });
+        }));
     }
 
 
@@ -285,6 +314,33 @@ public static class InputRelay
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    private static void SendNative(INPUT[] inputs, bool cleanup = false)
+    {
+        lock (NativeGate)
+        {
+            if (!cleanup && _applyingPermission?.Allows("control") != true) return;
+            foreach (var input in inputs)
+            {
+                if (input.type == INPUT_KEYBOARD && input.U.ki.wVk != 0)
+                {
+                    if ((input.U.ki.dwFlags & KEYEVENTF_KEYUP) != 0) HeldKeys.Remove(input.U.ki.wVk);
+                    else HeldKeys.Add(input.U.ki.wVk);
+                }
+                if (input.type == INPUT_MOUSE)
+                {
+                    uint f = input.U.mi.dwFlags;
+                    if ((f & MOUSEEVENTF_LEFTDOWN) != 0) HeldButtons.Add(0);
+                    if ((f & MOUSEEVENTF_LEFTUP) != 0) HeldButtons.Remove(0);
+                    if ((f & MOUSEEVENTF_MIDDLEDOWN) != 0) HeldButtons.Add(1);
+                    if ((f & MOUSEEVENTF_MIDDLEUP) != 0) HeldButtons.Remove(1);
+                    if ((f & MOUSEEVENTF_RIGHTDOWN) != 0) HeldButtons.Add(2);
+                    if ((f & MOUSEEVENTF_RIGHTUP) != 0) HeldButtons.Remove(2);
+                }
+            }
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        }
+    }
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
 
     private static void MoveTo(double nx, double ny)
@@ -312,7 +368,7 @@ public static class InputRelay
             dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
             dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
         };
-        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+        SendNative(new[] { inp });
     }
 
 
@@ -327,7 +383,7 @@ public static class InputRelay
             dwFlags = MOUSEEVENTF_MOVE,
             dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
         };
-        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+        SendNative(new[] { inp });
     }
 
     private static void Click(int button)
@@ -336,7 +392,7 @@ public static class InputRelay
         MouseButton(button, false);
     }
 
-    private static void MouseButton(int button, bool down)
+    private static void MouseButton(int button, bool down, bool cleanup = false)
     {
         uint flag = button switch
         {
@@ -346,7 +402,7 @@ public static class InputRelay
         };
         var inp = new INPUT { type = INPUT_MOUSE };
         inp.U.mi = new MOUSEINPUT { dwFlags = flag, dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC };
-        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+        SendNative(new[] { inp }, cleanup);
     }
 
     private static void Wheel(int dy)
@@ -358,10 +414,10 @@ public static class InputRelay
             dwFlags = MOUSEEVENTF_WHEEL,
             dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
         };
-        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+        SendNative(new[] { inp });
     }
 
-    private static void Key(int vk, bool down)
+    private static void Key(int vk, bool down, bool cleanup = false)
     {
         uint flags = down ? 0u : KEYEVENTF_KEYUP;
         if (IsExtendedKey(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
@@ -372,7 +428,7 @@ public static class InputRelay
             dwFlags = flags,
             dwExtraInfo = InputBlocker.CONNECTLIVE_INPUT_MAGIC,
         };
-        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+        SendNative(new[] { inp }, cleanup);
     }
 
     private static void InjectUnicodeString(string text)
@@ -413,7 +469,8 @@ public static class InputRelay
                 inputs[index++] = up;
             }
 
-            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+            if (_applyingPermission?.Allows("control") != true) return;
+            SendNative(inputs);
             Thread.Sleep(1);
         }
     }
@@ -425,6 +482,7 @@ public static class InputRelay
         int n = 0;
         foreach (var ev in events.EnumerateArray())
         {
+            if (_applyingPermission?.Allows("control") != true) return;
             if (++n > MaxSequenceEvents) { Log.Warn("input: key_sequence truncated"); break; }
             var vk = GetInt(ev, "vk");
             var down = ev.ValueKind == JsonValueKind.Object && ev.TryGetProperty("down", out var d) && d.ValueKind == JsonValueKind.True;

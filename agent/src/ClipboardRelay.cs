@@ -38,13 +38,15 @@ internal static class ClipboardRelay
         get { lock (_gate) return _dc?.readyState == RTCDataChannelState.open; }
     }
 
-    internal static void Attach(RTCDataChannel dc)
+    internal static void Attach(RTCDataChannel dc, PeerInputPermission permission)
     {
+        if (!permission.Allows("clipboard")) return;
         Detach();
         lock (_gate) _dc = dc;
 
         dc.onmessage += (_, __, data) =>
         {
+            if (!permission.Allows("clipboard")) return;
             try
             {
                 var json = Encoding.UTF8.GetString(data);
@@ -54,7 +56,7 @@ internal static class ClipboardRelay
                 var text = root.TryGetProperty("text", out var tv) ? tv.GetString() : null;
                 if (text == null) return;
                 if (text.Length > MaxChars) text = text.Substring(0, MaxChars);
-                ApplyLocal(text);
+                ApplyLocal(text, permission);
             }
             catch (Exception ex) { Log.Warn($"[clip] apply: {ex.Message}"); }
         };
@@ -62,12 +64,12 @@ internal static class ClipboardRelay
         dc.onopen += () =>
         {
             Log.Info("[clip] datachannel OPEN");
-            StartPoll();
+            if (permission.Allows("clipboard")) StartPoll(permission);
         };
         dc.onclose += Detach;
         dc.onerror += (e) => Log.Warn($"[clip] datachannel error: {e}");
 
-        if (dc.readyState == RTCDataChannelState.open) StartPoll();
+        if (dc.readyState == RTCDataChannelState.open) StartPoll(permission);
     }
 
     internal static void Detach()
@@ -81,23 +83,25 @@ internal static class ClipboardRelay
         }
     }
 
-    private static void StartPoll()
+    private static void StartPoll(PeerInputPermission permission)
     {
         lock (_gate)
         {
             if (_poll != null) return;
-            _poll = new Timer(_ => PollOnce(), null, PollMs, PollMs);
+            _poll = new Timer(_ => PollOnce(permission), null, PollMs, PollMs);
         }
     }
 
-    private static void PollOnce()
+    private static void PollOnce(PeerInputPermission permission)
     {
+        if (!permission.Allows("clipboard")) return;
         try
         {
             var app = Application.Current;
             if (app == null) return;
             app.Dispatcher.Invoke(() =>
             {
+                if (!permission.Allows("clipboard")) return;
                 string text;
                 try
                 {
@@ -111,18 +115,19 @@ internal static class ClipboardRelay
                     if (text == _lastSeen) return;
                     _lastSeen = text;
                 }
-                Send(text);
+                Send(text, permission);
             });
         }
         catch (Exception ex) { Log.Warn($"[clip] poll: {ex.Message}"); }
     }
 
-    private static void ApplyLocal(string text)
+    private static void ApplyLocal(string text, PeerInputPermission permission)
     {
         var app = Application.Current;
         if (app == null) return;
         app.Dispatcher.Invoke(() =>
         {
+            if (!permission.Allows("clipboard")) return;
             try
             {
                 lock (_gate) _lastSeen = text; // suppress the echo on the next poll
@@ -133,8 +138,9 @@ internal static class ClipboardRelay
         });
     }
 
-    private static void Send(string text)
+    private static void Send(string text, PeerInputPermission permission)
     {
+        if (!permission.Allows("clipboard")) return;
         RTCDataChannel? dc;
         lock (_gate) dc = _dc;
         if (dc == null || dc.readyState != RTCDataChannelState.open) return;

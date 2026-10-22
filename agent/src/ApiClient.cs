@@ -30,7 +30,7 @@ namespace ConnectLive.Agent;
 ///   POST /api/public/agent/session/:id/signal    -> WebRTC signaling
 ///   GET  /api/public/agent/session/:id/signal    -> WebRTC signaling (poll)
 ///   POST /api/public/agent/power/:cmdId/ack      -> power-command acknowledgement
-///   (no ICE endpoint — WebRTC uses hardcoded Google STUN)
+///   GET /api/public/agent/ice?sessionId=... -> authorized session ICE settings
 /// All authenticated requests send X-Device-Id + X-Device-Token.
 /// Transport is HTTPS-only; the old realtime WebSocket path was removed
 /// (heartbeat + long-poll already deliver invites and signaling).
@@ -67,6 +67,42 @@ public sealed class ApiClient
     public string ApiBaseUrl { get; }
     public string? DeviceId { get; private set; }
     public string? DeviceToken { get; private set; }
+    internal LocalGrant? LocalAuthorization { get; set; }
+    internal PeerInputPermission? LivePermission { get; set; }
+    internal string? LiveSessionId { get; set; }
+    internal event Action? LiveAuthorityRejected;
+    internal bool Allows(string sessionId, string scope, CancellationToken ct) =>
+        !ct.IsCancellationRequested && LiveSessionId == sessionId && LivePermission?.Allows(scope) == true;
+
+    internal async Task RecordAuthorizationAsync(string mode, GrantScopes scopes, CancellationToken ct)
+    {
+        var agreedDeviceId = DeviceId;
+        LocalAuthorization = null;
+        using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/authorization")
+        {
+            Content = JsonContent.Create(new { noticeVersion = 1, mode, capabilities = new {
+                view = scopes.View, control = scopes.Control, clipboard = scopes.Clipboard,
+                files = scopes.Files, recording = scopes.Recording } })
+        }, ct);
+        resp.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+        var grant = root.TryGetProperty("authorization", out var a) ? AuthorizationGrant.Parse(a) : null;
+        if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True ||
+            grant == null || grant.Mode != mode || grant.Capabilities != scopes ||
+            DeviceId == null || DeviceId != agreedDeviceId)
+            throw new InvalidOperationException("Authorization response did not match your choices; remote access remains dormant.");
+        var local = new LocalGrant(LocalGrant.OriginOf(ApiBaseUrl), DeviceId, grant);
+        GrantStore.Save(local);
+        LocalAuthorization = local;
+    }
+
+    internal async Task RevokeAuthorizationAsync(CancellationToken ct)
+    {
+        using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post,
+            "/api/public/agent/authorization/revoke"), ct);
+        resp.EnsureSuccessStatusCode();
+    }
 
     // Single-flight re-enroll guard. On a burst of concurrent 401s (heartbeat,
     // frame, cursor, input, signal loops all firing at once), only one thread
@@ -90,8 +126,10 @@ public sealed class ApiClient
         Directory.CreateDirectory(ConfigDir);
         HideStore();
         MigrateLegacyStore();
-        ApiBaseUrl = overrideBaseUrl ?? LoadConfig()?.ApiBaseUrl ?? DefaultApiBaseUrl;
-        _http = new HttpClient { BaseAddress = new Uri(ApiBaseUrl), Timeout = TimeSpan.FromSeconds(20) };
+        ApiBaseUrl = ConnectLive.Native.NativeGatewayPolicy.ValidateOrigin(
+            overrideBaseUrl ?? LoadConfig()?.ApiBaseUrl ?? DefaultApiBaseUrl, "apiBaseUrl");
+        _http = new HttpClient(ConnectLive.Native.NativeGatewayPolicy.CreateHandler())
+            { BaseAddress = new Uri(ApiBaseUrl), Timeout = TimeSpan.FromSeconds(20) };
         LoadDeviceCreds();
     }
 
@@ -233,9 +271,22 @@ public sealed class ApiClient
         var req = build();
         AddAuth(req);
         var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+        {
+            LivePermission?.Revoke();
+            try { LiveAuthorityRejected?.Invoke(); } catch { }
+        }
         if (resp.StatusCode != System.Net.HttpStatusCode.Unauthorized) return resp;
+        LivePermission?.Revoke();
+        var path = req.RequestUri?.OriginalString ?? "";
         resp.Dispose();
         req.Dispose();
+        // Never retry sensitive data or a foreground attestation against an
+        // identity silently replaced by automatic enrollment.
+        if (path.StartsWith("/api/public/agent/session/", StringComparison.Ordinal) ||
+            path.StartsWith("/api/public/agent/ice", StringComparison.Ordinal) ||
+            path.StartsWith("/api/public/agent/authorization", StringComparison.Ordinal))
+            throw new HttpRequestException("Device identity was rejected; live authority is closed.");
 
         // Single-flight re-enroll.
         await _enrollLock.WaitAsync(ct);
@@ -445,7 +496,7 @@ public sealed class ApiClient
         using var resp = await SendAuthedAsync(
             () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/consent")
             {
-                Content = JsonContent.Create(new { decision })
+                Content = JsonContent.Create(new { decision, authorizationId = LocalAuthorization?.Authorization.Id, noticeVersion = 1 })
             }, ct);
         resp.EnsureSuccessStatusCode();
     }
@@ -494,6 +545,7 @@ public sealed class ApiClient
 
     public async Task<bool> PostFrameAsync(string sessionId, byte[] jpegBytes, int width, int height, CancellationToken ct)
     {
+        if (!Allows(sessionId, "view", ct)) return false;
         var payload = new
         {
             frame = Convert.ToBase64String(jpegBytes),
@@ -522,6 +574,9 @@ public sealed class ApiClient
         string name, string mime, string sha256, long totalSize,
         byte[] chunk, CancellationToken ct)
     {
+        if (!Allows(sessionId, "files", ct)) return false;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct, LivePermission!.Token);
+        ct = lifetime.Token;
         try
         {
             var path = $"/api/public/agent/session/{sessionId}/file" +
@@ -550,6 +605,7 @@ public sealed class ApiClient
 
     public async Task<bool> PostCursorAsync(string sessionId, int x, int y, int w, int h, string kind, bool visible, CancellationToken ct)
     {
+        if (!Allows(sessionId, "view", ct)) return false;
         var payload = new { x, y, w, h, kind, visible };
         try
         {
@@ -567,6 +623,7 @@ public sealed class ApiClient
 
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollInputsAsync(string sessionId, long since, CancellationToken ct)
     {
+        if (!Allows(sessionId, "control", ct)) return (since, null);
         try
         {
             using var resp = await SendAuthedAsync(
@@ -718,27 +775,38 @@ public sealed class ApiClient
     private static AgentConfig? LoadConfig() =>
         File.Exists(ConfigPath) ? JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(ConfigPath)) : null;
 
-    public static void SaveConfig(AgentConfig cfg) =>
-        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(cfg));
+    public static void SaveConfig(AgentConfig cfg)
+    {
+        var origin = ConnectLive.Native.NativeGatewayPolicy.ValidateOrigin(cfg.ApiBaseUrl, "apiBaseUrl");
+        ConfigFile.Write(ConfigPath, JsonSerializer.Serialize(new AgentConfig(origin)));
+    }
 
     // ---- ICE gateway (S9) ----------------------------------------------
 
     /// <summary>
-    /// Fetch the ICE server set. Returns null on any failure so the caller
+    /// Fetch the ICE server set. Returns null on gateway outages so the caller
     /// keeps its hardcoded STUN fallback — a relay outage must never stop a
-    /// session from forming over host/srflx.
+    /// session from forming over host/srflx. Cancellation and authorization
+    /// failure are never converted into successful fallback.
     /// </summary>
-    public async Task<IceConfig?> GetIceConfigAsync(CancellationToken ct)
+    public async Task<IceConfig?> GetIceConfigAsync(string sessionId, CancellationToken ct)
     {
+        if (!Allows(sessionId, "view", ct))
+            throw new UnauthorizedAccessException("Session viewing authorization is no longer active.");
         try
         {
             using var resp = await SendAuthedAsync(
-                () => new HttpRequestMessage(HttpMethod.Get, "/api/public/agent/ice"), ct);
+                () => new HttpRequestMessage(HttpMethod.Get, ConnectLive.Native.NativeGatewayPolicy.IcePath(sessionId)), ct);
+            if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                throw new UnauthorizedAccessException("ICE authorization was rejected. Reconnect with an authorized session.");
             if (!resp.IsSuccessStatusCode) return null;
             var cfg = await resp.Content.ReadFromJsonAsync<IceConfig>(cancellationToken: ct);
             if (cfg?.IceServers == null || cfg.IceServers.Count == 0) return null;
             return cfg;
         }
+        catch (OperationCanceledException) { throw; }
+        catch (UnauthorizedAccessException) { throw; }
+        catch (HttpRequestException) when (!Allows(sessionId, "view", ct)) { throw; }
         catch { return null; }
     }
 

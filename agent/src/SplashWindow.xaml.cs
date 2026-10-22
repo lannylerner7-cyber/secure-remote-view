@@ -6,16 +6,13 @@ using System.Windows.Shapes;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// The Agent's ONLY visible surface: a ~5s startup splash that doubles as the
-/// connection banner. Shows our own branding, live status text, the device id
-/// and the active session (if any), then auto-closes. Nothing else is ever
-/// shown — no persistent status window, no tray, no wake pop-ups. Everything
-/// after this runs silently in the background.
-/// (Consent prompt and the control curtain remain separate, deliberate
-/// surfaces owned by their own scopes.)
+/// Persistent, minimizable status surface. Closing or disabling requests
+/// local withdrawal, not background hiding.
 /// </summary>
 public sealed class SplashWindow : Window
 {
+    public event System.Action? DisableAccessRequested;
+    public event System.Action? AuthorizationRequested;
     private readonly TextBlock _status;
     private readonly TextBlock _device;
     private readonly TextBlock _session;
@@ -23,13 +20,12 @@ public sealed class SplashWindow : Window
     public SplashWindow()
     {
         Title = "ConnectLive Agent";
-        Width = 480; Height = 330;
+        Width = 480; Height = 490;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        WindowStyle = WindowStyle.None;
-        ResizeMode = ResizeMode.NoResize;
-        AllowsTransparency = true;
+        WindowStyle = WindowStyle.SingleBorderWindow;
+        ResizeMode = ResizeMode.CanMinimize;
         Background = Brushes.Transparent;
-        ShowInTaskbar = false;
+        ShowInTaskbar = true;
 
         var root = new Border
         {
@@ -70,16 +66,6 @@ public sealed class SplashWindow : Window
             Margin = new Thickness(0, 0, 0, 18)
         });
 
-        var progress = new ProgressBar
-        {
-            IsIndeterminate = true,
-            Height = 4,
-            Foreground = (Brush)Application.Current.Resources["BrandAccent"],
-            Background = (Brush)Application.Current.Resources["BrandBorder"],
-            BorderThickness = new Thickness(0)
-        };
-        stack.Children.Add(progress);
-
         _status = new TextBlock
         {
             Text = "Starting…",
@@ -94,12 +80,24 @@ public sealed class SplashWindow : Window
 
         stack.Children.Add(new TextBlock
         {
-            Text = "You will always be asked before your screen is shared.",
+            Text = "Remote support status stays available in the taskbar. Closing this window or disabling access stops this agent and blocks future starts for this Windows user.",
             FontSize = 11,
             Foreground = (Brush)Application.Current.Resources["BrandMuted"],
             Margin = new Thickness(0, 14, 0, 0),
             TextWrapping = TextWrapping.Wrap
         });
+
+        var disable = new Button
+        {
+            Content = "Disable remote access",
+            Style = (Style)Application.Current.Resources["PrimaryButton"],
+            Margin = new Thickness(0, 16, 0, 0),
+        };
+        disable.Click += (_, _) => DisableAccessRequested?.Invoke();
+        stack.Children.Add(disable);
+        var authorize = new Button { Content = "Review / replace authorization", Margin = new Thickness(0, 8, 0, 0) };
+        authorize.Click += (_, _) => AuthorizationRequested?.Invoke();
+        stack.Children.Add(authorize);
 
         root.Child = stack;
         Content = root;
@@ -137,5 +135,9 @@ public sealed class SplashWindow : Window
 
     public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
     public void SetDevice(string text) => Dispatcher.Invoke(() => _device.Text = text);
-    public void SetSession(string text) => Dispatcher.Invoke(() => _session.Text = text);
+    public void SetSession(string text) => Dispatcher.Invoke(() =>
+    {
+        _session.Text = text;
+        Title = $"ConnectLive — {text}";
+    });
 }

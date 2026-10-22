@@ -25,31 +25,68 @@
 import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
 import { API_ROUTES } from "@/shared/api-routes";
+import { RecordingAuthority } from "@/lib/recording-authority";
 
 /** Fallback only. The live set comes from the ICE gateway (S9), which adds
  *  TURN when the deployment has a relay configured. */
 const STUN_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
-/**
- * S9 — fetch the ICE server set from the authenticated gateway. Never throws:
- * a failure keeps the hardcoded STUN set so a relay outage cannot take the
- * session offline, it only removes the relay path.
+const ICE_REQUEST_TIMEOUT_MS = 12_000;
+const ICE_FALLBACK_RETRY_MS = 3_000;
+type IceConfiguration = { iceServers: RTCIceServer[]; ttlSeconds: number; hasTurn: boolean };
+class IceGatewayError extends Error {
+  constructor(readonly denied: boolean, readonly retryAfterMs = ICE_FALLBACK_RETRY_MS) {
+    super("ICE gateway unavailable");
+  }
+}
+
+/** Deadline includes auth, HTTP and body parsing, not just the provider's 5s.
+ * Race cancellation too: an auth SDK or mocked transport may ignore abort.
+ * Never log credentials, server bodies, URLs or thrown transport errors.
  */
-async function fetchIceServers(): Promise<RTCIceServer[]> {
+async function fetchIceServers(sessionId: string, signal: AbortSignal): Promise<IceConfiguration> {
+  const abort = new AbortController();
+  const cancel = () => abort.abort();
+  signal.addEventListener("abort", cancel, { once: true });
+  if (signal.aborted) cancel();
+  const timer = window.setTimeout(cancel, ICE_REQUEST_TIMEOUT_MS);
+  let onAbort: () => void = () => {};
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new Error("ICE request cancelled"));
+    abort.signal.addEventListener("abort", onAbort, { once: true });
+    if (abort.signal.aborted) onAbort();
+  });
   try {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) return STUN_SERVERS;
-    const resp = await fetch(API_ROUTES.agentIce, {
-      headers: { authorization: `Bearer ${token}` },
-    });
-    if (!resp.ok) return STUN_SERVERS;
-    const body = (await resp.json()) as { iceServers?: RTCIceServer[]; turn?: boolean };
-    if (!Array.isArray(body.iceServers) || body.iceServers.length === 0) return STUN_SERVERS;
-    console.info(`[webrtc] ice gateway: ${body.iceServers.length} server set(s), turn=${!!body.turn}`);
-    return body.iceServers;
-  } catch {
-    return STUN_SERVERS;
+    return await Promise.race([cancelled, (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (abort.signal.aborted) throw new Error("ICE request cancelled");
+      const token = data.session?.access_token;
+      if (!token) throw new IceGatewayError(true);
+      const resp = await fetch(`${API_ROUTES.agentIce}?sessionId=${encodeURIComponent(sessionId)}`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: abort.signal, cache: "no-store", redirect: "error",
+      });
+      if (!resp.ok) throw new IceGatewayError(
+        [400, 401, 403, 404].includes(resp.status),
+        resp.status === 429 ? 60_000 : ICE_FALLBACK_RETRY_MS,
+      );
+      const body = await resp.json() as { iceServers?: RTCIceServer[]; ttlSeconds?: number };
+      if (!Array.isArray(body.iceServers) || !body.iceServers.length) throw new Error("ICE configuration unavailable");
+      const iceServers = body.iceServers;
+      const hasTurn = iceServers.some((s) => {
+        const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+        return urls.some((u) => typeof u === "string" && /^turns?:/i.test(u))
+          && typeof s.username === "string" && !!s.username
+          && typeof s.credential === "string" && !!s.credential;
+      });
+      return { iceServers, hasTurn,
+        ttlSeconds: typeof body.ttlSeconds === "number" && Number.isFinite(body.ttlSeconds) && body.ttlSeconds > 0
+          ? Math.min(body.ttlSeconds, 86400) : 60 };
+    })()]);
+  } finally {
+    window.clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+    abort.signal.removeEventListener("abort", onAbort);
   }
 }
 const WEB_CLIENT_KEY = "connectlive.web_client_id";
@@ -105,7 +142,8 @@ export interface WebRtcLive {
   canRecord: () => boolean;
   recording: () => boolean;
   /** Begin recording the live video track. Returns false when unavailable. */
-  startRecording: () => boolean;
+  startRecording: () => Promise<boolean>;
+  onRecording: (callback: (active: boolean) => void) => () => void;
   /** Stop and resolve the finished recording (null when nothing was captured). */
   stopRecording: () => Promise<RecordingResult | null>;
 
@@ -158,8 +196,29 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   video.style.cssText = "width:100%;height:100%;object-fit:contain;background:#000;";
 
   let state: WebRtcState = "connecting";
+  let closed = false;
+  let generation = 0;
+  let iceRevision = 0;
+  let iceRequest: AbortController | null = null;
+  let iceRefreshTimer: number | null = null;
+  let fallbackRetries = 0;
+  let negotiating = 0;
+  const active = () => !closed && state !== "failed" && state !== "superseded";
+  const cancelIce = () => {
+    generation++;
+    iceRevision++;
+    iceRequest?.abort();
+    iceRequest = null;
+    if (iceRefreshTimer !== null) window.clearTimeout(iceRefreshTimer);
+    iceRefreshTimer = null;
+  };
   const listeners = new Set<(s: WebRtcState) => void>();
-  const setState = (s: WebRtcState) => { state = s; listeners.forEach((cb) => cb(s)); };
+  const setState = (s: WebRtcState) => {
+    if (closed || (state === "superseded" && s !== "superseded")) return;
+    state = s;
+    if (s === "failed" || s === "superseded") cancelIce();
+    listeners.forEach((cb) => cb(s));
+  };
 
   // Starts on the STUN fallback; the gateway set (STUN + TURN when deployed)
   // is applied via setConfiguration before the first offer, i.e. before ICE
@@ -170,7 +229,6 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   // network fell back to JPEG with no explanation; `relay()` below reports the
   // truth so the console can say "no relay" instead of "connecting" forever.
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
-  const icePromise = fetchIceServers();
   let relayState: "pending" | "relay" | "none" = "pending";
   let dc: RTCDataChannel | null = pc.createDataChannel("inputs", { ordered: true });
   dc.onclose = () => { dc = null; };
@@ -291,6 +349,50 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   let recorder: MediaRecorder | null = null;
   let recordChunks: Blob[] = [];
   let recordStartedAt = 0;
+  let recordingBusy = false;
+  let recordExpiry: number | null = null;
+  let recordRenew: number | null = null;
+  let renewBusy = false;
+  const recordingListeners = new Set<(active: boolean) => void>();
+  const recordAuthority = new RecordingAuthority(async () => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token || closed) return null;
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => abort.abort(), 3000);
+    try {
+      const response = await fetch(API_ROUTES.adminSessionAuthorization(sessionId), {
+        headers: { authorization: `Bearer ${token}` },
+        cache: "no-store", redirect: "error", signal: abort.signal,
+      });
+      if (!response.ok) return null;
+      const result = await response.json();
+      return result.allowed === true && result.capabilities?.recording === true
+        && typeof result.authorizationId === "string"
+        && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(result.authorizationId)
+        ? result.authorizationId : null;
+    } catch { return null; }
+    finally { window.clearTimeout(timer); }
+  });
+
+  function clearRecordingTimers() {
+    if (recordExpiry !== null) window.clearInterval(recordExpiry);
+    if (recordRenew !== null) window.clearInterval(recordRenew);
+    recordExpiry = recordRenew = null;
+  }
+  function abandonRecording() {
+    recordAuthority.invalidate();
+    clearRecordingTimers();
+    recordChunks = [];
+    const rec = recorder;
+    recorder = null;
+    recordingListeners.forEach((callback) => callback(false));
+    if (rec) {
+      rec.ondataavailable = null;
+      rec.onstop = null;
+      try { rec.stop(); } catch { /* already stopped */ }
+    }
+  }
 
   function pickRecordMime(): string | null {
     if (typeof MediaRecorder === "undefined") return null;
@@ -306,39 +408,68 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     return src.getVideoTracks().length > 0 ? src : null;
   }
 
-  function startRecordingInternal(): boolean {
+  async function startRecordingInternal(): Promise<boolean> {
+    if (closed || recordingBusy) return false;
     if (recorder) return true;
     const stream = recordableStream();
     const mimeType = pickRecordMime();
     if (!stream || !mimeType) return false;
+    recordingBusy = true;
     try {
+      if (!(await recordAuthority.authorize()) || closed) return false;
       const rec = new MediaRecorder(stream, { mimeType });
       recordChunks = [];
-      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) recordChunks.push(ev.data); };
+      rec.ondataavailable = (ev) => {
+        if (!recordAuthority.valid() || closed) { abandonRecording(); return; }
+        if (ev.data && ev.data.size > 0) recordChunks.push(ev.data);
+      };
       rec.start(1000); // flush a chunk per second so a crash still leaves footage
       recorder = rec;
+      recordingListeners.forEach((callback) => callback(true));
       recordStartedAt = Date.now();
+      recordExpiry = window.setInterval(() => {
+        if (!recordAuthority.valid() || closed) abandonRecording();
+      }, 100);
+      recordRenew = window.setInterval(async () => {
+        if (renewBusy || recordingBusy || !recorder) return;
+        renewBusy = true;
+        try {
+          const allowed = await recordAuthority.authorize(true);
+          if (!allowed && recorder === rec) abandonRecording();
+        } finally { renewBusy = false; }
+      }, 2000);
       return true;
     } catch (err) {
+      abandonRecording();
       console.warn("[webrtc] recording failed to start", err);
       return false;
-    }
+    } finally { recordingBusy = false; }
   }
 
-  function stopRecordingInternal(): Promise<RecordingResult | null> {
+  async function stopRecordingInternal(): Promise<RecordingResult | null> {
+    if (recordingBusy) return null;
     const rec = recorder;
-    if (!rec) return Promise.resolve(null);
+    if (!rec) return null;
+    recordingBusy = true;
+    if (!(await recordAuthority.authorize(true)) || closed || recorder !== rec) {
+      abandonRecording(); recordingBusy = false; return null;
+    }
     recorder = null;
+    recordingListeners.forEach((callback) => callback(false));
+    clearRecordingTimers();
     const mimeType = rec.mimeType || "video/webm";
     const durationMs = Date.now() - recordStartedAt;
     return new Promise((resolve) => {
       rec.onstop = () => {
         const parts = recordChunks;
         recordChunks = [];
-        if (parts.length === 0) { resolve(null); return; }
+        const permitted = recordAuthority.valid() && !closed;
+        recordAuthority.invalidate();
+        recordingBusy = false;
+        if (!permitted || parts.length === 0) { resolve(null); return; }
         resolve({ blob: new Blob(parts, { type: mimeType }), mimeType, durationMs });
       };
-      try { rec.stop(); } catch { resolve(null); }
+      try { rec.stop(); } catch { abandonRecording(); recordingBusy = false; resolve(null); }
     });
   }
 
@@ -362,6 +493,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
    * we disarm it there and let ICE's own `failed` be authoritative.
    */
   const armWatchdog = () => {
+    if (!active()) return;
     clearWatchdog();
     watchdog = window.setTimeout(() => {
       const s = pc.iceConnectionState;
@@ -375,6 +507,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   async function reportCandidatePair() {
     try {
       const stats = await pc.getStats();
+      if (!active()) return;
       let pairId: string | null = null;
       stats.forEach((r: Record<string, unknown>) => {
         if (r["type"] === "transport" && typeof r["selectedCandidatePairId"] === "string") {
@@ -406,10 +539,12 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   }
 
   pc.ontrack = (ev) => {
+    if (!active()) return;
     const stream = ev.streams[0] ?? new MediaStream([ev.track]);
     video.srcObject = stream;
   };
   pc.oniceconnectionstatechange = () => {
+    if (!active()) return;
     const s = pc.iceConnectionState;
     console.info("[webrtc] iceConnectionState:", s);
     if (s === "checking") {
@@ -437,13 +572,12 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   // ---- Retry queue --------------------------------------------------------
   const queue: QueueItem[] = [];
   let draining = false;
-  let closed = false;
 
   async function drainQueue() {
-    if (draining || closed) return;
+    if (draining || !active()) return;
     draining = true;
     try {
-      while (queue.length && !closed) {
+      while (queue.length && active()) {
         const item = queue[0];
         try {
           const res = await postAdminSignal({
@@ -455,6 +589,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
               attemptId: item.attemptId,
             },
           });
+          if (!active()) return;
           if (res.ok) { queue.shift(); continue; }
           if (res.error === "superseded") {
             queue.length = 0;
@@ -469,6 +604,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
           // "not_active" / "insert_failed" — retry with backoff.
           throw new Error(res.error);
         } catch (err) {
+          if (!active()) return;
           item.attempts++;
           if (item.attempts >= MAX_ATTEMPTS) {
             console.warn("[webrtc] giving up on", item.kind, "after", item.attempts, "tries", err);
@@ -485,18 +621,114 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   }
 
   function enqueue(kind: "offer" | "ice" | "bye", payload: unknown) {
+    if (!active()) return;
     queue.push({ kind, payload, attemptId: newAttemptId(), attempts: 0 });
     void drainQueue();
   }
 
   pc.onicecandidate = (ev) => { if (ev.candidate) enqueue("ice", ev.candidate.toJSON()); };
 
+  /** Every restart obtains a new session-scoped set before allocating ICE.
+   * Expiry refreshes only update configuration for future allocations; they
+   * never disturb a working media path. One delayed STUN-fallback retry is
+   * allowed per live view, not an endless retry loop during an outage.
+   */
+  async function refreshIce(): Promise<boolean> {
+    if (!active()) return false;
+    const revision = ++iceRevision;
+    iceRequest?.abort();
+    const request = new AbortController();
+    iceRequest = request;
+    if (iceRefreshTimer !== null) window.clearTimeout(iceRefreshTimer);
+    iceRefreshTimer = null;
+    const startedAt = Date.now();
+    let config: IceConfiguration | null = null;
+    let retryAfterMs = ICE_FALLBACK_RETRY_MS;
+    try {
+      config = await fetchIceServers(sessionId, request.signal);
+    } catch (error) {
+      if (!active() || revision !== iceRevision) return false;
+      if (error instanceof IceGatewayError) {
+        if (error.denied) {
+          relayState = "none";
+          console.warn("[webrtc] ICE session authorization rejected");
+          setState("failed");
+          return false;
+        }
+        retryAfterMs = error.retryAfterMs;
+      }
+      console.warn("[webrtc] ICE gateway unavailable; using direct paths only");
+    }
+    if (!active() || revision !== iceRevision) return false;
+    iceRequest = null;
+    try {
+      pc.setConfiguration({ iceServers: config?.iceServers ?? STUN_SERVERS });
+      relayState = config?.hasTurn ? "relay" : "none";
+    } catch {
+      relayState = "none";
+      config = null;
+      // Do not leave previously-applied, possibly-expired relay credentials.
+      try { pc.setConfiguration({ iceServers: STUN_SERVERS }); } catch {
+        setState("failed");
+        return false;
+      }
+      console.warn("[webrtc] ICE configuration rejected; using direct paths only");
+    }
+    if (relayState === "relay" && config) {
+      const ttlMs = config.ttlSeconds * 1000;
+      const margin = Math.min(30_000, ttlMs * 0.2);
+      const delay = Math.max(1000, ttlMs - margin - (Date.now() - startedAt));
+      iceRefreshTimer = window.setTimeout(() => { void refreshIce(); }, delay);
+    } else if (fallbackRetries < 1) {
+      fallbackRetries++;
+      iceRefreshTimer = window.setTimeout(async () => {
+        if (!active()) return;
+        // The offer watchdog must not cut short this request's 12s budget.
+        if (state === "connecting") clearWatchdog();
+        const previousGeneration = generation;
+        if (await refreshIce() && active() && previousGeneration === generation && relayState === "relay") {
+          // New credentials must participate in gathering, not just sit on pc.
+          await negotiate(true, false);
+        } else if (active() && state === "connecting" && previousGeneration === generation) {
+          armWatchdog();
+        }
+      }, retryAfterMs);
+    }
+    return true;
+  }
+
+  async function negotiate(restart: boolean, refresh = true): Promise<void> {
+    if (!active()) return;
+    const current = ++generation;
+    negotiating++;
+    const valid = () => active() && current === generation;
+    clearWatchdog();
+    try {
+      if (refresh && !(await refreshIce())) return;
+      if (!valid()) return;
+      if (!restart) pc.addTransceiver("video", { direction: "recvonly" });
+      const offer = await pc.createOffer(restart ? { iceRestart: true } : undefined);
+      if (!valid()) return;
+      await pc.setLocalDescription(offer);
+      if (!valid()) return;
+      enqueue("offer", { type: offer.type, sdp: offer.sdp });
+      if (state === "connecting") armWatchdog();
+    } catch {
+      if (!valid()) return;
+      console.warn("[webrtc] offer failed");
+      setState("failed");
+    } finally {
+      negotiating--;
+    }
+  }
+
   // ICE connectivity only proves packets can cross the network. Confirm that
   // the video decoder itself keeps making progress; otherwise return the UI to
   // its JPEG fallback and attempt one clean ICE/media renegotiation.
   mediaWatchdog = window.setInterval(() => {
-    if (closed || state !== "connected") return;
+    if (closed || state !== "connected" || negotiating) return;
     void pc.getStats().then(async (stats) => {
+      if (!active() || state !== "connected") return;
       let decoded = 0;
       let hasInboundVideo = false;
       // Step 1 diagnostics: loss/keyframe/geometry counters alongside framesDecoded.
@@ -535,14 +767,8 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
         mediaRecoveryAttempted = true;
         lastMediaProgressAt = now;
         console.warn("[webrtc] decoded video stalled; requesting one clean renegotiation");
-        try {
-          const offer = await pc.createOffer({ iceRestart: true });
-          await pc.setLocalDescription(offer);
-          enqueue("offer", { type: offer.type, sdp: offer.sdp });
-          return;
-        } catch (err) {
-          console.warn("[webrtc] media recovery offer failed", err);
-        }
+        await negotiate(true);
+        return;
       }
 
       console.warn("[webrtc] decoded video remained stalled; activating frame fallback");
@@ -566,7 +792,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
           payload: unknown;
           admin_client_id: string | null;
         };
-        if (!row || row.from_side !== "agent" || row.id <= lastSeen) return;
+        if (!active() || !row || row.from_side !== "agent" || row.id <= lastSeen) return;
         if (row.admin_client_id && row.admin_client_id !== webClientId) return;
         lastSeen = row.id;
         saveCursor(sessionId, row.id);
@@ -592,9 +818,10 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   // ---- Heartbeat + kickoff ------------------------------------------------
   let heartbeatTimer: number | null = null;
   async function heartbeat() {
-    if (closed) return;
+    if (!active()) return;
     try {
       const res = await bindAdmin({ data: { sessionId, clientId: webClientId } });
+      if (!active()) return;
       if (!res.bound && res.reason === "superseded") {
         setState("superseded");
         return;
@@ -608,6 +835,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     // Claim (or refresh) the binding BEFORE the first offer. The agent's
     // take-over logic will emit `terminated` at any previously-bound admin.
     const first = await bindAdmin({ data: { sessionId, clientId: webClientId } });
+    if (!active()) return;
     if (!first.bound) {
       if (first.reason === "superseded") { setState("superseded"); return; }
       // "not_found" / "not_active" — surface as failed, HTTPS fallback carries UI.
@@ -615,41 +843,12 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       return;
     }
     heartbeatTimer = window.setInterval(() => { void heartbeat(); }, HEARTBEAT_MS);
-    armWatchdog();
-
-
-    try {
-      // S16 — apply the gateway set BEFORE any transceiver exists, so ICE
-      // gathering (which starts at setLocalDescription) sees the relay. The
-      // result is recorded: a failure here is why a session ends up STUN-only.
-      const gatewaySet = await icePromise;
-      const hasTurn = gatewaySet.some((s) => {
-        const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
-        return urls.some((u) => /^turns?:/i.test(String(u)));
-      });
-      try {
-        pc.setConfiguration({ iceServers: gatewaySet });
-        relayState = hasTurn ? "relay" : "none";
-      } catch (err) {
-        relayState = "none";
-        console.warn("[webrtc] ice set could not be applied — running STUN only", err);
-      }
-      if (relayState === "none") {
-        console.warn(
-          "[webrtc] no TURN relay available: direct paths only. " +
-            "Sessions behind symmetric NAT will fall back to JPEG frames.",
-        );
-      }
-
-      pc.addTransceiver("video", { direction: "recvonly" });
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      enqueue("offer", { type: offer.type, sdp: offer.sdp });
-    } catch (err) {
-      console.warn("[webrtc] offer failed", err);
-      setState("failed");
-    }
-  })();
+    await negotiate(false);
+  })().catch(() => {
+    if (!active()) return;
+    console.warn("[webrtc] startup binding failed");
+    setState("failed");
+  });
 
   return {
     video,
@@ -675,17 +874,27 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
 
     canRecord: () => pickRecordMime() !== null && recordableStream() !== null,
     recording: () => recorder !== null,
+    onRecording: (callback) => {
+      recordingListeners.add(callback);
+      return () => { recordingListeners.delete(callback); };
+    },
     startRecording: () => startRecordingInternal(),
     stopRecording: () => stopRecordingInternal(),
 
     close: () => {
       if (closed) return;
       closed = true;
+      cancelIce();
+      queue.length = 0;
       clearWatchdog();
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
       if (mediaWatchdog !== null) window.clearInterval(mediaWatchdog);
       // S24 — never strand an in-flight recording; stop it before the track dies.
-      if (recorder) { try { recorder.stop(); } catch {} recorder = null; }
+      abandonRecording();
+      // Local teardown must not wait for an unresponsive final-signal request.
+      try { dc?.close(); } catch {}
+      try { pc.close(); } catch {}
+      try { supabase.removeChannel(channel); } catch {}
 
       // Send the final signal directly: the normal queue stops accepting work
       // once close begins, and a queued bye could otherwise be stranded.
@@ -697,12 +906,8 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
           payload: {},
           attemptId: newAttemptId(),
         },
-      }).catch(() => undefined).finally(() => {
-        try { dc?.close(); } catch {}
-        try { pc.close(); } catch {}
-        try { supabase.removeChannel(channel); } catch {}
-        listeners.clear();
-      });
+      }).catch(() => undefined);
+      listeners.clear();
       // Cursor persists across a quick refresh but is discarded when the
       // session actually ends — the caller sets state to superseded/failed.
       if (state === "superseded" || state === "failed") clearCursor(sessionId);
