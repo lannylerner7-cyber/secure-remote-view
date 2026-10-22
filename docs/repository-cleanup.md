@@ -27,8 +27,10 @@ upstream clone, so copying newer files cannot leave the obsolete projects behind
 - Uploaded source archives and previous Windows ZIPs: retained as evidence.
 
 No existing Windows ZIP was modified. This document records a conservative
-cleanup, not proof that every remaining file is necessary. GitHub publication
-requires restored write access; do not describe these local deletions as pushed.
+cleanup, not proof that every remaining file is necessary. The cleanup and
+Coolify curl compatibility fix were pushed using the authorized SSH deploy key
+to `replit/connectlive-source-update`, source commit
+`17883b431845fddd4e7415a8b83e248e80d2c657`. Main and production were not changed.
 
 ## Verification
 
