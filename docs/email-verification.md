@@ -81,7 +81,7 @@ Link/button blue is darkened to support readable text contrast.
   held DNS, TLS/STARTTLS, accepted DATA/QUIT, injection, provider sanitization,
   reply limits, source precedence and simulated Cloudflare lock handling passed.
 - `node scripts/newsletter-config-check.cjs`: missing/rotated signing-key tests passed.
-- `node scripts/email-template-preview.cjs`: 13 synthetic
+- `node imports/connectlive/scripts/email-template-preview.cjs`: 13 synthetic
   standard/stress variants plus booking and SMTP-test output passed.
 - Browser review: eight distinct templates at 375px/800px, plus stress cases;
   no template document-wide horizontal overflow, readable wrapping and escaped

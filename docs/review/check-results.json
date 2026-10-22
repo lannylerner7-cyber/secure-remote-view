@@ -54,7 +54,7 @@
     "evidence": "docs/review/check-9.log"
   },
   {
-    "command": "dotnet run --project agent/src/Tests/NativeGatewayTests.csproj",
+    "command": "dotnet run --project imports/connectlive/agent/src/Tests/NativeGatewayTests.csproj",
     "exitCode": 0,
     "seconds": 31.84,
     "evidence": "docs/review/check-10.log"

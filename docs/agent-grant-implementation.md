@@ -2,7 +2,7 @@
 
 ## Scope
 
-Changes are confined to `agent`, portable tests in
+Changes are confined to `imports/connectlive/agent`, portable tests in
 `tests/agent-grants`, and this document. No server, SQL, admin, running artifact,
 release ZIP, deployment, service activation, or roadmap/task state is changed
 by this implementation.
@@ -75,7 +75,7 @@ invite, rather than treating an old active row/disk binding as acceptance.
 The .NET 8 Windows-targeted agent cross-build succeeds with:
 
 ```
-dotnet build agent/src/ConnectLiveAgent.csproj -p:EnableWindowsTargeting=true --no-self-contained --artifacts-path /tmp/connectlive-agent-build -o /tmp/connectlive-agent-build/out
+dotnet build imports/connectlive/agent/src/ConnectLiveAgent.csproj -p:EnableWindowsTargeting=true --no-self-contained --artifacts-path /tmp/connectlive-agent-build -o /tmp/connectlive-agent-build/out
 ```
 
 Portable tests compile the actual pure grant, permission, and local-disable

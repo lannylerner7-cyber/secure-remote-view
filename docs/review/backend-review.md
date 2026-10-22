@@ -2,13 +2,13 @@
 
 ## Scope and proof limits
 
-Read-only audit of `src`, `supabase`, `scripts`, `tools`, product-root release/configuration files, and relevant workspace verification/packaging source. Only this report and `backend-coverage.json` were written. No product code, database, workflow, release artifact, or environment was changed. No tests, application launch, database checks, route probes, or packaging commands were run; the parent review owns those results.
+Read-only audit of `imports/connectlive/src`, `supabase`, `scripts`, `tools`, product-root release/configuration files, and relevant workspace verification/packaging source. Only this report and `backend-coverage.json` were written. No product code, database, workflow, release artifact, or environment was changed. No tests, application launch, database checks, route probes, or packaging commands were run; the parent review owns those results.
 
 Findings below are **source-demonstrable**, not assertions about the deployed schema or production exploitability. October defensive migrations are present in source; whether a deployment has them is a separate prerequisite. In particular, an older deployment can have materially weaker direct PostgREST/RPC/storage boundaries. UI behavior was traced in source, not exercised in a signed-in browser. No secret or personal-data values are reproduced.
 
 Coverage is deliberately unequal: a filesystem/text-pattern inventory covered all 245 files under the four principal scoped directories, scanning 1,057,300 characters of text. The route inventory found 45 declarations; all appeared in the generated route tree. This is **not** semantic inspection of every file or proof of route reachability. Coverage entries distinguish targeted reading from automatic inventory, exclusions, and blocked verification. Generated UI primitives, assets, marketing/legal pages, and peripheral integrations are not claimed as fully reviewed.
 
-Severity: **High** = access/payment correctness or a primary shipped workflow fails; **Medium** = important reliability, observability, or resource-control defect; **Low** = misleading secondary state/contract. Paths below are relative to `` unless explicitly prefixed `scripts/`.
+Severity: **High** = access/payment correctness or a primary shipped workflow fails; **Medium** = important reliability, observability, or resource-control defect; **Low** = misleading secondary state/contract. Paths below are relative to `imports/connectlive/` unless explicitly prefixed `scripts/`.
 
 ## Focused findings
 
@@ -85,7 +85,7 @@ Severity: **High** = access/payment correctness or a primary shipped workflow fa
 
 ### B11 — High, deployment-conditional: workspace deployment excludes the active ConnectLive runtime
 
-- **Evidence:** workspace `.replitignore:9–10` excludes the entire `imports` directory as “inactive imported source.” However, `artifacts/connectlive-preview/package.json:7–9` now delegates dev/build to the imported product and its serve command explicitly runs `../../.output/server/index.mjs`.
+- **Evidence:** workspace `.replitignore:9–10` excludes the entire `imports` directory as “inactive imported source.” However, `artifacts/connectlive-preview/package.json:7–9` now delegates dev/build to the imported product and its serve command explicitly runs `../../imports/connectlive/.output/server/index.mjs`.
 - **Impact:** a deployment that honors this exclusion cannot use that artifact's declared serve entry, because the active server output is under the excluded directory. A successful local preview or product build does not establish deployment packaging completeness.
 - **Constraints:** deployment execution was not attempted. A deployment process that explicitly stages the server output elsewhere could avoid this issue, but no such staging exists in the inspected artifact scripts. This is separate from the product's standalone Docker build, which copies its own `.output`.
 - **Direction:** explicitly package the active runtime outside excluded reference imports, or narrowly adjust deployment exclusions after verifying no archives, credentials or native build outputs are included.
@@ -161,7 +161,7 @@ Native Admin additionally uses Supabase PostgREST directly for devices, sessions
 - Runtime credentials remain required for Supabase/service role, session-secret wrapping, SMTP/cron/TURN as used. Docker does not create them and liveness does not verify them. The private session-files bucket is also an external readiness dependency, not established by this liveness check. Browser Vite config is baked at build time; changing only server runtime Supabase values can split browser/server projects. `.dockerignore` excludes environment files, native/build directories, archives and signing material. No image build, native-module ABI, writable-temp, outbound-network or health-restart behavior was executed here.
 - `vite.config.ts` delegates plugin/preset handling to the Lovable config package and points to the custom server entry; its comments are not independent proof of the emitted runtime. Root workspace typecheck only explicitly filters artifacts/scripts, not imported-product source; a green workspace typecheck is not an imported product semantic-typecheck result. Root recursive build can still run the product build.
 - `build.bat` packages standalone Agent/Admin executables, whereas `agent/build.ps1` builds installer variants and optional Watch/packaging flows. Treat them as different release products, not interchangeable proof of installation/persistence. Standard sign helper warns and returns success without signing credentials, and verifies signatures when configured. Production signed-release policy must not rely on build success alone. Authenticode execution was not possible on this host and was not attempted.
-- Workspace inventory/verification/packaging scripts were read only as needed. `scripts/verify-agent-routes.ts:47–61` performs **real enrollment**, and its login probe also writes attempt counters. It was deliberately not executed under this audit. Pattern/name checks and unauthenticated 401 probes cannot establish active-session authorization, payment correctness, signed-in UI behavior or media transport.
+- Workspace inventory/verification/packaging scripts were read only as needed. `imports/connectlive/scripts/verify-agent-routes.ts:47–61` performs **real enrollment**, and its login probe also writes attempt counters. It was deliberately not executed under this audit. Pattern/name checks and unauthenticated 401 probes cannot establish active-session authorization, payment correctness, signed-in UI behavior or media transport.
 
 ## Verification handoff
 

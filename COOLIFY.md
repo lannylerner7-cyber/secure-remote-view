@@ -8,6 +8,8 @@ non-root user with a `/health` probe wired for zero-downtime deploys.
 - **Build Pack:** `Dockerfile`
 - **Exposed Port:** `3000` (must match `EXPOSE 3000` in the Dockerfile)
 - **Health Check Path:** `/health` (Coolify + the Docker `HEALTHCHECK` both hit this)
+- **Health Check Host / Port:** `127.0.0.1` / `3000`, HTTP, GET, expected status `200`.
+- **Health Check Start Period:** `30` seconds; timeout `10` seconds.
 - **Domain:** `https://connectliveagent.com` routes HTTPS 443 to container port
   3000. Do not map the Replit preview port 21268 into Coolify.
 - **Build context:** repository root when this imported code is the repository
@@ -47,6 +49,16 @@ Neither route touches the database, so probes stay cheap.
 The container probe follows `PORT` (default 3000), performs GET rather than HEAD
 and requires the `OK` body. For a custom port, change both `PORT` and Coolify's
 exposed/target port together.
+
+Coolify may override the Dockerfile probe with a generated curl/wget command.
+The runtime image includes curl for that case. Use `127.0.0.1`, not `localhost`,
+to avoid resolving an IPv6 loopback when the server is listening on IPv4.
+Do not disable health checks to hide a failing probe. If it still refuses the
+connection, inspect the container's runtime logs, effective PORT/HOST and the
+actual probe command; an image build success does not establish runtime health.
+
+Before deploying, confirm the selected Git branch and commit contain the updated
+Dockerfile. A source push to a review branch does not update `main` automatically.
 
 ## 4. Connection ports
 

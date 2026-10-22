@@ -32,6 +32,10 @@ FROM node:24-alpine AS runner
 
 WORKDIR /app
 
+# Coolify can replace Docker's HEALTHCHECK with its own curl-based probe.
+# Keep curl available even though the built-in probe below uses Node.
+RUN apk add --no-cache curl
+
 ENV NODE_ENV=production
 ENV NITRO_PRESET=node-server
 ENV HOST=0.0.0.0

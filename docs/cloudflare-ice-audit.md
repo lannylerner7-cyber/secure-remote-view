@@ -68,7 +68,7 @@ printed nor persisted by these checks.
 
 ### 1. Authentication is not sufficient authorization for paid relay use
 
-`src/routes/api/public/agent/ice.ts` verifies a bearer user
+`imports/connectlive/src/routes/api/public/agent/ice.ts` verifies a bearer user
 with getUser, but does not require a technician/admin role, owned authorized
 session or entitlement. Device verification checks credentials, not a current
 viewing grant. There is no mint throttling. Any authenticated account can request

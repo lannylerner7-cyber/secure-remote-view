@@ -2,7 +2,7 @@
 
 ## Boundary and method
 
-Read-only static review of all 58 non-bin/obj files under `agent`, including the test source, packaging references, assets and documentation. Read the 17 agent route modules, authentication/authorization helpers, recorded-authorization migration, release schema and signal-deduplication index. Also read the desktop packaging script/signing helper and the Agent ZIP's directory, README and launcher **without extracting or executing its executable**.
+Read-only static review of all 58 non-bin/obj files under `imports/connectlive/agent`, including the test source, packaging references, assets and documentation. Read the 17 agent route modules, authentication/authorization helpers, recorded-authorization migration, release schema and signal-deduplication index. Also read the desktop packaging script/signing helper and the Agent ZIP's directory, README and launcher **without extracting or executing its executable**.
 
 No builds, tests, live HTTP requests, workflow operations or Windows execution were performed. Archive CRC/hash/PE/signature/source-to-binary integrity checks belong to the main reviewer; this document does not claim their results. Existing documentation's test/health claims were read, not independently reproduced. No credentials/configuration values are reproduced.
 
@@ -44,7 +44,7 @@ Severity: **High** = core launch/control/update/deployment failure; **Medium** =
 
 ## Caller → handler matrix (complete agent namespace)
 
-Paths below are relative to `/api/public/agent`. Handler root is `src/routes/api/public/agent/`; `session.{id}.x` means `session.$sessionId.x.ts`. All source route methods found are enumerated, including uncoupled ones.
+Paths below are relative to `/api/public/agent`. Handler root is `imports/connectlive/src/routes/api/public/agent/`; `session.{id}.x` means `session.$sessionId.x.ts`. All source route methods found are enumerated, including uncoupled ones.
 
 **Common transport/auth/lifetime:** main `ApiClient` requests use HTTPS origin validation, redirects disabled, 20-second HttpClient timeout and caller cancellation (`ApiClient.cs:124-133`; `NativeGatewayPolicy.cs:11-25`). Device auth is `X-Device-Id` + `X-Device-Token`, checked as SHA-256 against `devices.metadata.token_hash` (`agent-auth.server.ts:8-19`). 401/403 revoke current local live permission and notify teardown; only 401 on non-sensitive paths may enroll a *new device*, then retry once; second 401 imposes 60-second cooldown (`ApiClient.cs:265-324`). Session/ICE/authorization 401 is **never** re-enrolled/replayed. No generalized transient retry or Retry-After handling exists. Handlers have no blanket server deadline; ICE explicitly budgets auth/provider, SSE is long-lived, remaining DB/storage deadlines depend on backend adapters.
 

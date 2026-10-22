@@ -51,63 +51,63 @@
     "category": "node_modules",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "node_modules": {
+  "imports/connectlive/node_modules": {
     "category": "node_modules",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  ".tanstack": {
+  "imports/connectlive/.tanstack": {
     "category": ".tanstack",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  ".output": {
+  "imports/connectlive/.output": {
     "category": ".output",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "admin/spikes/d3d-present/bin": {
+  "imports/connectlive/admin/spikes/d3d-present/bin": {
     "category": "bin",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "admin/spikes/d3d-present/obj": {
+  "imports/connectlive/admin/spikes/d3d-present/obj": {
     "category": "obj",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "admin/spikes/vp8-decode/bin": {
+  "imports/connectlive/admin/spikes/vp8-decode/bin": {
     "category": "bin",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "admin/spikes/vp8-decode/obj": {
+  "imports/connectlive/admin/spikes/vp8-decode/obj": {
     "category": "obj",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "admin/src/bin": {
+  "imports/connectlive/admin/src/bin": {
     "category": "bin",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "admin/src/obj": {
+  "imports/connectlive/admin/src/obj": {
     "category": "obj",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "agent/src/bin": {
+  "imports/connectlive/agent/src/bin": {
     "category": "bin",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "agent/src/obj": {
+  "imports/connectlive/agent/src/obj": {
     "category": "obj",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "agent/src/Watch/bin": {
+  "imports/connectlive/agent/src/Watch/bin": {
     "category": "bin",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "agent/src/Watch/obj": {
+  "imports/connectlive/agent/src/Watch/obj": {
     "category": "obj",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "agent/src/Tests/obj": {
+  "imports/connectlive/agent/src/Tests/obj": {
     "category": "obj",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },
-  "agent/src/Tests/bin": {
+  "imports/connectlive/agent/src/Tests/bin": {
     "category": "bin",
     "reason": "generated, dependency, tool state, or separately verified release output; not first-party semantic source review"
   },

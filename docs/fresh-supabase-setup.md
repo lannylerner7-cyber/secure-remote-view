@@ -89,7 +89,7 @@ were not tested.** SQL/catalog success is not a claim that the website, desktop
 clients, agent, proxy routes or deployment are connected or ready.
 
 The bucket limit matches `MAX_FILE_BYTES` in
-`src/lib/session-files.server.ts`. Static code review also
+`imports/connectlive/src/lib/session-files.server.ts`. Static code review also
 confirmed the 5 GiB cumulative session limit, repeated authority checks, bounded
 stream upload and post-upload size checks in the file proxy/functions and
 admin/agent file routes. The 5 GiB session quota is an application check, not an

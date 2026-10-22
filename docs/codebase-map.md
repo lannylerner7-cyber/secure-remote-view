@@ -8,12 +8,12 @@ successful Windows builds, deployment health, or exhaustive security coverage.
 
 | Location | Purpose |
 | --- | --- |
-| `` | Main GitHub source plus local defensive edits |
-| `src/routes/_authenticated/console.tsx` | Technician web console at `/console` |
-| `src/routes/_authenticated/payments.tsx` | Separate payments console at `/payments` |
-| `admin/` | Windows technician Admin source |
-| `agent/` | Windows Agent and repository Watch source |
-| `supabase/migrations/` | Existing database migration source; not applied here |
+| `imports/connectlive/` | Main GitHub source plus local defensive edits |
+| `imports/connectlive/src/routes/_authenticated/console.tsx` | Technician web console at `/console` |
+| `imports/connectlive/src/routes/_authenticated/payments.tsx` | Separate payments console at `/payments` |
+| `imports/connectlive/admin/` | Windows technician Admin source |
+| `imports/connectlive/agent/` | Windows Agent and repository Watch source |
+| `imports/connectlive/supabase/migrations/` | Existing database migration source; not applied here |
 | `imports/client-archives/agent/` | Extracted Agent builder ZIP, unchanged reference |
 | `imports/client-archives/admin/` | Extracted Admin builder ZIP, unchanged reference |
 | `docs/` | Review evidence, configuration and access-policy documentation |

@@ -2658,7 +2658,7 @@
       "reviewers": []
     },
     {
-      "path": ".dockerignore",
+      "path": "imports/connectlive/.dockerignore",
       "bytes": 269,
       "sha256": "dd77221d62934e3ff1cbe600a54bdcdb7588ef413c878456c77b9027ef7e50ee",
       "status": "reviewed",
@@ -2672,7 +2672,7 @@
       ]
     },
     {
-      "path": ".env.sample",
+      "path": "imports/connectlive/.env.sample",
       "bytes": 1385,
       "sha256": "bae47a1c5360fddb13ef2e506448412dd46e3c4e9fbcd1476ba7eb3732f90a50",
       "status": "automatically_checked",
@@ -2686,7 +2686,7 @@
       ]
     },
     {
-      "path": ".gitignore",
+      "path": "imports/connectlive/.gitignore",
       "bytes": 506,
       "sha256": "e02ac545d49716e838bceec7c992b70d25813e71770766ef52e465c2e5f1686d",
       "status": "reviewed",
@@ -2700,7 +2700,7 @@
       ]
     },
     {
-      "path": ".lovable/plan/android-agent-close-the-gaps-before-writing-the-apk-2026-10-05.md",
+      "path": "imports/connectlive/.lovable/plan/android-agent-close-the-gaps-before-writing-the-apk-2026-10-05.md",
       "bytes": 5038,
       "sha256": "3f793bb4c3da40f0542f4959e847d46ebcb64b172597feb32572ac42a3a22191",
       "status": "automatically_checked",
@@ -2708,7 +2708,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/brain-engine-upgrade-rdp-class-streaming-behaviour-2026-09-03.md",
+      "path": "imports/connectlive/.lovable/plan/brain-engine-upgrade-rdp-class-streaming-behaviour-2026-09-03.md",
       "bytes": 5239,
       "sha256": "6fc65614cf9ef7e8b64061c1e62089c15f964eddbd1c96a2ba85352805087849",
       "status": "automatically_checked",
@@ -2716,7 +2716,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/built-in-smtp-configuration-no-reliance-on-the-payments-cons-2026-08-07.md",
+      "path": "imports/connectlive/.lovable/plan/built-in-smtp-configuration-no-reliance-on-the-payments-cons-2026-08-07.md",
       "bytes": 2835,
       "sha256": "36bde45e967f606870e818ef9da66e0c7ac74bde116404514750f500a0f061cb",
       "status": "automatically_checked",
@@ -2724,7 +2724,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/detect-agent-killed-and-agent-never-installed-2026-09-09.md",
+      "path": "imports/connectlive/.lovable/plan/detect-agent-killed-and-agent-never-installed-2026-09-09.md",
       "bytes": 5999,
       "sha256": "80d036d6e811ff1a6cb210895f1e1ebbbeeb7fd4b69bd83f48db7a3017337954",
       "status": "automatically_checked",
@@ -2732,7 +2732,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/homepage-youtube-setup-guide-embed-2026-08-06.md",
+      "path": "imports/connectlive/.lovable/plan/homepage-youtube-setup-guide-embed-2026-08-06.md",
       "bytes": 1144,
       "sha256": "fe010fe1fc2f8652959357cddf6b251b096701e8601ef19617d29c7e9b529ab5",
       "status": "automatically_checked",
@@ -2740,7 +2740,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/native-admin-console-dead-buttons-badly-fitted-live-video-2026-08-05.md",
+      "path": "imports/connectlive/.lovable/plan/native-admin-console-dead-buttons-badly-fitted-live-video-2026-08-05.md",
       "bytes": 4585,
       "sha256": "3f6845484ff7331f4bad77a966c261d574c8a5731e3ec07a000832209ccb172d",
       "status": "automatically_checked",
@@ -2748,7 +2748,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/native-admin-token-curtain-fix-verification-result-2026-08-06.md",
+      "path": "imports/connectlive/.lovable/plan/native-admin-token-curtain-fix-verification-result-2026-08-06.md",
       "bytes": 3375,
       "sha256": "418cf47744c535240eb9e21800ce5cbd76e01175dc9f7886e386115b8d2d76f6",
       "status": "automatically_checked",
@@ -2756,7 +2756,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/newsletter-welcome-emails-not-arriving-2026-08-07.md",
+      "path": "imports/connectlive/.lovable/plan/newsletter-welcome-emails-not-arriving-2026-08-07.md",
       "bytes": 2627,
       "sha256": "775adfbd4f3a1efa600b69216b4e16c216eec3294afc6484b7612ebe35b32e35",
       "status": "automatically_checked",
@@ -2764,7 +2764,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/re-cut-the-admin-console-source-zip-2026-08-03.md",
+      "path": "imports/connectlive/.lovable/plan/re-cut-the-admin-console-source-zip-2026-08-03.md",
       "bytes": 1517,
       "sha256": "f02d13d5ef2ed11d652c60156c0185188f84c4ad3605ffae04f648cf77da6749",
       "status": "automatically_checked",
@@ -2772,7 +2772,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/repair-and-independently-verify-all-four-windows-release-arc-2026-08-05.md",
+      "path": "imports/connectlive/.lovable/plan/repair-and-independently-verify-all-four-windows-release-arc-2026-08-05.md",
       "bytes": 5062,
       "sha256": "6e1d79b2a4126bc12cccda396d1f4e6284e7925c85c443c0cb1439099b2e5fd0",
       "status": "automatically_checked",
@@ -2780,7 +2780,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/s17-step-2-hardware-h-264-encode-decode-path-2026-08-04.md",
+      "path": "imports/connectlive/.lovable/plan/s17-step-2-hardware-h-264-encode-decode-path-2026-08-04.md",
       "bytes": 9434,
       "sha256": "eb3abec5f9e833125545d906e60c6ac32f272cafcbe3f594b6e29a9f1d4d8291",
       "status": "automatically_checked",
@@ -2788,7 +2788,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/verification-pass-recent-updates-confirmed-2026-08-05.md",
+      "path": "imports/connectlive/.lovable/plan/verification-pass-recent-updates-confirmed-2026-08-05.md",
       "bytes": 2498,
       "sha256": "26f053d2f0cbf03605f127bc86fc1e137631f7ad278fb0af8e3e6aa167997a3a",
       "status": "automatically_checked",
@@ -2796,7 +2796,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/what-s-still-missing-and-closing-the-installer-gap-2026-08-03.md",
+      "path": "imports/connectlive/.lovable/plan/what-s-still-missing-and-closing-the-installer-gap-2026-08-03.md",
       "bytes": 9192,
       "sha256": "53c04a90a1d3854068349e8277789da9f814113f391d405f5b15bb8525985f21",
       "status": "automatically_checked",
@@ -2804,7 +2804,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/plan/why-live-video-never-really-starts-and-what-4k-grade-actuall-2026-08-04.md",
+      "path": "imports/connectlive/.lovable/plan/why-live-video-never-really-starts-and-what-4k-grade-actuall-2026-08-04.md",
       "bytes": 6488,
       "sha256": "769d210e6c19d7a4783af63eaddf5aa8c2234698bf33c8d12ac42cf0a0a80a67",
       "status": "automatically_checked",
@@ -2812,7 +2812,7 @@
       "reviewers": []
     },
     {
-      "path": ".lovable/project.json",
+      "path": "imports/connectlive/.lovable/project.json",
       "bytes": 124,
       "sha256": "606aa4f4267e1ddb3117b684e0e24ff65747d87d3e0b9c92511578d264267c93",
       "status": "automatically_checked",
@@ -2820,7 +2820,7 @@
       "reviewers": []
     },
     {
-      "path": ".prettierignore",
+      "path": "imports/connectlive/.prettierignore",
       "bytes": 92,
       "sha256": "52c7c767ff0615eec4eb64cc71265877f7f423eb597d665b5e439f337c661a5a",
       "status": "automatically_checked",
@@ -2834,7 +2834,7 @@
       ]
     },
     {
-      "path": ".prettierrc",
+      "path": "imports/connectlive/.prettierrc",
       "bytes": 90,
       "sha256": "1ed88d3b99eced8dc3b6f58f26645466dd1ceaca6c5a9b818531c941ac28e55b",
       "status": "automatically_checked",
@@ -2848,7 +2848,7 @@
       ]
     },
     {
-      "path": "AGENTS.md",
+      "path": "imports/connectlive/AGENTS.md",
       "bytes": 1027,
       "sha256": "38638c3717088f3778e01973d8e51618462b91b20ef5956f4a5b94fe64c8f462",
       "status": "automatically_checked",
@@ -2862,7 +2862,7 @@
       ]
     },
     {
-      "path": "COOLIFY.md",
+      "path": "imports/connectlive/COOLIFY.md",
       "bytes": 3451,
       "sha256": "37933b167c60022cb1d236e60d9c4e0aa94469ee4c96407315bccfe8ded205ce",
       "status": "automatically_checked",
@@ -2876,7 +2876,7 @@
       ]
     },
     {
-      "path": "Dockerfile",
+      "path": "imports/connectlive/Dockerfile",
       "bytes": 1693,
       "sha256": "49553cdfdc080efd44291038c6b4c0b7385664f32f7826bb4876ddbb0ff5278d",
       "status": "reviewed",
@@ -2890,7 +2890,7 @@
       ]
     },
     {
-      "path": "ENDPOINTS.md",
+      "path": "imports/connectlive/ENDPOINTS.md",
       "bytes": 8430,
       "sha256": "7bcf04870f838cdd6913a9acb280af506d4a94f99fb2f4202c95bf589ab0cb6c",
       "status": "automatically_checked",
@@ -2904,7 +2904,7 @@
       ]
     },
     {
-      "path": "PROJECT-MAP.md",
+      "path": "imports/connectlive/PROJECT-MAP.md",
       "bytes": 180689,
       "sha256": "058d46c87c14aac99456852f6c2a7cdde8cf83bae1c342345dc00065e354d1f4",
       "status": "automatically_checked",
@@ -2918,7 +2918,7 @@
       ]
     },
     {
-      "path": "README.md",
+      "path": "imports/connectlive/README.md",
       "bytes": 20025,
       "sha256": "a331508a8df95cf9bde6f4bbea6a2f0832e55618055468ef3dd09c65d4e4e7a8",
       "status": "automatically_checked",
@@ -2932,7 +2932,7 @@
       ]
     },
     {
-      "path": "RELEASE-CHECKLIST.md",
+      "path": "imports/connectlive/RELEASE-CHECKLIST.md",
       "bytes": 5271,
       "sha256": "286e70e3a3e5331349d26b2ed139c92a9d72454f549564b066bae0573fff9411",
       "status": "automatically_checked",
@@ -2946,7 +2946,7 @@
       ]
     },
     {
-      "path": "admin/INSTALL.md",
+      "path": "imports/connectlive/admin/INSTALL.md",
       "bytes": 2832,
       "sha256": "9fba81f6508814a206d6f24643e89807bcaa8342a9a9ff9d9a3ff94e3702de91",
       "status": "reviewed",
@@ -2960,7 +2960,7 @@
       ]
     },
     {
-      "path": "admin/Native-Video-Engine-B.md",
+      "path": "imports/connectlive/admin/Native-Video-Engine-B.md",
       "bytes": 5869,
       "sha256": "faab57c7e4995e9a692763b07d81085f0b450beb69ddeab24846e8aab87f7e44",
       "status": "reviewed",
@@ -2974,7 +2974,7 @@
       ]
     },
     {
-      "path": "admin/README.md",
+      "path": "imports/connectlive/admin/README.md",
       "bytes": 1693,
       "sha256": "223c295f7e386eaf8a6f99c614fe994194ad97afbe904fd5224b7c912223fef8",
       "status": "reviewed",
@@ -2988,7 +2988,7 @@
       ]
     },
     {
-      "path": "admin/assets/README.md",
+      "path": "imports/connectlive/admin/assets/README.md",
       "bytes": 836,
       "sha256": "4e8134ba47c9c603a5a69f34d79ebbb95df9ee2cf0674119f4004306049b4c07",
       "status": "reviewed",
@@ -3002,7 +3002,7 @@
       ]
     },
     {
-      "path": "admin/assets/icon.ico",
+      "path": "imports/connectlive/admin/assets/icon.ico",
       "bytes": 41804,
       "sha256": "391f225736da2a4d70b86ebaebdb7731a0aa4a245f7b46ff108f3f90850b0042",
       "status": "automatically_checked",
@@ -3016,7 +3016,7 @@
       ]
     },
     {
-      "path": "admin/build.ps1",
+      "path": "imports/connectlive/admin/build.ps1",
       "bytes": 4352,
       "sha256": "f9e5ba86bd64edc2ac7c41572dc50ef9786ff4ec7cfb4202e56f5cd75d37adf0",
       "status": "reviewed",
@@ -3035,7 +3035,7 @@
       ]
     },
     {
-      "path": "admin/spikes/d3d-present/D3DPresentSpike.csproj",
+      "path": "imports/connectlive/admin/spikes/d3d-present/D3DPresentSpike.csproj",
       "bytes": 924,
       "sha256": "61318855c674e1d571978d8127387b8399b855fa9985452fdd8fb61821a48df5",
       "status": "reviewed",
@@ -3049,7 +3049,7 @@
       ]
     },
     {
-      "path": "admin/spikes/d3d-present/SpikeWindow.cs",
+      "path": "imports/connectlive/admin/spikes/d3d-present/SpikeWindow.cs",
       "bytes": 10851,
       "sha256": "0d01fbe635d5f8d1d625a6c1f879b3586f35d8eec9bc6a42292351857fb65860",
       "status": "reviewed",
@@ -3063,7 +3063,7 @@
       ]
     },
     {
-      "path": "admin/spikes/d3d-present/bin/**",
+      "path": "imports/connectlive/admin/spikes/d3d-present/bin/**",
       "status": "excluded",
       "reason": "Generated spike binaries/framework dependencies; harness not executed.",
       "reviewers": [
@@ -3075,7 +3075,7 @@
       ]
     },
     {
-      "path": "admin/spikes/d3d-present/obj/**",
+      "path": "imports/connectlive/admin/spikes/d3d-present/obj/**",
       "status": "excluded",
       "reason": "Generated spike compiler/NuGet intermediates; harness not built.",
       "reviewers": [
@@ -3087,7 +3087,7 @@
       ]
     },
     {
-      "path": "admin/spikes/vp8-decode/Program.cs",
+      "path": "imports/connectlive/admin/spikes/vp8-decode/Program.cs",
       "bytes": 9622,
       "sha256": "7f2a91604ed823071be655eb40e109b9416490ce018cf172854677c9686c3cbd",
       "status": "reviewed",
@@ -3101,7 +3101,7 @@
       ]
     },
     {
-      "path": "admin/spikes/vp8-decode/Vp8DecodeSpike.csproj",
+      "path": "imports/connectlive/admin/spikes/vp8-decode/Vp8DecodeSpike.csproj",
       "bytes": 975,
       "sha256": "24d73b27e7bd37d6bb438bcc6d553980faeb60a5ac705559ac88ecbf175252e8",
       "status": "reviewed",
@@ -3115,7 +3115,7 @@
       ]
     },
     {
-      "path": "admin/spikes/vp8-decode/bin/**",
+      "path": "imports/connectlive/admin/spikes/vp8-decode/bin/**",
       "status": "excluded",
       "reason": "Generated spike binaries/framework dependencies; harness not executed.",
       "reviewers": [
@@ -3127,7 +3127,7 @@
       ]
     },
     {
-      "path": "admin/spikes/vp8-decode/obj/**",
+      "path": "imports/connectlive/admin/spikes/vp8-decode/obj/**",
       "status": "excluded",
       "reason": "Generated spike compiler/NuGet intermediates; harness not built.",
       "reviewers": [
@@ -3139,7 +3139,7 @@
       ]
     },
     {
-      "path": "admin/src/Api/ApiClient.cs",
+      "path": "imports/connectlive/admin/src/Api/ApiClient.cs",
       "bytes": 47319,
       "sha256": "c9077ebb473b6dc74a5aeb6bd99e107cc5b16288caff8fb5fbf706753e317f55",
       "status": "reviewed",
@@ -3158,7 +3158,7 @@
       ]
     },
     {
-      "path": "admin/src/Api/AppConfig.cs",
+      "path": "imports/connectlive/admin/src/Api/AppConfig.cs",
       "bytes": 2023,
       "sha256": "53957c8ee8b3eed19d79fa7f73b5342b62007dfeb39298c07ba3b64f8a0aba47",
       "status": "reviewed",
@@ -3177,7 +3177,7 @@
       ]
     },
     {
-      "path": "admin/src/Api/AuthStore.cs",
+      "path": "imports/connectlive/admin/src/Api/AuthStore.cs",
       "bytes": 2119,
       "sha256": "b1a97a1ea2a601adc58a06aac2dbd8cbf50ef7271f0a8ca11279482ef579a76d",
       "status": "reviewed",
@@ -3191,7 +3191,7 @@
       ]
     },
     {
-      "path": "admin/src/Api/ClientIdStore.cs",
+      "path": "imports/connectlive/admin/src/Api/ClientIdStore.cs",
       "bytes": 1471,
       "sha256": "d2b686ba930a167e070245c0eb30d7a4a1a0c49b5a02f1f5b64739099bbef57e",
       "status": "reviewed",
@@ -3205,7 +3205,7 @@
       ]
     },
     {
-      "path": "admin/src/Api/Models.cs",
+      "path": "imports/connectlive/admin/src/Api/Models.cs",
       "bytes": 4382,
       "sha256": "912a3afdcc7fc6234c65642c36bd5ffe5844d4b05ac9710f446e2f26bb46cd29",
       "status": "reviewed",
@@ -3219,7 +3219,7 @@
       ]
     },
     {
-      "path": "admin/src/Api/SupabaseCallException.cs",
+      "path": "imports/connectlive/admin/src/Api/SupabaseCallException.cs",
       "bytes": 1325,
       "sha256": "092b982576b74531740dfaff31a9422ed46aeeeb0e71f5d8a2abc85cf427cfbe",
       "status": "reviewed",
@@ -3233,7 +3233,7 @@
       ]
     },
     {
-      "path": "admin/src/App.xaml",
+      "path": "imports/connectlive/admin/src/App.xaml",
       "bytes": 2755,
       "sha256": "858634c686a2352b922121219bcf086998d7e9540bbd4bc0d7447b2947dcc96f",
       "status": "reviewed",
@@ -3247,7 +3247,7 @@
       ]
     },
     {
-      "path": "admin/src/App.xaml.cs",
+      "path": "imports/connectlive/admin/src/App.xaml.cs",
       "bytes": 6491,
       "sha256": "fa04c171c0f501d4f40b62c27003c94c24c364cf19c0a1fa1a95ce846fef2247",
       "status": "reviewed",
@@ -3261,7 +3261,7 @@
       ]
     },
     {
-      "path": "admin/src/ConnectLiveAdmin.csproj",
+      "path": "imports/connectlive/admin/src/ConnectLiveAdmin.csproj",
       "bytes": 2224,
       "sha256": "3c6763d519561e4cd2fa2d2a20b21c990ae86ec667cda61fc8604b047aee4540",
       "status": "reviewed",
@@ -3275,7 +3275,7 @@
       ]
     },
     {
-      "path": "admin/src/ConnectLiveAdmin_4aqegr20_wpftmp.csproj",
+      "path": "imports/connectlive/admin/src/ConnectLiveAdmin_4aqegr20_wpftmp.csproj",
       "bytes": 45309,
       "sha256": "3fbee59d433710b51c13211e3b9eae8fc52312a4bf4122c4fe893f4901d83390",
       "status": "automatically_checked",
@@ -3289,7 +3289,7 @@
       ]
     },
     {
-      "path": "admin/src/ConnectLiveAdmin_aifv2k4d_wpftmp.csproj",
+      "path": "imports/connectlive/admin/src/ConnectLiveAdmin_aifv2k4d_wpftmp.csproj",
       "bytes": 45309,
       "sha256": "3fbee59d433710b51c13211e3b9eae8fc52312a4bf4122c4fe893f4901d83390",
       "status": "automatically_checked",
@@ -3303,7 +3303,7 @@
       ]
     },
     {
-      "path": "admin/src/Converters/BooleanConverters.cs",
+      "path": "imports/connectlive/admin/src/Converters/BooleanConverters.cs",
       "bytes": 1181,
       "sha256": "342ebf1782216cf38d95d76ee61338aec484da7b465fad808d2f015a4e147e2f",
       "status": "reviewed",
@@ -3317,7 +3317,7 @@
       ]
     },
     {
-      "path": "admin/src/Diag/Log.cs",
+      "path": "imports/connectlive/admin/src/Diag/Log.cs",
       "bytes": 2015,
       "sha256": "632fa0273b9aa8f48393185abb69f339d0774bd65f09487d359fe81b3ac8e202",
       "status": "reviewed",
@@ -3331,7 +3331,7 @@
       ]
     },
     {
-      "path": "admin/src/Input/InputCoalescer.cs",
+      "path": "imports/connectlive/admin/src/Input/InputCoalescer.cs",
       "bytes": 2979,
       "sha256": "cadef4f379cb3901081588c4ed1166ae36060d078a375561079e3b69c526a2bb",
       "status": "reviewed",
@@ -3345,7 +3345,7 @@
       ]
     },
     {
-      "path": "admin/src/Input/InputTransport.cs",
+      "path": "imports/connectlive/admin/src/Input/InputTransport.cs",
       "bytes": 5611,
       "sha256": "60d46b5967e0f515b441d0e36ecc5bc1b942ce4c86fb65a2eedcf32cbc31eb82",
       "status": "reviewed",
@@ -3359,7 +3359,7 @@
       ]
     },
     {
-      "path": "admin/src/Input/KeyboardInjector.cs",
+      "path": "imports/connectlive/admin/src/Input/KeyboardInjector.cs",
       "bytes": 1418,
       "sha256": "00c63f1d12de4dd482e3659847a4e54529208ffa3c17fa479c934b773aa75946",
       "status": "reviewed",
@@ -3373,7 +3373,7 @@
       ]
     },
     {
-      "path": "admin/src/Input/MouseInjector.cs",
+      "path": "imports/connectlive/admin/src/Input/MouseInjector.cs",
       "bytes": 2914,
       "sha256": "337a877a3ed549f8c2401ea99a861de9e394f8bcc92d41c28c800f1877674346",
       "status": "reviewed",
@@ -3387,7 +3387,7 @@
       ]
     },
     {
-      "path": "admin/src/Input/PointerCapture.cs",
+      "path": "imports/connectlive/admin/src/Input/PointerCapture.cs",
       "bytes": 3532,
       "sha256": "e0d964540313dd542d15047216862edde0ad6fb24c6077258af8ff5311ceb70c",
       "status": "reviewed",
@@ -3401,7 +3401,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/ClipboardTransport.cs",
+      "path": "imports/connectlive/admin/src/Media/ClipboardTransport.cs",
       "bytes": 5042,
       "sha256": "5e40100bbc25459e6fba17771c9673559c21901e388ddb562c00117128037710",
       "status": "reviewed",
@@ -3415,7 +3415,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/ContentRect.cs",
+      "path": "imports/connectlive/admin/src/Media/ContentRect.cs",
       "bytes": 3834,
       "sha256": "b78bd365c1c8368eaf1d9afab25c796deb6cefca871e5e620bca55dd362eec98",
       "status": "reviewed",
@@ -3429,7 +3429,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/CursorPollPump.cs",
+      "path": "imports/connectlive/admin/src/Media/CursorPollPump.cs",
       "bytes": 2400,
       "sha256": "c8fc03bd356dfe74ca6aa87a1f4f122d36581c89a262e3b89b1a073753c3fcef",
       "status": "reviewed",
@@ -3443,7 +3443,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/D3D9Ex.cs",
+      "path": "imports/connectlive/admin/src/Media/D3D9Ex.cs",
       "bytes": 5576,
       "sha256": "df97f1b31b14b805baf8f70f589326cbf1b093b093846fa8b81244b40def4e3c",
       "status": "reviewed",
@@ -3457,7 +3457,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/D3DImageHost.cs",
+      "path": "imports/connectlive/admin/src/Media/D3DImageHost.cs",
       "bytes": 17298,
       "sha256": "6e1780868013c167ed08a5b1047d5a587072932cd9aff984d48d3bfcf95efde3",
       "status": "reviewed",
@@ -3471,7 +3471,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/FileTransport.cs",
+      "path": "imports/connectlive/admin/src/Media/FileTransport.cs",
       "bytes": 10571,
       "sha256": "37e3909db280f5b81f622e28da4ec50b133596f5f28c1537dbaf6693172eb96a",
       "status": "reviewed",
@@ -3485,7 +3485,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/FrameConvert.cs",
+      "path": "imports/connectlive/admin/src/Media/FrameConvert.cs",
       "bytes": 8114,
       "sha256": "599ee12a67cea8b7a4a88126e078a515640e510861b42640aecb38d536cba8d0",
       "status": "reviewed",
@@ -3499,7 +3499,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/FrameFallbackPump.cs",
+      "path": "imports/connectlive/admin/src/Media/FrameFallbackPump.cs",
       "bytes": 5357,
       "sha256": "80480f75312f668e78d83d006573d50afcb0d872a82b1257dea58fe5c639e58d",
       "status": "reviewed",
@@ -3513,7 +3513,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/H264Decoder.cs",
+      "path": "imports/connectlive/admin/src/Media/H264Decoder.cs",
       "bytes": 18633,
       "sha256": "e8b69cc6cbc8dc91919f41aa8b1b1f5dbf6d676b5506f2ffbe6d8a08937c7f10",
       "status": "reviewed",
@@ -3527,7 +3527,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/IvfWriter.cs",
+      "path": "imports/connectlive/admin/src/Media/IvfWriter.cs",
       "bytes": 5658,
       "sha256": "c55657a0d534666291a74e6a27ebd9a87a3baa45f2a371532e0d22929b057483",
       "status": "reviewed",
@@ -3541,7 +3541,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/MediaFoundationInterop.cs",
+      "path": "imports/connectlive/admin/src/Media/MediaFoundationInterop.cs",
       "bytes": 25127,
       "sha256": "099923b6147a92ec98d787f4dd4677420f8df908a4e8938a5fda5d7edfae0636",
       "status": "reviewed",
@@ -3555,7 +3555,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/PredictiveCursor.cs",
+      "path": "imports/connectlive/admin/src/Media/PredictiveCursor.cs",
       "bytes": 8756,
       "sha256": "eb4727f62c3280d2594411f248fbafdb1e7cb2db32b3a931f3c8f6986ccc0602",
       "status": "reviewed",
@@ -3569,7 +3569,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/PresentPacer.cs",
+      "path": "imports/connectlive/admin/src/Media/PresentPacer.cs",
       "bytes": 8388,
       "sha256": "5d3e07d6e585af1e18fcb0583d4eee76fe2daadeb56b43ca135bebd362dc476b",
       "status": "reviewed",
@@ -3583,7 +3583,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/RealtimeChannel.cs",
+      "path": "imports/connectlive/admin/src/Media/RealtimeChannel.cs",
       "bytes": 18091,
       "sha256": "b08bcdace3af40382396f63c23d2aa7ba7773ead89f77d0d60851eaeb8ea4b08",
       "status": "reviewed",
@@ -3597,7 +3597,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/VideoPipeline.cs",
+      "path": "imports/connectlive/admin/src/Media/VideoPipeline.cs",
       "bytes": 25731,
       "sha256": "d8cdf15c5e856791bb86142f59fcce1c418d2bebfbd2af2a51abffff1e0ba044",
       "status": "reviewed",
@@ -3611,7 +3611,7 @@
       ]
     },
     {
-      "path": "admin/src/Media/WebRtcClient.cs",
+      "path": "imports/connectlive/admin/src/Media/WebRtcClient.cs",
       "bytes": 30968,
       "sha256": "80d0ab21f0345444141be8161b39311a40acac63b51ae40e83b99b33f9aeb293",
       "status": "reviewed",
@@ -3625,7 +3625,7 @@
       ]
     },
     {
-      "path": "admin/src/Ui/AppIcon.cs",
+      "path": "imports/connectlive/admin/src/Ui/AppIcon.cs",
       "bytes": 1372,
       "sha256": "251a3125ae0247933591e52c5d6c49e946d9cddbd2df3db1b944975305b6bb39",
       "status": "reviewed",
@@ -3639,7 +3639,7 @@
       ]
     },
     {
-      "path": "admin/src/ViewModels/Converters.cs",
+      "path": "imports/connectlive/admin/src/ViewModels/Converters.cs",
       "bytes": 995,
       "sha256": "dff13372db173e00c2b96745ae5ff2357fadac6d01cab5f5608d7ab5f91eb79a",
       "status": "reviewed",
@@ -3653,7 +3653,7 @@
       ]
     },
     {
-      "path": "admin/src/ViewModels/DevicesViewModel.cs",
+      "path": "imports/connectlive/admin/src/ViewModels/DevicesViewModel.cs",
       "bytes": 13713,
       "sha256": "2576fde0bc701d3f5bc50977e2b163423d77101196012f2fc526b2ef6cd087a8",
       "status": "reviewed",
@@ -3667,7 +3667,7 @@
       ]
     },
     {
-      "path": "admin/src/ViewModels/LiveSessionViewModel.cs",
+      "path": "imports/connectlive/admin/src/ViewModels/LiveSessionViewModel.cs",
       "bytes": 50039,
       "sha256": "5e5b7e969b8dd8595c98dc6d4826d5d8818cccac9f86c09c4165086e343a0000",
       "status": "reviewed",
@@ -3681,7 +3681,7 @@
       ]
     },
     {
-      "path": "admin/src/ViewModels/LoginViewModel.cs",
+      "path": "imports/connectlive/admin/src/ViewModels/LoginViewModel.cs",
       "bytes": 1644,
       "sha256": "1d691badf9c42d8c2edb33976e31ca52ed921c4768b001827778766d515b6467",
       "status": "reviewed",
@@ -3695,7 +3695,7 @@
       ]
     },
     {
-      "path": "admin/src/Views/LiveSessionWindow.xaml",
+      "path": "imports/connectlive/admin/src/Views/LiveSessionWindow.xaml",
       "bytes": 23252,
       "sha256": "131695efcf6cf76ee81585b4b11d19de741dc504f509bd445ebd6e9ebfd32652",
       "status": "reviewed",
@@ -3709,7 +3709,7 @@
       ]
     },
     {
-      "path": "admin/src/Views/LiveSessionWindow.xaml.cs",
+      "path": "imports/connectlive/admin/src/Views/LiveSessionWindow.xaml.cs",
       "bytes": 21979,
       "sha256": "fad4344b40d480597990a99d205e8243191e8472d9243ad6cffd29e7317ca7d5",
       "status": "reviewed",
@@ -3723,7 +3723,7 @@
       ]
     },
     {
-      "path": "admin/src/Views/LoginWindow.xaml",
+      "path": "imports/connectlive/admin/src/Views/LoginWindow.xaml",
       "bytes": 2238,
       "sha256": "69668c771ccc842624ebca06986e0d4560bdad0fb7d88d83d218b640061e9543",
       "status": "reviewed",
@@ -3737,7 +3737,7 @@
       ]
     },
     {
-      "path": "admin/src/Views/LoginWindow.xaml.cs",
+      "path": "imports/connectlive/admin/src/Views/LoginWindow.xaml.cs",
       "bytes": 430,
       "sha256": "55ee7dcbb546fb7285317e34465b940d71ae856f5e9933e207a1594162c52836",
       "status": "reviewed",
@@ -3751,7 +3751,7 @@
       ]
     },
     {
-      "path": "admin/src/Views/MainWindow.xaml",
+      "path": "imports/connectlive/admin/src/Views/MainWindow.xaml",
       "bytes": 5106,
       "sha256": "41f128b63c333ba8da15f62641139071c649c841740ca13d823142a112219fcd",
       "status": "reviewed",
@@ -3765,7 +3765,7 @@
       ]
     },
     {
-      "path": "admin/src/Views/MainWindow.xaml.cs",
+      "path": "imports/connectlive/admin/src/Views/MainWindow.xaml.cs",
       "bytes": 901,
       "sha256": "741b1f211be63b6297add4314be8f4dacd11f7fed90d1120fcbfa3d8694e191a",
       "status": "reviewed",
@@ -3779,7 +3779,7 @@
       ]
     },
     {
-      "path": "admin/src/admin.config.json",
+      "path": "imports/connectlive/admin/src/admin.config.json",
       "bytes": 94,
       "sha256": "35759f02cdb47e51309916c6bcca10539751d18d311f7715989326ae73bcb110",
       "status": "reviewed",
@@ -3798,7 +3798,7 @@
       ]
     },
     {
-      "path": "admin/src/app.manifest",
+      "path": "imports/connectlive/admin/src/app.manifest",
       "bytes": 1196,
       "sha256": "62c190d3f3aed38a6e6c52399e8f6e4119713f9cf5930473a505f4e044211f25",
       "status": "reviewed",
@@ -3812,7 +3812,7 @@
       ]
     },
     {
-      "path": "admin/src/bin/**",
+      "path": "imports/connectlive/admin/src/bin/**",
       "status": "excluded",
       "reason": "Generated compiled outputs/framework/third-party binary dependencies; no reverse engineering, execution or source-to-binary equivalence validation.",
       "reviewers": [
@@ -3824,7 +3824,7 @@
       ]
     },
     {
-      "path": "admin/src/obj/**",
+      "path": "imports/connectlive/admin/src/obj/**",
       "status": "excluded",
       "reason": "Generated NuGet/WPF/compiler intermediates; not first-party hand-maintained source; not used as runtime/provenance evidence.",
       "reviewers": [
@@ -3836,7 +3836,7 @@
       ]
     },
     {
-      "path": "agent/INSTALL.md",
+      "path": "imports/connectlive/agent/INSTALL.md",
       "bytes": 11305,
       "sha256": "ae2af46240b44bbc13d7d06ae722ff764e701ab4680dafe0f78606ebc9c007ee",
       "status": "reviewed",
@@ -3850,7 +3850,7 @@
       ]
     },
     {
-      "path": "agent/README.md",
+      "path": "imports/connectlive/agent/README.md",
       "bytes": 3924,
       "sha256": "eddb5d3891c2be73e35f48ae6be425017970ae7ae613c95fc2f13d3a7d19dcd7",
       "status": "reviewed",
@@ -3864,7 +3864,7 @@
       ]
     },
     {
-      "path": "agent/assets/icon.ico",
+      "path": "imports/connectlive/agent/assets/icon.ico",
       "bytes": 41804,
       "sha256": "391f225736da2a4d70b86ebaebdb7731a0aa4a245f7b46ff108f3f90850b0042",
       "status": "automatically_checked",
@@ -3878,7 +3878,7 @@
       ]
     },
     {
-      "path": "agent/assets/logo.svg",
+      "path": "imports/connectlive/agent/assets/logo.svg",
       "bytes": 328,
       "sha256": "6bbb8714355cef9fb9498f1bb1cbda81b5e44b77b2c2d86b0724fc078286097c",
       "status": "reviewed",
@@ -3892,7 +3892,7 @@
       ]
     },
     {
-      "path": "agent/build-developer.ps1",
+      "path": "imports/connectlive/agent/build-developer.ps1",
       "bytes": 2108,
       "sha256": "357956216e10da44a123dff962e30659232963ff703544857daa469ddeaf07ae",
       "status": "reviewed",
@@ -3906,7 +3906,7 @@
       ]
     },
     {
-      "path": "agent/build.ps1",
+      "path": "imports/connectlive/agent/build.ps1",
       "bytes": 10870,
       "sha256": "e1459fa2a773853f9a79cbdff4ae9ba80f8e880786e4e8be269f80cd3c184647",
       "status": "reviewed",
@@ -3925,7 +3925,7 @@
       ]
     },
     {
-      "path": "agent/packaging/gpo/README.md",
+      "path": "imports/connectlive/agent/packaging/gpo/README.md",
       "bytes": 1461,
       "sha256": "0cfd2425f2ff197a684d2c5375148f5e49481f153429b0bcd4bdde0a5dae4b69",
       "status": "reviewed",
@@ -3939,7 +3939,7 @@
       ]
     },
     {
-      "path": "agent/packaging/gpo/install-gpo.ps1",
+      "path": "imports/connectlive/agent/packaging/gpo/install-gpo.ps1",
       "bytes": 1186,
       "sha256": "0027b5e39e5addbbfe90f55d8cb5836b3a5e627f2a997f76752a6970eb4c0b4c",
       "status": "reviewed",
@@ -3953,7 +3953,7 @@
       ]
     },
     {
-      "path": "agent/packaging/inno/ConnectLiveAgentTask.xml",
+      "path": "imports/connectlive/agent/packaging/inno/ConnectLiveAgentTask.xml",
       "bytes": 2997,
       "sha256": "c62a27837d8cf641e7207ba186730ed0bcc3feb7479d464d5592f5378b54f768",
       "status": "reviewed",
@@ -3967,7 +3967,7 @@
       ]
     },
     {
-      "path": "agent/packaging/inno/ConnectLiveSetup.iss",
+      "path": "imports/connectlive/agent/packaging/inno/ConnectLiveSetup.iss",
       "bytes": 10496,
       "sha256": "cdf726196e11ac02d9940a8e042a9d50ce351a531ffd727302419187c3b4ed8d",
       "status": "reviewed",
@@ -3981,7 +3981,7 @@
       ]
     },
     {
-      "path": "agent/packaging/inno/README.md",
+      "path": "imports/connectlive/agent/packaging/inno/README.md",
       "bytes": 2506,
       "sha256": "757735722b05fd94b02b46fe98e2b64baa6ec39bf39dd839681047bc7bcbfb08",
       "status": "reviewed",
@@ -3995,7 +3995,7 @@
       ]
     },
     {
-      "path": "agent/packaging/intune/README.md",
+      "path": "imports/connectlive/agent/packaging/intune/README.md",
       "bytes": 1590,
       "sha256": "9dce12e5aae6db7fd5542b1186b150c842f4e176fc04dd7e65763b686bb2c126",
       "status": "reviewed",
@@ -4009,7 +4009,7 @@
       ]
     },
     {
-      "path": "agent/packaging/intune/intune-app.json",
+      "path": "imports/connectlive/agent/packaging/intune/intune-app.json",
       "bytes": 1024,
       "sha256": "cf14cfeb8295ee8cdc08ca76784eabbf30c111f65e1d71e9dd7fae826341467d",
       "status": "reviewed",
@@ -4023,7 +4023,7 @@
       ]
     },
     {
-      "path": "agent/packaging/intune/wrap-intune.ps1",
+      "path": "imports/connectlive/agent/packaging/intune/wrap-intune.ps1",
       "bytes": 1344,
       "sha256": "945f66cf18f2910f5206d5cd5fe965a88049cd7dc2145350157d4cbaf183975e",
       "status": "reviewed",
@@ -4037,7 +4037,7 @@
       ]
     },
     {
-      "path": "agent/packaging/jamf/README.md",
+      "path": "imports/connectlive/agent/packaging/jamf/README.md",
       "bytes": 1554,
       "sha256": "e762ce764bf6594ae517c2678c369b147e5bbe753e196e07b4f2ea1c7789c5c7",
       "status": "reviewed",
@@ -4051,7 +4051,7 @@
       ]
     },
     {
-      "path": "agent/packaging/jamf/jamf-package-manifest.json",
+      "path": "imports/connectlive/agent/packaging/jamf/jamf-package-manifest.json",
       "bytes": 688,
       "sha256": "5efc4bdbd710f9e6f6bb5576682cda2693ee07163b4c0dff87efedd0c40b3504",
       "status": "reviewed",
@@ -4065,7 +4065,7 @@
       ]
     },
     {
-      "path": "agent/packaging/msi/ConnectLive.wxs",
+      "path": "imports/connectlive/agent/packaging/msi/ConnectLive.wxs",
       "bytes": 6271,
       "sha256": "53d3ee68c4b967cb6c77b7d1e0fefc42c70957b251b27e2d90552aa83ff893d9",
       "status": "reviewed",
@@ -4079,7 +4079,7 @@
       ]
     },
     {
-      "path": "agent/packaging/msi/build-msi.ps1",
+      "path": "imports/connectlive/agent/packaging/msi/build-msi.ps1",
       "bytes": 792,
       "sha256": "0977133544bf47af1b3183ce97c7af31d2f930444644d4283127ee31a5b1a276",
       "status": "reviewed",
@@ -4093,7 +4093,7 @@
       ]
     },
     {
-      "path": "agent/src/Agent.cs",
+      "path": "imports/connectlive/agent/src/Agent.cs",
       "bytes": 27644,
       "sha256": "48af93fcf3f95435d15300908d905c6bcd7508bfded66b51bceb8dd1aad3f515",
       "status": "reviewed",
@@ -4112,7 +4112,7 @@
       ]
     },
     {
-      "path": "agent/src/ApiClient.cs",
+      "path": "imports/connectlive/agent/src/ApiClient.cs",
       "bytes": 41191,
       "sha256": "083ad8fa80d468c28c5cd2181643744afe1f5df475e411e02ea8a45ca423530c",
       "status": "reviewed",
@@ -4131,7 +4131,7 @@
       ]
     },
     {
-      "path": "agent/src/App.xaml",
+      "path": "imports/connectlive/agent/src/App.xaml",
       "bytes": 1792,
       "sha256": "966e0ffb792b2b6f5b6c04a47b1ee34b32e3e7519bfd2e3b0818b9559bb77c2f",
       "status": "reviewed",
@@ -4145,7 +4145,7 @@
       ]
     },
     {
-      "path": "agent/src/App.xaml.cs",
+      "path": "imports/connectlive/agent/src/App.xaml.cs",
       "bytes": 11305,
       "sha256": "d7c35b9bf02839411e88c99fda018a6fd385683c9c3249d1c4880887adaf5b13",
       "status": "reviewed",
@@ -4159,7 +4159,7 @@
       ]
     },
     {
-      "path": "agent/src/AuthorizationGrant.cs",
+      "path": "imports/connectlive/agent/src/AuthorizationGrant.cs",
       "bytes": 2694,
       "sha256": "32226be96178b9ea0872cac722f1d60b9119068a5cd09c3990ed18d34ad1ded0",
       "status": "reviewed",
@@ -4173,7 +4173,7 @@
       ]
     },
     {
-      "path": "agent/src/AuthorizationPrompt.cs",
+      "path": "imports/connectlive/agent/src/AuthorizationPrompt.cs",
       "bytes": 2843,
       "sha256": "b267f8d15717441d6d5a65c88be8f0fe999f3e79601b98aefcbcbf618979f8ed",
       "status": "reviewed",
@@ -4187,7 +4187,7 @@
       ]
     },
     {
-      "path": "agent/src/BitrateController.cs",
+      "path": "imports/connectlive/agent/src/BitrateController.cs",
       "bytes": 11054,
       "sha256": "273be4083daab40258d328c1974e4cbbf31940b1e6cd9b588baad989f806daf9",
       "status": "reviewed",
@@ -4201,7 +4201,7 @@
       ]
     },
     {
-      "path": "agent/src/ClipboardRelay.cs",
+      "path": "imports/connectlive/agent/src/ClipboardRelay.cs",
       "bytes": 5262,
       "sha256": "314f8756daaaee6fd865d44c944e41b66ed803f5f7f1413ba533b9ffd95135c2",
       "status": "reviewed",
@@ -4215,7 +4215,7 @@
       ]
     },
     {
-      "path": "agent/src/CodecPolicy.cs",
+      "path": "imports/connectlive/agent/src/CodecPolicy.cs",
       "bytes": 5630,
       "sha256": "dc02b91219dd93e0eea46a049146cdd514b3ad882e29d002409be9690586a43f",
       "status": "reviewed",
@@ -4229,7 +4229,7 @@
       ]
     },
     {
-      "path": "agent/src/ConnectLiveAgent.csproj",
+      "path": "imports/connectlive/agent/src/ConnectLiveAgent.csproj",
       "bytes": 2052,
       "sha256": "00d307bbd9e7d41c163b0924c09be5ad52ed87cbadc19defb1905a50e09a7dd8",
       "status": "reviewed",
@@ -4243,7 +4243,7 @@
       ]
     },
     {
-      "path": "agent/src/CursorPump.cs",
+      "path": "imports/connectlive/agent/src/CursorPump.cs",
       "bytes": 7608,
       "sha256": "a40339e94efc2910467de81bebc5cb087ebbe68f2c04a730c1cf315d9fadd8a7",
       "status": "reviewed",
@@ -4257,7 +4257,7 @@
       ]
     },
     {
-      "path": "agent/src/CurtainOverlay.cs",
+      "path": "imports/connectlive/agent/src/CurtainOverlay.cs",
       "bytes": 5464,
       "sha256": "8e7256eecc25791f9c12353f87ad45a469c8ae5312f8f05ee95554bc932aae2a",
       "status": "reviewed",
@@ -4271,7 +4271,7 @@
       ]
     },
     {
-      "path": "agent/src/DxgiCapture.cs",
+      "path": "imports/connectlive/agent/src/DxgiCapture.cs",
       "bytes": 18053,
       "sha256": "1d2c70939450ee01384ff9db83281752416cc7cd6757b8f8ca36d05d536d1136",
       "status": "reviewed",
@@ -4285,7 +4285,7 @@
       ]
     },
     {
-      "path": "agent/src/EncodeStats.cs",
+      "path": "imports/connectlive/agent/src/EncodeStats.cs",
       "bytes": 8653,
       "sha256": "f6d0bea87faf32f2cf82c5ddea87ef493ab86b6bf7733f73d070d5346031ebc4",
       "status": "reviewed",
@@ -4299,7 +4299,7 @@
       ]
     },
     {
-      "path": "agent/src/EnrollmentRetry.cs",
+      "path": "imports/connectlive/agent/src/EnrollmentRetry.cs",
       "bytes": 1695,
       "sha256": "3a853f06187ab34db83500cd3887fe7eea5b0b8de7f1ec4fbb1948cc17bca29c",
       "status": "reviewed",
@@ -4313,7 +4313,7 @@
       ]
     },
     {
-      "path": "agent/src/FileTransfer.cs",
+      "path": "imports/connectlive/agent/src/FileTransfer.cs",
       "bytes": 17471,
       "sha256": "d0733a834c14651a7cea35e59217c39d0f148e491701edf625a35459a3625754",
       "status": "reviewed",
@@ -4327,7 +4327,7 @@
       ]
     },
     {
-      "path": "agent/src/GrantStore.cs",
+      "path": "imports/connectlive/agent/src/GrantStore.cs",
       "bytes": 1026,
       "sha256": "b16ebd3b558918be26b11430636067b8c2afe091275e848cc1d1c22401458ab6",
       "status": "reviewed",
@@ -4341,7 +4341,7 @@
       ]
     },
     {
-      "path": "agent/src/HwEncoderProbe.cs",
+      "path": "imports/connectlive/agent/src/HwEncoderProbe.cs",
       "bytes": 13520,
       "sha256": "71c1a317456aa91c867ca67370b6c3e9b386234699d3a96f5eee85d6ec15dc80",
       "status": "reviewed",
@@ -4355,7 +4355,7 @@
       ]
     },
     {
-      "path": "agent/src/HwH264Encoder.cs",
+      "path": "imports/connectlive/agent/src/HwH264Encoder.cs",
       "bytes": 28968,
       "sha256": "87d0f7da4a391bdff5ea7f1559dd3046fd27b0f9c622f47942d463443ac9bfe8",
       "status": "reviewed",
@@ -4369,7 +4369,7 @@
       ]
     },
     {
-      "path": "agent/src/InputBlocker.cs",
+      "path": "imports/connectlive/agent/src/InputBlocker.cs",
       "bytes": 12151,
       "sha256": "85e96cd1dc57e54abcfd3222d484291d56975f859539dc4cbb66e3252fb1c6c1",
       "status": "reviewed",
@@ -4383,7 +4383,7 @@
       ]
     },
     {
-      "path": "agent/src/InputRelay.cs",
+      "path": "imports/connectlive/agent/src/InputRelay.cs",
       "bytes": 20813,
       "sha256": "62e4fe859d1d3d0187993c758162a7606625bd6efe3a6d96818f433dccffb9c7",
       "status": "reviewed",
@@ -4397,7 +4397,7 @@
       ]
     },
     {
-      "path": "agent/src/LocalAccessState.cs",
+      "path": "imports/connectlive/agent/src/LocalAccessState.cs",
       "bytes": 1774,
       "sha256": "adfa6ec43d8e94c20166673b4eeaf5702d47fc24982f17f18d695d513d85e72a",
       "status": "reviewed",
@@ -4411,7 +4411,7 @@
       ]
     },
     {
-      "path": "agent/src/MediaFoundationInterop.cs",
+      "path": "imports/connectlive/agent/src/MediaFoundationInterop.cs",
       "bytes": 25121,
       "sha256": "b5d2dd8a94750950822142cb138b039e31044188cb62991196defdc9ecbcb787",
       "status": "reviewed",
@@ -4425,7 +4425,7 @@
       ]
     },
     {
-      "path": "agent/src/MeetingIdPrompt.cs",
+      "path": "imports/connectlive/agent/src/MeetingIdPrompt.cs",
       "bytes": 5330,
       "sha256": "6b40508066cb0b3ea36c2b35cc1de48f0b8de3ef3e4c677a989300456657a084",
       "status": "reviewed",
@@ -4439,7 +4439,7 @@
       ]
     },
     {
-      "path": "agent/src/MonitorSelector.cs",
+      "path": "imports/connectlive/agent/src/MonitorSelector.cs",
       "bytes": 6446,
       "sha256": "82fb5f61f7424270994fe147aebb1d3bd93d35bb93e3ca9578c08176003879d0",
       "status": "reviewed",
@@ -4453,7 +4453,7 @@
       ]
     },
     {
-      "path": "agent/src/NativeGatewayPolicy.cs",
+      "path": "imports/connectlive/agent/src/NativeGatewayPolicy.cs",
       "bytes": 1514,
       "sha256": "18dec9e8638e3c519471c95230534fd687591d10bd0bcb501b200f5cdce3a18e",
       "status": "reviewed",
@@ -4472,7 +4472,7 @@
       ]
     },
     {
-      "path": "agent/src/PeerInputPermission.cs",
+      "path": "imports/connectlive/agent/src/PeerInputPermission.cs",
       "bytes": 1950,
       "sha256": "1b6484814571e9ae8aca4ebad0584fe140c63082bc190403d29b6a5b5b7eec98",
       "status": "reviewed",
@@ -4486,7 +4486,7 @@
       ]
     },
     {
-      "path": "agent/src/PowerRelay.cs",
+      "path": "imports/connectlive/agent/src/PowerRelay.cs",
       "bytes": 11434,
       "sha256": "c7cb266d064440f60cb372499547341319b8de8260a8e4cbd9fdac63b93b000f",
       "status": "reviewed",
@@ -4500,7 +4500,7 @@
       ]
     },
     {
-      "path": "agent/src/ScreenCapture.cs",
+      "path": "imports/connectlive/agent/src/ScreenCapture.cs",
       "bytes": 24683,
       "sha256": "7c38a92a11585a4ee3e170098f5ce17bf418ec34158a7cc089835e7e589c63bb",
       "status": "reviewed",
@@ -4514,7 +4514,7 @@
       ]
     },
     {
-      "path": "agent/src/SelfUpdate.cs",
+      "path": "imports/connectlive/agent/src/SelfUpdate.cs",
       "bytes": 8993,
       "sha256": "509d9e834df076d6bd5dd042401df8c957a282f1166ebff41079a9361da51be0",
       "status": "reviewed",
@@ -4528,7 +4528,7 @@
       ]
     },
     {
-      "path": "agent/src/SplashWindow.xaml.cs",
+      "path": "imports/connectlive/agent/src/SplashWindow.xaml.cs",
       "bytes": 5207,
       "sha256": "900cc2a969f92b85069f2ee48d8f553ec10ee5bebd83461614958eb3c25841b5",
       "status": "reviewed",
@@ -4542,7 +4542,7 @@
       ]
     },
     {
-      "path": "agent/src/StartupRegistration.cs",
+      "path": "imports/connectlive/agent/src/StartupRegistration.cs",
       "bytes": 4684,
       "sha256": "697faa2b2b0c814950edb0365a99cc872531354efd1731cea078002b874134cf",
       "status": "reviewed",
@@ -4556,7 +4556,7 @@
       ]
     },
     {
-      "path": "agent/src/StartupSelfHeal.cs",
+      "path": "imports/connectlive/agent/src/StartupSelfHeal.cs",
       "bytes": 7094,
       "sha256": "f16d4f0283d1fd9b857018c7066c888a70c377a005936e61281f3adb5e469870",
       "status": "reviewed",
@@ -4570,7 +4570,7 @@
       ]
     },
     {
-      "path": "agent/src/StreamListener.cs",
+      "path": "imports/connectlive/agent/src/StreamListener.cs",
       "bytes": 5564,
       "sha256": "eee8e1bce76e859c35ebd7ca736a891b9b5e3af7e4a7a3de47541962c6933f34",
       "status": "reviewed",
@@ -4589,7 +4589,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/NativeGatewayTests.csproj",
+      "path": "imports/connectlive/agent/src/Tests/NativeGatewayTests.csproj",
       "bytes": 430,
       "sha256": "7eaebc20414eac21eb510e4eebd1db7cba514db97868dcea7d67aa155b39a3a9",
       "status": "reviewed",
@@ -4603,7 +4603,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/Program.cs",
+      "path": "imports/connectlive/agent/src/Tests/Program.cs",
       "bytes": 5688,
       "sha256": "3349e1e774cdfa49b4129c1ce532872c3782a4b257094d157c12efc73eef1691",
       "status": "reviewed",
@@ -4617,7 +4617,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests",
+      "path": "imports/connectlive/agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests",
       "status": "excluded",
       "reason": "Generated test host; tests not run.",
       "reviewers": [
@@ -4629,7 +4629,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.deps.json",
+      "path": "imports/connectlive/agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.deps.json",
       "status": "excluded",
       "reason": "Generated test dependency output; tests not run.",
       "reviewers": [
@@ -4641,7 +4641,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.dll",
+      "path": "imports/connectlive/agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.dll",
       "status": "excluded",
       "reason": "Generated test assembly; tests not run.",
       "reviewers": [
@@ -4653,7 +4653,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.pdb",
+      "path": "imports/connectlive/agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.pdb",
       "status": "excluded",
       "reason": "Generated test symbols; no semantic review.",
       "reviewers": [
@@ -4665,7 +4665,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.runtimeconfig.json",
+      "path": "imports/connectlive/agent/src/Tests/bin/Debug/net8.0/NativeGatewayTests.runtimeconfig.json",
       "status": "excluded",
       "reason": "Generated test runtime output; tests not run.",
       "reviewers": [
@@ -4677,7 +4677,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
       "status": "excluded",
       "reason": "Generated test metadata; inventory only.",
       "reviewers": [
@@ -4689,7 +4689,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.AssemblyInfo.cs",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.AssemblyInfo.cs",
       "status": "excluded",
       "reason": "Generated test metadata; source project reviewed instead.",
       "reviewers": [
@@ -4701,7 +4701,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.AssemblyInfoInputs.cache",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.AssemblyInfoInputs.cache",
       "status": "excluded",
       "reason": "Generated test cache; inventory only.",
       "reviewers": [
@@ -4713,7 +4713,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.GeneratedMSBuildEditorConfig.editorconfig",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.GeneratedMSBuildEditorConfig.editorconfig",
       "status": "excluded",
       "reason": "Generated test configuration; source project reviewed instead.",
       "reviewers": [
@@ -4725,7 +4725,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.GlobalUsings.g.cs",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.GlobalUsings.g.cs",
       "status": "excluded",
       "reason": "Generated test source; project/source reviewed instead.",
       "reviewers": [
@@ -4737,7 +4737,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.assets.cache",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.assets.cache",
       "status": "excluded",
       "reason": "Generated test cache; inventory only.",
       "reviewers": [
@@ -4749,7 +4749,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.csproj.CoreCompileInputs.cache",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.csproj.CoreCompileInputs.cache",
       "status": "excluded",
       "reason": "Generated test cache; inventory only.",
       "reviewers": [
@@ -4761,7 +4761,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.csproj.FileListAbsolute.txt",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.csproj.FileListAbsolute.txt",
       "status": "excluded",
       "reason": "Generated test file list; no provenance claim.",
       "reviewers": [
@@ -4773,7 +4773,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.dll",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.dll",
       "status": "excluded",
       "reason": "Generated test binary; no execution/provenance claim.",
       "reviewers": [
@@ -4785,7 +4785,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.genruntimeconfig.cache",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.genruntimeconfig.cache",
       "status": "excluded",
       "reason": "Generated test cache; inventory only.",
       "reviewers": [
@@ -4797,7 +4797,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.pdb",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/NativeGatewayTests.pdb",
       "status": "excluded",
       "reason": "Generated test symbols; no semantic review.",
       "reviewers": [
@@ -4809,7 +4809,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/apphost",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/apphost",
       "status": "excluded",
       "reason": "Generated SDK test host; not executed.",
       "reviewers": [
@@ -4821,7 +4821,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/ref/NativeGatewayTests.dll",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/ref/NativeGatewayTests.dll",
       "status": "excluded",
       "reason": "Generated test assembly; not executed/decompiled.",
       "reviewers": [
@@ -4833,7 +4833,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/Debug/net8.0/refint/NativeGatewayTests.dll",
+      "path": "imports/connectlive/agent/src/Tests/obj/Debug/net8.0/refint/NativeGatewayTests.dll",
       "status": "excluded",
       "reason": "Generated test assembly; not executed/decompiled.",
       "reviewers": [
@@ -4845,7 +4845,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/NativeGatewayTests.csproj.nuget.dgspec.json",
+      "path": "imports/connectlive/agent/src/Tests/obj/NativeGatewayTests.csproj.nuget.dgspec.json",
       "status": "excluded",
       "reason": "Generated test restore graph; tests not run.",
       "reviewers": [
@@ -4857,7 +4857,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/NativeGatewayTests.csproj.nuget.g.props",
+      "path": "imports/connectlive/agent/src/Tests/obj/NativeGatewayTests.csproj.nuget.g.props",
       "status": "excluded",
       "reason": "Generated test restore intermediate; tests not run.",
       "reviewers": [
@@ -4869,7 +4869,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/NativeGatewayTests.csproj.nuget.g.targets",
+      "path": "imports/connectlive/agent/src/Tests/obj/NativeGatewayTests.csproj.nuget.g.targets",
       "status": "excluded",
       "reason": "Generated test restore intermediate; tests not run.",
       "reviewers": [
@@ -4881,7 +4881,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/project.assets.json",
+      "path": "imports/connectlive/agent/src/Tests/obj/project.assets.json",
       "status": "excluded",
       "reason": "Generated test dependency graph; tests not run.",
       "reviewers": [
@@ -4893,7 +4893,7 @@
       ]
     },
     {
-      "path": "agent/src/Tests/obj/project.nuget.cache",
+      "path": "imports/connectlive/agent/src/Tests/obj/project.nuget.cache",
       "status": "excluded",
       "reason": "Generated test cache; tests not run.",
       "reviewers": [
@@ -4905,7 +4905,7 @@
       ]
     },
     {
-      "path": "agent/src/Watch/ConnectLiveWatch.csproj",
+      "path": "imports/connectlive/agent/src/Watch/ConnectLiveWatch.csproj",
       "bytes": 731,
       "sha256": "33b658b64f28bbdeb769219a46f445957e6ed3702779038bdb6f95b154bf503a",
       "status": "reviewed",
@@ -4919,7 +4919,7 @@
       ]
     },
     {
-      "path": "agent/src/Watch/Program.cs",
+      "path": "imports/connectlive/agent/src/Watch/Program.cs",
       "bytes": 5513,
       "sha256": "a9550fbd8108245bd9b551eb678a55a9189e78fa41724306b8be7829a600b043",
       "status": "reviewed",
@@ -4933,7 +4933,7 @@
       ]
     },
     {
-      "path": "agent/src/Watch/obj/Debug/net8.0-windows/win-x64/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
+      "path": "imports/connectlive/agent/src/Watch/obj/Debug/net8.0-windows/win-x64/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
       "status": "excluded",
       "reason": "Generated build intermediate; inventory only.",
       "reviewers": [
@@ -4945,7 +4945,7 @@
       ]
     },
     {
-      "path": "agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.AssemblyInfo.cs",
+      "path": "imports/connectlive/agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.AssemblyInfo.cs",
       "status": "excluded",
       "reason": "Generated metadata; source project reviewed instead.",
       "reviewers": [
@@ -4957,7 +4957,7 @@
       ]
     },
     {
-      "path": "agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.AssemblyInfoInputs.cache",
+      "path": "imports/connectlive/agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.AssemblyInfoInputs.cache",
       "status": "excluded",
       "reason": "Generated build cache; no provenance inference.",
       "reviewers": [
@@ -4969,7 +4969,7 @@
       ]
     },
     {
-      "path": "agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.GeneratedMSBuildEditorConfig.editorconfig",
+      "path": "imports/connectlive/agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.GeneratedMSBuildEditorConfig.editorconfig",
       "status": "excluded",
       "reason": "Generated build intermediate; inventory only.",
       "reviewers": [
@@ -4981,7 +4981,7 @@
       ]
     },
     {
-      "path": "agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.GlobalUsings.g.cs",
+      "path": "imports/connectlive/agent/src/Watch/obj/Debug/net8.0-windows/win-x64/ConnectLiveWatch.GlobalUsings.g.cs",
       "status": "excluded",
       "reason": "Generated build intermediate; inventory only, not semantic review.",
       "reviewers": [
@@ -4993,7 +4993,7 @@
       ]
     },
     {
-      "path": "agent/src/WebRtcSession.cs",
+      "path": "imports/connectlive/agent/src/WebRtcSession.cs",
       "bytes": 38469,
       "sha256": "27a6b62511ffb78f943de1330e13b2e721746bdb7a79fd0226f1b611e1b8fbaf",
       "status": "reviewed",
@@ -5007,7 +5007,7 @@
       ]
     },
     {
-      "path": "agent/src/app.manifest",
+      "path": "imports/connectlive/agent/src/app.manifest",
       "bytes": 1682,
       "sha256": "21cf2e48093be3598005388d917c4285e0aa47f651bbd13929cf3f799ce98993",
       "status": "reviewed",
@@ -5021,7 +5021,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.deps.json",
+      "path": "imports/connectlive/agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.deps.json",
       "status": "excluded",
       "reason": "Generated dependency output; no dependency-security certification.",
       "reviewers": [
@@ -5033,7 +5033,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated binary; source reviewed, provenance unverified.",
       "reviewers": [
@@ -5045,7 +5045,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.exe",
+      "path": "imports/connectlive/agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.exe",
       "status": "excluded",
       "reason": "Generated binary; not executed/decompiled or equated with delivered ZIP.",
       "reviewers": [
@@ -5057,7 +5057,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
+      "path": "imports/connectlive/agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
       "status": "excluded",
       "reason": "Generated symbols; no semantic review.",
       "reviewers": [
@@ -5069,7 +5069,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.runtimeconfig.json",
+      "path": "imports/connectlive/agent/src/bin/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.runtimeconfig.json",
       "status": "excluded",
       "reason": "Generated runtime output; source project reviewed instead.",
       "reviewers": [
@@ -5081,7 +5081,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.deps.json",
+      "path": "imports/connectlive/agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.deps.json",
       "status": "excluded",
       "reason": "Generated dependency output; no dependency-security certification.",
       "reviewers": [
@@ -5093,7 +5093,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated binary; source reviewed, provenance unverified.",
       "reviewers": [
@@ -5105,7 +5105,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.exe",
+      "path": "imports/connectlive/agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.exe",
       "status": "excluded",
       "reason": "Generated binary; not executed/decompiled or equated with delivered ZIP.",
       "reviewers": [
@@ -5117,7 +5117,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
+      "path": "imports/connectlive/agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
       "status": "excluded",
       "reason": "Generated symbols; no semantic review.",
       "reviewers": [
@@ -5129,7 +5129,7 @@
       ]
     },
     {
-      "path": "agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.runtimeconfig.json",
+      "path": "imports/connectlive/agent/src/bin/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.runtimeconfig.json",
       "status": "excluded",
       "reason": "Generated runtime output; source project reviewed instead.",
       "reviewers": [
@@ -5141,7 +5141,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/ConnectLiveAgent.csproj.nuget.dgspec.json",
+      "path": "imports/connectlive/agent/src/obj/ConnectLiveAgent.csproj.nuget.dgspec.json",
       "status": "excluded",
       "reason": "Generated restore graph; source project reviewed instead.",
       "reviewers": [
@@ -5153,7 +5153,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/ConnectLiveAgent.csproj.nuget.g.props",
+      "path": "imports/connectlive/agent/src/obj/ConnectLiveAgent.csproj.nuget.g.props",
       "status": "excluded",
       "reason": "Generated NuGet intermediate; dependency audit not performed.",
       "reviewers": [
@@ -5165,7 +5165,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/ConnectLiveAgent.csproj.nuget.g.targets",
+      "path": "imports/connectlive/agent/src/obj/ConnectLiveAgent.csproj.nuget.g.targets",
       "status": "excluded",
       "reason": "Generated NuGet intermediate; dependency audit not performed.",
       "reviewers": [
@@ -5177,7 +5177,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
       "status": "excluded",
       "reason": "Generated metadata; source project reviewed instead.",
       "reviewers": [
@@ -5189,7 +5189,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/App.baml",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/App.baml",
       "status": "excluded",
       "reason": "Generated WPF binary; source App.xaml reviewed instead.",
       "reviewers": [
@@ -5201,7 +5201,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/App.g.cs",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/App.g.cs",
       "status": "excluded",
       "reason": "Generated WPF code; source App.xaml reviewed instead.",
       "reviewers": [
@@ -5213,7 +5213,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectL.099538F8.Up2Date",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectL.099538F8.Up2Date",
       "status": "excluded",
       "reason": "Generated build sentinel; inventory only.",
       "reviewers": [
@@ -5225,7 +5225,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated binary; source reviewed instead.",
       "reviewers": [
@@ -5237,7 +5237,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.g.resources",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.g.resources",
       "status": "excluded",
       "reason": "Generated resources; no binary semantic approval.",
       "reviewers": [
@@ -5249,7 +5249,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
       "status": "excluded",
       "reason": "Generated symbols; no semantic review.",
       "reviewers": [
@@ -5261,7 +5261,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfo.cs",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfo.cs",
       "status": "excluded",
       "reason": "Generated metadata; source project reviewed instead.",
       "reviewers": [
@@ -5273,7 +5273,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfoInputs.cache",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfoInputs.cache",
       "status": "excluded",
       "reason": "Generated cache; inventory only.",
       "reviewers": [
@@ -5285,7 +5285,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.GeneratedMSBuildEditorConfig.editorconfig",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.GeneratedMSBuildEditorConfig.editorconfig",
       "status": "excluded",
       "reason": "Generated build configuration; source project reviewed instead.",
       "reviewers": [
@@ -5297,7 +5297,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.assets.cache",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.assets.cache",
       "status": "excluded",
       "reason": "Generated build cache; inventory only.",
       "reviewers": [
@@ -5309,7 +5309,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.AssemblyReference.cache",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.AssemblyReference.cache",
       "status": "excluded",
       "reason": "Generated build cache; inventory only.",
       "reviewers": [
@@ -5321,7 +5321,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.CoreCompileInputs.cache",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.CoreCompileInputs.cache",
       "status": "excluded",
       "reason": "Generated cache; inventory only.",
       "reviewers": [
@@ -5333,7 +5333,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.FileListAbsolute.txt",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.FileListAbsolute.txt",
       "status": "excluded",
       "reason": "Generated absolute file inventory; not provenance evidence.",
       "reviewers": [
@@ -5345,7 +5345,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genruntimeconfig.cache",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genruntimeconfig.cache",
       "status": "excluded",
       "reason": "Generated build cache; inventory only.",
       "reviewers": [
@@ -5357,7 +5357,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive_MarkupCompile.cache",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ConnectLive_MarkupCompile.cache",
       "status": "excluded",
       "reason": "Generated WPF cache; source XAML reviewed instead.",
       "reviewers": [
@@ -5369,7 +5369,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/apphost.exe",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/apphost.exe",
       "status": "excluded",
       "reason": "Generated SDK host; not first-party application logic.",
       "reviewers": [
@@ -5381,7 +5381,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ref/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/ref/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated reference assembly; no semantic review.",
       "reviewers": [
@@ -5393,7 +5393,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/refint/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/refint/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated reference assembly; no semantic review.",
       "reviewers": [
@@ -5405,7 +5405,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/singlefilehost.exe",
+      "path": "imports/connectlive/agent/src/obj/Debug/net8.0-windows10.0.19041.0/win-x64/singlefilehost.exe",
       "status": "excluded",
       "reason": "Generated SDK host; not executed.",
       "reviewers": [
@@ -5417,7 +5417,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs",
       "status": "excluded",
       "reason": "Generated metadata; source project reviewed instead.",
       "reviewers": [
@@ -5429,7 +5429,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/App.baml",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/App.baml",
       "status": "excluded",
       "reason": "Generated WPF binary; App.xaml reviewed instead.",
       "reviewers": [
@@ -5441,7 +5441,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/App.g.cs",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/App.g.cs",
       "status": "excluded",
       "reason": "Generated WPF source; App.xaml reviewed instead.",
       "reviewers": [
@@ -5453,7 +5453,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectL.099538F8.Up2Date",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectL.099538F8.Up2Date",
       "status": "excluded",
       "reason": "Generated sentinel; inventory only.",
       "reviewers": [
@@ -5465,7 +5465,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.deps.json",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.deps.json",
       "status": "excluded",
       "reason": "Generated dependency output; no dependency-security certification.",
       "reviewers": [
@@ -5477,7 +5477,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated binary; source reviewed instead.",
       "reviewers": [
@@ -5489,7 +5489,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.g.resources",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.g.resources",
       "status": "excluded",
       "reason": "Generated WPF resources; no binary semantic approval.",
       "reviewers": [
@@ -5501,7 +5501,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive.pdb",
       "status": "excluded",
       "reason": "Generated symbols; no semantic review.",
       "reviewers": [
@@ -5513,7 +5513,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfo.cs",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfo.cs",
       "status": "excluded",
       "reason": "Generated metadata; source project reviewed instead.",
       "reviewers": [
@@ -5525,7 +5525,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfoInputs.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.AssemblyInfoInputs.cache",
       "status": "excluded",
       "reason": "Generated build cache; inventory only.",
       "reviewers": [
@@ -5537,7 +5537,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.GeneratedMSBuildEditorConfig.editorconfig",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.GeneratedMSBuildEditorConfig.editorconfig",
       "status": "excluded",
       "reason": "Generated configuration; source project reviewed instead.",
       "reviewers": [
@@ -5549,7 +5549,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.assets.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.assets.cache",
       "status": "excluded",
       "reason": "Generated cache; inventory only.",
       "reviewers": [
@@ -5561,7 +5561,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.AssemblyReference.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.AssemblyReference.cache",
       "status": "excluded",
       "reason": "Generated cache; inventory only.",
       "reviewers": [
@@ -5573,7 +5573,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.CoreCompileInputs.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.CoreCompileInputs.cache",
       "status": "excluded",
       "reason": "Generated cache; inventory only.",
       "reviewers": [
@@ -5585,7 +5585,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.FileListAbsolute.txt",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.csproj.FileListAbsolute.txt",
       "status": "excluded",
       "reason": "Generated file list; not provenance evidence.",
       "reviewers": [
@@ -5597,7 +5597,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genbundle.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genbundle.cache",
       "status": "excluded",
       "reason": "Generated bundle cache; not provenance evidence.",
       "reviewers": [
@@ -5609,7 +5609,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genpublishdeps.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genpublishdeps.cache",
       "status": "excluded",
       "reason": "Generated dependency cache; inventory only.",
       "reviewers": [
@@ -5621,7 +5621,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genruntimeconfig.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLiveAgent.genruntimeconfig.cache",
       "status": "excluded",
       "reason": "Generated cache; inventory only.",
       "reviewers": [
@@ -5633,7 +5633,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive_MarkupCompile.cache",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ConnectLive_MarkupCompile.cache",
       "status": "excluded",
       "reason": "Generated markup cache; inventory only.",
       "reviewers": [
@@ -5645,7 +5645,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/PublishOutputs.1204e9e74b.txt",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/PublishOutputs.1204e9e74b.txt",
       "status": "excluded",
       "reason": "Generated publish file list; not provenance evidence.",
       "reviewers": [
@@ -5657,7 +5657,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ref/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/ref/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated reference assembly; source reviewed instead.",
       "reviewers": [
@@ -5669,7 +5669,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/refint/ConnectLive.dll",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/refint/ConnectLive.dll",
       "status": "excluded",
       "reason": "Generated reference assembly; source reviewed instead.",
       "reviewers": [
@@ -5681,7 +5681,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/singlefilehost.exe",
+      "path": "imports/connectlive/agent/src/obj/Release/net8.0-windows10.0.19041.0/win-x64/singlefilehost.exe",
       "status": "excluded",
       "reason": "Generated SDK host; not executed.",
       "reviewers": [
@@ -5693,7 +5693,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/project.assets.json",
+      "path": "imports/connectlive/agent/src/obj/project.assets.json",
       "status": "excluded",
       "reason": "Generated dependency graph; source project reviewed, transitive package security not certified.",
       "reviewers": [
@@ -5705,7 +5705,7 @@
       ]
     },
     {
-      "path": "agent/src/obj/project.nuget.cache",
+      "path": "imports/connectlive/agent/src/obj/project.nuget.cache",
       "status": "excluded",
       "reason": "Generated dependency cache; inventory only.",
       "reviewers": [
@@ -5717,7 +5717,7 @@
       ]
     },
     {
-      "path": "build.bat",
+      "path": "imports/connectlive/build.bat",
       "bytes": 3385,
       "sha256": "3b2e3f47ea281c6426fd285508838bd941283a7d3bcd4a2e07dc6f18e5aec745",
       "status": "reviewed",
@@ -5731,7 +5731,7 @@
       ]
     },
     {
-      "path": "bun.lock",
+      "path": "imports/connectlive/bun.lock",
       "bytes": 206728,
       "sha256": "dc5f75d98b7137c7e672d4236b2970fdca398fdc75cf4384b03d85330352d98b",
       "status": "automatically_checked",
@@ -5745,7 +5745,7 @@
       ]
     },
     {
-      "path": "bunfig.toml",
+      "path": "imports/connectlive/bunfig.toml",
       "bytes": 463,
       "sha256": "593326a0c24a3dc22eb311cd004215841034b534a349417ea2579a968cec5609",
       "status": "reviewed",
@@ -5759,7 +5759,7 @@
       ]
     },
     {
-      "path": "components.json",
+      "path": "imports/connectlive/components.json",
       "bytes": 443,
       "sha256": "37c484818824d2521eee3367e7aa2c2abbd19635d8103d19734b6e24603d0292",
       "status": "automatically_checked",
@@ -5773,7 +5773,7 @@
       ]
     },
     {
-      "path": "docs/SIGNING.md",
+      "path": "imports/connectlive/docs/SIGNING.md",
       "bytes": 3839,
       "sha256": "ac70e33804ce2c7e4ff5b0c351c3fc37dc2e07c3f9e962f958b05571c0c5e292",
       "status": "automatically_checked",
@@ -5781,7 +5781,7 @@
       "reviewers": []
     },
     {
-      "path": "eslint.config.js",
+      "path": "imports/connectlive/eslint.config.js",
       "bytes": 1250,
       "sha256": "3266245a1ff610a0b37dbb8b8c77b93a125e0d8758b9838cfd04b2e0a1397d56",
       "status": "reviewed",
@@ -5795,7 +5795,7 @@
       ]
     },
     {
-      "path": "package.json",
+      "path": "imports/connectlive/package.json",
       "bytes": 2970,
       "sha256": "d774f6ffcc73744fe4c0f44fbc82b3b722560ed21c8ccf69e992b3a24f0abab2",
       "status": "reviewed",
@@ -5809,7 +5809,7 @@
       ]
     },
     {
-      "path": "public/favicon.ico",
+      "path": "imports/connectlive/public/favicon.ico",
       "bytes": 41804,
       "sha256": "391f225736da2a4d70b86ebaebdb7731a0aa4a245f7b46ff108f3f90850b0042",
       "status": "automatically_checked",
@@ -5817,7 +5817,7 @@
       "reviewers": []
     },
     {
-      "path": "public/favicon.png",
+      "path": "imports/connectlive/public/favicon.png",
       "bytes": 3785,
       "sha256": "f614b7dea97c350b2d581c6b321847dae830ea671b05cea7d90a2224861a7674",
       "status": "automatically_checked",
@@ -5825,7 +5825,7 @@
       "reviewers": []
     },
     {
-      "path": "roadmap.md",
+      "path": "imports/connectlive/roadmap.md",
       "bytes": 23341,
       "sha256": "56bfa198df15087e58e684a76ade51db4fffde5a15d3da834b5504639055ea5f",
       "status": "automatically_checked",
@@ -5839,7 +5839,7 @@
       ]
     },
     {
-      "path": "scripts/e2e-smoke.ts",
+      "path": "imports/connectlive/scripts/e2e-smoke.ts",
       "bytes": 7493,
       "sha256": "9c8519d35e3892ee03bb5aa34a7ff4ef81cd9d3770aee93f0ce7e935b8238a9a",
       "status": "automatically_checked",
@@ -5853,7 +5853,7 @@
       ]
     },
     {
-      "path": "scripts/e2e-soak.ts",
+      "path": "imports/connectlive/scripts/e2e-soak.ts",
       "bytes": 8530,
       "sha256": "49c576220e0b0d8029e06ee2bc1308165f7b1366661267b2cccc2e1843e6f87c",
       "status": "automatically_checked",
@@ -5867,7 +5867,7 @@
       ]
     },
     {
-      "path": "scripts/e2e-wake.ts",
+      "path": "imports/connectlive/scripts/e2e-wake.ts",
       "bytes": 8835,
       "sha256": "04402684e366ac074f3d8942b3c8547c12eec669e98863898a3568b3d43bb63b",
       "status": "automatically_checked",
@@ -5881,7 +5881,7 @@
       ]
     },
     {
-      "path": "scripts/verify-agent-routes.ts",
+      "path": "imports/connectlive/scripts/verify-agent-routes.ts",
       "bytes": 7209,
       "sha256": "beceb910c7cf766f8cda81eb18176b52dcf2b533cbb52f547f19a5e04ee60d5e",
       "status": "reviewed",
@@ -5895,7 +5895,7 @@
       ]
     },
     {
-      "path": "scripts/verify-payment-routes.ts",
+      "path": "imports/connectlive/scripts/verify-payment-routes.ts",
       "bytes": 2360,
       "sha256": "e9210dfb59d07135958b5bfad8d6e262db906e6f5dca0e4fd71a36c1d820e22b",
       "status": "reviewed",
@@ -5909,7 +5909,7 @@
       ]
     },
     {
-      "path": "scripts/verify-platform.ts",
+      "path": "imports/connectlive/scripts/verify-platform.ts",
       "bytes": 1457,
       "sha256": "df170879abe491fd2428c22d41f3df3603d29e0881a7fca1cf50e91cfcc0ecb9",
       "status": "automatically_checked",
@@ -5923,7 +5923,7 @@
       ]
     },
     {
-      "path": "src/assets/connectlive-banner.jpg.asset.json",
+      "path": "imports/connectlive/src/assets/connectlive-banner.jpg.asset.json",
       "bytes": 473,
       "sha256": "1e5c8a89324661c92f097f43aa2ae825605092e36df3be27e79d22f4b29b8df1",
       "status": "automatically_checked",
@@ -5937,7 +5937,7 @@
       ]
     },
     {
-      "path": "src/assets/connectlive-logo.png.asset.json",
+      "path": "imports/connectlive/src/assets/connectlive-logo.png.asset.json",
       "bytes": 467,
       "sha256": "90f081d60e8cbabdff906273ef2c860d4aa726474380185d74eb1e90756c0069",
       "status": "automatically_checked",
@@ -5951,7 +5951,7 @@
       ]
     },
     {
-      "path": "src/assets/connectlive-orb.gif.asset.json",
+      "path": "imports/connectlive/src/assets/connectlive-orb.gif.asset.json",
       "bytes": 465,
       "sha256": "11080a5eb66123848921298dc41c6d6cb95a1d7618263865546fa8f5e36b6652",
       "status": "automatically_checked",
@@ -5965,7 +5965,7 @@
       ]
     },
     {
-      "path": "src/assets/connectlive.mp4.asset.json",
+      "path": "imports/connectlive/src/assets/connectlive.mp4.asset.json",
       "bytes": 453,
       "sha256": "d7ad3b835f3b713af8f09d3e457fe4f08c5b056a78fa39a551b8e4de07d853c3",
       "status": "automatically_checked",
@@ -5979,7 +5979,7 @@
       ]
     },
     {
-      "path": "src/assets/hero-float-1.png",
+      "path": "imports/connectlive/src/assets/hero-float-1.png",
       "bytes": 350218,
       "sha256": "e0142ac154c9c072fc4a815861368df2eda4ac811a32a8c6a5351e4b5b1f4622",
       "status": "automatically_checked",
@@ -5993,7 +5993,7 @@
       ]
     },
     {
-      "path": "src/assets/hero-float-2.png",
+      "path": "imports/connectlive/src/assets/hero-float-2.png",
       "bytes": 330661,
       "sha256": "f4c8113157ec4beb1fd4f6199ba2d3162deda54f22dc38c55fccdda296f9a059",
       "status": "automatically_checked",
@@ -6007,7 +6007,7 @@
       ]
     },
     {
-      "path": "src/assets/hero-float-3.png",
+      "path": "imports/connectlive/src/assets/hero-float-3.png",
       "bytes": 111130,
       "sha256": "adfa34b7319073aae4c13e01dce57a8b9304f8a50d96b5cb4332889d19b75fff",
       "status": "automatically_checked",
@@ -6021,7 +6021,7 @@
       ]
     },
     {
-      "path": "src/components/AdminLoginCard.tsx",
+      "path": "imports/connectlive/src/components/AdminLoginCard.tsx",
       "bytes": 4317,
       "sha256": "af54d680c38f2088594df9b0fdfbd07b9ec1fd1b55eba333e3deb0d3f561a2cc",
       "status": "automatically_checked",
@@ -6035,7 +6035,7 @@
       ]
     },
     {
-      "path": "src/components/ContactForm.tsx",
+      "path": "imports/connectlive/src/components/ContactForm.tsx",
       "bytes": 5127,
       "sha256": "1cfd56017e0b5ca61ca2fdc4fed134d5bc760a2009eb2d9d323d23e2a141b4cf",
       "status": "automatically_checked",
@@ -6049,7 +6049,7 @@
       ]
     },
     {
-      "path": "src/components/CustomersPanel.tsx",
+      "path": "imports/connectlive/src/components/CustomersPanel.tsx",
       "bytes": 12784,
       "sha256": "245046e0d43f0538f88b4ec292773918c3238aaf06cfd923186eb51283af3e12",
       "status": "automatically_checked",
@@ -6063,7 +6063,7 @@
       ]
     },
     {
-      "path": "src/components/EmailSettingsPanel.tsx",
+      "path": "imports/connectlive/src/components/EmailSettingsPanel.tsx",
       "bytes": 11965,
       "sha256": "ac857fb06184e35452bc24add20c45876c3213cd76c9fea2f4e4846f2b9c2696",
       "status": "automatically_checked",
@@ -6077,7 +6077,7 @@
       ]
     },
     {
-      "path": "src/components/Footer.tsx",
+      "path": "imports/connectlive/src/components/Footer.tsx",
       "bytes": 2386,
       "sha256": "dd2bcda60346d1dd2631b39cde4d51b05a53b3943f0818783fd7761c02195cb5",
       "status": "automatically_checked",
@@ -6091,7 +6091,7 @@
       ]
     },
     {
-      "path": "src/components/LegalShell.tsx",
+      "path": "imports/connectlive/src/components/LegalShell.tsx",
       "bytes": 1015,
       "sha256": "97297ad99b325f77e9efeabc4ffab5e5054da44ba69ba16d0a263bdce14fa5fe",
       "status": "automatically_checked",
@@ -6105,7 +6105,7 @@
       ]
     },
     {
-      "path": "src/components/NotificationBell.tsx",
+      "path": "imports/connectlive/src/components/NotificationBell.tsx",
       "bytes": 6553,
       "sha256": "7d89ba818997eea1d5104b83da7d24c90ff950bc0a12f26240f334b16f323aa5",
       "status": "automatically_checked",
@@ -6119,7 +6119,7 @@
       ]
     },
     {
-      "path": "src/components/PaymentsPanel.tsx",
+      "path": "imports/connectlive/src/components/PaymentsPanel.tsx",
       "bytes": 17159,
       "sha256": "359bce8b7cb41fbf06fc9cfd3b28e0c35ba875f480a80d024d81e74e00cba1ba",
       "status": "automatically_checked",
@@ -6133,7 +6133,7 @@
       ]
     },
     {
-      "path": "src/components/console/DevicesTable.tsx",
+      "path": "imports/connectlive/src/components/console/DevicesTable.tsx",
       "bytes": 8254,
       "sha256": "19af9f8f4a61b97271dfdce7a58038578ec433a7d3f7d091ced6a3bce043df3f",
       "status": "automatically_checked",
@@ -6147,7 +6147,7 @@
       ]
     },
     {
-      "path": "src/components/console/DirectNotifyModal.tsx",
+      "path": "imports/connectlive/src/components/console/DirectNotifyModal.tsx",
       "bytes": 2920,
       "sha256": "95876e0d24397e242d73448224b1cf6aed7a42a11afd3ddf0517a6218979f8a7",
       "status": "automatically_checked",
@@ -6161,7 +6161,7 @@
       ]
     },
     {
-      "path": "src/components/console/ExpectedDevicesPanel.tsx",
+      "path": "imports/connectlive/src/components/console/ExpectedDevicesPanel.tsx",
       "bytes": 10963,
       "sha256": "ac8169b696c0f9360d072f03e2a56611d83a0a23b5451465b9c9e0d37ed08c56",
       "status": "automatically_checked",
@@ -6175,7 +6175,7 @@
       ]
     },
     {
-      "path": "src/components/console/MonitorPicker.tsx",
+      "path": "imports/connectlive/src/components/console/MonitorPicker.tsx",
       "bytes": 2912,
       "sha256": "2764ea3a6ff44f9c675609a9ca3e4bc0933993b0c62db133c4499c3550490581",
       "status": "automatically_checked",
@@ -6189,7 +6189,7 @@
       ]
     },
     {
-      "path": "src/components/console/OnScreenKeyboard.tsx",
+      "path": "imports/connectlive/src/components/console/OnScreenKeyboard.tsx",
       "bytes": 3557,
       "sha256": "d5a871bf3eeb6e243fce94b5a6ca3951f9c1e62706fb2453c6042a7b04bc1b68",
       "status": "automatically_checked",
@@ -6203,7 +6203,7 @@
       ]
     },
     {
-      "path": "src/components/console/PowerMenu.tsx",
+      "path": "imports/connectlive/src/components/console/PowerMenu.tsx",
       "bytes": 2978,
       "sha256": "c509483da25672eccbed0a9eb89f87ccac09ecc0657a516c38cc0b902d8d368d",
       "status": "automatically_checked",
@@ -6217,7 +6217,7 @@
       ]
     },
     {
-      "path": "src/components/console/ReaperPanel.tsx",
+      "path": "imports/connectlive/src/components/console/ReaperPanel.tsx",
       "bytes": 2078,
       "sha256": "ee0ffb3db525126cf816e05802a3c1da5474ff05a99d7636d5d7f03b2f9bb021",
       "status": "automatically_checked",
@@ -6231,7 +6231,7 @@
       ]
     },
     {
-      "path": "src/components/console/RemoteCursorOverlay.tsx",
+      "path": "imports/connectlive/src/components/console/RemoteCursorOverlay.tsx",
       "bytes": 1968,
       "sha256": "56d26e9d34193c2b767154d776a3bc2ebb2ffba92b88e70961f6b2653cd3802c",
       "status": "automatically_checked",
@@ -6245,7 +6245,7 @@
       ]
     },
     {
-      "path": "src/components/console/RenderHealthPanel.tsx",
+      "path": "imports/connectlive/src/components/console/RenderHealthPanel.tsx",
       "bytes": 4284,
       "sha256": "5e82e840e60ae48e2f512e735575ca3155c12318d1a79b0af68c4919a1875974",
       "status": "automatically_checked",
@@ -6259,7 +6259,7 @@
       ]
     },
     {
-      "path": "src/components/console/SessionFilesPanel.tsx",
+      "path": "imports/connectlive/src/components/console/SessionFilesPanel.tsx",
       "bytes": 15950,
       "sha256": "16c03d6c1c68bd2cd26686bb022537d06fde80451407a3a010f02ebc4a97bcea",
       "status": "automatically_checked",
@@ -6273,7 +6273,7 @@
       ]
     },
     {
-      "path": "src/components/console/SessionsTable.tsx",
+      "path": "imports/connectlive/src/components/console/SessionsTable.tsx",
       "bytes": 4876,
       "sha256": "b27a6ffbce336b7150bd023732e0522bd3bab4492b86439df9ef996f5148d683",
       "status": "reviewed",
@@ -6287,7 +6287,7 @@
       ]
     },
     {
-      "path": "src/components/console/StatCard.tsx",
+      "path": "imports/connectlive/src/components/console/StatCard.tsx",
       "bytes": 591,
       "sha256": "7dff2775002f4c1c957c7724fb96c0d13fa63e3b4c96c99b9380093ddf4ab9bc",
       "status": "automatically_checked",
@@ -6301,7 +6301,7 @@
       ]
     },
     {
-      "path": "src/components/console/TeamPanel.tsx",
+      "path": "imports/connectlive/src/components/console/TeamPanel.tsx",
       "bytes": 16103,
       "sha256": "0eef42c853419f630727ecd9dd81b59f0743864226d2edd4081e60ac72dd546d",
       "status": "automatically_checked",
@@ -6315,7 +6315,7 @@
       ]
     },
     {
-      "path": "src/components/console/TelegramSettings.tsx",
+      "path": "imports/connectlive/src/components/console/TelegramSettings.tsx",
       "bytes": 3675,
       "sha256": "ac280c687d1399e1be0372dfb49fe6120dd52ae3b16611991db3cea26da0d9fc",
       "status": "automatically_checked",
@@ -6329,7 +6329,7 @@
       ]
     },
     {
-      "path": "src/components/console/VirtualTrackpad.tsx",
+      "path": "imports/connectlive/src/components/console/VirtualTrackpad.tsx",
       "bytes": 12118,
       "sha256": "f6ef98f90c60fdb6c495aaff863eeb29f816622a6fa740c733a129dbd54662cc",
       "status": "automatically_checked",
@@ -6343,7 +6343,7 @@
       ]
     },
     {
-      "path": "src/components/ui/accordion.tsx",
+      "path": "imports/connectlive/src/components/ui/accordion.tsx",
       "bytes": 2015,
       "sha256": "0903efcd7b746eef0a10c954a541b0dfa7aa1172f3c380a1a88f4e19a317fda3",
       "status": "automatically_checked",
@@ -6357,7 +6357,7 @@
       ]
     },
     {
-      "path": "src/components/ui/alert-dialog.tsx",
+      "path": "imports/connectlive/src/components/ui/alert-dialog.tsx",
       "bytes": 4183,
       "sha256": "ee4d7f3341a1e5592787b7dac8e924bd226189492819f6704d8a7faf8fe64d20",
       "status": "automatically_checked",
@@ -6371,7 +6371,7 @@
       ]
     },
     {
-      "path": "src/components/ui/alert.tsx",
+      "path": "imports/connectlive/src/components/ui/alert.tsx",
       "bytes": 1589,
       "sha256": "e7f4c2e6f78c59270905b4152b7d3ef4d5c6b9e3b2d370daa7b301aa7cbd27b3",
       "status": "automatically_checked",
@@ -6385,7 +6385,7 @@
       ]
     },
     {
-      "path": "src/components/ui/aspect-ratio.tsx",
+      "path": "imports/connectlive/src/components/ui/aspect-ratio.tsx",
       "bytes": 143,
       "sha256": "d72c73d629e37995a0a71647d851d68d6fdcd7ec120797f36ab83a8ee89f2cab",
       "status": "automatically_checked",
@@ -6399,7 +6399,7 @@
       ]
     },
     {
-      "path": "src/components/ui/avatar.tsx",
+      "path": "imports/connectlive/src/components/ui/avatar.tsx",
       "bytes": 1413,
       "sha256": "0326c9041c5a0b1ba31ff29822c51950b6aeac485cd0985e7df714741a54e7f4",
       "status": "automatically_checked",
@@ -6413,7 +6413,7 @@
       ]
     },
     {
-      "path": "src/components/ui/badge.tsx",
+      "path": "imports/connectlive/src/components/ui/badge.tsx",
       "bytes": 1123,
       "sha256": "6519775252fe729f21c60b92c7c9feefd1fe7d0a8c2cf16d6f1c2fa7e153fe75",
       "status": "automatically_checked",
@@ -6427,7 +6427,7 @@
       ]
     },
     {
-      "path": "src/components/ui/breadcrumb.tsx",
+      "path": "imports/connectlive/src/components/ui/breadcrumb.tsx",
       "bytes": 2749,
       "sha256": "d5224e87344b3ac0f8b002e5dda6a71ff8fee296db8a5fbe6b034d06bd5c2ae1",
       "status": "automatically_checked",
@@ -6441,7 +6441,7 @@
       ]
     },
     {
-      "path": "src/components/ui/button.tsx",
+      "path": "imports/connectlive/src/components/ui/button.tsx",
       "bytes": 1894,
       "sha256": "e39813b666ba434660ec088356a0349246b6803a4e99961295d0c82bab1ab862",
       "status": "automatically_checked",
@@ -6455,7 +6455,7 @@
       ]
     },
     {
-      "path": "src/components/ui/calendar.tsx",
+      "path": "imports/connectlive/src/components/ui/calendar.tsx",
       "bytes": 7210,
       "sha256": "3205837b76f652de06126eb65ab7af601013ca989025cd21ed4cda33bd780b46",
       "status": "automatically_checked",
@@ -6469,7 +6469,7 @@
       ]
     },
     {
-      "path": "src/components/ui/card.tsx",
+      "path": "imports/connectlive/src/components/ui/card.tsx",
       "bytes": 1817,
       "sha256": "f13878a0078a5ef9f3e92af29259fc1e93ea56ea80cb992e0c4dea4e35396459",
       "status": "automatically_checked",
@@ -6483,7 +6483,7 @@
       ]
     },
     {
-      "path": "src/components/ui/carousel.tsx",
+      "path": "imports/connectlive/src/components/ui/carousel.tsx",
       "bytes": 6200,
       "sha256": "568e00e8edbfab8af67ee902ca9ef5ceb6d5ed6f3045e7f9b3c15b4f7ef9e974",
       "status": "automatically_checked",
@@ -6497,7 +6497,7 @@
       ]
     },
     {
-      "path": "src/components/ui/chart.tsx",
+      "path": "imports/connectlive/src/components/ui/chart.tsx",
       "bytes": 10570,
       "sha256": "81b1f692f9334ba3030213ff37eeaf2dd762b644e5d96e51ada7072109f07430",
       "status": "automatically_checked",
@@ -6511,7 +6511,7 @@
       ]
     },
     {
-      "path": "src/components/ui/checkbox.tsx",
+      "path": "imports/connectlive/src/components/ui/checkbox.tsx",
       "bytes": 1043,
       "sha256": "c44d02535d5c9c92807576804407dd63d01e7189dbde526e925b53885e645fd4",
       "status": "automatically_checked",
@@ -6525,7 +6525,7 @@
       ]
     },
     {
-      "path": "src/components/ui/collapsible.tsx",
+      "path": "imports/connectlive/src/components/ui/collapsible.tsx",
       "bytes": 335,
       "sha256": "5f0a45d8f6ca72d37ed10bf0a85306158b67d7cbc386319186ce013ead9bc0a6",
       "status": "automatically_checked",
@@ -6539,7 +6539,7 @@
       ]
     },
     {
-      "path": "src/components/ui/command.tsx",
+      "path": "imports/connectlive/src/components/ui/command.tsx",
       "bytes": 4876,
       "sha256": "ba8c0f8b23044ce9a5066e66d7ab7be3a3c79bfc4a0ab7dfae6ffafe439145a3",
       "status": "automatically_checked",
@@ -6553,7 +6553,7 @@
       ]
     },
     {
-      "path": "src/components/ui/context-menu.tsx",
+      "path": "imports/connectlive/src/components/ui/context-menu.tsx",
       "bytes": 7391,
       "sha256": "9ba8c0fc29c25f440a1d8806e16d42c1083e9909e7ed1f1b9b0deb2ae00e1d13",
       "status": "automatically_checked",
@@ -6567,7 +6567,7 @@
       ]
     },
     {
-      "path": "src/components/ui/dialog.tsx",
+      "path": "imports/connectlive/src/components/ui/dialog.tsx",
       "bytes": 3648,
       "sha256": "e3a6de153fb15597ea95be9c4549211a297c060267787915599e3d680d476bd9",
       "status": "automatically_checked",
@@ -6581,7 +6581,7 @@
       ]
     },
     {
-      "path": "src/components/ui/drawer.tsx",
+      "path": "imports/connectlive/src/components/ui/drawer.tsx",
       "bytes": 2973,
       "sha256": "478c487f66245641d5fa0f0d1c53a07d68bd60c4b3c497ec4c41ce08b482e14b",
       "status": "automatically_checked",
@@ -6595,7 +6595,7 @@
       ]
     },
     {
-      "path": "src/components/ui/dropdown-menu.tsx",
+      "path": "imports/connectlive/src/components/ui/dropdown-menu.tsx",
       "bytes": 7596,
       "sha256": "c6eb5ff28e5bc3cdbe38a11d680aae56d885285e4aca7c8288609811effc04cb",
       "status": "automatically_checked",
@@ -6609,7 +6609,7 @@
       ]
     },
     {
-      "path": "src/components/ui/form.tsx",
+      "path": "imports/connectlive/src/components/ui/form.tsx",
       "bytes": 4201,
       "sha256": "1ed53d4ab564a64708938643de590f2bef3718b0b2a309c1019c57e9c1fde23f",
       "status": "automatically_checked",
@@ -6623,7 +6623,7 @@
       ]
     },
     {
-      "path": "src/components/ui/hover-card.tsx",
+      "path": "imports/connectlive/src/components/ui/hover-card.tsx",
       "bytes": 1246,
       "sha256": "69dc172ece56ac77bf3a044a1cd60ed601b0041945d16b5da4c6cc4f42116988",
       "status": "automatically_checked",
@@ -6637,7 +6637,7 @@
       ]
     },
     {
-      "path": "src/components/ui/input-otp.tsx",
+      "path": "imports/connectlive/src/components/ui/input-otp.tsx",
       "bytes": 2161,
       "sha256": "9b94ff8e296ba320ebec6550e0fd1a9763132d7edfa4cac842d4ca926dd5f2e3",
       "status": "automatically_checked",
@@ -6651,7 +6651,7 @@
       ]
     },
     {
-      "path": "src/components/ui/input.tsx",
+      "path": "imports/connectlive/src/components/ui/input.tsx",
       "bytes": 776,
       "sha256": "92debb7d6d2d96d9e607a42d5ce8f37b2d63384ae5dd9ffbbf5f047b680ffb85",
       "status": "automatically_checked",
@@ -6665,7 +6665,7 @@
       ]
     },
     {
-      "path": "src/components/ui/label.tsx",
+      "path": "imports/connectlive/src/components/ui/label.tsx",
       "bytes": 716,
       "sha256": "9f72e2ecf16206593aa9e3c4fbc14cd8e81aa8488d57d92d4a950b30935a9fa9",
       "status": "automatically_checked",
@@ -6679,7 +6679,7 @@
       ]
     },
     {
-      "path": "src/components/ui/menubar.tsx",
+      "path": "imports/connectlive/src/components/ui/menubar.tsx",
       "bytes": 8546,
       "sha256": "e8a3269de7348e04dc1335cf6227bdcdaf2649484da4654f6a6b20f1c8423a84",
       "status": "automatically_checked",
@@ -6693,7 +6693,7 @@
       ]
     },
     {
-      "path": "src/components/ui/navigation-menu.tsx",
+      "path": "imports/connectlive/src/components/ui/navigation-menu.tsx",
       "bytes": 5152,
       "sha256": "755aecc77b7911ab61159c9fbb9b25254009eb4c32c95b1430b6b5b7d37ed8f0",
       "status": "automatically_checked",
@@ -6707,7 +6707,7 @@
       ]
     },
     {
-      "path": "src/components/ui/pagination.tsx",
+      "path": "imports/connectlive/src/components/ui/pagination.tsx",
       "bytes": 2739,
       "sha256": "cbe8559c578ee2d34c7daef5ee75dc3afeb795851e294b111dec375ba44a9a2d",
       "status": "automatically_checked",
@@ -6721,7 +6721,7 @@
       ]
     },
     {
-      "path": "src/components/ui/popover.tsx",
+      "path": "imports/connectlive/src/components/ui/popover.tsx",
       "bytes": 1352,
       "sha256": "861c18577ea5988c6f5ca00d1c677200319fd427cf8b424e59a5cca6ff24f830",
       "status": "automatically_checked",
@@ -6735,7 +6735,7 @@
       ]
     },
     {
-      "path": "src/components/ui/progress.tsx",
+      "path": "imports/connectlive/src/components/ui/progress.tsx",
       "bytes": 781,
       "sha256": "418f612946a520d1380b7a0d058185bb6a6d09846846dd6d6904a0016152dd4a",
       "status": "automatically_checked",
@@ -6749,7 +6749,7 @@
       ]
     },
     {
-      "path": "src/components/ui/radio-group.tsx",
+      "path": "imports/connectlive/src/components/ui/radio-group.tsx",
       "bytes": 1405,
       "sha256": "8c55aa0496b00a27fc4f609ca8b43a7e82c6802f6bf613998438b7632899fa96",
       "status": "automatically_checked",
@@ -6763,7 +6763,7 @@
       ]
     },
     {
-      "path": "src/components/ui/resizable.tsx",
+      "path": "imports/connectlive/src/components/ui/resizable.tsx",
       "bytes": 1552,
       "sha256": "f0399fec7bc334f06433b41b6ebf34255942ce4916b99173898893fa7fcc8281",
       "status": "automatically_checked",
@@ -6777,7 +6777,7 @@
       ]
     },
     {
-      "path": "src/components/ui/scroll-area.tsx",
+      "path": "imports/connectlive/src/components/ui/scroll-area.tsx",
       "bytes": 1635,
       "sha256": "b607f562455152a079d70a22538c95072b0267e0d59a1a1cf16a905a2e373a6f",
       "status": "automatically_checked",
@@ -6791,7 +6791,7 @@
       ]
     },
     {
-      "path": "src/components/ui/select.tsx",
+      "path": "imports/connectlive/src/components/ui/select.tsx",
       "bytes": 5749,
       "sha256": "6d4deee18cf7ced0354eb719300833a83caf46400de6ee9c3d1942fa4c579ad4",
       "status": "automatically_checked",
@@ -6805,7 +6805,7 @@
       ]
     },
     {
-      "path": "src/components/ui/separator.tsx",
+      "path": "imports/connectlive/src/components/ui/separator.tsx",
       "bytes": 723,
       "sha256": "bf5838b692e5f74fde7083280b99492dd402bce6966e912e79f5e23f14bc98eb",
       "status": "automatically_checked",
@@ -6819,7 +6819,7 @@
       ]
     },
     {
-      "path": "src/components/ui/sheet.tsx",
+      "path": "imports/connectlive/src/components/ui/sheet.tsx",
       "bytes": 4248,
       "sha256": "a82f9341962e766ee925a2fe883b0a9ab5d5dd8475c402ac8e491ee37dc95fde",
       "status": "automatically_checked",
@@ -6833,7 +6833,7 @@
       ]
     },
     {
-      "path": "src/components/ui/sidebar.tsx",
+      "path": "imports/connectlive/src/components/ui/sidebar.tsx",
       "bytes": 23975,
       "sha256": "9f44f4523271f965adec608ae1c3b8a2f350f2f45ba1401a2c7ee33bc5eda238",
       "status": "automatically_checked",
@@ -6847,7 +6847,7 @@
       ]
     },
     {
-      "path": "src/components/ui/skeleton.tsx",
+      "path": "imports/connectlive/src/components/ui/skeleton.tsx",
       "bytes": 239,
       "sha256": "f4c42257d73925b0b856a3500e2cbdd918fe6744fcd6be87ef28bb88e7eb7366",
       "status": "automatically_checked",
@@ -6861,7 +6861,7 @@
       ]
     },
     {
-      "path": "src/components/ui/slider.tsx",
+      "path": "imports/connectlive/src/components/ui/slider.tsx",
       "bytes": 1025,
       "sha256": "d307cf3ff05b54be4a04389ef4379f9e8b4dc49720197937991ce843a8d4b5ec",
       "status": "automatically_checked",
@@ -6875,7 +6875,7 @@
       ]
     },
     {
-      "path": "src/components/ui/sonner.tsx",
+      "path": "imports/connectlive/src/components/ui/sonner.tsx",
       "bytes": 734,
       "sha256": "3ad40f66c339e799b1a57c00e10b4627294c7d580d99d8a48ae0d8d4c13cf931",
       "status": "automatically_checked",
@@ -6889,7 +6889,7 @@
       ]
     },
     {
-      "path": "src/components/ui/switch.tsx",
+      "path": "imports/connectlive/src/components/ui/switch.tsx",
       "bytes": 1156,
       "sha256": "c3c298df4ffb56695e4a8f0ff3e37eee08437dec542a677153ec16bed0820107",
       "status": "automatically_checked",
@@ -6903,7 +6903,7 @@
       ]
     },
     {
-      "path": "src/components/ui/table.tsx",
+      "path": "imports/connectlive/src/components/ui/table.tsx",
       "bytes": 2820,
       "sha256": "1e945e564c2cc5ca3ef33019ba7da7a8b94cbc73feb3cbc2b7b33c36ea648d92",
       "status": "automatically_checked",
@@ -6917,7 +6917,7 @@
       ]
     },
     {
-      "path": "src/components/ui/tabs.tsx",
+      "path": "imports/connectlive/src/components/ui/tabs.tsx",
       "bytes": 1934,
       "sha256": "e9b454d2f987c83b36cc8870bba47d9355db4e8f5c733b310dbc1119a7d27654",
       "status": "automatically_checked",
@@ -6931,7 +6931,7 @@
       ]
     },
     {
-      "path": "src/components/ui/textarea.tsx",
+      "path": "imports/connectlive/src/components/ui/textarea.tsx",
       "bytes": 677,
       "sha256": "35617a2cf053e52c9e56983bde82d556861d38e462f9e578876c8e99a0432687",
       "status": "automatically_checked",
@@ -6945,7 +6945,7 @@
       ]
     },
     {
-      "path": "src/components/ui/toggle-group.tsx",
+      "path": "imports/connectlive/src/components/ui/toggle-group.tsx",
       "bytes": 1752,
       "sha256": "d59cd3937c967a3e221fdfcfe4ea5cd57eb97cbe37e1ac98126664c9c7db49c1",
       "status": "automatically_checked",
@@ -6959,7 +6959,7 @@
       ]
     },
     {
-      "path": "src/components/ui/toggle.tsx",
+      "path": "imports/connectlive/src/components/ui/toggle.tsx",
       "bytes": 1534,
       "sha256": "62e6e21993f1ab633b9f830cbbf0c181f3d161bae3a7792dbf2d842d42a2f09c",
       "status": "automatically_checked",
@@ -6973,7 +6973,7 @@
       ]
     },
     {
-      "path": "src/components/ui/tooltip.tsx",
+      "path": "imports/connectlive/src/components/ui/tooltip.tsx",
       "bytes": 1278,
       "sha256": "9682690fc3755d0f4b8684f2d7b1f77945876d41a45b723d0761b26804ad5010",
       "status": "automatically_checked",
@@ -6987,7 +6987,7 @@
       ]
     },
     {
-      "path": "src/hooks/use-mobile.tsx",
+      "path": "imports/connectlive/src/hooks/use-mobile.tsx",
       "bytes": 576,
       "sha256": "21eff740f9e5c965c7f0782925a7e8f67ddfcdf0f58b6613550f99c3e1c454e9",
       "status": "automatically_checked",
@@ -7001,7 +7001,7 @@
       ]
     },
     {
-      "path": "src/integrations/supabase/auth-attacher.ts",
+      "path": "imports/connectlive/src/integrations/supabase/auth-attacher.ts",
       "bytes": 611,
       "sha256": "24d0dbdf8dc0fd49b391a948bd04e1db43b97a1d851acc391dd3d1b13b9797fd",
       "status": "reviewed",
@@ -7015,7 +7015,7 @@
       ]
     },
     {
-      "path": "src/integrations/supabase/auth-middleware.ts",
+      "path": "imports/connectlive/src/integrations/supabase/auth-middleware.ts",
       "bytes": 3228,
       "sha256": "0fc042c2ec276b8d7f4c7c573f39137baca7841e2849c36aab29dc6f1616e91f",
       "status": "reviewed",
@@ -7029,7 +7029,7 @@
       ]
     },
     {
-      "path": "src/integrations/supabase/client.server.ts",
+      "path": "imports/connectlive/src/integrations/supabase/client.server.ts",
       "bytes": 2747,
       "sha256": "f3b4c85383ade973fa5f5cb21e913beda4ac0d7205c536c53bc58e7f831dc580",
       "status": "reviewed",
@@ -7043,7 +7043,7 @@
       ]
     },
     {
-      "path": "src/integrations/supabase/client.ts",
+      "path": "imports/connectlive/src/integrations/supabase/client.ts",
       "bytes": 2481,
       "sha256": "fd07c64d4e312b11ff629b520abb36c613cbfa688db4096b36c53f5832dee741",
       "status": "reviewed",
@@ -7057,7 +7057,7 @@
       ]
     },
     {
-      "path": "src/integrations/supabase/previewAuthStorage.ts",
+      "path": "imports/connectlive/src/integrations/supabase/previewAuthStorage.ts",
       "bytes": 4565,
       "sha256": "c11f61a80071f876a237b06f902f5e278283044e7202d28b33b8341b9fceafa2",
       "status": "automatically_checked",
@@ -7071,7 +7071,7 @@
       ]
     },
     {
-      "path": "src/integrations/supabase/types.ts",
+      "path": "imports/connectlive/src/integrations/supabase/types.ts",
       "bytes": 44104,
       "sha256": "be651ba9e240ed6b3e062d5b75a4b94d920c771149d259a770bd4f7218698150",
       "status": "automatically_checked",
@@ -7085,7 +7085,7 @@
       ]
     },
     {
-      "path": "src/lib/admins.functions.ts",
+      "path": "imports/connectlive/src/lib/admins.functions.ts",
       "bytes": 5058,
       "sha256": "47f28271960b5ab756c907b3d9f1352a50844a779a6e06ac1cc1a7e80d8e2a18",
       "status": "reviewed",
@@ -7099,7 +7099,7 @@
       ]
     },
     {
-      "path": "src/lib/agent-auth.server.ts",
+      "path": "imports/connectlive/src/lib/agent-auth.server.ts",
       "bytes": 816,
       "sha256": "386b7b280e098e45845fa0bdb673233a1950f9dbf4dc5d442b252acff96c72c7",
       "status": "reviewed",
@@ -7113,7 +7113,7 @@
       ]
     },
     {
-      "path": "src/lib/authorization.server.ts",
+      "path": "imports/connectlive/src/lib/authorization.server.ts",
       "bytes": 3443,
       "sha256": "6d827f3e6e996faf8ddec6274a1b1f0fc70c28427e766849cbe39e1d00d76e50",
       "status": "reviewed",
@@ -7127,7 +7127,7 @@
       ]
     },
     {
-      "path": "src/lib/cdp-config.server.ts",
+      "path": "imports/connectlive/src/lib/cdp-config.server.ts",
       "bytes": 1303,
       "sha256": "1ac1cdae55ace6f2b287de4429599b02715cd0e38cbdfbb91f6b4465f3b8e41f",
       "status": "automatically_checked",
@@ -7141,7 +7141,7 @@
       ]
     },
     {
-      "path": "src/lib/cdp.server.ts",
+      "path": "imports/connectlive/src/lib/cdp.server.ts",
       "bytes": 3672,
       "sha256": "3c875072a24d542a49f3e9fb56ff7131082422e4a8527a9146cef88771d3b9c5",
       "status": "reviewed",
@@ -7155,7 +7155,7 @@
       ]
     },
     {
-      "path": "src/lib/console-input.ts",
+      "path": "imports/connectlive/src/lib/console-input.ts",
       "bytes": 2994,
       "sha256": "453c040ea58d86f9258a6c8b505782e0f6b91dbd1b77941548118e6126b8cc92",
       "status": "automatically_checked",
@@ -7169,7 +7169,7 @@
       ]
     },
     {
-      "path": "src/lib/console-types.ts",
+      "path": "imports/connectlive/src/lib/console-types.ts",
       "bytes": 935,
       "sha256": "7408f087b26af44eefce64458e5d4bee0f24b9f947919b60df3d520bd5bfadea",
       "status": "reviewed",
@@ -7183,7 +7183,7 @@
       ]
     },
     {
-      "path": "src/lib/contact-emails.server.ts",
+      "path": "imports/connectlive/src/lib/contact-emails.server.ts",
       "bytes": 4969,
       "sha256": "a37009e9913a65c75481d2ae2c9386ed21da13d4b1146ad378b8eb2853454b98",
       "status": "automatically_checked",
@@ -7197,7 +7197,7 @@
       ]
     },
     {
-      "path": "src/lib/contact.functions.ts",
+      "path": "imports/connectlive/src/lib/contact.functions.ts",
       "bytes": 3556,
       "sha256": "d3ce8f973fa48e9033ac17a85de99376247b604414f9da0ecf0ba8db795d3ffc",
       "status": "automatically_checked",
@@ -7211,7 +7211,7 @@
       ]
     },
     {
-      "path": "src/lib/email-shell.server.ts",
+      "path": "imports/connectlive/src/lib/email-shell.server.ts",
       "bytes": 6067,
       "sha256": "f870d10b6ada9586e009cdb7851e8e815328bbaf093a7d8c08a0dc7d90839fc4",
       "status": "automatically_checked",
@@ -7225,7 +7225,7 @@
       ]
     },
     {
-      "path": "src/lib/error-capture.ts",
+      "path": "imports/connectlive/src/lib/error-capture.ts",
       "bytes": 906,
       "sha256": "adc4f6f1c8bdae036c9605b2db8372f2c6ed9fa037487ce288e2947472cfc568",
       "status": "automatically_checked",
@@ -7239,7 +7239,7 @@
       ]
     },
     {
-      "path": "src/lib/error-page.ts",
+      "path": "imports/connectlive/src/lib/error-page.ts",
       "bytes": 1371,
       "sha256": "635915886f5d44a18b6add2a53959dbe2e8ba1bb3f7e597fc714650e74157bb6",
       "status": "automatically_checked",
@@ -7253,7 +7253,7 @@
       ]
     },
     {
-      "path": "src/lib/expected-devices.functions.ts",
+      "path": "imports/connectlive/src/lib/expected-devices.functions.ts",
       "bytes": 5794,
       "sha256": "42d6ef96b3db099e34a5f4e522c9d28c8e2be2e250e5d99e3a4d2b34913ad785",
       "status": "automatically_checked",
@@ -7267,7 +7267,7 @@
       ]
     },
     {
-      "path": "src/lib/licenses.functions.ts",
+      "path": "imports/connectlive/src/lib/licenses.functions.ts",
       "bytes": 9636,
       "sha256": "1a0fe6129dbdd90cb2329875fe259a2dc94aee73d57c3e3a22b0231801021fc7",
       "status": "reviewed",
@@ -7281,7 +7281,7 @@
       ]
     },
     {
-      "path": "src/lib/licensing.server.ts",
+      "path": "imports/connectlive/src/lib/licensing.server.ts",
       "bytes": 3190,
       "sha256": "8fd63e406845d9db7e7312fa9b4a61d97e55a15a6d491aa9ec1cb479045db25f",
       "status": "reviewed",
@@ -7295,7 +7295,7 @@
       ]
     },
     {
-      "path": "src/lib/lovable-error-reporting.ts",
+      "path": "imports/connectlive/src/lib/lovable-error-reporting.ts",
       "bytes": 1691,
       "sha256": "2e8e6986898a82da17e34de05ef731ce5b2697fca8fb39c02964a094d840644f",
       "status": "automatically_checked",
@@ -7309,7 +7309,7 @@
       ]
     },
     {
-      "path": "src/lib/newsletter-emails.server.ts",
+      "path": "imports/connectlive/src/lib/newsletter-emails.server.ts",
       "bytes": 5163,
       "sha256": "2fc390d2cf6464ed59128761db6643b0e0a9aa8de3c588f48274150317dbc64e",
       "status": "automatically_checked",
@@ -7323,7 +7323,7 @@
       ]
     },
     {
-      "path": "src/lib/newsletter-unsub.server.ts",
+      "path": "imports/connectlive/src/lib/newsletter-unsub.server.ts",
       "bytes": 1977,
       "sha256": "6a48cf6eb76e93d93a425465f4c0ba5d8545f6b821ef60abb0dabdb23831e61b",
       "status": "automatically_checked",
@@ -7337,7 +7337,7 @@
       ]
     },
     {
-      "path": "src/lib/newsletter.functions.ts",
+      "path": "imports/connectlive/src/lib/newsletter.functions.ts",
       "bytes": 4114,
       "sha256": "9c4658003176dd792bb77a602cfb8686c6b73cc0666b05f9c5a8be0d1416b8a2",
       "status": "automatically_checked",
@@ -7351,7 +7351,7 @@
       ]
     },
     {
-      "path": "src/lib/notifications.functions.ts",
+      "path": "imports/connectlive/src/lib/notifications.functions.ts",
       "bytes": 2594,
       "sha256": "8a23860797cd36bd25dd440e8b404cccec25b10663ae9c0fd36666314a8ad8e4",
       "status": "automatically_checked",
@@ -7365,7 +7365,7 @@
       ]
     },
     {
-      "path": "src/lib/notify.functions.ts",
+      "path": "imports/connectlive/src/lib/notify.functions.ts",
       "bytes": 2347,
       "sha256": "51e9c3411650ee7bf112d6331a100aa46001c1974362b711c926fa46d5afab22",
       "status": "automatically_checked",
@@ -7379,7 +7379,7 @@
       ]
     },
     {
-      "path": "src/lib/order-emails.server.ts",
+      "path": "imports/connectlive/src/lib/order-emails.server.ts",
       "bytes": 10130,
       "sha256": "f8014293ccd8290a4300b52dc3d25bf03dd47e8616b0176982cf47bf2d5294fc",
       "status": "reviewed",
@@ -7393,7 +7393,7 @@
       ]
     },
     {
-      "path": "src/lib/orders.functions.ts",
+      "path": "imports/connectlive/src/lib/orders.functions.ts",
       "bytes": 13990,
       "sha256": "098665d5e69efb8b9113ca77754a21db9ac968de529ee6db17865418e690c8cc",
       "status": "reviewed",
@@ -7407,7 +7407,7 @@
       ]
     },
     {
-      "path": "src/lib/portal.functions.ts",
+      "path": "imports/connectlive/src/lib/portal.functions.ts",
       "bytes": 10050,
       "sha256": "076904da1f941541edd5e116dd3ce598c16ca6e9323d487887fe20d1bcc171fa",
       "status": "automatically_checked",
@@ -7421,7 +7421,7 @@
       ]
     },
     {
-      "path": "src/lib/pricing.server.ts",
+      "path": "imports/connectlive/src/lib/pricing.server.ts",
       "bytes": 4954,
       "sha256": "7217b965d63a00a3eb63efc1927644ec259744db9ee405b1b47c59c44de21929",
       "status": "automatically_checked",
@@ -7435,7 +7435,7 @@
       ]
     },
     {
-      "path": "src/lib/recording-authority.ts",
+      "path": "imports/connectlive/src/lib/recording-authority.ts",
       "bytes": 1153,
       "sha256": "47dc4c1fa5e4bfd582e3b66eeb7c8c2419ec892c9ff0303221093a3e2d1ed3c2",
       "status": "automatically_checked",
@@ -7449,7 +7449,7 @@
       ]
     },
     {
-      "path": "src/lib/server-supabase.ts",
+      "path": "imports/connectlive/src/lib/server-supabase.ts",
       "bytes": 421,
       "sha256": "55e94d608d224bafe2038bfc656a4c8bb685586d8c85ab2732ed4b15eecdaf2e",
       "status": "reviewed",
@@ -7463,7 +7463,7 @@
       ]
     },
     {
-      "path": "src/lib/session-file-proxy.server.ts",
+      "path": "imports/connectlive/src/lib/session-file-proxy.server.ts",
       "bytes": 8189,
       "sha256": "c536c1880ba500e59b017cb0d675f06fc459e39535df188d515e4e976782c754",
       "status": "reviewed",
@@ -7477,7 +7477,7 @@
       ]
     },
     {
-      "path": "src/lib/session-files.functions.ts",
+      "path": "imports/connectlive/src/lib/session-files.functions.ts",
       "bytes": 10153,
       "sha256": "387137795ee272ace32e745f2161ed0df77c79c8f6d8aa4c00f2ceab3758a6e1",
       "status": "reviewed",
@@ -7491,7 +7491,7 @@
       ]
     },
     {
-      "path": "src/lib/session-files.server.ts",
+      "path": "imports/connectlive/src/lib/session-files.server.ts",
       "bytes": 5768,
       "sha256": "63e4e26dc512969aed651b7bc54e80b6425c909eb25acd946e7c7485313e5671",
       "status": "automatically_checked",
@@ -7505,7 +7505,7 @@
       ]
     },
     {
-      "path": "src/lib/smtp.functions.ts",
+      "path": "imports/connectlive/src/lib/smtp.functions.ts",
       "bytes": 6316,
       "sha256": "cec669f1cac146a4ed1a61193efe06493d098356c01e408dd3eaa7a9c6219cd6",
       "status": "automatically_checked",
@@ -7519,7 +7519,7 @@
       ]
     },
     {
-      "path": "src/lib/smtp.server.ts",
+      "path": "imports/connectlive/src/lib/smtp.server.ts",
       "bytes": 12978,
       "sha256": "08319005ffb830e43d2208486b812f9e593a0f317a8aab63c91f5137f3c51126",
       "status": "automatically_checked",
@@ -7533,7 +7533,7 @@
       ]
     },
     {
-      "path": "src/lib/utils.ts",
+      "path": "imports/connectlive/src/lib/utils.ts",
       "bytes": 169,
       "sha256": "d1f1e0d62cb8d8d1e04c26e14de842d8a151f75812d81b046c65b5d1fe8e4b27",
       "status": "automatically_checked",
@@ -7547,7 +7547,7 @@
       ]
     },
     {
-      "path": "src/lib/webrtc-live.ts",
+      "path": "imports/connectlive/src/lib/webrtc-live.ts",
       "bytes": 36796,
       "sha256": "7cd9924eb18ad481927c10dc24048ddb03c85a8332d11ce1b959e1de6cbb3634",
       "status": "automatically_checked",
@@ -7561,7 +7561,7 @@
       ]
     },
     {
-      "path": "src/lib/webrtc-signal.functions.ts",
+      "path": "imports/connectlive/src/lib/webrtc-signal.functions.ts",
       "bytes": 5613,
       "sha256": "dd8666869790ad03f082f27b8acbb7704aa0b87d0d79dc4eaf509c40debc2517",
       "status": "reviewed",
@@ -7575,7 +7575,7 @@
       ]
     },
     {
-      "path": "src/routeTree.gen.ts",
+      "path": "imports/connectlive/src/routeTree.gen.ts",
       "bytes": 46290,
       "sha256": "f85bc44014e76ed7af728e9e9af3375b42c2a2663c2fef16a1663c7448f06e0f",
       "status": "automatically_checked",
@@ -7589,7 +7589,7 @@
       ]
     },
     {
-      "path": "src/router.tsx",
+      "path": "imports/connectlive/src/router.tsx",
       "bytes": 394,
       "sha256": "72b68964d3f55ba4f7dcf2a04aad9d97d7c61fabad13aec1d298f1e39ee59fcc",
       "status": "automatically_checked",
@@ -7603,7 +7603,7 @@
       ]
     },
     {
-      "path": "src/routes/README.md",
+      "path": "imports/connectlive/src/routes/README.md",
       "bytes": 835,
       "sha256": "5c8187dbe79dac7a3c494f2600585508f5d15e75f04f21ea364d0de14de10575",
       "status": "automatically_checked",
@@ -7617,7 +7617,7 @@
       ]
     },
     {
-      "path": "src/routes/__root.tsx",
+      "path": "imports/connectlive/src/routes/__root.tsx",
       "bytes": 5601,
       "sha256": "929a6c451e8ca137c0d97ddd14029d27cd5c727dfc4419170946b2a8726f2d04",
       "status": "automatically_checked",
@@ -7631,7 +7631,7 @@
       ]
     },
     {
-      "path": "src/routes/_authenticated/console.tsx",
+      "path": "imports/connectlive/src/routes/_authenticated/console.tsx",
       "bytes": 81271,
       "sha256": "03400cae65708fbe26d3ec419278abe28dce242e424bec465d984f256e362c47",
       "status": "reviewed",
@@ -7645,7 +7645,7 @@
       ]
     },
     {
-      "path": "src/routes/_authenticated/payments.tsx",
+      "path": "imports/connectlive/src/routes/_authenticated/payments.tsx",
       "bytes": 3637,
       "sha256": "12ed47011941012ade2f20b7002b861b90d37e1d6a0aec4d54ebcc82ea696841",
       "status": "reviewed",
@@ -7659,7 +7659,7 @@
       ]
     },
     {
-      "path": "src/routes/_authenticated/route.tsx",
+      "path": "imports/connectlive/src/routes/_authenticated/route.tsx",
       "bytes": 1139,
       "sha256": "e608e53925931423ebfa76acd0b1804373bf6ca1aad8fba2e2fea8ee2b51772a",
       "status": "reviewed",
@@ -7673,7 +7673,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/admin/bootstrap.ts",
+      "path": "imports/connectlive/src/routes/api/public/admin/bootstrap.ts",
       "bytes": 2923,
       "sha256": "28694dc132a476787aab19aad921c6b4a57614fd72f7d2e610834f9d6d02ffb5",
       "status": "reviewed",
@@ -7687,7 +7687,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/admin/session.$sessionId.authorization.ts",
+      "path": "imports/connectlive/src/routes/api/public/admin/session.$sessionId.authorization.ts",
       "bytes": 2595,
       "sha256": "a4a396724e495813fafa40a48579309c4a6c962feb5d2c5ab9a650836d62e43c",
       "status": "reviewed",
@@ -7701,7 +7701,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/admin/session.$sessionId.files.bytes.ts",
+      "path": "imports/connectlive/src/routes/api/public/admin/session.$sessionId.files.bytes.ts",
       "bytes": 824,
       "sha256": "70a434ed99948d3e2bdab658043a86d4970efbbd199b69e6c7eb0f4d0426a1eb",
       "status": "reviewed",
@@ -7715,7 +7715,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/admin/session.$sessionId.files.ts",
+      "path": "imports/connectlive/src/routes/api/public/admin/session.$sessionId.files.ts",
       "bytes": 9258,
       "sha256": "324a1b3f2254e272b8a1222f9dfed3fd35c4e9419b73f9bd0e54b26a7a5e40e2",
       "status": "reviewed",
@@ -7729,7 +7729,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/authorization.revoke.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/authorization.revoke.ts",
       "bytes": 646,
       "sha256": "3655b7a1a0fd3c81b4f6744b6910c4c4db593b5ccf1e5c6c0b810fcaf7867af3",
       "status": "reviewed",
@@ -7743,7 +7743,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/authorization.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/authorization.ts",
       "bytes": 1487,
       "sha256": "c053b393a02eb4761981f98f32af903eed47a93f0edddba0749e5875077c7485",
       "status": "reviewed",
@@ -7757,7 +7757,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/beacon.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/beacon.ts",
       "bytes": 2201,
       "sha256": "87265bc682e3c94bf7b97dfaa8e01d499c2cba8f353de2283264db760bb37382",
       "status": "reviewed",
@@ -7771,7 +7771,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/enroll.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/enroll.ts",
       "bytes": 8208,
       "sha256": "f86e16b4632363c3790e710b0fde103dce36c56597aeda0dcac5dbff14c1b1af",
       "status": "reviewed",
@@ -7785,7 +7785,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/heartbeat.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/heartbeat.ts",
       "bytes": 12664,
       "sha256": "7ed47076768f9f8bdf983506f5c4ef0197479adaad6b923c71c59a00612b0aa1",
       "status": "reviewed",
@@ -7799,7 +7799,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/hello.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/hello.ts",
       "bytes": 1008,
       "sha256": "9b46723c2b6571d56b64f333a3fa9178953debe6febbd5fe58de52ea9122a8c1",
       "status": "reviewed",
@@ -7813,7 +7813,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/ice.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/ice.ts",
       "bytes": 12385,
       "sha256": "8020fa2fc2e1ac5202ffb800673afd76602d625554b676f44e57b13a1140081a",
       "status": "reviewed",
@@ -7827,7 +7827,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/power.$cmdId.ack.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/power.$cmdId.ack.ts",
       "bytes": 1989,
       "sha256": "ef374ea646d32f63270a827a70c7d49e5af704991f735d07405d8265efba5593",
       "status": "reviewed",
@@ -7841,7 +7841,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/release.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/release.ts",
       "bytes": 3665,
       "sha256": "ab37fdcb10374a762dcf84aec3c178a23cd6467d6ea3941dd7fda0b11c9e9950",
       "status": "reviewed",
@@ -7855,7 +7855,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/session.$sessionId.consent.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/session.$sessionId.consent.ts",
       "bytes": 3381,
       "sha256": "b02f768c8ae543b9ba6f051f1ee04ac2f6cf1e529ece0a16df6f207005eb5fb9",
       "status": "reviewed",
@@ -7869,7 +7869,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/session.$sessionId.cursor.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/session.$sessionId.cursor.ts",
       "bytes": 2990,
       "sha256": "df84b1fd686c8d926abcad13f8e3b1376820d9f077c3fc7e3fb6d26c1cbced24",
       "status": "reviewed",
@@ -7883,7 +7883,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/session.$sessionId.file.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/session.$sessionId.file.ts",
       "bytes": 5731,
       "sha256": "5a0c6aab02f87d3084604e0d074f2c0d173ce3259863265f24517401fc6609ce",
       "status": "reviewed",
@@ -7897,7 +7897,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/session.$sessionId.frame.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/session.$sessionId.frame.ts",
       "bytes": 2391,
       "sha256": "c26b2aa350dd859f1c09b04c2fc58b8006b486d7a48cf39ea25f3289b4059fab",
       "status": "reviewed",
@@ -7911,7 +7911,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/session.$sessionId.inputs.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/session.$sessionId.inputs.ts",
       "bytes": 2531,
       "sha256": "e62855f87a47ec63de7df98d9ccaf9bd25edf2be354085049b6d2c2048f81379",
       "status": "reviewed",
@@ -7925,7 +7925,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/session.$sessionId.reconnect.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/session.$sessionId.reconnect.ts",
       "bytes": 3773,
       "sha256": "e7dc0b569c544aeebf21f4c3e0709e9a0f65133c762dee446e3bb8b664220a79",
       "status": "reviewed",
@@ -7939,7 +7939,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/session.$sessionId.signal.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/session.$sessionId.signal.ts",
       "bytes": 7042,
       "sha256": "43ff554ee677f25977b68306efef8595fb877313839fca0b346b6c15d5cd4663",
       "status": "reviewed",
@@ -7953,7 +7953,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/agent/stream.ts",
+      "path": "imports/connectlive/src/routes/api/public/agent/stream.ts",
       "bytes": 3682,
       "sha256": "572edcaea921676108c6c001105c532fa8f9d39f7335b5bb1db01c2e731e8633",
       "status": "reviewed",
@@ -7967,7 +7967,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/auth/login.ts",
+      "path": "imports/connectlive/src/routes/api/public/auth/login.ts",
       "bytes": 4291,
       "sha256": "452c394c0bbf89f2a175355b860153feec9b7a41ef1d738fb9905b4124ee647d",
       "status": "reviewed",
@@ -7981,7 +7981,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/cron/reconcile-orders.ts",
+      "path": "imports/connectlive/src/routes/api/public/cron/reconcile-orders.ts",
       "bytes": 3995,
       "sha256": "a1ad80707fde1b1b8541c4fd5870d29c92a6f88ce760876d11c78e709d87bed1",
       "status": "reviewed",
@@ -7995,7 +7995,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/health.ts",
+      "path": "imports/connectlive/src/routes/api/public/health.ts",
       "bytes": 396,
       "sha256": "bff14ee4c4e308f2e6cd5a37e2c0ec110442e8a30477064ce8eb3990088612a9",
       "status": "reviewed",
@@ -8009,7 +8009,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/newsletter/unsubscribe.ts",
+      "path": "imports/connectlive/src/routes/api/public/newsletter/unsubscribe.ts",
       "bytes": 3126,
       "sha256": "b7b8845342da8867390ca8149c4776d1f5de13ba8d0af9b8db64b24efd82c9af",
       "status": "reviewed",
@@ -8023,7 +8023,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/stats/orders.ts",
+      "path": "imports/connectlive/src/routes/api/public/stats/orders.ts",
       "bytes": 950,
       "sha256": "94aab45aa84617cd56a505c22bcca5e799df6bb5d7e5a40634220f607e2e3db0",
       "status": "reviewed",
@@ -8037,7 +8037,7 @@
       ]
     },
     {
-      "path": "src/routes/api/public/webhooks/cdp.ts",
+      "path": "imports/connectlive/src/routes/api/public/webhooks/cdp.ts",
       "bytes": 3258,
       "sha256": "1a800093b112de386d8664df2630cd16d0f6600a97d505a86e5515dceaaa3278",
       "status": "reviewed",
@@ -8051,7 +8051,7 @@
       ]
     },
     {
-      "path": "src/routes/connectlive.admin.tsx",
+      "path": "imports/connectlive/src/routes/connectlive.admin.tsx",
       "bytes": 1354,
       "sha256": "fdb177bde16ff968c001bee6dc0ca31e5628db9d7d8e0b326aa58bebeb1a6726",
       "status": "automatically_checked",
@@ -8065,7 +8065,7 @@
       ]
     },
     {
-      "path": "src/routes/connectlive.payment.tsx",
+      "path": "imports/connectlive/src/routes/connectlive.payment.tsx",
       "bytes": 1391,
       "sha256": "52a9294de9b5a6b359525a4e90a7ffbb24e8f16e5eae74389ea4fb7447f443d3",
       "status": "automatically_checked",
@@ -8079,7 +8079,7 @@
       ]
     },
     {
-      "path": "src/routes/contact.tsx",
+      "path": "imports/connectlive/src/routes/contact.tsx",
       "bytes": 1441,
       "sha256": "3cf5d7a620d077a718f91584428a32cbcaf2750f84c9516c88d36ad56fb241b1",
       "status": "automatically_checked",
@@ -8093,7 +8093,7 @@
       ]
     },
     {
-      "path": "src/routes/health.ts",
+      "path": "imports/connectlive/src/routes/health.ts",
       "bytes": 370,
       "sha256": "289d65caf5e0d6bb9c6f5fd31290a6e68ff18a8e621cfc2f4629e67b5a38f9ec",
       "status": "reviewed",
@@ -8107,7 +8107,7 @@
       ]
     },
     {
-      "path": "src/routes/index.tsx",
+      "path": "imports/connectlive/src/routes/index.tsx",
       "bytes": 28003,
       "sha256": "428af699dacf29de6398c0b902fbe59ec1080d8ba5d4da15c202c664565fd061",
       "status": "automatically_checked",
@@ -8121,7 +8121,7 @@
       ]
     },
     {
-      "path": "src/routes/license.tsx",
+      "path": "imports/connectlive/src/routes/license.tsx",
       "bytes": 5511,
       "sha256": "0b072046d33427668c6ca0b2b55e48e15b84840a77427ca65d32768f1419e625",
       "status": "automatically_checked",
@@ -8135,7 +8135,7 @@
       ]
     },
     {
-      "path": "src/routes/order.$id.tsx",
+      "path": "imports/connectlive/src/routes/order.$id.tsx",
       "bytes": 9338,
       "sha256": "266d4bd14229aa0a0bb37bf51c130d66fe40b5cddb60c28591a2371606336569",
       "status": "automatically_checked",
@@ -8149,7 +8149,7 @@
       ]
     },
     {
-      "path": "src/routes/order.index.tsx",
+      "path": "imports/connectlive/src/routes/order.index.tsx",
       "bytes": 11915,
       "sha256": "9b1b8aecc260ff12ad7857e4a4ced9ae84549ff73ca38da303d76084e1c50fb5",
       "status": "automatically_checked",
@@ -8163,7 +8163,7 @@
       ]
     },
     {
-      "path": "src/routes/privacy.tsx",
+      "path": "imports/connectlive/src/routes/privacy.tsx",
       "bytes": 2882,
       "sha256": "f46056490dbc470f211464f1a85d5bfc816f919a6aad1f43f9cbffa4642e9632",
       "status": "automatically_checked",
@@ -8177,7 +8177,7 @@
       ]
     },
     {
-      "path": "src/routes/public.agent.login.tsx",
+      "path": "imports/connectlive/src/routes/public.agent.login.tsx",
       "bytes": 1673,
       "sha256": "f1cc76b4fe8ef2388e00aa50e63b0540b71f585368f1e7086d13a93715203431",
       "status": "automatically_checked",
@@ -8191,7 +8191,7 @@
       ]
     },
     {
-      "path": "src/routes/public.agent.portal.tsx",
+      "path": "imports/connectlive/src/routes/public.agent.portal.tsx",
       "bytes": 19745,
       "sha256": "462cdcea2f27e3d7e657c2b46fcd76967362497dc0da6b2c58ef2ec9b92ec138",
       "status": "automatically_checked",
@@ -8205,7 +8205,7 @@
       ]
     },
     {
-      "path": "src/routes/refund.tsx",
+      "path": "imports/connectlive/src/routes/refund.tsx",
       "bytes": 1965,
       "sha256": "eec862da9c55e829d1d0bace01ce3755c0d33b83a48d0e8d01d145988559c60e",
       "status": "automatically_checked",
@@ -8219,7 +8219,7 @@
       ]
     },
     {
-      "path": "src/routes/robots[.]txt.ts",
+      "path": "imports/connectlive/src/routes/robots[.]txt.ts",
       "bytes": 582,
       "sha256": "4dc22b7f55109b236370e58d8f041c0e709238004a6ef63108f428a2bcca0f35",
       "status": "automatically_checked",
@@ -8233,7 +8233,7 @@
       ]
     },
     {
-      "path": "src/routes/sitemap[.]xml.ts",
+      "path": "imports/connectlive/src/routes/sitemap[.]xml.ts",
       "bytes": 1465,
       "sha256": "0ce0cb7b908b7f0aaba41e37f413f7b3bdca538b60ad60c7d6ac0ae2529a73b5",
       "status": "automatically_checked",
@@ -8247,7 +8247,7 @@
       ]
     },
     {
-      "path": "src/routes/terms.tsx",
+      "path": "imports/connectlive/src/routes/terms.tsx",
       "bytes": 2426,
       "sha256": "10942660f1ba08f90da65b778105665dd3b05c81cc3451dc78f346cb6ad29cd2",
       "status": "automatically_checked",
@@ -8261,7 +8261,7 @@
       ]
     },
     {
-      "path": "src/server.ts",
+      "path": "imports/connectlive/src/server.ts",
       "bytes": 2048,
       "sha256": "f0ee683067afee145f81a63a3af76b3d3767e2a1f61f0e82582f8da184ad3ef6",
       "status": "automatically_checked",
@@ -8275,7 +8275,7 @@
       ]
     },
     {
-      "path": "src/shared/api-routes.ts",
+      "path": "imports/connectlive/src/shared/api-routes.ts",
       "bytes": 3863,
       "sha256": "26346b48c938f469bc5f45d3d5e2b08e05f49f693f70dc21de8a7454602ae749",
       "status": "reviewed",
@@ -8289,7 +8289,7 @@
       ]
     },
     {
-      "path": "src/shared/payment-identity.ts",
+      "path": "imports/connectlive/src/shared/payment-identity.ts",
       "bytes": 1400,
       "sha256": "55dabede50b775b29e1e3fa153f6b128b1ff427098c22eb2f0b35c5f83361aef",
       "status": "automatically_checked",
@@ -8303,7 +8303,7 @@
       ]
     },
     {
-      "path": "src/shared/platform.ts",
+      "path": "imports/connectlive/src/shared/platform.ts",
       "bytes": 2899,
       "sha256": "b09935ddebe6fbb143d24e4439bde13968ec5bb1d2d2a7cb782e553245b0e219",
       "status": "automatically_checked",
@@ -8317,7 +8317,7 @@
       ]
     },
     {
-      "path": "src/start.ts",
+      "path": "imports/connectlive/src/start.ts",
       "bytes": 739,
       "sha256": "14a377e6b881f57c252819c5c5d254f89d8c916f0090837224df4a8d5a0f608e",
       "status": "reviewed",
@@ -8331,7 +8331,7 @@
       ]
     },
     {
-      "path": "src/styles.css",
+      "path": "imports/connectlive/src/styles.css",
       "bytes": 8264,
       "sha256": "987f29b297e8c4a99a90a323121c50827e44ac1843ccd9d9305fec3800cf55ba",
       "status": "automatically_checked",
@@ -8345,7 +8345,7 @@
       ]
     },
     {
-      "path": "supabase/config.toml",
+      "path": "imports/connectlive/supabase/config.toml",
       "bytes": 35,
       "sha256": "29efd5ab8c44f41b05cea7ba5ec50feaa301077d8b8147a1820d8580c7f72471",
       "status": "reviewed",
@@ -8359,7 +8359,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721082936_05993b89-bf3e-4b97-9442-d9dfb391084e.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721082936_05993b89-bf3e-4b97-9442-d9dfb391084e.sql",
       "bytes": 4736,
       "sha256": "35d8e75995ea5b24b416ebf43b3db10ad911401e6c95c45edffd3d053fc4bd01",
       "status": "automatically_checked",
@@ -8373,7 +8373,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721082957_7d5659ae-5cf5-4d84-be19-d699cac9ecf9.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721082957_7d5659ae-5cf5-4d84-be19-d699cac9ecf9.sql",
       "bytes": 258,
       "sha256": "730b596a6b80ad14dc201b170dd431c1eba9acd1c797f90285a991a3a0c0a1d7",
       "status": "automatically_checked",
@@ -8387,7 +8387,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721100643_ac2bec3d-0515-4dbf-809d-607a7c09cc11.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721100643_ac2bec3d-0515-4dbf-809d-607a7c09cc11.sql",
       "bytes": 807,
       "sha256": "20ea63247a0b469d9031b04d56f4479229683b7980833ca7e8e2f00473039b88",
       "status": "automatically_checked",
@@ -8401,7 +8401,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721104754_ceca527c-93d9-4744-a329-9d0f81826c2b.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721104754_ceca527c-93d9-4744-a329-9d0f81826c2b.sql",
       "bytes": 312,
       "sha256": "1d0dce5e500232c8b9ea2bd1d1ff7182d824a4f305c50eaa40c4c260e3889064",
       "status": "automatically_checked",
@@ -8415,7 +8415,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721110720_5592fd52-02a7-4038-8321-c5932c1a8f31.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721110720_5592fd52-02a7-4038-8321-c5932c1a8f31.sql",
       "bytes": 712,
       "sha256": "7ddaaf445d095b9bdf4d6587044153b92bbf3f26ce4dd4ca82cdadb01e564bd0",
       "status": "automatically_checked",
@@ -8429,7 +8429,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721113125_1f5e1578-574f-4de7-9306-bec55cb1643d.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721113125_1f5e1578-574f-4de7-9306-bec55cb1643d.sql",
       "bytes": 1009,
       "sha256": "f9932a2472947726b3e24fbe5d7212bb9faeeef424540cb06bd001a7470118d9",
       "status": "automatically_checked",
@@ -8443,7 +8443,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721125640_4115ffa3-8cf5-4829-8643-bac5cd9478f9.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721125640_4115ffa3-8cf5-4829-8643-bac5cd9478f9.sql",
       "bytes": 183,
       "sha256": "f30cfcd5a7030dbe074c898921b95273761a31946f8f9d6d131199ad9b5dc5c0",
       "status": "automatically_checked",
@@ -8457,7 +8457,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721125713_2756f3f4-d265-435e-a389-8af0aaedade5.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721125713_2756f3f4-d265-435e-a389-8af0aaedade5.sql",
       "bytes": 2455,
       "sha256": "65610888189ffcafdf1b7d2ef18e08d5b227c325f8c543df0fb94aa384c1f904",
       "status": "automatically_checked",
@@ -8471,7 +8471,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721125734_f4cf38af-84fa-41a2-a5e6-661d7ec125fe.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721125734_f4cf38af-84fa-41a2-a5e6-661d7ec125fe.sql",
       "bytes": 85,
       "sha256": "d6c99c3c7bff75456a7000deebe6ac2a4c84d1d907e718c67eabbe159caa6eed",
       "status": "automatically_checked",
@@ -8485,7 +8485,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721132626_7514b933-b764-43e0-99f0-311ecfecf9c1.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721132626_7514b933-b764-43e0-99f0-311ecfecf9c1.sql",
       "bytes": 2218,
       "sha256": "38b3f146758da979f0c5e45ea61f4382247182074ed77bf1e1e71aea70a98ed0",
       "status": "automatically_checked",
@@ -8499,7 +8499,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260721223057_7623a157-5cf3-419c-836c-318ba44d2554.sql",
+      "path": "imports/connectlive/supabase/migrations/20260721223057_7623a157-5cf3-419c-836c-318ba44d2554.sql",
       "bytes": 1320,
       "sha256": "94593f5e4545017da36ee1d1e6a00cf02eadf2b001607ff01db2594c152597cc",
       "status": "automatically_checked",
@@ -8513,7 +8513,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260722184202_5c6e0a72-3c7a-4deb-883b-d71ae7f720f8.sql",
+      "path": "imports/connectlive/supabase/migrations/20260722184202_5c6e0a72-3c7a-4deb-883b-d71ae7f720f8.sql",
       "bytes": 865,
       "sha256": "226d3ab3897e277acfaec3959e2dd3f1aee3074597fefdd6045225516883b7bf",
       "status": "automatically_checked",
@@ -8527,7 +8527,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260722191606_3268cdb6-70e0-403d-9d58-339127a5a155.sql",
+      "path": "imports/connectlive/supabase/migrations/20260722191606_3268cdb6-70e0-403d-9d58-339127a5a155.sql",
       "bytes": 4345,
       "sha256": "8401add1d9fab496aa373109f23b3e8552ce8a83158c6037832e09659d596c21",
       "status": "automatically_checked",
@@ -8541,7 +8541,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260722191638_329a1587-6113-4421-99e0-75462a693f56.sql",
+      "path": "imports/connectlive/supabase/migrations/20260722191638_329a1587-6113-4421-99e0-75462a693f56.sql",
       "bytes": 170,
       "sha256": "eb3fbc34cf55ad1fb74aa14e542777af23b6c061345a6003e78b5467897952ba",
       "status": "automatically_checked",
@@ -8555,7 +8555,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260722192609_e76e69d7-8f4b-4c64-b780-e0812f5af976.sql",
+      "path": "imports/connectlive/supabase/migrations/20260722192609_e76e69d7-8f4b-4c64-b780-e0812f5af976.sql",
       "bytes": 5204,
       "sha256": "760b6a92959b3698585436266b479bf688270d20f71830df302b914eb0fdd408",
       "status": "reviewed",
@@ -8569,7 +8569,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260722192636_d204fff6-4c2a-4baf-9895-706d171704ec.sql",
+      "path": "imports/connectlive/supabase/migrations/20260722192636_d204fff6-4c2a-4baf-9895-706d171704ec.sql",
       "bytes": 165,
       "sha256": "a2236bdb8766927064c3a0f3f0eb3916b878cb591c47f7c49aec68ed7332d8a7",
       "status": "automatically_checked",
@@ -8583,7 +8583,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260723184157_a4bb8275-a24a-46d4-a456-26c9d23d2215.sql",
+      "path": "imports/connectlive/supabase/migrations/20260723184157_a4bb8275-a24a-46d4-a456-26c9d23d2215.sql",
       "bytes": 6287,
       "sha256": "680e8ff954e7c4b715b4a0814c1950087c667a0590574d30c3ef28a4cde14435",
       "status": "reviewed",
@@ -8597,7 +8597,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260723184743_dad7a119-5998-4bef-9339-2d9b0fa53493.sql",
+      "path": "imports/connectlive/supabase/migrations/20260723184743_dad7a119-5998-4bef-9339-2d9b0fa53493.sql",
       "bytes": 96,
       "sha256": "1922bac3c492e5633d429c3380a2f81b07197d9a201b4a411dd45570edad4a2c",
       "status": "automatically_checked",
@@ -8611,7 +8611,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260723190843_73b0aa8e-c711-4f28-ad28-ddc3689f3068.sql",
+      "path": "imports/connectlive/supabase/migrations/20260723190843_73b0aa8e-c711-4f28-ad28-ddc3689f3068.sql",
       "bytes": 429,
       "sha256": "014b218a0fca31d7f549e5422fbb005dd55a98375d289b087bd5bb767d1ae762",
       "status": "automatically_checked",
@@ -8625,7 +8625,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260727115223_f01993ce-47ff-435d-a3f5-ddda124423a0.sql",
+      "path": "imports/connectlive/supabase/migrations/20260727115223_f01993ce-47ff-435d-a3f5-ddda124423a0.sql",
       "bytes": 1453,
       "sha256": "2fefed248485c7d206d936a72623cac7775fde34e35e3a0bb9d1b9ab46312be7",
       "status": "automatically_checked",
@@ -8639,7 +8639,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260727134318_2fb4bfc6-d19e-4fa7-9e9a-6db474600711.sql",
+      "path": "imports/connectlive/supabase/migrations/20260727134318_2fb4bfc6-d19e-4fa7-9e9a-6db474600711.sql",
       "bytes": 184,
       "sha256": "fa1f4ff91d1407fef3f9df7d7c5a91bc990aec7f6a770cb499da77a24751fa57",
       "status": "automatically_checked",
@@ -8653,7 +8653,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260727223653_87da6092-5d47-4dc3-bdeb-a1ab968f0170.sql",
+      "path": "imports/connectlive/supabase/migrations/20260727223653_87da6092-5d47-4dc3-bdeb-a1ab968f0170.sql",
       "bytes": 4207,
       "sha256": "6c268f9b91a4316ebfcb3e016406703a377874475bb9e4be791d5a92fd128214",
       "status": "automatically_checked",
@@ -8667,7 +8667,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260728122915_a2afac77-db11-4898-8c11-0acb782568ff.sql",
+      "path": "imports/connectlive/supabase/migrations/20260728122915_a2afac77-db11-4898-8c11-0acb782568ff.sql",
       "bytes": 3430,
       "sha256": "6392ece06b5287da3a12cc96f39635f7f1e7e7265a7cd2fde4b7db5f5ea2fa46",
       "status": "reviewed",
@@ -8681,7 +8681,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260728183916_971307d0-5bdc-446b-8011-b1332dbbb2cd.sql",
+      "path": "imports/connectlive/supabase/migrations/20260728183916_971307d0-5bdc-446b-8011-b1332dbbb2cd.sql",
       "bytes": 1077,
       "sha256": "b9af9f923f24944272ddc546f871d3e92ace4779445614f6c42163e3a6d6f606",
       "status": "automatically_checked",
@@ -8695,7 +8695,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260728200010_2fb282b5-2f4c-4dad-a8f4-41b10ad4fd28.sql",
+      "path": "imports/connectlive/supabase/migrations/20260728200010_2fb282b5-2f4c-4dad-a8f4-41b10ad4fd28.sql",
       "bytes": 616,
       "sha256": "8248beeb63f6983002aac61fb9bd27e72bde8cf87a51bac0013a6be29701bdf6",
       "status": "automatically_checked",
@@ -8709,7 +8709,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260728232828_1468ad21-c6ec-4634-9de8-a188898e99af.sql",
+      "path": "imports/connectlive/supabase/migrations/20260728232828_1468ad21-c6ec-4634-9de8-a188898e99af.sql",
       "bytes": 1449,
       "sha256": "9d486615dbddcdfb162dbf264bd2d003ca9ef2ef54b38abf84ab72fc15534647",
       "status": "automatically_checked",
@@ -8723,7 +8723,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260728232855_c9ee8905-e5c7-415e-9627-1a537210f215.sql",
+      "path": "imports/connectlive/supabase/migrations/20260728232855_c9ee8905-e5c7-415e-9627-1a537210f215.sql",
       "bytes": 144,
       "sha256": "bbfd665b0db09270acb58ea11e38f1edae68e1b008677a785663520bdf6ceae4",
       "status": "automatically_checked",
@@ -8737,7 +8737,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260728233852_873881e0-41c2-4621-aa4b-9b335e033b13.sql",
+      "path": "imports/connectlive/supabase/migrations/20260728233852_873881e0-41c2-4621-aa4b-9b335e033b13.sql",
       "bytes": 4273,
       "sha256": "5f365be95877a91edbc4ff56cf6f42e6101591e3a6c8aa710695c54b16c2618c",
       "status": "automatically_checked",
@@ -8751,7 +8751,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260730125939_870bb23f-31ab-4b79-8958-dfe1a841425b.sql",
+      "path": "imports/connectlive/supabase/migrations/20260730125939_870bb23f-31ab-4b79-8958-dfe1a841425b.sql",
       "bytes": 272,
       "sha256": "f12bbcb9211ecb08deb965c9fbb93ca9aaba2a0390816a476cd220ba3c6545dd",
       "status": "automatically_checked",
@@ -8765,7 +8765,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260731135557_c460f258-5d9b-4593-a081-20681e1a99f7.sql",
+      "path": "imports/connectlive/supabase/migrations/20260731135557_c460f258-5d9b-4593-a081-20681e1a99f7.sql",
       "bytes": 319,
       "sha256": "00332862db8e43052eb3a7301892de4f6ad248c883598ee0b13273fc6c44df16",
       "status": "automatically_checked",
@@ -8779,7 +8779,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260801063718_6b9a2f1c-3d90-421a-b5b2-10280f4d248d.sql",
+      "path": "imports/connectlive/supabase/migrations/20260801063718_6b9a2f1c-3d90-421a-b5b2-10280f4d248d.sql",
       "bytes": 348,
       "sha256": "416cd15054ca2b11e8e04d2f30c3cf5339fe4c63fe49ea81316b5fd46b75d421",
       "status": "automatically_checked",
@@ -8793,7 +8793,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260802121633_4900db44-aa04-46c3-8193-e8e22225c308.sql",
+      "path": "imports/connectlive/supabase/migrations/20260802121633_4900db44-aa04-46c3-8193-e8e22225c308.sql",
       "bytes": 223,
       "sha256": "811cd654248310fcc77678c293d8b67ff301cd34ca17df9dd9becc783c0831d3",
       "status": "automatically_checked",
@@ -8807,7 +8807,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260802123132_653bbed8-2a21-4283-af75-a0510238c782.sql",
+      "path": "imports/connectlive/supabase/migrations/20260802123132_653bbed8-2a21-4283-af75-a0510238c782.sql",
       "bytes": 60,
       "sha256": "1a499aebf8d7359291c959b644420d931c75d53ae911517632244b10e789878a",
       "status": "automatically_checked",
@@ -8821,7 +8821,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260802214826_fc27fb7d-7490-49e4-9726-da34d155f3bc.sql",
+      "path": "imports/connectlive/supabase/migrations/20260802214826_fc27fb7d-7490-49e4-9726-da34d155f3bc.sql",
       "bytes": 875,
       "sha256": "85b554735e9c47aaf4e59cb7076410958afb2d9b1ede221c160150dab2cae4a6",
       "status": "reviewed",
@@ -8835,7 +8835,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260802214922_94f77358-d6da-4775-83a4-38d119a2cf19.sql",
+      "path": "imports/connectlive/supabase/migrations/20260802214922_94f77358-d6da-4775-83a4-38d119a2cf19.sql",
       "bytes": 340,
       "sha256": "e5c01900d9c475c7488af4336f4ee37fc406a4e6601cc6599504e532e4a9c7fa",
       "status": "automatically_checked",
@@ -8849,7 +8849,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260802231036_6bc88b06-1d6d-44bf-92ec-c24273ac1d2e.sql",
+      "path": "imports/connectlive/supabase/migrations/20260802231036_6bc88b06-1d6d-44bf-92ec-c24273ac1d2e.sql",
       "bytes": 342,
       "sha256": "4d976eab9175b56ecd4007883885afe42f554e199ace8c19bb4cd62f0b1ed0ab",
       "status": "automatically_checked",
@@ -8863,7 +8863,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260802234821_f7107a38-5d21-4c5a-902c-014ad5f469c2.sql",
+      "path": "imports/connectlive/supabase/migrations/20260802234821_f7107a38-5d21-4c5a-902c-014ad5f469c2.sql",
       "bytes": 388,
       "sha256": "c2de3ee782005c18e5e773ac71c6b72cd1eac768523094e8c11b7fc3c7124cd3",
       "status": "reviewed",
@@ -8877,7 +8877,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260803080954_f12c7d82-bf3d-4f6b-95c3-fa316927f5d2.sql",
+      "path": "imports/connectlive/supabase/migrations/20260803080954_f12c7d82-bf3d-4f6b-95c3-fa316927f5d2.sql",
       "bytes": 4141,
       "sha256": "45d96142702aadd556feec1cc24cd1cf95b712c4cc73e01dd81c39ede86020c3",
       "status": "automatically_checked",
@@ -8891,7 +8891,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260803085247_d027cca6-2c59-4e84-bb3a-c68c2e3d5d59.sql",
+      "path": "imports/connectlive/supabase/migrations/20260803085247_d027cca6-2c59-4e84-bb3a-c68c2e3d5d59.sql",
       "bytes": 256,
       "sha256": "56fc411c29d56284bf30a26273c5251bf8106b51ed2f497c885802c26e2b9df8",
       "status": "automatically_checked",
@@ -8905,7 +8905,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260803085521_a702e455-40f5-4dd6-a3d6-65b32dd41f66.sql",
+      "path": "imports/connectlive/supabase/migrations/20260803085521_a702e455-40f5-4dd6-a3d6-65b32dd41f66.sql",
       "bytes": 4871,
       "sha256": "496bc6c88d589a98e35c5ac361a7dc0ddc18c38b321c930e45e0cf798836d5d5",
       "status": "automatically_checked",
@@ -8919,7 +8919,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260803090421_b8368cb5-f1ed-4a68-b4a3-56fdd4c75a17.sql",
+      "path": "imports/connectlive/supabase/migrations/20260803090421_b8368cb5-f1ed-4a68-b4a3-56fdd4c75a17.sql",
       "bytes": 867,
       "sha256": "ca2c4a60782c49ffdbd4c85d25797c6f17b0af24a221e6ddfdae1b241876ee70",
       "status": "reviewed",
@@ -8933,7 +8933,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260803090952_4cb65866-b87d-4f9d-a24f-07bab9a2a8ab.sql",
+      "path": "imports/connectlive/supabase/migrations/20260803090952_4cb65866-b87d-4f9d-a24f-07bab9a2a8ab.sql",
       "bytes": 75,
       "sha256": "092f53451a452aadda30a938649f0144047a479cff7578727c0333ef411a2279",
       "status": "automatically_checked",
@@ -8947,7 +8947,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260803094656_764ff773-a248-42c7-ae34-f6b820c71c98.sql",
+      "path": "imports/connectlive/supabase/migrations/20260803094656_764ff773-a248-42c7-ae34-f6b820c71c98.sql",
       "bytes": 1360,
       "sha256": "1de81d7b50ed22599c27f3ac94b10a94d73d781a2959390c43aa6188cc358827",
       "status": "automatically_checked",
@@ -8961,7 +8961,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260803114314_45978285-3ecd-4b74-a890-1e8d296f95d1.sql",
+      "path": "imports/connectlive/supabase/migrations/20260803114314_45978285-3ecd-4b74-a890-1e8d296f95d1.sql",
       "bytes": 1010,
       "sha256": "479c3db8a14c535d5177f9ff9246093311d1253487f0faf68e270f86409f497e",
       "status": "automatically_checked",
@@ -8975,7 +8975,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805065845_8146d9ca-574d-4b7f-9102-a54d90d5cafc.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805065845_8146d9ca-574d-4b7f-9102-a54d90d5cafc.sql",
       "bytes": 83,
       "sha256": "3086fed523c05a86758b2b16492a4e9bfe3c2525866d76a92e88b92c9a8ff1ac",
       "status": "automatically_checked",
@@ -8989,7 +8989,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805114528_bac40217-f342-4a7f-832b-8f14eb7f8953.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805114528_bac40217-f342-4a7f-832b-8f14eb7f8953.sql",
       "bytes": 567,
       "sha256": "5a63895b070b6fe5d685b8ffe43d08fade4e4ddf43ea65970192ce278260b888",
       "status": "automatically_checked",
@@ -9003,7 +9003,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805152205_e200aa2e-55c9-470a-8d90-30db8864368c.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805152205_e200aa2e-55c9-470a-8d90-30db8864368c.sql",
       "bytes": 1821,
       "sha256": "3d40ee318f2b00823f2957ac356d91d7afd612415f54fe16789082b0a378ec4a",
       "status": "automatically_checked",
@@ -9017,7 +9017,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805152950_c51b5231-bccf-4874-854c-2b4420af3b89.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805152950_c51b5231-bccf-4874-854c-2b4420af3b89.sql",
       "bytes": 3359,
       "sha256": "ffc4347a21697bb352f43255ea5ceb325c8242f16c4a67d54d243ac9ac46f7ee",
       "status": "reviewed",
@@ -9031,7 +9031,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805163243_b4b3af2b-0a27-4354-a018-ca92e26d0ead.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805163243_b4b3af2b-0a27-4354-a018-ca92e26d0ead.sql",
       "bytes": 2417,
       "sha256": "70b12700b6cbb54933d79044eaa871a046eb4828cfc9cfdd54d002dad56f3710",
       "status": "reviewed",
@@ -9045,7 +9045,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805181706_8472b0b7-5ceb-49f6-b3d1-2408e95f4090.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805181706_8472b0b7-5ceb-49f6-b3d1-2408e95f4090.sql",
       "bytes": 229,
       "sha256": "b01451998a2bc28d1b82b555beb4a136cda6b692a58359afbeb48ad9c9a4fcee",
       "status": "automatically_checked",
@@ -9059,7 +9059,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805193411_4f8d2a23-403c-440c-a93f-be2c06850471.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805193411_4f8d2a23-403c-440c-a93f-be2c06850471.sql",
       "bytes": 1693,
       "sha256": "0a7f9588e8e40f4ed3a5989d9e5005011b788b4b610581ed4f0a6fc65df9ed13",
       "status": "automatically_checked",
@@ -9073,7 +9073,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805194722_a3f8e8aa-c84f-4311-8b95-b455388f5ab1.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805194722_a3f8e8aa-c84f-4311-8b95-b455388f5ab1.sql",
       "bytes": 261,
       "sha256": "e3527d643478a3aefc531ceb53bde7e543dc5294ab17481ed95842a6f614e919",
       "status": "automatically_checked",
@@ -9087,7 +9087,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805203322_561f7bb8-a08f-447c-92fa-7a4682c465b9.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805203322_561f7bb8-a08f-447c-92fa-7a4682c465b9.sql",
       "bytes": 951,
       "sha256": "113f5cd1400663a0aeca06bdc96818f01409477517c1a62678a3e502af0e72bb",
       "status": "automatically_checked",
@@ -9101,7 +9101,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260805210500_f0687287-b904-42eb-8182-3e4940315e27.sql",
+      "path": "imports/connectlive/supabase/migrations/20260805210500_f0687287-b904-42eb-8182-3e4940315e27.sql",
       "bytes": 1030,
       "sha256": "bfcddd1c93425a4aa53dab7ab8c4523b484131365761f017e5353f1c7db5a3be",
       "status": "automatically_checked",
@@ -9115,7 +9115,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20260909114649_f8ff3c7f-631d-4b0f-b0b3-bf9ed4b8e8af.sql",
+      "path": "imports/connectlive/supabase/migrations/20260909114649_f8ff3c7f-631d-4b0f-b0b3-bf9ed4b8e8af.sql",
       "bytes": 1638,
       "sha256": "2c93fcd773eb6eafdedb5562b722ad6a015d41adaef73d8ff8c0aa5cd867e3c3",
       "status": "automatically_checked",
@@ -9129,7 +9129,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261002005435_e6074b64-afb8-4285-8bdb-dc2f89927e67.sql",
+      "path": "imports/connectlive/supabase/migrations/20261002005435_e6074b64-afb8-4285-8bdb-dc2f89927e67.sql",
       "bytes": 521,
       "sha256": "43ba0f7f719cd2f5801d4789387303e4910b4612040e3ceef5b24ae6c5732da6",
       "status": "automatically_checked",
@@ -9143,7 +9143,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261005092925_0bc8bce0-0fb5-4ebe-a9a7-69f1576d3317.sql",
+      "path": "imports/connectlive/supabase/migrations/20261005092925_0bc8bce0-0fb5-4ebe-a9a7-69f1576d3317.sql",
       "bytes": 2364,
       "sha256": "d1aefcf958724ecc03143e14737feed333f407e3d71ae9a2766e05894508ea73",
       "status": "automatically_checked",
@@ -9157,7 +9157,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261007000606_60b9b323-8113-4a33-a7ad-571848c10cf9.sql",
+      "path": "imports/connectlive/supabase/migrations/20261007000606_60b9b323-8113-4a33-a7ad-571848c10cf9.sql",
       "bytes": 1218,
       "sha256": "43b03818b7bc0fed6aba4080f962f29dd5b362d6a77f3c15ce9c8d30c8c4e160",
       "status": "automatically_checked",
@@ -9171,7 +9171,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261007000722_f24bb5e8-3a15-41fb-878f-eedfcb938c05.sql",
+      "path": "imports/connectlive/supabase/migrations/20261007000722_f24bb5e8-3a15-41fb-878f-eedfcb938c05.sql",
       "bytes": 276,
       "sha256": "4c5c71962671485206c0d3bfef4b8e922983f97cf176ca8715a7b1a28957773e",
       "status": "automatically_checked",
@@ -9185,7 +9185,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261007000924_dc3b2608-62a9-4ea8-b89f-b24830d42dff.sql",
+      "path": "imports/connectlive/supabase/migrations/20261007000924_dc3b2608-62a9-4ea8-b89f-b24830d42dff.sql",
       "bytes": 1116,
       "sha256": "07bd918b790c8ccf0892e90ce637afbc0a1f03b871813aeaef07c60152a952c7",
       "status": "automatically_checked",
@@ -9199,7 +9199,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261021000000_restrict_admin_binding.sql",
+      "path": "imports/connectlive/supabase/migrations/20261021000000_restrict_admin_binding.sql",
       "bytes": 1806,
       "sha256": "63475d1dab49757e4be1e25e9d95083fc175e5a8bb65f9f2992bae0d726ae62a",
       "status": "reviewed",
@@ -9213,7 +9213,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261021001000_guard_client_session_transitions.sql",
+      "path": "imports/connectlive/supabase/migrations/20261021001000_guard_client_session_transitions.sql",
       "bytes": 1897,
       "sha256": "b7c08f31ee14bdd7c2f64df58c6423c5ab34563058f00553d3b2b6a4e96464c2",
       "status": "reviewed",
@@ -9227,7 +9227,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261021002000_unique_payment_quotes.sql",
+      "path": "imports/connectlive/supabase/migrations/20261021002000_unique_payment_quotes.sql",
       "bytes": 3044,
       "sha256": "807b63ec970942fa0169bd2d56d4e05f2ba5886d96e198bc2c69ecc2e5569fcd",
       "status": "reviewed",
@@ -9241,7 +9241,7 @@
       ]
     },
     {
-      "path": "supabase/migrations/20261021003000_recorded_device_authorization.sql",
+      "path": "imports/connectlive/supabase/migrations/20261021003000_recorded_device_authorization.sql",
       "bytes": 17196,
       "sha256": "68b49cefc255d8ffad9e4ae58597da046498982be104b527326e51194561bb57",
       "status": "reviewed",
@@ -9255,7 +9255,7 @@
       ]
     },
     {
-      "path": "tools/CodeSign.ps1",
+      "path": "imports/connectlive/tools/CodeSign.ps1",
       "bytes": 5088,
       "sha256": "dc63b41273a5d4387fd273cc71b0ea970bc9c6704ec9e2ecadb0142fabc7847e",
       "status": "reviewed",
@@ -9279,7 +9279,7 @@
       ]
     },
     {
-      "path": "tsconfig.json",
+      "path": "imports/connectlive/tsconfig.json",
       "bytes": 672,
       "sha256": "8f085c1d4841928370f6922fc9b8cabe3dfe84d266fc734a08d3e0dc3f92490d",
       "status": "reviewed",
@@ -9293,7 +9293,7 @@
       ]
     },
     {
-      "path": "vite.config.ts",
+      "path": "imports/connectlive/vite.config.ts",
       "bytes": 975,
       "sha256": "c5e49e83d577daeabe9b8a48a563642c37255cf3d52cb8faca6e296c5118f6e8",
       "status": "reviewed",

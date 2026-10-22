@@ -47,9 +47,9 @@ UI is untouched.
 Commands from repository root:
 
 ```sh
-dotnet run --project agent/src/Tests/NativeGatewayTests.csproj
-dotnet build agent/src/ConnectLiveAgent.csproj -p:EnableWindowsTargeting=true
-dotnet build admin/src/ConnectLiveAdmin.csproj -p:EnableWindowsTargeting=true
+dotnet run --project imports/connectlive/agent/src/Tests/NativeGatewayTests.csproj
+dotnet build imports/connectlive/agent/src/ConnectLiveAgent.csproj -p:EnableWindowsTargeting=true
+dotnet build imports/connectlive/admin/src/ConnectLiveAdmin.csproj -p:EnableWindowsTargeting=true
 ```
 
 The portable net8.0 test executable links the actual shared native transport
