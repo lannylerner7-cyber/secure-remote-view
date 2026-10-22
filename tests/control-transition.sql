@@ -4,6 +4,10 @@ CREATE ROLE authenticated;
 CREATE ROLE anon;
 CREATE ROLE service_role;
 CREATE SCHEMA auth;
+CREATE TYPE public.app_role AS ENUM ('super_admin','admin','user','technician');
+CREATE TABLE public.user_roles(user_id uuid, role public.app_role);
+CREATE TABLE public.licenses(id uuid PRIMARY KEY, user_id uuid);
+CREATE TABLE public.devices(id uuid PRIMARY KEY, license_id uuid, is_session_active boolean);
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$
  SELECT current_setting('test.role', true)
 $$;
@@ -11,31 +15,28 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$
  SELECT current_setting('test.uid', true)::uuid
 $$;
 CREATE TABLE public.device_authorizations (
- id uuid PRIMARY KEY, device_id uuid, capabilities jsonb, revoked_at timestamptz
+ id uuid PRIMARY KEY, device_id uuid, capabilities jsonb, revoked_at timestamptz,
+ owner_id uuid, notice_version integer, mode text
 );
 CREATE TABLE public.sessions (
  id uuid PRIMARY KEY, device_id uuid, technician_id uuid, consent_at timestamptz,
- state text, mode text, authorization_id uuid
+ state text, mode text, authorization_id uuid, authorization_mode text,
+ admin_client_id text, updated_at timestamptz
 );
--- Isolate the new transition logic from the separately maintained full
--- session_authorized predicate. This fixture checks its view-only precondition.
-CREATE FUNCTION public.session_authorized(sid uuid, capability text)
-RETURNS boolean LANGUAGE sql SECURITY DEFINER AS $$
- SELECT EXISTS(SELECT 1 FROM public.sessions s
- JOIN public.device_authorizations a ON a.id=s.authorization_id AND a.device_id=s.device_id
- WHERE s.id=sid AND s.state='active' AND s.consent_at IS NOT NULL
- AND a.revoked_at IS NULL AND a.capabilities->'view'='true'::jsonb
- AND s.technician_id=auth.uid() AND capability='view')
-$$;
+-- Seed an already-authorized session before installing the actual triggers.
+INSERT INTO licenses VALUES ('00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000004');
+INSERT INTO devices VALUES ('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000005',true);
+INSERT INTO device_authorizations VALUES
+ ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002',
+ '{"view":true,"control":true,"clipboard":false,"files":false,"recording":false}',null,
+ '00000000-0000-0000-0000-000000000004',1,'unattended');
+INSERT INTO sessions VALUES
+ ('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000004',now(),'active','view','00000000-0000-0000-0000-000000000001','unattended',null,now());
+\i :production_functions
 \ir ../supabase/migrations/20261022001000_allow_recorded_control_transition.sql
-CREATE TRIGGER guard_client_session_transitions BEFORE INSERT OR UPDATE ON sessions
-FOR EACH ROW EXECUTE FUNCTION guard_client_session_transitions();
+\ir ../supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql
 GRANT USAGE ON SCHEMA public, auth TO authenticated;
 GRANT SELECT,INSERT,UPDATE ON sessions TO authenticated;
-INSERT INTO device_authorizations VALUES
- ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','{"view":true,"control":true}',null);
-INSERT INTO sessions VALUES
- ('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000004',now(),'active','view','00000000-0000-0000-0000-000000000001');
 SET test.role='authenticated';
 SET test.uid='00000000-0000-0000-0000-000000000004';
 SET ROLE authenticated;
@@ -48,19 +49,19 @@ END $$;
 UPDATE sessions SET mode='view';
 SET test.uid='00000000-0000-0000-0000-000000000005';
 DO $$ BEGIN
- BEGIN UPDATE sessions SET mode='control'; RAISE EXCEPTION 'Wrong technician accepted';
- EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+ UPDATE sessions SET mode='control';
+ IF FOUND THEN RAISE EXCEPTION 'Wrong technician accepted'; END IF;
 END $$;
 SET test.uid='00000000-0000-0000-0000-000000000004';
 RESET ROLE;
-UPDATE device_authorizations SET capabilities='{"view":true,"control":false}';
+UPDATE device_authorizations SET capabilities=jsonb_set(capabilities,'{control}','false');
 SET ROLE authenticated;
 DO $$ BEGIN
  BEGIN UPDATE sessions SET mode='control'; RAISE EXCEPTION 'View-only control accepted';
  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
 RESET ROLE;
-UPDATE device_authorizations SET capabilities='{"view":true,"control":true}',revoked_at=now();
+UPDATE device_authorizations SET capabilities=jsonb_set(capabilities,'{control}','true'),revoked_at=now();
 SET ROLE authenticated;
 DO $$ BEGIN
  BEGIN UPDATE sessions SET mode='control'; RAISE EXCEPTION 'Revoked control accepted';

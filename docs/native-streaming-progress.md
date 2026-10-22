@@ -45,10 +45,15 @@ reported 5–6 seconds, NOT proof that it explains all observed latency.
   rejects subsequent submissions.
 - Native-input executable tests: nested payload, old-peer callback isolation,
   cancellation, session routing, safety fallback and acknowledgement freshness.
-- Disposable local PostgreSQL tests: recorded-control success plus denial of
-  view-only/revoked grants, wrong technician, identity edits and paused/ended
-  reactivation. These isolate the new guard from the full existing authorization
-  predicate; they do not certify every production RLS policy.
+- Disposable local PostgreSQL tests now load all five actual production session
+  triggers and five session RLS policies, plus the actual authorization
+  predicates. Authenticated updates verify recorded-control success and reject
+  view-only/revoked grants, wrong technicians, identity edits and paused/ended
+  reactivation. Both transition guards are reconciled by the corrective migration;
+  the earlier reduced fixture missed the second guard and is superseded.
+  This verifies the database path, not a live native/PostgREST or Windows journey.
+- Commit-labelled archives compare every archived source byte to git show for
+  the published commit. A remote SHA match alone is no longer sufficient.
 - Static regression checks cover integration, DXGI frame ownership, MSI version
   and staging, and native Admin lifecycle guards.
 - Clean Linux Windows-targeted compilation is recorded separately from runtime

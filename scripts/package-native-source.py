@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -39,6 +40,12 @@ def main():
             text=True).split()[0]
         if remote != args.github_commit:
             raise SystemExit("Requested GitHub commit is not current remote main")
+        # Compare the bytes we will archive, not just a branch name. Never label
+        # uncommitted local edits as belonging to an unrelated published commit.
+        checkout = tempfile.TemporaryDirectory(prefix="connectlive-archive-commit-")
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/lannylerner7-cyber/secure-remote-view.git",
+                        checkout.name], check=True)
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     baseline = subprocess.check_output(
@@ -51,6 +58,15 @@ def main():
         files["VERIFICATION-STATUS.md"] = (ROOT / "docs/native-streaming-progress.md").read_bytes()
         files["supabase/migrations/20261022001000_allow_recorded_control_transition.sql"] = (
             APP / "supabase/migrations/20261022001000_allow_recorded_control_transition.sql").read_bytes()
+        files["supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql"] = (
+            APP / "supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql").read_bytes()
+        if args.github_commit:
+            for name, data in files.items():
+                tracked = "docs/native-streaming-progress.md" if name == "VERIFICATION-STATUS.md" else name
+                published = subprocess.check_output(
+                    ["git", "-C", checkout.name, "show", f"{args.github_commit}:{tracked}"])
+                if data != published:
+                    raise SystemExit(f"Source differs from published commit: {name}")
         for name, data in files.items():
             if Path(name).suffix.lower() in {".png", ".ico"}:
                 continue
@@ -62,6 +78,7 @@ def main():
             "includesUncommittedChanges": True,
             "githubPushVerified": bool(args.github_commit),
             "githubCommit": args.github_commit,
+            "archiveSourcesMatchCommit": bool(args.github_commit),
             "windowsRuntimeVerified": False,
             "files": {n: hashlib.sha256(b).hexdigest() for n, b in files.items()},
         }
