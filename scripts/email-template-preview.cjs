@@ -48,6 +48,9 @@ function load(file) {
 }
 
 const shell = load(path.join(LIB, "email-shell.server.ts"));
+const logoBytes = fs.readFileSync(path.join(ROOT, "public/connectlive-logo-orb.png"));
+if (logoBytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new Error("Email logo must be a PNG");
+const previewLogo = `data:image/png;base64,${logoBytes.toString("base64")}`;
 const order = load(path.join(LIB, "order-emails.server.ts"));
 const news = load(path.join(LIB, "newsletter-emails.server.ts"));
 const contact = load(path.join(LIB, "contact-emails.server.ts"));
@@ -100,6 +103,8 @@ for (const [name, fn] of cases) {
   let r;
   try { r = fn(); } catch (e) { check(false, `${name} threw: ${e.message}`); continue; }
   const { subject, html, text } = r;
+  check(html.split(`src="${shell.EMAIL_LOGO_URL}"`).length - 1 === 2, `${name}: header/footer logo missing`);
+  check(html.includes('alt="ConnectLive logo"'), `${name}: logo alt text missing`);
   check(!/&amp;(amp|lt|gt|quot|#39);/.test(html), `${name}: double-escaped entity`);
   check(!/<script/i.test(html), `${name}: raw <script>`);
   check(!/href="(?!https:\/\/|mailto:)/.test(html), `${name}: non-https href`);
@@ -109,7 +114,7 @@ for (const [name, fn] of cases) {
   check(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(html + text + subject), `${name}: emoji`);
   if (name.startsWith("order-")) check(/#A1B2C3D4/.test(subject), `${name}: subject lacks order ref`);
   if (name.startsWith("order-") || name.startsWith("newsletter") || name.startsWith("contact")) check(/display:none;max-height:0/.test(html), `${name}: preheader missing`);
-  fs.writeFileSync(path.join(OUT, `${name}.html`), html);
+  fs.writeFileSync(path.join(OUT, `${name}.html`), html.replaceAll(shell.EMAIL_LOGO_URL, previewLogo));
   fs.writeFileSync(path.join(OUT, `${name}.txt`), `Subject: ${subject}\n\n${text}\n`);
   index.push(`<li><a href="${name}.html">${shell.escapeHtml(name)}</a> — <a href="${name}.txt">txt</a> — ${shell.escapeHtml(subject)}</li>`);
 }
@@ -119,7 +124,9 @@ for (const [name, message] of [
   ["support-booking", system.renderSupportBooking({ email: "sample@example.test", meeting: "SAMPLE", when: "2026-10-22T10:00:00Z", timezone: "UTC", topic: "Help & setup", notes: "<script>test</script>" })],
 ]) {
   check(!message.html.includes("<script>"), `${name}: unsafe HTML`);
-  fs.writeFileSync(path.join(OUT, `${name}.html`), message.html);
+  check(message.html.split(`src="${shell.EMAIL_LOGO_URL}"`).length - 1 === 2, `${name}: header/footer logo missing`);
+  check(message.html.includes('alt="ConnectLive logo"'), `${name}: logo alt text missing`);
+  fs.writeFileSync(path.join(OUT, `${name}.html`), message.html.replaceAll(shell.EMAIL_LOGO_URL, previewLogo));
   fs.writeFileSync(path.join(OUT, `${name}.txt`), message.text);
   index.push(`<li><a href="${name}.html">${name}</a></li>`);
 }

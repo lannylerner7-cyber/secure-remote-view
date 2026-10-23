@@ -12,8 +12,9 @@ export const SUPPORT_EMAIL = "support@connectliveagent.com";
 export const BRAND = "#315CCB";
 export const INK = "#0B1220";
 
-// Text wordmark avoids the unavailable legacy Lovable asset endpoint and
-// remains readable when email clients block remote images.
+// First-party PNG for Outlook/Gmail compatibility; keep the text wordmark
+// readable when a recipient disables remote images.
+export const EMAIL_LOGO_URL = "https://connectliveagent.com/connectlive-logo-orb.png";
 
 export const escapeHtml = (v: string) =>
   v
@@ -89,7 +90,7 @@ ${
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td width="36" style="vertical-align:middle">
-                  <span style="display:block;width:32px;line-height:32px;text-align:center;background:#315CCB;color:#ffffff;border-radius:8px;font-size:12px;font-weight:700">CL</span>
+                  <img src="${EMAIL_LOGO_URL}" width="32" height="32" alt="ConnectLive logo" style="display:block;width:32px;height:32px;border:0;outline:none;" />
                 </td>
                 <td style="vertical-align:middle;padding-left:10px">
                   <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:0.2px">ConnectLive</span>
@@ -118,7 +119,7 @@ ${
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td width="30" style="vertical-align:top">
-                  <span style="display:block;width:26px;line-height:26px;text-align:center;background:#315CCB;color:#ffffff;border-radius:6px;font-size:10px;font-weight:700">CL</span>
+                  <img src="${EMAIL_LOGO_URL}" width="26" height="26" alt="ConnectLive logo" style="display:block;width:26px;height:26px;border:0;outline:none;" />
                 </td>
                 <td style="vertical-align:top;padding-left:10px;font-size:12px;line-height:1.7;color:#4b5563;word-break:break-word;overflow-wrap:anywhere">
                   <strong style="color:#374151">ConnectLive</strong> — authorised remote support for IT teams and enterprise fleets.<br />
