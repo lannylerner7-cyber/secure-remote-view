@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as LicenseRouteImport } from './routes/license'
+import { Route as PlansRouteImport } from './routes/plans'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as RefundRouteImport } from './routes/refund'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
@@ -77,6 +78,11 @@ const HealthRoute = HealthRouteImport.update({
 const LicenseRoute = LicenseRouteImport.update({
   id: '/license',
   path: '/license',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlansRoute = PlansRouteImport.update({
+  id: '/plans',
+  path: '/plans',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -300,6 +306,7 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
+  '/plans': typeof PlansRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/robots.txt': typeof RobotsDottxtRoute
@@ -346,6 +353,7 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
+  '/plans': typeof PlansRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/robots.txt': typeof RobotsDottxtRoute
@@ -394,6 +402,7 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
   '/license': typeof LicenseRoute
+  '/plans': typeof PlansRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
   '/robots.txt': typeof RobotsDottxtRoute
@@ -442,6 +451,7 @@ export interface FileRouteTypes {
     | '/contact'
     | '/health'
     | '/license'
+    | '/plans'
     | '/privacy'
     | '/refund'
     | '/robots.txt'
@@ -488,6 +498,7 @@ export interface FileRouteTypes {
     | '/contact'
     | '/health'
     | '/license'
+    | '/plans'
     | '/privacy'
     | '/refund'
     | '/robots.txt'
@@ -535,6 +546,7 @@ export interface FileRouteTypes {
     | '/contact'
     | '/health'
     | '/license'
+    | '/plans'
     | '/privacy'
     | '/refund'
     | '/robots.txt'
@@ -583,6 +595,7 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   HealthRoute: typeof HealthRoute
   LicenseRoute: typeof LicenseRoute
+  PlansRoute: typeof PlansRoute
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
@@ -656,6 +669,13 @@ declare module '@tanstack/react-router' {
       path: '/license'
       fullPath: '/license'
       preLoaderRoute: typeof LicenseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plans': {
+      id: '/plans'
+      path: '/plans'
+      fullPath: '/plans'
+      preLoaderRoute: typeof PlansRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -990,6 +1010,7 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   HealthRoute: HealthRoute,
   LicenseRoute: LicenseRoute,
+  PlansRoute: PlansRoute,
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,

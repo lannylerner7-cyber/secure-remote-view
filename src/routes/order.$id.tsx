@@ -1,8 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { getOrderPublic } from "@/lib/orders.functions";
-import { Footer } from "@/components/Footer";
+import { Check, Copy } from "lucide-react";
+import { SiteShell } from "@/components/site/layout";
+import { ActionButton, Badge, Button, Notice } from "@/components/site/ui";
 import { orderReference } from "@/shared/payment-identity";
 
 type Invoice = {
@@ -78,13 +80,26 @@ function InvoicePage() {
   if (err)
     return (
       <Shell>
-        <p className="text-red-300">{err}</p>
+        <Notice
+          tone="error"
+          title="Invoice unavailable"
+          action={
+            <Button to="/license" variant="secondary">
+              Look up a license
+            </Button>
+          }
+        >
+          {err}
+        </Notice>
       </Shell>
     );
   if (!inv)
     return (
       <Shell>
-        <p className="text-white/60">Loading invoice…</p>
+        <div className="grid gap-6 md:grid-cols-2" aria-label="Loading invoice">
+          <div className="cl-skeleton h-96" />
+          <div className="cl-skeleton h-96" />
+        </div>
       </Shell>
     );
 
@@ -108,52 +123,75 @@ function InvoicePage() {
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(inv.receive_address)}`
     : null;
 
+  const stage = paid ? 4 : detected ? 3 : 2;
+
   return (
     <Shell>
+      <ol className="mx-auto mb-10 grid max-w-3xl grid-cols-3 gap-3" aria-label="Payment progress">
+        {[
+          ["Invoice created", true],
+          ["Payment detected", stage >= 3],
+          ["Access delivered", stage >= 4],
+        ].map(([label, done]) => (
+          <li
+            key={label as string}
+            className="rounded-xl bg-white/5 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+          >
+            <span className={`block size-2 rounded-full ${done ? "bg-cl-success" : "bg-white/25"}`} />
+            <p className="mt-4 text-sm font-semibold">{label as string}</p>
+            <p className="mt-2 font-mono text-[0.65rem] uppercase tracking-widest text-cl-faint">
+              {done ? "Complete" : "Waiting"}
+            </p>
+          </li>
+        ))}
+      </ol>
       <div className="grid gap-6 md:grid-cols-2">
-        <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-xs uppercase tracking-wider text-white/50">Amount due</div>
-          <div className="mt-1 font-mono text-3xl">
+        <section className="surface p-6 md:p-8">
+          <p className="hairline-title">Amount due</p>
+          <div className="tabular mt-3 break-all font-mono text-3xl font-semibold">
             {inv.amount_coin}{" "}
-            <span className="text-base text-white/60">{inv.coin.split("_")[0]}</span>
+            <span className="text-base text-cl-muted">{inv.coin.split("_")[0]}</span>
           </div>
-          <div className="mt-1 text-xs text-white/50">
+          <div className="mt-2 text-sm text-cl-muted">
             ≈ ${Number(inv.amount_usd).toFixed(2)} USD · {COIN_LABEL[inv.coin]}
           </div>
-          <p className="mt-3 text-xs text-amber-200">
+          <p className="mt-4 text-xs leading-5 text-cl-warning">
             Pay the exact crypto amount shown. Quotes may include a matching adjustment
             of up to {inv.coin === "BTC" ? "0.00000099 BTC" : `0.000099 ${inv.coin.split("_")[0]}`}.
             Do not round the amount or subtract network fees from it.
           </p>
 
-          <div className="mt-6">
-            <div className="text-xs uppercase tracking-wider text-white/50">
-              Send to this address
-            </div>
+          <div className="mt-7">
+            <p className="field-label">Send to this address</p>
             {inv.receive_address ? (
-              <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 break-all rounded bg-black/40 p-2 font-mono text-xs">
+              <div className="mt-3 flex items-center gap-2 rounded-xl bg-black/30 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+                <code className="min-w-0 flex-1 break-all font-mono text-xs text-cl-muted">
                   {inv.receive_address}
                 </code>
-                <button
+                <ActionButton
+                  className="!size-10 shrink-0 !p-0"
+                  variant="secondary"
+                  aria-label={copied ? "Address copied" : "Copy receiving address"}
                   onClick={copyAddr}
-                  className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+                  data-testid="button-copy-address"
                 >
-                  {copied ? "Copied" : "Copy"}
-                </button>
+                  {copied ? <Check size={16} /> : <Copy size={16} />}
+                </ActionButton>
               </div>
             ) : (
-              <div className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
-                Payment address is being provisioned. Refresh in a moment or contact support.
+              <div className="mt-3">
+                <Notice tone="warning">
+                  Payment address is being provisioned. Refresh in a moment or contact support.
+                </Notice>
               </div>
             )}
             {qrSrc && (
-              <img src={qrSrc} alt="Payment QR" className="mx-auto mt-4 rounded-lg bg-white p-2" />
+              <img src={qrSrc} alt="Payment QR" className="mx-auto mt-5 rounded-lg bg-white p-2" />
             )}
           </div>
 
           {!paid && !detected && (
-            <div className={`mt-4 text-xs ${expired ? "text-amber-300" : "text-white/50"}`}>
+            <div className={`mt-5 text-xs ${expired ? "text-cl-warning" : "text-cl-faint"}`}>
               {expired
                 ? "Price lock expired — refresh to recalculate the amount."
                 : `Price locked until ${expiresAt.toLocaleTimeString()}.`}
@@ -161,26 +199,28 @@ function InvoicePage() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-xs uppercase tracking-wider text-white/50">Status</div>
-          <div className="mt-2 flex items-center gap-2">
+        <section className="surface p-6 md:p-8">
+          <p className="hairline-title">Status</p>
+          <div className="mt-3 flex items-center gap-3">
             <span
               className={`inline-block h-2.5 w-2.5 rounded-full ${
                 paid
-                  ? "bg-green-400"
+                  ? "bg-cl-success"
                   : detected
-                    ? "bg-amber-400 animate-pulse"
+                    ? "animate-pulse bg-cl-warning"
                     : expired
-                      ? "bg-red-400"
+                      ? "bg-cl-danger"
                       : "bg-white/40"
               }`}
             />
-            <span className="text-lg font-medium capitalize">{inv.status}</span>
+            <span className="font-display text-2xl capitalize" data-testid="status-invoice">
+              {inv.status}
+            </span>
           </div>
 
           {(detected || paid) && (
-            <div className="mt-4">
-              <div className="mb-1 flex items-center justify-between text-xs text-white/60">
+            <div className="mt-5">
+              <div className="mb-2 flex items-center justify-between font-mono text-xs text-cl-muted">
                 <span>
                   {inv.confirmations} / {target} confirmations
                 </span>
@@ -188,12 +228,12 @@ function InvoicePage() {
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-white/10">
                 <div
-                  className="h-full bg-[#4F7CFF] transition-all"
+                  className="h-full bg-cl-signal transition-all"
                   style={{ width: `${confPct}%` }}
                 />
               </div>
               {inv.tx_hash && (
-                <div className="mt-2 break-all text-[11px] text-white/50">
+                <div className="mt-2 break-all text-[11px] text-cl-faint">
                   Tx: <code>{inv.tx_hash}</code>
                 </div>
               )}
@@ -201,46 +241,38 @@ function InvoicePage() {
           )}
 
           {paid && (
-            <div className="mt-6 rounded-lg border border-green-500/40 bg-green-500/10 p-4">
-              <div className="text-sm font-semibold text-green-200">Payment confirmed 🎉</div>
-              {inv.access_link ? (
-                <a
-                  href={inv.access_link}
-                  className="mt-3 inline-block rounded-lg bg-[#4F7CFF] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3E67E0]"
-                >
-                  Open your access link →
-                </a>
-              ) : (
-                <p className="mt-2 text-xs text-green-100/80">
-                  Your technician will email your access link shortly.
-                </p>
-              )}
+            <div className="mt-6">
+              <Notice tone="success" title="Payment confirmed">
+                {inv.access_link ? (
+                  <a className="button button-primary mt-2" href={inv.access_link}>
+                    <span className="relative z-10">Open your access link</span>
+                  </a>
+                ) : (
+                  "Your technician will email your access link shortly."
+                )}
+              </Notice>
             </div>
           )}
 
-          <div className="mt-6 space-y-1 text-xs text-white/60">
+          <div className="metal-line my-6" />
+          <dl className="grid gap-3 text-sm">
             <div>
-              <span className="text-white/40">Order reference:</span>{" "}
-              <code className="break-all">{orderReference(inv.id)}</code>
-              <p className="mt-1">Use this reference for tracking and support; it is not a required blockchain memo.</p>
+              <dt className="hairline-title">Order reference</dt>
+              <dd className="mt-1 break-all font-mono">{orderReference(inv.id)}</dd>
+              <p className="mt-1 text-xs text-cl-faint">
+                Use this reference for tracking and support; it is not a required blockchain memo.
+              </p>
             </div>
-            <div>
-              <span className="text-white/40">Name:</span> {inv.full_name}
-            </div>
-            <div>
-              <span className="text-white/40">Email:</span> {inv.email}
-            </div>
-            <div>
-              <span className="text-white/40">Plan:</span> {inv.plan_code}
-            </div>
-          </div>
+            <div className="flex justify-between gap-3"><dt className="text-cl-faint">Name</dt><dd className="text-right">{inv.full_name}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-cl-faint">Email</dt><dd className="break-all text-right">{inv.email}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-cl-faint">Plan</dt><dd className="text-right capitalize">{inv.plan_code}</dd></div>
+          </dl>
         </section>
       </div>
 
-      <div className="mt-8 text-center text-xs text-white/50">
-        <Link to="/" className="hover:text-white">
-          ← Back to ConnectLive
-        </Link>
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
+        <Button to="/license" variant="secondary">Look up a license</Button>
+        <Button to="/" variant="ghost">Back to ConnectLive</Button>
       </div>
     </Shell>
   );
@@ -248,14 +280,17 @@ function InvoicePage() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#050B1F] text-white">
-      <header className="border-b border-white/10 px-6 py-4">
-        <Link to="/" className="flex items-center gap-2 text-sm text-white/70 hover:text-white">
-          ← ConnectLive
-        </Link>
-      </header>
-      <main className="mx-auto max-w-4xl px-4 py-10">{children}</main>
-      <Footer />
-    </div>
+    <SiteShell>
+      <section className="section-tight">
+        <div className="container max-w-5xl">
+          <div className="mx-auto mb-10 max-w-3xl text-center">
+            <Badge live>Live payment tracker</Badge>
+            <h1 className="display-lg balanced mt-7">Your invoice.</h1>
+            <p className="body-lg mt-5">This page refreshes automatically every 10 seconds.</p>
+          </div>
+          {children}
+        </div>
+      </section>
+    </SiteShell>
   );
 }

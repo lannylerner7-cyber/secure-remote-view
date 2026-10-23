@@ -5,6 +5,7 @@ const SITE = "https://www.connectliveagent.com";
 /** Public, indexable pages only — console/portal/checkout routes are noindex. */
 const PAGES: { path: string; priority: string; changefreq: string }[] = [
   { path: "/", priority: "1.0", changefreq: "weekly" },
+  { path: "/plans", priority: "0.9", changefreq: "weekly" },
   { path: "/order", priority: "0.9", changefreq: "weekly" },
   { path: "/contact", priority: "0.6", changefreq: "monthly" },
   { path: "/privacy", priority: "0.3", changefreq: "yearly" },

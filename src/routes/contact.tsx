@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LegalShell } from "@/components/LegalShell";
-import { ContactForm } from "@/components/ContactForm";
+import { useServerFn } from "@tanstack/react-start";
+import { submitContactMessage } from "@/lib/contact.functions";
+import { SiteShell } from "@/components/site/layout";
+import { ContactPanel } from "@/components/site/contact-panel";
 
 export const Route = createFileRoute("/contact")({
   component: Page,
@@ -18,22 +20,15 @@ export const Route = createFileRoute("/contact")({
 });
 
 function Page() {
+  const send = useServerFn(submitContactMessage);
   return (
-    <LegalShell title="Contact us" updated="">
-      <p>
-        Tell us what's going on and the whole support team sees it. You'll get an instant
-        confirmation, and a human reply inside one business day — usually much sooner.
-      </p>
-
-      <div className="not-prose mt-6">
-        <ContactForm source="contact" />
-      </div>
-
-      <p className="mt-8">
-        If a live session is stuck right now, drop your order ID or meeting code into the message and
-        it jumps the queue. Prefer plain email? Write to{" "}
-        <a href="mailto:support@connectliveagent.com">support@connectliveagent.com</a>.
-      </p>
-    </LegalShell>
+    <SiteShell>
+      <ContactPanel
+        onSend={async (input) => {
+          const res = await send({ data: input });
+          return { ok: res.ok, message: res.message, reference: res.reference };
+        }}
+      />
+    </SiteShell>
   );
 }
