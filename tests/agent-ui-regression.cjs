@@ -1,0 +1,27 @@
+// Static UI-contract guards, not Windows interaction tests.
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const dir = path.resolve(__dirname, "../agent/src");
+const read = (file) => fs.readFileSync(path.join(dir, file), "utf8");
+const prompt = read("AuthorizationPrompt.cs");
+assert.match(prompt, /Select all permissions/);
+assert.match(prompt, /IsExpanded = false/);
+assert.match(prompt, /IsChecked = false/);
+assert.match(prompt, /Don't allow remote access/);
+assert.match(prompt, /all\.Checked/);
+assert.match(prompt, /all\.Unchecked/);
+assert.match(prompt, /Control requires View/);
+const status = read("SplashWindow.xaml.cs");
+assert.match(status, /NotifyIcon/);
+assert.match(status, /Visible = true/);
+assert.match(status, /Open ConnectLive status/);
+assert.match(status, /Disable remote access/);
+assert.match(status, /_tray\?\.Dispose/);
+assert.match(status, /if \(_tray == null\) \{ OpenStatus\(\); return; \}/);
+const app = read("App.xaml.cs");
+assert.match(app, /if \(api\.LocalAuthorization != null\) _splash\?\.MinimizeToTray/);
+assert.match(app, /if \(agreement == null\)\s*\{\s*DisableRemoteAccess\(\);\s*return;/);
+assert.match(app, /_splash\.Closing/);
+assert.match(app, /_agent\?\.StopLocally\(\)/);
+console.log("PASS: bulk enrollment, persistent tray status, and local withdrawal UI contracts");

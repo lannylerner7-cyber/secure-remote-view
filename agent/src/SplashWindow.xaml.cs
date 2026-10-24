@@ -6,8 +6,8 @@ using System.Windows.Shapes;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// Persistent, minimizable status surface. Closing or disabling requests
-/// local withdrawal, not background hiding.
+/// On-demand status window with a persistent tray indicator. Closing or
+/// disabling still requests local withdrawal, not background hiding.
 /// </summary>
 public sealed class SplashWindow : Window
 {
@@ -16,11 +16,12 @@ public sealed class SplashWindow : Window
     private readonly TextBlock _status;
     private readonly TextBlock _device;
     private readonly TextBlock _session;
+    private System.Windows.Forms.NotifyIcon? _tray;
 
     public SplashWindow()
     {
         Title = "ConnectLive Agent";
-        Width = 480; Height = 490;
+        Width = 450; Height = 420;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         WindowStyle = WindowStyle.SingleBorderWindow;
         ResizeMode = ResizeMode.CanMinimize;
@@ -39,7 +40,7 @@ public sealed class SplashWindow : Window
             }
         };
 
-        var stack = new StackPanel { Margin = new Thickness(36, 26, 36, 26) };
+        var stack = new StackPanel { Margin = new Thickness(24, 16, 24, 16) };
 
         var wordmark = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
         wordmark.Children.Add(new Ellipse
@@ -80,7 +81,7 @@ public sealed class SplashWindow : Window
 
         stack.Children.Add(new TextBlock
         {
-            Text = "Remote support status stays available in the taskbar. Closing this window or disabling access stops this agent and blocks future starts for this Windows user.",
+            Text = "Remote support status stays available in the ConnectLive tray icon. Minimize to keep this window out of the way. Closing this window or choosing Disable remote access stops the agent and blocks future starts for this Windows user.",
             FontSize = 11,
             Foreground = (Brush)Application.Current.Resources["BrandMuted"],
             Margin = new Thickness(0, 14, 0, 0),
@@ -101,6 +102,55 @@ public sealed class SplashWindow : Window
 
         root.Child = stack;
         Content = root;
+        try
+        {
+            var menu = new System.Windows.Forms.ContextMenuStrip();
+            menu.Items.Add("Open ConnectLive status", null, (_, _) => Dispatcher.Invoke(OpenStatus));
+            menu.Items.Add("Review authorization", null, (_, _) => Dispatcher.Invoke(() =>
+            {
+                OpenStatus();
+                AuthorizationRequested?.Invoke();
+            }));
+            menu.Items.Add("Disable remote access", null, (_, _) => Dispatcher.Invoke(() => DisableAccessRequested?.Invoke()));
+            _tray = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = System.Drawing.SystemIcons.Information,
+                Text = "ConnectLive — no active session",
+                ContextMenuStrip = menu,
+                Visible = true
+            };
+            _tray.DoubleClick += (_, _) => Dispatcher.Invoke(OpenStatus);
+            StateChanged += (_, _) =>
+            {
+                if (WindowState == WindowState.Minimized && _tray != null) Hide();
+            };
+            Closed += (_, _) =>
+            {
+                _tray?.Dispose();
+                menu.Dispose();
+                _tray = null;
+            };
+        }
+        catch (System.Exception ex)
+        {
+            _tray?.Dispose();
+            _tray = null;
+            Log.Warn("Tray unavailable; keeping the status window accessible: " + ex.Message);
+        }
+    }
+
+    private void OpenStatus()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    public void MinimizeToTray()
+    {
+        if (_tray == null) { OpenStatus(); return; }
+        WindowState = WindowState.Minimized;
+        Hide();
     }
 
     private static TextBlock Row(Panel parent, string label, string value)
@@ -139,5 +189,6 @@ public sealed class SplashWindow : Window
     {
         _session.Text = text;
         Title = $"ConnectLive — {text}";
+        if (_tray != null) _tray.Text = Title.Length > 63 ? Title.Substring(0, 63) : Title;
     });
 }

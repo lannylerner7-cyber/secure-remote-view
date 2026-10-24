@@ -32,12 +32,23 @@ public sealed class AppConfig
         var json = File.ReadAllText(candidate);
         var config = JsonSerializer.Deserialize<AppConfig>(json)
                ?? throw new InvalidOperationException("admin.config.json is invalid");
-        config.Validate();
+        try
+        {
+            config.Validate();
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException(
+                $"{ex.Message}{Environment.NewLine}Configuration file: {candidate}", ex);
+        }
         return config;
     }
 
     public void Validate()
     {
+        if (string.IsNullOrWhiteSpace(SupabaseUrl))
+            throw new InvalidOperationException(
+                "Set supabaseUrl in admin.config.json to your Supabase project's HTTPS origin (not the ConnectLive website or a database connection string). Also set supabaseAnonKey to the project's publishable key. The source template does not include credentials.");
         BaseUrl = ConnectLive.Native.NativeGatewayPolicy.ValidateOrigin(BaseUrl, "admin.config.json baseUrl");
         SupabaseUrl = ConnectLive.Native.NativeGatewayPolicy.ValidateOrigin(SupabaseUrl, "admin.config.json supabaseUrl");
         if (string.IsNullOrWhiteSpace(SupabaseAnonKey))

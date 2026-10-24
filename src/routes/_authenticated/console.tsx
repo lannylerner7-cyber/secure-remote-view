@@ -84,6 +84,14 @@ function AdminPage() {
   const [recording, setRecording] = useState(false);
 
   const videoHostRef = useRef<HTMLDivElement | null>(null);
+  // Explicit fullscreen for the viewer panel; normal mode stays compact.
+  const viewerPanelRef = useRef<HTMLDivElement | null>(null);
+  const [viewerFullscreen, setViewerFullscreen] = useState(false);
+  useEffect(() => {
+    const onFs = () => setViewerFullscreen(!!viewerPanelRef.current && document.fullscreenElement === viewerPanelRef.current);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
   const mouseButtonDownRef = useRef(false);
   // rAF pointer-move coalescer: only the latest position is flushed per frame.
   const pendingMoveRef = useRef<{
@@ -1527,10 +1535,13 @@ function AdminPage() {
               onClick={() => setLiveId(null)}
             >
               <div
-                className="w-full max-w-[min(96vw,1760px)] overflow-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl"
+                ref={viewerPanelRef}
+                className={viewerFullscreen
+                  ? "flex h-full w-full flex-col overflow-y-auto overflow-x-hidden bg-[#0F172A]"
+                  : "flex max-h-[calc(100dvh-2rem)] w-full max-w-[min(100%,1040px)] flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl"}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-3">
                   <div className="flex items-center gap-3">
                     <span
                       className={`h-2.5 w-2.5 rounded-full ${active ? "bg-[#4F7CFF] animate-pulse" : "bg-amber-400"}`}
@@ -1623,6 +1634,19 @@ function AdminPage() {
                       </button>
                     )}
                     <button
+                      onClick={() => {
+                        const el = viewerPanelRef.current;
+                        if (!el) return;
+                        if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => toast.error("Could not exit fullscreen"));
+                        else if (el.requestFullscreen) void el.requestFullscreen().catch(() => toast.error("Fullscreen unavailable"));
+                        else toast.error("Fullscreen unavailable");
+                      }}
+                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                      title={viewerFullscreen ? "Exit fullscreen (Esc)" : "Show the remote screen fullscreen"}
+                    >
+                      {viewerFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                    </button>
+                    <button
                       onClick={() => setLiveId(null)}
                       className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
                     >
@@ -1630,7 +1654,13 @@ function AdminPage() {
                     </button>
                   </div>
                 </div>
-                <div className="relative aspect-video bg-black">
+                <div className={viewerFullscreen ? "flex min-h-0 flex-1 items-center justify-center bg-black" : "flex justify-center bg-black/40 px-3 py-4 sm:px-6"}>
+                <div
+                  className="relative aspect-video w-full max-w-full overflow-hidden bg-black"
+                  style={viewerFullscreen
+                    ? { maxWidth: "min(100%, calc((100dvh - 4rem) * 16 / 9))" }
+                    : { maxWidth: "min(100%, 960px, calc(55vh * 16 / 9))" }}
+                >
                   {!s.device_id ? (
                     <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
                       Session has no device attached.
@@ -1805,26 +1835,6 @@ function AdminPage() {
                     )}
                   </div>
 
-                  {/* S22 / S24 — clipboard push and local session recording. */}
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={!clipReady}
-                      onClick={() => void pushClipboard()}
-                    >
-                      Send clipboard
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={recording ? "destructive" : "outline"}
-                      onClick={() => void toggleRecording(s.id)}
-                    >
-                      {recording ? "Stop recording" : "Record session"}
-                    </Button>
-                  </div>
 
 
 
@@ -1871,6 +1881,26 @@ function AdminPage() {
                     </>
                   )}
                 </div>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2 border-t border-white/10 px-5 py-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!clipReady}
+                      onClick={() => void pushClipboard()}
+                    >
+                      Send clipboard
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={recording ? "destructive" : "outline"}
+                      onClick={() => void toggleRecording(s.id)}
+                    >
+                      {recording ? "Stop recording" : "Record session"}
+                    </Button>
+                  </div>
                 {s.device_id && role !== "viewer" && s.mode === "control" && (
                   <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
                     <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">

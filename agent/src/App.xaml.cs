@@ -126,6 +126,11 @@ public partial class App : Application
                     await api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
                     LocalAccessState.CompleteForegroundReauthorization();
                 }
+                else
+                {
+                    DisableRemoteAccess();
+                    return;
+                }
             }
             _splash?.SetStatus("Registering with ConnectLive…");
 
@@ -145,6 +150,7 @@ public partial class App : Application
 
             if (_stopping || _cts.IsCancellationRequested) return;
             // Status remains available without stealing focus on each wake.
+            if (api.LocalAuthorization != null) _splash?.MinimizeToTray();
             _agent = new Agent(api, s => _splash?.SetStatus(s), dispatcher, onWake: null);
             _agent.SessionStateChanged += OnSessionStateChanged;
 
@@ -181,11 +187,16 @@ public partial class App : Application
         try
         {
             var agreement = AuthorizationPrompt.Ask(LocalGrant.OriginOf(_api.ApiBaseUrl), _api.DeviceId);
-            if (agreement == null) return;
+            if (agreement == null)
+            {
+                DisableRemoteAccess();
+                return;
+            }
             await _api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
             if (_stopping || _cts.IsCancellationRequested) return;
             LocalAccessState.CompleteForegroundReauthorization();
             _agent?.ResumeAfterAuthorization();
+            _splash?.MinimizeToTray();
         }
         catch (Exception ex) { _splash?.SetStatus($"Authorization failed: {ex.Message}"); }
         finally { _authorizing = false; }

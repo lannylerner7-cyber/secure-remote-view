@@ -1,0 +1,23 @@
+// Source-level layout guards only; this is not a Windows/browser runtime test.
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const root = path.resolve(__dirname, "../imports/connectlive");
+const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
+const xaml = read("admin/src/Views/LiveSessionWindow.xaml");
+assert.match(xaml, /WindowState="Normal"/);
+assert.match(xaml, /MaxWidth="960" MaxHeight="540"/);
+assert.match(xaml, /HorizontalAlignment="Center" VerticalAlignment="Center"/);
+assert.match(xaml, /Stretch="Uniform"/);
+assert.match(xaml, /Grid\.Column="1" Width="340"/);
+const web = read("src/routes/_authenticated/console.tsx");
+assert.match(web, /55vh/);
+assert.match(web, /960px/);
+assert.match(web, /object-contain/);
+assert.match(web, /getContainedPoint/);
+assert.match(web, /fullscreenchange/);
+const cfg = JSON.parse(read("admin/src/admin.config.json"));
+assert.equal(new URL(cfg.supabaseUrl).origin, cfg.supabaseUrl);
+assert.equal(new URL(cfg.supabaseUrl).protocol, "https:");
+assert.equal(cfg.supabaseAnonKey, "", "Do not commit deployment keys");
+console.log("PASS: bounded admin viewer source layout and credential-free configuration");

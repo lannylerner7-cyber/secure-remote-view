@@ -9,29 +9,60 @@ internal static class AuthorizationPrompt
     internal static (string Mode, GrantScopes Scopes)? Ask(string origin, string deviceId)
     {
         var window = new Window { Title = "ConnectLive — authorize remote access", Width = 490,
-            Height = 590, WindowStartupLocation = WindowStartupLocation.CenterScreen, ResizeMode = ResizeMode.NoResize };
+            Height = 590, WindowStartupLocation = WindowStartupLocation.CenterScreen, ResizeMode = ResizeMode.CanResize };
         var panel = new StackPanel { Margin = new Thickness(24) };
-        window.Content = panel;
+        window.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         panel.Children.Add(new TextBlock { Text = $"Authorize ConnectLive support for this Windows user?\nServer: {origin}\nDevice: {deviceId}\n\nView shares your screen. Control permits remote keyboard/mouse and privacy curtain. Clipboard shares text in both directions. Files permits sending and receiving files. Recording permits the technician to record shared screen content.\n\nAttended requires your acceptance for each session. Unattended permits access without a session prompt, including after restart. Close/Disable remote access withdraws locally even offline. A replacement grant ends current sessions.",
             TextWrapping = TextWrapping.Wrap });
         var attended = new RadioButton { Content = "Attended — ask for each session", Margin = new Thickness(0, 14, 0, 4), GroupName = "mode" };
         var unattended = new RadioButton { Content = "Unattended — no session prompt", GroupName = "mode" };
         panel.Children.Add(attended); panel.Children.Add(unattended);
+        var all = new CheckBox { Content = "Select all permissions", Margin = new Thickness(0, 14, 0, 4), FontWeight = FontWeights.SemiBold };
+        panel.Children.Add(all);
+        var individual = new StackPanel();
+        panel.Children.Add(new Expander { Header = "Choose individual permissions (optional)",
+            Content = individual, IsExpanded = false, Margin = new Thickness(0, 8, 0, 0) });
         var choices = new CheckBox[5];
         var names = new[] { "View screen", "Control keyboard and mouse", "Clipboard text", "File exchange", "Recording" };
         for (int i = 0; i < choices.Length; i++)
         {
             choices[i] = new CheckBox { Content = names[i], Margin = new Thickness(0, 7, 0, 0), IsChecked = false };
-            panel.Children.Add(choices[i]);
+            individual.Children.Add(choices[i]);
         }
-        var agree = new Button { Content = "Agree and record authorization", Margin = new Thickness(0, 18, 0, 0), Padding = new Thickness(8) };
+        bool syncing = false;
+        void SelectAll(bool value)
+        {
+            if (syncing) return;
+            syncing = true;
+            foreach (var choice in choices) choice.IsChecked = value;
+            syncing = false;
+        }
+        all.Checked += (_, _) => SelectAll(true);
+        all.Unchecked += (_, _) => SelectAll(false);
+        void SyncAll()
+        {
+            if (syncing) return;
+            syncing = true;
+            all.IsChecked = System.Array.TrueForAll(choices, c => c.IsChecked == true);
+            syncing = false;
+        }
+        foreach (var choice in choices)
+        {
+            choice.Checked += (_, _) => SyncAll();
+            choice.Unchecked += (_, _) => SyncAll();
+        }
+        var agree = new Button { Content = "Allow selected permissions", Margin = new Thickness(0, 18, 0, 0), Padding = new Thickness(8) };
         panel.Children.Add(agree);
+        var decline = new Button { Content = "Don't allow remote access", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(8), IsCancel = true };
+        decline.Click += (_, _) => window.DialogResult = false;
+        panel.Children.Add(decline);
         agree.Click += (_, _) =>
         {
             if (attended.IsChecked != true && unattended.IsChecked != true ||
+                !System.Array.Exists(choices, c => c.IsChecked == true) ||
                 choices[1].IsChecked == true && choices[0].IsChecked != true)
             {
-                MessageBox.Show(window, "Choose a mode. Control requires View.", "ConnectLive");
+                MessageBox.Show(window, "Choose a mode and at least one permission. Control requires View.", "ConnectLive");
                 return;
             }
             window.DialogResult = true;

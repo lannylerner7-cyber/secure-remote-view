@@ -4,11 +4,24 @@ Transparent remote-support agent for managed Windows devices. Sessions require
 consent, Curtain Mode has dead-man recovery, and nothing captures without an
 explicit "Allow". No hidden capture, no detection evasion.
 
-The agent has exactly **one** visible surface: a ~5 s startup splash that
-doubles as the connection banner (device id + session state). There is no tray
-icon, no main window and no wake pop-up — `/BACKGROUND`, `/MINIMIZED` and
-`/WAKE` launches show nothing at all. The only other windows it can ever raise
-are the consent prompt and the curtain overlay, both session-scoped.
+After authorization, the status window minimizes to a persistent ConnectLive
+notification-area (tray) icon. Double-click it to see device/session status;
+its menu also offers authorization review and Disable remote access. Windows
+may place notification icons in its overflow area. No status window is raised
+for each live-session update. If the tray cannot be initialized, the status
+window remains available instead.
+
+Enrollment offers **Select all permissions**, optional individual choices, and
+explicit Allow / Don't allow buttons. No permissions are selected by default.
+Attended/unattended remains an explicit choice. Declining, closing the
+authorization dialog, closing the status window, or selecting Disable withdraws
+local access; minimizing does not. Session-level acceptance remains required
+for attended enrollment.
+
+ICE establishes network paths; it does not lock Windows input. A curtain request
+requires live control authorization. If Windows refuses the curtain display,
+the existing code releases input locking. This UI update does not change that
+behavior or establish that curtain rendering works on a particular Windows PC.
 
 ## What's in here
 
@@ -19,7 +32,7 @@ are the consent prompt and the curtain overlay, both session-scoped.
 | `src/StreamListener.cs` | SSE wake channel client (`GET /api/public/agent/stream`) |
 | `src/StartupSelfHeal.cs` | Re-registers its own autostart (HKCU Run, Startup shortcut, ONLOGON task) |
 | `src/ConsentPrompt.cs` | Consent dialog — 90 s auto-decline, optional standing consent |
-| `src/SplashWindow.xaml.cs` | The 5 s splash / connection banner — the only persistent UI |
+| `src/SplashWindow.xaml.cs` | Tray indicator and on-demand status/stop window |
 | `src/DxgiCapture.cs` / `src/ScreenCapture.cs` | Desktop Duplication capture with GDI fallback |
 | `src/MonitorSelector.cs` | Which display is captured; source of truth for bounds |
 | `src/BitrateController.cs` | Adaptive bitrate + resolution ladder (RTCP/latency driven) |

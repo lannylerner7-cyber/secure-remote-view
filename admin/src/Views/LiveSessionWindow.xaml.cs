@@ -34,6 +34,12 @@ public partial class LiveSessionWindow : Window
     public LiveSessionWindow(string sessionId, DeviceItem device)
     {
         InitializeComponent();
+        // Start as a contained viewer, including on smaller/high-DPI desktops.
+        var workArea = SystemParameters.WorkArea;
+        MinWidth = Math.Min(MinWidth, Math.Max(320, workArea.Width - 32));
+        MinHeight = Math.Min(MinHeight, Math.Max(320, workArea.Height - 32));
+        Width = Math.Min(Width, Math.Max(MinWidth, workArea.Width - 32));
+        Height = Math.Min(Height, Math.Max(MinHeight, workArea.Height - 32));
         AppIcon.Apply(this);
         _vm = new LiveSessionViewModel(sessionId, device);
         DataContext = _vm;
