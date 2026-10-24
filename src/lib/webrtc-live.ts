@@ -230,7 +230,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   // truth so the console can say "no relay" instead of "connecting" forever.
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
   let relayState: "pending" | "relay" | "none" = "pending";
-  let dc: RTCDataChannel | null = pc.createDataChannel("inputs", { ordered: true });
+  let dc: RTCDataChannel | null = pc.createDataChannel("input", { ordered: true });
   dc.onclose = () => { dc = null; };
 
   // ---- Step 8: `files` DataChannel ---------------------------------------
@@ -304,7 +304,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
 
   // ---- S22: `clip` DataChannel -------------------------------------------
   // Third reliable/ordered channel, text only and hard-capped. Kept separate
-  // from `inputs` so a large paste can never delay a mouseup, and separate
+  // from `input` so a large paste can never delay a mouseup, and separate
   // from `files` so a multi-megabyte transfer can never delay a paste.
   const CLIP_MAX = 256 * 1024;
   const cdc: RTCDataChannel = pc.createDataChannel("clip", { ordered: true });
