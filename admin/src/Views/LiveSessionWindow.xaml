@@ -81,9 +81,10 @@
                             Background="#334155" Margin="4,2" MinWidth="110"
                             ToolTip="Copy the local clipboard text to the remote machine over the encrypted clip channel" />
 
-                    <!-- S24 — tee the decoded video stream to an .ivf file. -->
+                    <!-- S24 — tee the decoded video stream to an .ivf file. Hidden:
+                         the agent agreement never grants recording. -->
                     <Button Content="{Binding RecordLabel}" Command="{Binding ToggleRecordingCommand}"
-                            Margin="4,2" MinWidth="110"
+                            Visibility="Collapsed" Margin="4,2" MinWidth="110"
                             ToolTip="Record the live stream to Videos\ConnectLive (no re-encode, no extra bandwidth)">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

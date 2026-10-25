@@ -11,12 +11,15 @@ may place notification icons in its overflow area. No status window is raised
 for each live-session update. If the tray cannot be initialized, the status
 window remains available instead.
 
-Enrollment offers **Select all permissions**, optional individual choices, and
-explicit Allow / Don't allow buttons. No permissions are selected by default.
-Attended/unattended remains an explicit choice. Declining, closing the
-authorization dialog, closing the status window, or selecting Disable withdraws
-local access; minimizing does not. Session-level acceptance remains required
-for attended enrollment.
+Enrollment shows one page of terms and conditions (screen view, remote control,
+clipboard, file transfer, per-session approval, tray, stop shortcut), an
+"I have read and agree" checkbox, and **Accept** / **Decline**. Accept stays
+disabled until the box is ticked and records an attended grant for view,
+control, clipboard and files (no recording, no unattended). Declining, closing
+the terms page, closing the status window, selecting Disable, or pressing
+**Ctrl + Alt + Shift + X** withdraws local access; minimizing does not. The
+shortcut also works while the privacy curtain is on. Every session still needs
+the person's approval.
 
 ICE establishes network paths; it does not lock Windows input. A curtain request
 requires live control authorization. If Windows refuses the curtain display,
