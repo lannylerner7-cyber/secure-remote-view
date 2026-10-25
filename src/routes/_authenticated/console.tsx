@@ -455,6 +455,26 @@ function AdminPage() {
     };
   }, [liveId, rtcVideoLive]);
 
+  // Track the remote desktop's real aspect ratio so the live box matches the
+  // agent's screen (16:10, 21:9, portrait...) instead of a fixed 16:9 frame
+  // that letterboxes everything else into a smaller picture.
+  const [videoAspect, setVideoAspect] = useState<number | null>(null);
+  useEffect(() => {
+    const video = rtcRef.current?.video;
+    if (!video) return;
+    const sync = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0)
+        setVideoAspect(video.videoWidth / video.videoHeight);
+    };
+    sync();
+    video.addEventListener("loadedmetadata", sync);
+    video.addEventListener("resize", sync);
+    return () => {
+      video.removeEventListener("loadedmetadata", sync);
+      video.removeEventListener("resize", sync);
+    };
+  }, [liveId, rtcVideoLive]);
+
   // Measure decoded video frame rate. requestVideoFrameCallback fires once per
   // presented frame, so this is the true stream cadence — the old HUD only ever
   // counted JPEG arrivals and therefore read "1 fps" during healthy video.
@@ -1528,6 +1548,15 @@ function AdminPage() {
             polling: `Frame fallback (polling)${noRelay ? " · no relay" : ""}`,
           }[transport];
 
+          // Fit the live box to the panel: as wide as the panel allows, but
+          // never taller than the viewport minus the header and toolbar.
+          const sourceAspect =
+            videoDecoding && videoAspect
+              ? videoAspect
+              : liveFrame?.width && liveFrame?.height
+                ? liveFrame.width / liveFrame.height
+                : 16 / 9;
+          const viewerChrome = viewerFullscreen ? "4rem" : "13rem";
 
           return (
             <div
@@ -1538,7 +1567,7 @@ function AdminPage() {
                 ref={viewerPanelRef}
                 className={viewerFullscreen
                   ? "flex h-full w-full flex-col overflow-y-auto overflow-x-hidden bg-[#0F172A]"
-                  : "flex max-h-[calc(100dvh-2rem)] w-full max-w-[min(100%,1040px)] flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl"}
+                  : "flex max-h-[calc(100dvh-2rem)] w-full max-w-[min(100%,1760px)] flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl"}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-3">
@@ -1654,12 +1683,13 @@ function AdminPage() {
                     </button>
                   </div>
                 </div>
-                <div className={viewerFullscreen ? "flex min-h-0 flex-1 items-center justify-center bg-black" : "flex justify-center bg-black/40 px-3 py-4 sm:px-6"}>
+                <div className={viewerFullscreen ? "flex min-h-0 flex-1 items-center justify-center bg-black" : "flex justify-center bg-black/40 px-2 py-2 sm:px-3"}>
                 <div
-                  className="relative aspect-video w-full max-w-full overflow-hidden bg-black"
-                  style={viewerFullscreen
-                    ? { maxWidth: "min(100%, calc((100dvh - 4rem) * 16 / 9))" }
-                    : { maxWidth: "min(100%, 960px, calc(55vh * 16 / 9))" }}
+                  className="relative w-full max-w-full overflow-hidden bg-black"
+                  style={{
+                    aspectRatio: String(sourceAspect),
+                    maxWidth: `min(100%, calc((100dvh - ${viewerChrome}) * ${sourceAspect}))`,
+                  }}
                 >
                   {!s.device_id ? (
                     <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
