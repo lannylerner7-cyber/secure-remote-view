@@ -55,6 +55,11 @@ public sealed class HwH264Encoder : IDisposable
     private long _frameIndex;
     private byte[]? _nv12;
     private readonly List<byte> _accessUnit = new(256 * 1024);
+    // Async MFT input credits (METransformNeedInput). Tracked ACROSS Encode
+    // calls so a request that arrives when we have nothing to feed is banked,
+    // not discarded — discarding it wedged the pump into a 120 ms spin-and-skip
+    // on every later frame. Only ever touched under _gate (Encode holds it).
+    private int _pendingInputCredits;
 
     /// <summary>Friendly name of the MFT actually driving this encoder.</summary>
     public string EncoderName { get; private set; } = "";
@@ -419,7 +424,8 @@ public sealed class HwH264Encoder : IDisposable
     {
         var mft = _mft!;
         var events = _events!;
-        bool delivered = false;
+        bool fed = false;
+        bool producedOutput = false;
         // Bounded pump. A hardware encoder answers in single-digit milliseconds;
         // anything past this is a wedged driver and we would rather skip the
         // frame than block the capture tee.
@@ -427,13 +433,29 @@ public sealed class HwH264Encoder : IDisposable
 
         try
         {
-            while (Environment.TickCount64 < deadline)
+            while (Environment.TickCount64 < deadline && !_dead)
             {
+                // Feed this frame the instant the encoder has an outstanding
+                // input request. Credits persist across calls, so one banked on
+                // a previous frame lets us submit immediately with no wait.
+                if (!fed && _pendingInputCredits > 0)
+                {
+                    int ih = mft.ProcessInput(0, sample, 0);
+                    if (ih >= 0) { _pendingInputCredits--; fed = true; continue; }
+                    if (ih != Mf.MF_E_NOTACCEPTING) { Fail($"ProcessInput 0x{ih:X8}"); return false; }
+                    // NOTACCEPTING: the encoder is holding output; fall through to
+                    // drain an event, then retry the feed on the next iteration.
+                }
+
+                // Our frame is in and its access unit collected. Stop here and
+                // leave any further outputs for the next call, so each access
+                // unit keeps its own RTP timestamp instead of being concatenated.
+                if (fed && producedOutput) break;
+
                 int hr = events.GetEvent(Mf.MF_EVENT_FLAG_NO_WAIT, out var evt);
                 if (hr == Mf.MF_E_NO_EVENTS_AVAILABLE)
                 {
-                    if (delivered && _accessUnit.Count > 0) break;
-                    Thread.Sleep(0);
+                    Thread.Sleep(1); // yield a tick instead of busy-spinning on Sleep(0)
                     continue;
                 }
                 if (hr < 0 || evt == null) { Fail($"GetEvent 0x{hr:X8}"); return false; }
@@ -444,22 +466,24 @@ public sealed class HwH264Encoder : IDisposable
 
                 if (met == Mf.METransformNeedInput)
                 {
-                    if (delivered) continue;              // encoder wants the *next* frame
-                    int ih = mft.ProcessInput(0, sample, 0);
-                    if (ih < 0 && ih != Mf.MF_E_NOTACCEPTING) { Fail($"ProcessInput 0x{ih:X8}"); return false; }
-                    delivered = ih >= 0;
+                    if (_pendingInputCredits < 8) _pendingInputCredits++;
+                    // If our frame is already in, the encoder asking for the next
+                    // one means it is done with ours: its output (if any) was
+                    // collected above, so stop rather than wait out the deadline
+                    // on a pipeline-warmup frame that will never emit output.
+                    if (fed) break;
                 }
                 else if (met == Mf.METransformHaveOutput)
                 {
                     if (!CollectOneOutput()) return false;
-                    if (delivered) break;
+                    if (!_lastOutputWasEmpty) producedOutput = true;
                 }
             }
         }
         finally { Marshal.Release(sample); }
 
         // Not delivering is not fatal — the frame is simply skipped and the next
-        // one will find the encoder ready.
+        // one will find the encoder ready (with a banked credit).
         return !_dead;
     }
 
