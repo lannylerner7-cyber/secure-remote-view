@@ -39,6 +39,9 @@ import { RemoteCursorOverlay } from "@/components/console/RemoteCursorOverlay";
 import { MonitorPicker, type MonitorEntry } from "@/components/console/MonitorPicker";
 
 
+// The agent agreement never grants recording, so the Record control is hidden.
+const RECORDING_UI_ENABLED = false;
+
 export const Route = createFileRoute("/_authenticated/console")({
   component: AdminPage,
   head: () => ({
@@ -1892,14 +1895,16 @@ function AdminPage() {
                     >
                       Send clipboard
                     </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={recording ? "destructive" : "outline"}
-                      onClick={() => void toggleRecording(s.id)}
-                    >
-                      {recording ? "Stop recording" : "Record session"}
-                    </Button>
+                    {RECORDING_UI_ENABLED && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={recording ? "destructive" : "outline"}
+                        onClick={() => void toggleRecording(s.id)}
+                      >
+                        {recording ? "Stop recording" : "Record session"}
+                      </Button>
+                    )}
                   </div>
                 {s.device_id && role !== "viewer" && s.mode === "control" && (
                   <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">

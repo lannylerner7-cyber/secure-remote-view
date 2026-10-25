@@ -150,9 +150,9 @@ public partial class App : Application
 
             _splash?.SetDevice(api.DeviceId ?? "not enrolled");
 
-            // Session bindings and /SESSION flags are not consent evidence.
+            // /SESSION flags and old session files are not consent evidence.
             // Only fresh heartbeat authority and local acceptance can start work.
-            ApiClient.ClearSessionBinding();
+            ApiClient.DeleteLegacySessionFile();
             _splash?.SetStatus(api.LocalAuthorization == null ? "Authorization required — open ConnectLive in the foreground" : "Standing by");
             _splash?.SetSession("No active session");
 

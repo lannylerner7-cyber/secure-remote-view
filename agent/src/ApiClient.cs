@@ -49,7 +49,6 @@ public sealed class ApiClient
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConnectLive");
     private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
     private static readonly string DevicePath = Path.Combine(ConfigDir, "device.dat");
-    private static readonly string SessionPath = Path.Combine(ConfigDir, "session.dat");
     private static readonly string LicensePath = Path.Combine(ConfigDir, "license.dat");
 
     /// <summary>Delegate that yields a Meeting ID for enrollment. The App
@@ -171,7 +170,7 @@ public sealed class ApiClient
         try
         {
             if (!Directory.Exists(LegacyConfigDir)) return;
-            foreach (var name in new[] { "device.dat", "session.dat", "config.json" })
+            foreach (var name in new[] { "device.dat", "config.json" })
             {
                 var oldPath = Path.Combine(LegacyConfigDir, name);
                 var newPath = Path.Combine(ConfigDir, name);
@@ -504,43 +503,6 @@ public sealed class ApiClient
     // Auto-enrollment + admin-initiated sessions replace the old meeting-code
     // pairing flow end to end (see ENDPOINTS.md).
 
-    // Result type for /api/public/agent/session/{id}/reconnect.
-
-    public sealed record ReconnectResult(bool Ok, string? SessionId, string? Error);
-    private sealed record ReconnectOk(bool ok, string sessionId, string mode, string state);
-    private sealed record ReconnectErr(string error);
-
-    // ---- Reusable reconnect --------------------------------------------
-
-    public async Task<ReconnectResult> ReconnectSessionAsync(string sessionId, string? code, CancellationToken ct)
-    {
-        try
-        {
-            using var resp = await SendAuthedAsync(
-                () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/reconnect")
-                {
-                    Content = JsonContent.Create(new { code })
-                }, ct);
-            var body = await resp.Content.ReadAsStringAsync(ct);
-            if (!resp.IsSuccessStatusCode)
-            {
-                try
-                {
-                    var err = JsonSerializer.Deserialize<ReconnectErr>(body);
-                    return new ReconnectResult(false, null, err?.error ?? resp.StatusCode.ToString());
-                }
-                catch { return new ReconnectResult(false, null, resp.StatusCode.ToString()); }
-            }
-            var ok = JsonSerializer.Deserialize<ReconnectOk>(body);
-            if (!string.IsNullOrEmpty(ok?.sessionId)) SaveSessionBinding(new SessionBinding(ok.sessionId, code, DateTimeOffset.UtcNow));
-            return new ReconnectResult(true, ok?.sessionId, null);
-        }
-        catch (Exception ex)
-        {
-            return new ReconnectResult(false, null, ex.Message);
-        }
-    }
-
     // ---- Live frame upload --------------------------------------------
 
     public async Task<bool> PostFrameAsync(string sessionId, byte[] jpegBytes, int width, int height, CancellationToken ct)
@@ -743,33 +705,19 @@ public sealed class ApiClient
     }
 
 
-    public SessionBinding? LoadSessionBinding()
+    /// <summary>Older builds stored a reconnect binding in session.dat. It was
+    /// never read back and is not consent evidence; remove any leftover copy.</summary>
+    public static void DeleteLegacySessionFile()
     {
-        if (!File.Exists(SessionPath)) return null;
-        try
+        foreach (var dir in new[] { ConfigDir, LegacyConfigDir })
         {
-            var enc = File.ReadAllBytes(SessionPath);
-            var dec = ProtectedData.Unprotect(enc, null, DataProtectionScope.LocalMachine);
-            var json = Encoding.UTF8.GetString(dec);
-            return JsonSerializer.Deserialize<SessionBinding>(json);
+            try
+            {
+                var path = Path.Combine(dir, "session.dat");
+                if (File.Exists(path)) { File.SetAttributes(path, FileAttributes.Normal); File.Delete(path); }
+            }
+            catch { }
         }
-        catch
-        {
-            ClearSessionBinding();
-            return null;
-        }
-    }
-
-    public static void SaveSessionBinding(SessionBinding binding)
-    {
-        var json = JsonSerializer.Serialize(binding);
-        var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
-        WriteHidden(SessionPath, enc);
-    }
-
-    public static void ClearSessionBinding()
-    {
-        try { if (File.Exists(SessionPath)) File.Delete(SessionPath); } catch { }
     }
 
     private static AgentConfig? LoadConfig() =>
@@ -859,7 +807,6 @@ public sealed class ApiClient
         }
         catch { }
     }
-    public sealed record SessionBinding(string SessionId, string? PairingCode, DateTimeOffset SavedAt);
     public sealed record AgentConfig(string ApiBaseUrl);
 
     public sealed class IceServerDto
