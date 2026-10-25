@@ -64,12 +64,31 @@ public sealed class D3DImageHost : IDisposable
     /// <summary>Set when the last loss requires a brand new IDirect3D9Ex, not just a device.</summary>
     private bool _rebuildFactory;
 
+    /// <summary>
+    /// Mirror of <c>D3DImage.IsFrontBufferAvailable</c>, readable from the
+    /// decode thread. While it is false WPF shows nothing from our surface, so
+    /// an upload that "succeeds" would still leave the technician looking at a
+    /// black rectangle with the JPEG fallback hidden behind it. PushBgra
+    /// returns false instead, and the caller presents through the bitmap path.
+    /// </summary>
+    private volatile bool _frontBufferAvailable = true;
+
     public D3DImageHost()
     {
         // Case 3: the only signal for an RDP/session/adapter switch. WPF drops
         // the front buffer and never tells the HRESULT path about it, so the
         // surface must be re-attached (or rebuilt) when it comes back.
         Image.IsFrontBufferAvailableChanged += OnFrontBufferAvailableChanged;
+
+        // Software rendering (RDP session, VM without a GPU, tier-0 driver):
+        // WPF never composes a D3D surface into the window, so a D3DImage is a
+        // black rectangle however many uploads succeed. Use the bitmap path
+        // from the start rather than discover it one black frame at a time.
+        try
+        {
+            if ((System.Windows.Media.RenderCapability.Tier >> 16) == 0) Fail("WPF is software rendering (tier 0)");
+        }
+        catch { }
     }
 
     /// <summary>False once the D3D path has given up; caller should use the bitmap presenter.</summary>
@@ -197,6 +216,7 @@ public sealed class D3DImageHost : IDisposable
     public bool PushBgra(byte[] bgra, int width, int height)
     {
         if (_disposed || _failed) return false;
+        if (!_frontBufferAvailable) return false;
         if (bgra == null || width <= 0 || height <= 0) return false;
         long need = (long)width * height * 4;
         if (bgra.LongLength < need) return false;
@@ -279,9 +299,13 @@ public sealed class D3DImageHost : IDisposable
         try
         {
             Image.Lock();
-            Image.SetBackBuffer(D3DResourceType.IDirect3DSurface9, surface);
+            // enableSoftwareFallback: if WPF drops to software rendering
+            // mid-session, it copies the surface instead of showing nothing.
+            Image.SetBackBuffer(D3DResourceType.IDirect3DSurface9, surface, true);
             if (Image.IsFrontBufferAvailable)
                 Image.AddDirtyRect(new Int32Rect(0, 0, width, height));
+            else
+                _frontBufferAvailable = false;
         }
         catch (Exception)
         {
@@ -303,6 +327,7 @@ public sealed class D3DImageHost : IDisposable
     {
         bool available = e.NewValue is bool b && b;
         if (_disposed) return;
+        _frontBufferAvailable = available;
         if (!available)
         {
             System.Diagnostics.Debug.WriteLine("[d3d] front buffer lost (rdp/lock/adapter switch)");

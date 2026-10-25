@@ -56,6 +56,10 @@ public sealed class VideoPipeline : IDisposable
     private byte[]? _bgra;
     private int _width, _height;
     private WriteableBitmap? _bitmap;
+    // Set when presentation drops from D3D back to the bitmap path. The view is
+    // still showing the D3DImage then, so the bitmap must be announced again
+    // through SurfaceReady even though its size has not changed.
+    private volatile bool _resurfaceBitmap;
     private volatile bool _disposed;
 
     // S16 — native-path health. Everything about "video never started" that used
@@ -514,7 +518,12 @@ public sealed class VideoPipeline : IDisposable
 
         if (!presented)
         {
-            if (UsingD3D) { UsingD3D = false; Diagnostic?.Invoke("D3D present unavailable — using bitmap path"); }
+            if (UsingD3D)
+            {
+                UsingD3D = false;
+                _resurfaceBitmap = true;
+                Diagnostic?.Invoke("D3D present unavailable — using bitmap path");
+            }
             PresentBitmap(bgra, w, h);
         }
 
@@ -539,6 +548,12 @@ public sealed class VideoPipeline : IDisposable
                 if (_bitmap == null || _bitmap.PixelWidth != w || _bitmap.PixelHeight != h)
                 {
                     _bitmap = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
+                    _resurfaceBitmap = false;
+                    SurfaceReady?.Invoke(_bitmap);
+                }
+                else if (_resurfaceBitmap)
+                {
+                    _resurfaceBitmap = false;
                     SurfaceReady?.Invoke(_bitmap);
                 }
                 _bitmap.Lock();

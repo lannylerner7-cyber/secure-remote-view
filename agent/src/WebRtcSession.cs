@@ -51,6 +51,26 @@ public sealed class WebRtcSession : IDisposable
     private volatile bool _h264Negotiated = false;
     private volatile bool _h264Live = false;
     private long _h264Frames = 0;
+    // Set when the hardware H.264 path fails *after* H.264 won negotiation. The
+    // track is packetized as H.264 (pt 102), so we must NOT fall through to the
+    // VP8 encoder — its output would be packetized as H.264 and decode to
+    // garbage. Instead we drop WebRTC video for this peer and let the HTTPS
+    // JPEG stream carry it until the admin re-offers.
+    private volatile bool _h264Abandoned = false;
+    // P7 — the hardware encoder is built off the capture thread. _h264Creating
+    // guards against launching a second build while one is in flight (at most one
+    // ever runs), and _peerGen is bumped on every peer teardown/rebuild so a
+    // build that finishes late can tell it belongs to a peer that is gone and
+    // discard itself instead of binding a stale encoder to a new peer.
+    private volatile bool _h264Creating = false;
+    private int _peerGen;
+    // Negotiated VP8 source format + the geometry the current VP8 encoder was
+    // created at. SIPSorcery's VP8 wrapper sizes libvpx to the first frame and
+    // never re-inits, so a mid-peer size change requires rebuilding the source.
+    private SIPSorceryMedia.Abstractions.VideoFormat _vp8Format;
+    private volatile bool _haveVp8Format = false;
+    private int _vp8EncW = 0;
+    private int _vp8EncH = 0;
 
     private long _sinceSignal = 0;
     private volatile bool _closed = false;
@@ -217,6 +237,10 @@ public sealed class WebRtcSession : IDisposable
         _h264Negotiated = false;
         _h264Live = false;
         _h264Frames = 0;
+        _h264Abandoned = false;
+        _peerGen++;
+        _haveVp8Format = false;
+        _vp8EncW = _vp8EncH = 0;
 
         _videoEnd = new VideoEncoderEndPoint();
         // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
@@ -300,6 +324,8 @@ public sealed class WebRtcSession : IDisposable
                     return;
                 }
                 _h264Negotiated = false;
+                _vp8Format = fmt;
+                _haveVp8Format = true;
                 _videoEnd?.SetVideoSourceFormat(fmt);
                 _formatReady = true;
                 _negotiatedPt = fmt.FormatID;
@@ -532,24 +558,123 @@ public sealed class WebRtcSession : IDisposable
         _videoStarted = false;
         _h264Negotiated = false;
         _h264Live = false;
+        _h264Abandoned = false;
+        _peerGen++;
+        _haveVp8Format = false;
+        _vp8EncW = _vp8EncH = 0;
     }
 
     /// <summary>Release the hardware encoder and hand the ladder ceiling back to the VP8 policy.</summary>
-    private void DisposeH264(string why)
+    private void DisposeH264(string why, bool restoreCeiling = true)
     {
         var hw = Interlocked.Exchange(ref _h264, null);
         if (hw == null) return;
         try { hw.Dispose(); } catch { }
         _h264Live = false;
         Log.Info($"h264: encoder released ({why})");
-        try { BitrateController.Ceiling = BitrateController.DefaultRung; } catch { }
+        // A geometry rebuild must NOT hand the ceiling back to the VP8 policy:
+        // restoring DefaultRung clamps the rung to 1920 (see BitrateController's
+        // Ceiling setter), so on a wide desktop the ladder rebuilds the encoder,
+        // climbs past 1920, rebuilds again, forever — the top rungs never hold.
+        // Only a genuine fall-back to VP8/HTTPS restores the ceiling.
+        if (restoreCeiling)
+        {
+            try { BitrateController.Ceiling = BitrateController.DefaultRung; } catch { }
+        }
+    }
+
+    /// <summary>
+    /// P7 — build the hardware encoder off the capture thread. The result is
+    /// published only if this exact peer still wants this exact geometry
+    /// (checked via the peer generation and the last-pushed size); otherwise it
+    /// is discarded and a later frame kicks off a fresh build. Any failure
+    /// abandons H.264 for the peer and leaves the HTTPS JPEG stream carrying it.
+    /// </summary>
+    private void CreateH264Async(int width, int height, int fps, int kbps, int gen)
+    {
+        HwH264Encoder? enc = null;
+        try { enc = HwH264Encoder.TryCreate(width, height, fps, kbps); }
+        catch (Exception ex) { Log.Warn($"h264 async create threw: {ex.Message}"); }
+
+        if (enc == null)
+        {
+            _h264Abandoned = true;
+            _h264Creating = false;
+            Log.Warn("h264: encoder could not be created; HTTPS frame stream continues");
+            return;
+        }
+        // Bind only if the peer that asked for this build is still live and still
+        // on this geometry. _peerGen moves on every teardown/rebuild.
+        if (_closed || _peerGen != gen || _h264Abandoned || !_h264Negotiated ||
+            _lastPushW != width || _lastPushH != height)
+        {
+            try { enc.Dispose(); } catch { }
+            _h264Creating = false;
+            return;
+        }
+        Interlocked.Exchange(ref _h264, enc);
+        _h264Live = true;
+        // Earned, not assumed: the ladder may exceed 1920px only once a real
+        // hardware encoder is actually in the loop.
+        try { BitrateController.Ceiling = 0; } catch { }
+        Log.Info($"h264: hardware encoder ready {width}x{height} — ladder ceiling lifted (built off-thread)");
+        _h264Creating = false;
+    }
+
+    /// <summary>
+    /// Recreate the VP8 source endpoint at a new geometry. SIPSorcery's VP8
+    /// encoder is sized to its first frame and never re-initialises, so a
+    /// ladder step or monitor switch that changes the frame size needs a fresh
+    /// endpoint rather than a resized one. The new libvpx instance emits a
+    /// keyframe, which resyncs the admin's decoder at the new resolution.
+    /// Runs on the capture thread (the only caller) before the encode submit.
+    /// On failure the peer is torn down so the admin re-offers cleanly.
+    /// </summary>
+    private bool RebuildVp8Source(int width, int height)
+    {
+        if (!_haveVp8Format)
+        {
+            // No negotiated VP8 format to re-apply — cannot safely rebuild.
+            return false;
+        }
+        try
+        {
+            Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc VP8 encoder rebuild " +
+                     $"{_vp8EncW}x{_vp8EncH} -> {width}x{height}");
+            var old = _videoEnd;
+            try { old?.PauseVideo(); } catch { }
+            try { old?.CloseVideo(); } catch { }
+
+            var fresh = new VideoEncoderEndPoint();
+            try { fresh.RestrictFormats(f => f.Codec == VideoCodecsEnum.VP8); } catch { }
+            fresh.SetVideoSourceFormat(_vp8Format);
+            fresh.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
+            {
+                if (_closed || !_inputPermission.Allows("view")) return;
+                if (_h264Negotiated) return;
+                System.Threading.Interlocked.Increment(ref _encoded);
+                _pc?.SendVideo(durationRtpUnits, sample);
+            };
+            _videoEnd = fresh;
+            _vp8EncW = width;
+            _vp8EncH = height;
+            try { fresh.ForceKeyFrame(); } catch { }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"webrtc VP8 rebuild failed: {ex.Message}; tearing down peer for re-offer");
+            TearDownPeer();
+            return false;
+        }
     }
 
 
     /// <summary>
     /// Called from ScreenCapture: encode this frame into the WebRTC video track.
-    /// Buffer MUST be tightly packed (width*4 bytes per row) in RGBA memory
-    /// order. Encoder package 8.0.7's Bgra branch consumes RGBA bytes.
+    /// Buffer MUST be tightly packed (width*4 bytes per row) in true BGRA memory
+    /// order (byte0=B, byte1=G, byte2=R); both the VP8 (SIPSorceryMedia.Encoders
+    /// 10.0.4) and hardware H.264 paths consume BGRA directly.
     ///
     /// No-ops until the peer is connected AND the SDP-negotiated video format
     /// has been handed to the encoder. Both conditions are counted so a
@@ -595,12 +720,23 @@ public sealed class WebRtcSession : IDisposable
             }
             else
             {
+                // Guard the VP8 wrapper's fixed-size assumption: rebuild the
+                // source on a mid-peer geometry change instead of feeding
+                // libvpx a frame that no longer matches the size it was created
+                // with (the pre-fix behaviour read past the buffer).
+                if (_vp8EncW == 0) { _vp8EncW = width; _vp8EncH = height; }
+                else if (width != _vp8EncW || height != _vp8EncH)
+                {
+                    if (!RebuildVp8Source(width, height)) { Interlocked.Increment(ref _dropped); return; }
+                }
+                var vp8 = _videoEnd;
+                if (vp8 == null) { Interlocked.Increment(ref _dropped); return; }
                 // S17 step 1 — time the software VP8 encode submission. This is the
                 // number that decides whether the hardware H.264 wrapper is worth
                 // building: if it stays well inside the ~33 ms frame budget at the
                 // 1920px rung, the CPU is not the wall.
                 var encodeSw = System.Diagnostics.Stopwatch.StartNew();
-                enc!.ExternalVideoSourceRawSample(
+                vp8.ExternalVideoSourceRawSample(
                     33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
                 encodeSw.Stop();
                 EncodeStats.NoteVp8Encode(
@@ -624,6 +760,11 @@ public sealed class WebRtcSession : IDisposable
     /// </summary>
     private void PushFrameH264(RTCPeerConnection pc, byte[] bgra, int width, int height)
     {
+        // H.264 won negotiation but the hardware path has failed for this peer.
+        // The track is packetized as H.264, so we must not encode VP8 into it —
+        // drop WebRTC video and let the HTTPS JPEG stream carry it.
+        if (_h264Abandoned) return;
+
         var hw = _h264;
         if (hw == null || !hw.IsAlive)
         {
@@ -632,26 +773,26 @@ public sealed class WebRtcSession : IDisposable
                 // The MFT died mid-session. Do not rebuild it in a tight loop:
                 // one retry per peer is enough to tell a transient from a rot.
                 DisposeH264("encoder reported dead: " + hw.DeadReason);
-                _h264Negotiated = false;
+                _h264Abandoned = true;
                 Log.Warn("h264: hardware path abandoned for this peer; HTTPS frame stream continues");
                 return;
             }
 
-            int kbps = BitrateController.Current.TargetKbps;
-            int fps = BitrateController.Current.Fps;
-            hw = HwH264Encoder.TryCreate(width, height, fps, kbps);
-            if (hw == null)
+            // P7 — build the encoder OFF the capture thread. MFTEnumEx +
+            // ActivateObject + ConfigureTransform can take tens of ms; doing it
+            // here stalled frame delivery on the first H.264 frame and on every
+            // geometry change. While the build runs we drop frames and the HTTPS
+            // JPEG stream carries the session; the encoder goes live on a later
+            // frame once it is ready.
+            if (!_h264Creating)
             {
-                _h264Negotiated = false;
-                Log.Warn("h264: encoder could not be created; HTTPS frame stream continues");
-                return;
+                _h264Creating = true;
+                int kbps = BitrateController.Current.TargetKbps;
+                int fps = BitrateController.Current.Fps;
+                int cw = width, ch = height, gen = _peerGen;
+                _ = System.Threading.Tasks.Task.Run(() => CreateH264Async(cw, ch, fps, kbps, gen));
             }
-            Interlocked.Exchange(ref _h264, hw);
-            _h264Live = true;
-            // Earned, not assumed: the ladder is only allowed above 1920px once
-            // a real hardware encoder is in the loop.
-            try { BitrateController.Ceiling = 0; } catch { }
-            Log.Info("h264: ladder ceiling lifted — full resolution range available");
+            return;
         }
 
         hw.SetBitrateKbps(BitrateController.Current.TargetKbps);
@@ -664,8 +805,10 @@ public sealed class WebRtcSession : IDisposable
         {
             // A monitor switch or a ladder step changed the frame size. Rebuild
             // rather than renegotiate the MFT in place; the next frame picks up
-            // the new encoder and the decoder resyncs on its IDR.
-            DisposeH264($"geometry changed to {width}x{height}");
+            // the new encoder and the decoder resyncs on its IDR. Keep the ceiling
+            // lifted (restoreCeiling:false) so the climbed rung holds instead of
+            // being clamped back to 1920 and triggering a rebuild-climb loop.
+            DisposeH264($"geometry changed to {width}x{height}", restoreCeiling: false);
             return;
         }
         if (au == null || au.Length == 0) return;   // pipelined encoder, no output yet

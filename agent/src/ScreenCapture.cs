@@ -110,6 +110,10 @@ public static class ScreenCapture
         Bitmap? lastFrame = null;
         int prevBoundsW = 0, prevBoundsH = 0;
         int prevScaledW = 0, prevScaledH = 0;
+        // Reusable WebRTC tee buffer — the capture loop is single-threaded and
+        // PushFrame consumes it synchronously, so one buffer is reallocated only
+        // when the frame size changes instead of a fresh w*h*4 array per frame.
+        byte[]? teeBuf = null;
 
         // Try DXGI Desktop Duplication once — falls back to GDI transparently
         // on RDP, Session 0, or any COM failure. Enterprise pipeline: ~sub-ms
@@ -173,13 +177,20 @@ public static class ScreenCapture
 
                 // GDI fallback is running but DXGI may have become available
                 // again (RDP session ended, secure desktop dismissed, driver
-                // recovered). Retry at most once every 10 s.
-                if (dxgi == null && (DateTime.UtcNow - lastDxgiRetryUtc).TotalSeconds >= 10)
+                // recovered). Retry at most once every 10 s. This also covers a
+                // duplication that was demoted in place: TryCapture leaves the
+                // DxgiCapture non-null but not initialized after a rebuild fails
+                // (e.g. a rebuild attempted while the UAC/lock secure desktop was
+                // up), and once !_initialized it stops self-retrying — so without
+                // the IsInitialized check the whole session stayed on GDI for good.
+                if ((dxgi == null || !dxgi.IsInitialized) &&
+                    (DateTime.UtcNow - lastDxgiRetryUtc).TotalSeconds >= 10)
                 {
                     lastDxgiRetryUtc = DateTime.UtcNow;
                     var probe = new DxgiCapture();
                     if (probe.TryInitialize())
                     {
+                        dxgi?.Dispose(); // drop the demoted instance before swapping in the live one
                         dxgi = probe;
                         Log.Info($"capture: DXGI became available on {probe.DeviceName}");
                     }
@@ -230,13 +241,17 @@ public static class ScreenCapture
                         haveFreshRaw = true;
                         framesSinceKeyframe = forceRefresh ? 0 : framesSinceKeyframe + 1;
                     }
-                    else if (!dxgi.LastFrameHadContentChange)
+                    // Only hold when something has already been shipped. With no
+                    // frame yet (fresh session, still desktop, DXGI holding no
+                    // image) fall through to GDI so the admin gets a first
+                    // picture now instead of black until something moves.
+                    else if (!dxgi.LastFrameHadContentChange && lastFrame != null)
                     {
                         // Nothing changed on screen — hold last frame, back off.
                         // Still keep the VP8 encoder fed (keepalive) so a static
                         // desktop never freezes the admin's decoded picture.
                         framesSinceKeyframe++;
-                        if (lastFrame != null) TeeToWebRtc(lastFrame, throttled: true);
+                        if (lastFrame != null) TeeToWebRtc(lastFrame, throttled: true, ref teeBuf);
                         try { await Task.Delay(100, ct); } catch { }
                         continue;
                     }
@@ -333,7 +348,7 @@ public static class ScreenCapture
                     idleCount++;
                     delayMs = idleCount >= 3 ? 100 : motionDelayMs;
                     // Keepalive push while idle (throttled to IdleTeeIntervalMs).
-                    TeeToWebRtc(frame, throttled: true);
+                    TeeToWebRtc(frame, throttled: true, ref teeBuf);
                 }
                 else
                 {
@@ -347,7 +362,7 @@ public static class ScreenCapture
                     idleParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
 
                     // Tee the frame into the WebRTC track when a peer is connected.
-                    TeeToWebRtc(frame, throttled: false);
+                    TeeToWebRtc(frame, throttled: false, ref teeBuf);
 
 
                     // Use higher quality for idle keyframes, lower for motion frames.
@@ -418,7 +433,7 @@ public static class ScreenCapture
 
 
 
-    private static void TeeToWebRtc(Bitmap scaled, bool throttled)
+    private static void TeeToWebRtc(Bitmap scaled, bool throttled, ref byte[]? buf)
     {
         try
         {
@@ -439,12 +454,16 @@ public static class ScreenCapture
             var data = scaled.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
             try
             {
-                // Pack tightly (width*4 per row, no stride padding). Encoder
-                // package 8.0.7 routes VideoPixelFormatsEnum.Bgra through its
-                // RGBA-to-I420 converter, so convert GDI's B,G,R,X bytes to
-                // R,G,B,A here. Passing BGRA verbatim caused striped chroma.
+                // Tightly packed BGRA (width*4 per row, no stride padding). The
+                // DXGI/GDI surface is already B,G,R,X in memory and the pinned
+                // encoders both consume true BGRA — SIPSorceryMedia.Encoders
+                // 10.0.4's Bgra path and HwH264Encoder.ConvertBgraToNv12 each
+                // read byte0=B, byte2=R. Copy the bytes through verbatim; an
+                // earlier R/B swizzle here (written for package 8.0.7, whose
+                // Bgra branch wanted RGBA) swapped red and blue on 10.0.4.
                 int rowBytes = w * 4;
-                var buf = new byte[rowBytes * h];
+                int need = rowBytes * h;
+                if (buf == null || buf.Length != need) buf = new byte[need];
                 IntPtr src = data.Scan0;
                 unsafe
                 {
@@ -456,13 +475,7 @@ public static class ScreenCapture
                         {
                             byte* srow = sp + y * data.Stride;
                             byte* drow = dp + y * rowBytes;
-                            for (int x = 0; x < rowBytes; x += 4)
-                            {
-                                drow[x] = srow[x + 2];
-                                drow[x + 1] = srow[x + 1];
-                                drow[x + 2] = srow[x];
-                                drow[x + 3] = 0xFF;
-                            }
+                            Buffer.MemoryCopy(srow, drow, rowBytes, rowBytes);
                         }
                     }
                 }
