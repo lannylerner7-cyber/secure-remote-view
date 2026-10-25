@@ -320,6 +320,10 @@ public static class InputBlocker
         return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
     }
 
+    // Physical modifier state, tracked here because swallowed keys never
+    // update Windows' own key state. Only used to spot the stop shortcut.
+    private static bool _ctrlDown, _altDown, _shiftDown;
+
     private static IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode == HC_ACTION && _engaged)
@@ -329,6 +333,20 @@ public static class InputBlocker
             bool injected = (hs.flags & LLKHF_INJECTED_MASK) != 0;
             if (!ours && !injected)
             {
+                // The curtain must never trap the person: their stop shortcut
+                // is honoured even though the keys themselves are swallowed.
+                int msg = wParam.ToInt32();
+                bool down = msg == 0x0100 || msg == 0x0104; // WM_KEYDOWN / WM_SYSKEYDOWN
+                switch (hs.vkCode)
+                {
+                    case 0xA2: case 0xA3: _ctrlDown = down; break;  // L/R CONTROL
+                    case 0xA4: case 0xA5: _altDown = down; break;   // L/R MENU
+                    case 0xA0: case 0xA1: _shiftDown = down; break; // L/R SHIFT
+                    default:
+                        if (down && hs.vkCode == StopShortcut.Key && _ctrlDown && _altDown && _shiftDown)
+                            StopShortcut.Raise();
+                        break;
+                }
                 return (IntPtr)1;
             }
         }

@@ -89,6 +89,14 @@ public partial class App : Application
         if (background) _splash.WindowState = WindowState.Minimized;
         _splash.Show();
 
+        // Same withdrawal as tray "Disable remote access", from the keyboard.
+        StopShortcut.Pressed += () =>
+        {
+            InputBlocker.Release("stop_shortcut");
+            Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
+        };
+        try { StopShortcut.Register(); } catch (Exception ex) { Log.Warn($"stop shortcut: {ex.Message}"); }
+
         try
         {
             var api = new ApiClient(apiUrl);

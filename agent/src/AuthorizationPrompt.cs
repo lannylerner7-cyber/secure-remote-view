@@ -15,6 +15,7 @@ internal static class AuthorizationPrompt
         "File transfer: files can be sent to and received from this computer.",
         "You are asked to allow every session before it starts. Nobody can connect without your approval.",
         "ConnectLive starts with Windows and stays in the system tray. Use the tray icon to review this agreement or disable remote access at any time, even offline.",
+        $"Press {StopShortcut.Label} at any time to stop ConnectLive and turn off remote access, even while the privacy curtain is on.",
         "Accepting this agreement again replaces it and ends any current session.",
     };
 
