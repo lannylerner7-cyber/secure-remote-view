@@ -29,7 +29,7 @@ export function PowerMenu({
         className="rounded border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium hover:bg-white/10"
         title="Power actions"
       >
-        Power ▾
+        Power
       </button>
       {open && (
         <div className="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded border border-white/10 bg-[#0F172A] text-xs shadow-xl">
@@ -40,7 +40,7 @@ export function PowerMenu({
             }}
             className="block w-full px-3 py-2 text-left hover:bg-white/5"
           >
-            🔒 Lock
+            Lock
           </button>}
           {allowed("logoff") && <button
             onClick={() => {
@@ -49,7 +49,7 @@ export function PowerMenu({
             }}
             className="block w-full px-3 py-2 text-left hover:bg-white/5"
           >
-            👤 Sign out
+            Sign out
           </button>}
           {platform === "android" && allowed("restart_app") && (
             <button
@@ -59,7 +59,7 @@ export function PowerMenu({
               }}
               className="block w-full px-3 py-2 text-left text-amber-200 hover:bg-white/5"
             >
-              ↻ Restart app
+              Restart app
             </button>
           )}
           {allowed("reboot") && canShutdown && (
@@ -70,7 +70,7 @@ export function PowerMenu({
               }}
               className="block w-full px-3 py-2 text-left text-amber-200 hover:bg-white/5"
             >
-              🔁 Reboot
+              Reboot
             </button>
           )}
           {canShutdown && allowed("shutdown") && (
@@ -81,7 +81,7 @@ export function PowerMenu({
               }}
               className="block w-full px-3 py-2 text-left text-rose-300 hover:bg-white/5"
             >
-              ⏻ Shutdown
+              Shutdown
             </button>
           )}
         </div>

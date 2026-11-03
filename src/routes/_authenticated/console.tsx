@@ -26,7 +26,16 @@ import { OnScreenKeyboard } from "@/components/console/OnScreenKeyboard";
 import { SessionFilesPanel } from "@/components/console/SessionFilesPanel";
 
 import { StatCard } from "@/components/console/StatCard";
-import { DevicesTable } from "@/components/console/DevicesTable";
+import { AccessWorkspace } from "@/components/console/AccessWorkspace";
+import { LayoutGrid, ListChecks, Monitor as MonitorIcon, Radio, ScrollText, Settings, Users } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SessionsTable } from "@/components/console/SessionsTable";
 import { TelegramSettings } from "@/components/console/TelegramSettings";
 import { TeamPanel } from "@/components/console/TeamPanel";
@@ -120,6 +129,8 @@ function AdminPage() {
   const pointerLockRelRef = useRef({ dx: 0, dy: 0 });
 
   const [devices, setDevices] = useState<Device[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
   const [runtimes, setRuntimes] = useState<Record<string, AgentRuntime>>({});
   const [relaunches, setRelaunches] = useState<Record<string, RelaunchCommand>>({});
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
@@ -195,7 +206,7 @@ function AdminPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const search = Route.useSearch();
-  const [nav, setNav] = useState<Nav>(search.tab ?? "dashboard");
+  const [nav, setNav] = useState<Nav>(search.tab ?? "devices");
   const [sharedNote, setSharedNote] = useState<string>("");
   const [tg, setTg] = useState({
     telegram_bot_token: "",
@@ -689,7 +700,13 @@ function AdminPage() {
       for (const row of commands.data ?? []) if (!latest[row.device_id]) latest[row.device_id] = row;
       setRelaunches(latest);
     }
-    if (d.data) setDevices(d.data);
+    if (d.error) {
+      setDevicesError(d.error.message || "The device list request failed.");
+    } else {
+      setDevicesError(null);
+      if (d.data) setDevices(d.data);
+      setDevicesLoaded(true);
+    }
     if (s.data) setSessions(s.data);
     if (a.data) setAudit(a.data);
     if (releases.data) {
@@ -1206,120 +1223,157 @@ function AdminPage() {
   const activeSessions = sessions.filter((s) => s.state === "active" || s.state === "paused");
   const pendingSessions = sessions.filter((s) => s.state === "invited");
 
-  const NavBtn = ({ id, label, badge }: { id: Nav; label: string; badge?: number }) => (
-    <button
-      onClick={() => setNav(id)}
-      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
-        nav === id
-          ? "bg-[#4F7CFF]/20 text-white"
-          : "text-white/60 hover:bg-white/5 hover:text-white"
-      }`}
-    >
-      <span>{label}</span>
-      {badge !== undefined && badge > 0 && (
-        <span className="rounded-full bg-[#4F7CFF] px-1.5 py-0.5 text-[10px] font-medium text-white">
-          {badge}
-        </span>
-      )}
-    </button>
-  );
+  // Fail closed: only resolved staff roles that may operate devices.
+  const canMutate = role === "super_admin" || role === "admin" || role === "technician";
+  const isAdmin = role === "super_admin" || role === "admin";
+  const railItems: { id: Nav; label: string; icon: typeof MonitorIcon; badge?: number }[] = [
+    { id: "devices", label: "Access", icon: MonitorIcon, badge: onlineCount },
+    { id: "dashboard", label: "Overview", icon: LayoutGrid },
+    { id: "sessions", label: "Sessions", icon: Radio, badge: activeSessions.length },
+    { id: "expected", label: "Expected", icon: ListChecks },
+    { id: "audit", label: "Audit", icon: ScrollText },
+    ...(role === "super_admin"
+      ? [
+          { id: "team" as Nav, label: "Team", icon: Users },
+          { id: "settings" as Nav, label: "Settings", icon: Settings },
+        ]
+      : []),
+  ];
+  const navTitle: Record<Nav, string> = {
+    devices: "Access", dashboard: "Overview", sessions: "Sessions", expected: "Expected devices",
+    audit: "Audit log", team: "Team", settings: "Settings",
+  };
 
   return (
-    <div className="min-h-screen bg-[#0B1220] text-white">
-      <div className="flex min-h-screen">
-        {/* Sidebar (desktop) */}
-        <aside className="hidden w-60 shrink-0 flex-col border-r border-white/10 bg-[#0F172A] p-4 lg:flex">
-          <div className="mb-6 flex items-center gap-2 px-2">
-            <span className="inline-block h-3 w-3 rounded-full bg-[#4F7CFF]" />
-            <span className="font-semibold">ConnectLive</span>
+    <div className="min-h-[100dvh] bg-[#0B1220] text-white">
+      <div className="flex min-h-[100dvh] flex-col md:h-[100dvh] md:flex-row">
+        {/* Navigation rail */}
+        <aside
+          aria-label="Console navigation"
+          className="flex shrink-0 flex-wrap items-center gap-1 border-b border-white/10 bg-[#070D1A] px-2 py-1.5 md:w-[76px] md:flex-nowrap md:flex-col md:overflow-visible md:border-b-0 md:border-r md:px-0 md:py-3"
+        >
+          <div className="mr-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#4F7CFF]/15 md:mb-3 md:mr-0" title="ConnectLive">
+            <span className="h-3 w-3 rounded-full bg-[#4F7CFF] shadow-[0_0_0_4px_rgba(79,124,255,0.2)]" />
           </div>
-          <nav className="flex-1 space-y-1">
-            <NavBtn id="dashboard" label="Dashboard" />
-            <NavBtn id="devices" label="Devices" badge={onlineCount} />
-            <NavBtn id="expected" label="Expected devices" />
-            <NavBtn id="sessions" label="Sessions" badge={activeSessions.length} />
-            <NavBtn id="audit" label="Audit log" />
-            {role === "super_admin" && <NavBtn id="team" label="Team" />}
-            {role === "super_admin" && <NavBtn id="settings" label="Settings" />}
+          <nav className="order-last grid w-full grid-cols-4 gap-1 md:order-none md:flex md:flex-1 md:flex-col md:gap-0.5">
+            {railItems.map(({ id, label, icon: Icon, badge }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setNav(id)}
+                aria-current={nav === id ? "page" : undefined}
+                data-testid={`nav-${id}`}
+                className={`relative flex min-w-0 shrink-0 flex-col items-center gap-0.5 rounded-md px-1 py-1.5 md:px-2.5 text-[10px] transition focus-visible:outline-2 focus-visible:outline-[#7FA0FF] md:mx-1.5 md:py-2 ${
+                  nav === id
+                    ? "bg-[#4F7CFF]/20 text-white md:shadow-[inset_3px_0_0_#4F7CFF]"
+                    : "text-white/55 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <Icon className="h-[18px] w-[18px]" aria-hidden />
+                <span>{label}</span>
+                {badge !== undefined && badge > 0 && (
+                  <span className="absolute right-1 top-0.5 rounded-full bg-[#4F7CFF] px-1 font-mono text-[9px] leading-[14px] text-white">{badge}</span>
+                )}
+              </button>
+            ))}
           </nav>
-          <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/50">
-            <div className="truncate">{userEmail}</div>
-            {role && (
-              <div className="mt-1 inline-block rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[#B9CCFF]">
-                {role.replace("_", " ")}
-              </div>
-            )}
-            <button
-              onClick={signOut}
-              className="mt-2 w-full rounded border border-white/15 px-2 py-1 hover:bg-white/5"
-            >
-              Sign out
-            </button>
+          <div className="ml-auto flex shrink-0 items-center gap-1 md:ml-0 md:mt-auto md:flex-col md:gap-2 md:rounded-2xl md:bg-white/[0.04] md:px-1.5 md:py-2">
+            <NotificationBell userId={userId} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Account ${userEmail}`}
+                  data-testid="button-account"
+                  className="grid h-8 w-8 place-items-center rounded-full bg-[#4F7CFF] text-xs font-semibold uppercase focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B9CCFF]"
+                >
+                  {(userEmail || "?").slice(0, 1)}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="right" align="end" collisionPadding={8} className="min-w-52 border-white/10 bg-[#0F172A] text-white">
+                <DropdownMenuLabel className="truncate text-xs font-normal text-white/70">{userEmail || "Signed in"}</DropdownMenuLabel>
+                <DropdownMenuLabel className="pt-0 text-[10px] uppercase tracking-wider text-[#B9CCFF]">
+                  {role ? role.replace("_", " ") : "role loading"}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-white/10" />
+                <DropdownMenuItem className="cursor-pointer text-xs focus:bg-[#4F7CFF]/20 focus:text-white" onSelect={() => void signOut()} data-testid="button-sign-out">
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </aside>
 
-        {/* Main */}
-        <div className="min-w-0 flex-1">
-          <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-white/10 px-4 py-3 sm:px-6 sm:py-4">
-            <h1 className="truncate text-base font-semibold capitalize sm:text-lg">{nav}</h1>
-            <div className="flex shrink-0 items-center gap-3">
-              <NotificationBell userId={userId} />
-              {role !== "viewer" && (
-                <span className="hidden text-xs text-white/50 xl:inline">
-                  Pair an authorized device, then choose <b>Connect</b>.
-                </span>
-              )}
-              {role !== "viewer" && (
-                <Button size="sm" onClick={() => setPairingOpen(true)}>Pair device</Button>
-              )}
-              <button
-                onClick={signOut}
-                className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/5 lg:hidden"
-              >
-                Sign out
-              </button>
-            </div>
-          </header>
-
-          {/* Nav strip (tablet + mobile) */}
-          <div className="flex gap-1.5 overflow-x-auto border-b border-white/10 px-3 py-2 lg:hidden">
-            {(
-              [
-                ["dashboard", "Dashboard"],
-                ["devices", "Devices"],
-                ["expected", "Expected"],
-                ["sessions", "Sessions"],
-                ["audit", "Audit"],
-                ...(role === "super_admin"
-                  ? ([
-                      ["team", "Team"],
-                      ["settings", "Settings"],
-                    ] as const)
-                  : []),
-              ] as ReadonlyArray<readonly [Nav, string]>
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => setNav(id)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs transition ${
-                  nav === id
-                    ? "bg-[#4F7CFF]/20 text-white"
-                    : "text-white/60 hover:bg-white/5 hover:text-white"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {reconnecting.length > 0 && (
             <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200 sm:px-6">
               <span className="mr-2 inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-              {reconnecting.length} device{reconnecting.length > 1 ? "s" : ""} reconnecting…
+              {reconnecting.length} device{reconnecting.length > 1 ? "s" : ""} reconnecting...
             </div>
           )}
 
-          <main className="p-4 sm:p-6">
+          {nav === "devices" ? (
+            <AccessWorkspace
+              devices={devices}
+              sessions={sessions}
+              latestVersions={latestVersions}
+              presenceOf={presenceOf}
+              now={now}
+              loading={!devicesLoaded}
+              loadError={devicesError}
+              onRetry={() => void refresh().catch((e: unknown) => setDevicesError(e instanceof Error ? e.message : "Device refresh failed."))}
+              selected={selected}
+              setSelected={setSelected}
+              canConnect={canMutate}
+              canPower={canMutate && (isAdmin || role === "technician")}
+              canShutdown={isAdmin}
+              canDelete={isAdmin}
+              canRelaunch={isAdmin}
+              canPair={isAdmin}
+              relaunching={relaunching}
+              lifecycleError={lifecycleError}
+              lifecycleStatus={d => {
+                const command = relaunches[d.id];
+                const expired = command && ["queued", "received", "starting"].includes(command.state) && Date.parse(command.expires_at) <= now;
+                return runtimeDescription(deviceRuntime(d, runtimes[d.id]), now) + (command
+                  ? ` · Relaunch: ${expired ? "expired" : command.state.replaceAll("_", " ")}${command.detail_code ? ` (${command.detail_code.replaceAll("_", " ")})` : ""}` : "");
+              }}
+              onConnect={connectDevice}
+              onPower={(d, kind) => queuePower(d, kind)}
+              onBulkEnd={bulkEndSessions}
+              onBulkRestart={bulkRestartAgent}
+              onPair={() => setPairingOpen(true)}
+              onOpenExpected={() => setNav("expected")}
+              onDelete={async (d) => {
+                if (!isAdmin) return;
+                if (
+                  !confirm(
+                    `Remove ${d.display_name} from the device list? The agent will need to re-enroll to reconnect.`,
+                  )
+                )
+                  return;
+                const { error } = await supabase.from("devices").delete().eq("id", d.id);
+                if (error) {
+                  alert(`Delete failed: ${error.message}`);
+                  return;
+                }
+                setDevices((prev) => prev.filter((x) => x.id !== d.id));
+                setSelected((prev) => {
+                  const n = new Set(prev);
+                  n.delete(d.id);
+                  return n;
+                });
+              }}
+            />
+          ) : (
+          <>
+          <header className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-6">
+            <h1 className="truncate text-lg font-semibold">{navTitle[nav]}</h1>
+            {canMutate && (
+              <Button size="sm" onClick={() => setPairingOpen(true)} className="bg-[#4F7CFF] text-white hover:bg-[#6189FF]">Pair device</Button>
+            )}
+          </header>
+          <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
 
             {nav === "dashboard" && (
               <div className="space-y-6">
@@ -1384,54 +1438,6 @@ function AdminPage() {
               </div>
             )}
 
-            {nav === "devices" && (
-              <DevicesTable
-                lifecycleError={lifecycleError}
-                canRelaunch={role === "admin" || role === "super_admin"}
-                relaunching={relaunching}
-                lifecycleStatus={d => {
-                  const command = relaunches[d.id];
-                  const expired = command && ["queued", "received", "starting"].includes(command.state) && Date.parse(command.expires_at) <= now;
-                  return runtimeDescription(deviceRuntime(d, runtimes[d.id]), now) + (command
-                    ? ` · Relaunch: ${expired ? "expired" : command.state.replaceAll("_", " ")}${command.detail_code ? ` (${command.detail_code.replaceAll("_", " ")})` : ""}` : "");
-                }}
-                devices={devices}
-                latestVersions={latestVersions}
-                presenceOf={presenceOf}
-                selected={selected}
-                toggleSelect={toggleSelect}
-                onBulkEnd={bulkEndSessions}
-                onBulkRestart={bulkRestartAgent}
-                onClearSelected={() => setSelected(new Set())}
-                onConnect={connectDevice}
-                canConnect={role !== "viewer"}
-                canDelete={role === "super_admin" || role === "admin"}
-                canPower={role === "super_admin" || role === "admin" || role === "technician"}
-                canShutdown={role === "super_admin" || role === "admin"}
-                onWake={(d) => queuePower(d, "wake")}
-                onPower={(d, kind) => queuePower(d, kind)}
-                onDelete={async (d) => {
-                  if (
-                    !confirm(
-                      `Remove ${d.display_name} from the device list? The agent will need to re-enroll to reconnect.`,
-                    )
-                  )
-                    return;
-                  const { error } = await supabase.from("devices").delete().eq("id", d.id);
-                  if (error) {
-                    alert(`Delete failed: ${error.message}`);
-                    return;
-                  }
-                  setDevices((prev) => prev.filter((x) => x.id !== d.id));
-                  setSelected((prev) => {
-                    const n = new Set(prev);
-                    n.delete(d.id);
-                    return n;
-                  });
-                }}
-              />
-            )}
-
             {nav === "expected" && <ExpectedDevicesPanel />}
 
             {nav === "sessions" && (
@@ -1490,6 +1496,8 @@ function AdminPage() {
             {nav === "team" && role === "super_admin" && <TeamPanel />}
 
           </main>
+          </>
+          )}
         </div>
       </div>
 

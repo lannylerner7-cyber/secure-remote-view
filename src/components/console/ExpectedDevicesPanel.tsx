@@ -14,7 +14,7 @@ import {
  * button copies the download URL to the clipboard so it can be sent to the
  * user of the missing machine.
  */
-const INSTALLER_URL = "https://www.connectliveagent.com/#download";
+const INSTALLER_PATH = "/public/agent/login";
 
 export function ExpectedDevicesPanel() {
   const list = useServerFn(listExpectedDevices);
@@ -209,11 +209,12 @@ export function ExpectedDevicesPanel() {
                     {r.status === "not_installed" && (
                       <button
                         onClick={async () => {
+                          const installerUrl = new URL(INSTALLER_PATH, window.location.origin).href;
                           try {
-                            await navigator.clipboard.writeText(INSTALLER_URL);
-                            alert("Installer link copied to clipboard.");
+                            await navigator.clipboard.writeText(installerUrl);
+                            alert("Agent download portal link copied to clipboard.");
                           } catch {
-                            prompt("Copy this link:", INSTALLER_URL);
+                            prompt("Copy this link:", installerUrl);
                           }
                         }}
                         className="rounded border border-[#4F7CFF]/40 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF] hover:bg-[#4F7CFF]/20"
