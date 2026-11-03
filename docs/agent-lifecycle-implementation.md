@@ -1,3 +1,11 @@
+# Database deployment status
+
+The lifecycle and signed-update migrations were committed to the existing
+managed Supabase project on 2026-11-03, alongside the reviewed realtime/private
+grant hardening migration. See [database-runtime-readiness.md](database-runtime-readiness.md)
+for actual checks, recovery details and remaining Coolify/Windows evidence.
+This does not mean the updated web application or Agent has been deployed.
+
 # Agent/browser lifecycle implementation — 2026-11-03
 
 Agent source version: **1.10.1**. This is an implementation and verification

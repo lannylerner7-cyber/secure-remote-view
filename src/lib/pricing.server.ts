@@ -3,14 +3,20 @@
  *
  * Cloudflare Workers egress is blocked (HTTP 403) by CoinGecko's free tier
  * without an API key, so we try a chain of edge-friendly providers and fall
- * back to the last cached value if every provider fails.
+ * use a short, bounded cache if every provider fails. Pricing is public data;
+ * authorization and device state must never use this cache.
  */
 
 type CoinKey = "BTC" | "USDT_ERC20" | "USDC_ERC20";
 
 let cache: { ts: number; rates: Record<CoinKey, number> } | null = null;
-const TTL_MS = 10 * 60 * 1000;
+let inFlight: Promise<Record<CoinKey, number>> | null = null;
+let retryAfter = 0;
+const TTL_MS = 60 * 1000;
+const MAX_STALE_MS = 5 * 60 * 1000;
+const FAILURE_RETRY_MS = 10 * 1000;
 const FETCH_TIMEOUT_MS = 3000;
+const unavailable = () => new Error("Live pricing temporarily unavailable, please retry in a moment.");
 
 async function timedFetch(url: string, init?: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
@@ -102,14 +108,26 @@ async function fromCoinGecko(): Promise<Partial<Record<CoinKey, number>>> {
 
 export async function getUsdToCoinRates(): Promise<Record<CoinKey, number>> {
   if (cache && Date.now() - cache.ts < TTL_MS) return cache.rates;
+  if (inFlight) return inFlight;
+  if (Date.now() < retryAfter) {
+    if (cache && Date.now() - cache.ts <= MAX_STALE_MS) return cache.rates;
+    throw unavailable();
+  }
+  // Single-flight per server process prevents simultaneous expired-cache
+  // requests from each starting their own provider chain.
+  inFlight = refreshRates().finally(() => { inFlight = null; });
+  return inFlight;
+}
 
+async function refreshRates(): Promise<Record<CoinKey, number>> {
   const merged: Partial<Record<CoinKey, number>> = {};
   for (const provider of [fromCoinbase, fromKraken, fromCoinGecko]) {
     if (merged.BTC && merged.USDT_ERC20 && merged.USDC_ERC20) break;
     try {
       const part = await provider();
       for (const k of Object.keys(part) as CoinKey[]) {
-        if (!merged[k]) merged[k] = part[k];
+        const value = part[k];
+        if (!merged[k] && value !== undefined && Number.isFinite(value) && value > 0) merged[k] = value;
       }
     } catch {
       // ignore, try next provider
@@ -118,11 +136,12 @@ export async function getUsdToCoinRates(): Promise<Record<CoinKey, number>> {
 
   // BTC is the only rate we can't safely default. Stablecoins peg to $1.
   if (!merged.BTC) {
-    if (cache) {
-      console.warn("[pricing] all providers failed; serving stale cached rates");
+    retryAfter = Date.now() + FAILURE_RETRY_MS;
+    if (cache && Date.now() - cache.ts <= MAX_STALE_MS) {
+      console.warn("[pricing] providers unavailable; using cached rates younger than five minutes");
       return cache.rates;
     }
-    throw new Error("Live pricing temporarily unavailable, please retry in a moment.");
+    throw unavailable();
   }
 
   const rates: Record<CoinKey, number> = {
@@ -130,6 +149,8 @@ export async function getUsdToCoinRates(): Promise<Record<CoinKey, number>> {
     USDT_ERC20: merged.USDT_ERC20 ?? 1,
     USDC_ERC20: merged.USDC_ERC20 ?? 1,
   };
+  retryAfter = 0;
+  Object.freeze(rates);
   cache = { ts: Date.now(), rates };
   return rates;
 }

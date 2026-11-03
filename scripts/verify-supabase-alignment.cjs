@@ -9,11 +9,12 @@ const crypto = require('node:crypto');
 const { createRequire } = require('node:module');
 const ts = require('typescript');
 const { buildPlan, connectionOptions } = require('./supabase-fresh-install.cjs');
+const { releasePlan } = require('./database-release-plan.cjs');
 const root = path.resolve(__dirname, '..');
-const app = path.join(root, 'imports/connectlive');
+const app = path.join(root, '.');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
-const TABLES = 'admin_settings admin_wallets audit_logs contact_messages cron_tokens device_authorizations devices expected_devices license_lookups licenses login_attempts newsletter_subscribers notifications order_emails orders payment_events payment_quote_reservations plans portal_settings power_commands profiles releases session_cursors session_files session_frames session_inputs session_secrets session_signals session_telemetry sessions smtp_settings support_bookings user_roles'.split(' ');
-const SERVER_ONLY = 'cron_tokens session_secrets smtp_settings login_attempts payment_quote_reservations device_authorizations'.split(' ');
+const TABLES = 'admin_settings admin_wallets agent_lifecycle_commands agent_runtime audit_logs contact_messages cron_tokens device_authorizations device_pairings devices expected_devices license_lookups licenses login_attempts newsletter_subscribers notifications order_emails orders pairing_attempts payment_events payment_quote_reservations plans portal_settings power_commands profiles releases session_cursors session_files session_frames session_inputs session_secrets session_signals session_telemetry sessions smtp_settings support_bookings user_roles'.split(' ');
+const SERVER_ONLY = 'cron_tokens session_secrets smtp_settings login_attempts payment_quote_reservations device_authorizations device_pairings pairing_attempts'.split(' ');
 function files(dir, extension) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
     ['node_modules', 'bin', 'obj', '.git'].includes(e.name) ? [] :
@@ -24,16 +25,30 @@ function member(node, name) { return node?.members?.find(m => m.name?.getText().
 function members(node) { return node?.members || []; }
 function literal(node) { return node && ts.isStringLiteral(node) ? node.text : null; }
 function sourceContracts() {
-  const text = fs.readFileSync(path.join(app, 'src/integrations/supabase/types.ts'), 'utf8');
-  const tree = ts.createSourceFile('types.ts', text, ts.ScriptTarget.Latest, true);
+  const filename = path.join(app, 'src/integrations/supabase/types.ts');
+  // Resolve imported Row aliases and Partial<> inserts instead of silently
+  // reporting zero columns for the shared Agent lifecycle contracts.
+  const program = ts.createProgram([filename], {
+    strictNullChecks: true, noEmit: true, skipLibCheck: true,
+    target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    baseUrl: app, paths: { '@/*': ['src/*'] },
+  });
+  const checker = program.getTypeChecker(), tree = program.getSourceFile(filename);
+  const properties = node => checker.getPropertiesOfType(checker.getTypeFromTypeNode(node));
   const db = tree.statements.find(s => ts.isTypeAliasDeclaration(s) && s.name.text === 'Database');
   const schema = member(db.type, 'public');
   const tables = members(member(schema, 'Tables')).map(m => ({
     name: m.name.getText(),
-    columns: members(member(m.type, 'Row')).map(c => ({
-      name: c.name.getText(), type: c.type.getText(), nullable: /\bnull\b/.test(c.type.getText()),
-      optionalInsert: !!members(member(m.type, 'Insert')).find(i => i.name.getText() === c.name.getText())?.questionToken,
-    })),
+    columns: properties(member(m.type, 'Row')).map(c => {
+      const type = checker.typeToString(checker.getTypeOfSymbolAtLocation(c, tree));
+      const insert = properties(member(m.type, 'Insert')).find(i => i.name === c.name);
+      // Json already includes JSON null; the checker collapses Json | null.
+      // The property declaration preserves SQL nullability in generated types.
+      const declaration = c.declarations?.find(d => d.type)?.type;
+      return { name: c.name, type, nullable: /\bnull\b/.test(declaration?.getText() || type),
+        optionalInsert: !!(insert?.flags & ts.SymbolFlags.Optional) };
+    }),
     relationships: (member(m.type, 'Relationships')?.elements || []).map(r => ({
       name: literal(member(r, 'foreignKeyName')?.literal),
       columns: (member(r, 'columns')?.elements || []).map(c => literal(c.literal)),
@@ -130,7 +145,11 @@ async function verify(client, source, plan) {
   const query = async (sql, params) => (await client.query(sql, params)).rows;
   const tables = await query(`SELECT c.relname name,c.relrowsecurity rls FROM pg_class c
     JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') ORDER BY 1`);
-  check('public table inventory', JSON.stringify(tables.map(t => t.name)) === JSON.stringify(TABLES), { count: tables.length });
+  check('public table inventory', JSON.stringify(tables.map(t => t.name)) === JSON.stringify(TABLES), {
+    count: tables.length, expected: TABLES.length, tables: tables.map(t => t.name),
+    missing: TABLES.filter(t => !tables.some(l => l.name === t)),
+    unexpected: tables.filter(t => !TABLES.includes(t.name)).map(t => t.name),
+  });
   check('RLS enabled on every public table', tables.every(t => t.rls), { count: tables.filter(t => t.rls).length });
   const columns = await query(`SELECT c.relname table_name,a.attname name,t.typname type,a.attnotnull required,
     d.oid IS NOT NULL has_default FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
@@ -150,7 +169,11 @@ async function verify(client, source, plan) {
     if (col.optionalInsert !== (!live.required || live.has_default)) typeDifferences.push(`${key}: Insert optionality`);
     const expected = live.type === 'bool' ? 'boolean' : /^(int[248]|float[48]|numeric)$/.test(live.type) ? 'number' :
       /^jsonb?$/.test(live.type) ? 'Json' : live.type === 'app_role' ? 'Enums' : 'string';
-    if (!col.type.includes(expected)) typeDifferences.push(`${key}: type`);
+    const stringUnion = expected === 'string' && /^(?:"[^"]*"(?: \| )?)+(?:null)?$/.test(col.type);
+    const enumDefinition = source.enums.find(e => e.name === live.type);
+    const enumMatch = enumDefinition && JSON.stringify([...col.type.matchAll(/"([^"]+)"/g)].map(m => m[1]).sort()) ===
+      JSON.stringify([...enumDefinition.labels].sort());
+    if (!col.type.includes(expected) && !stringUnion && !enumMatch) typeDifferences.push(`${key}: type`);
   }
   const untypedColumns = columns.filter(c => source.tables.some(t => t.name === c.table_name) &&
     !source.tables.find(t => t.name === c.table_name).columns.some(col => col.name === c.name)).map(c => `${c.table_name}.${c.name}`);
@@ -212,12 +235,13 @@ async function verify(client, source, plan) {
   for (const table of SERVER_ONLY) privateGrants.push((await query(`SELECT
     NOT has_table_privilege('anon',$1,'SELECT,INSERT,UPDATE,DELETE') AND
     NOT has_table_privilege('authenticated',$1,'SELECT,INSERT,UPDATE,DELETE') ok`, [`public.${table}`]))[0].ok);
-  // RLS can protect server-only relations even where historical client table grants remain.
-  if (!privateGrants.every(Boolean)) warnings.push({
-    name: 'server-only tables retain historical client table privileges, but have no client RLS policies',
-    count: privateGrants.filter(ok => !ok).length,
-    tables: SERVER_ONLY.filter((_, i) => !privateGrants[i]),
+  check('server-only tables deny direct client CRUD', privateGrants.every(Boolean), {
+    checked: SERVER_ONLY.length, unexpectedGrants: SERVER_ONLY.filter((_, i) => !privateGrants[i]),
   });
+  const truncateGrants = await query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname=ANY($1::text[]) AND
+    (has_table_privilege('anon',c.oid,'TRUNCATE') OR has_table_privilege('authenticated',c.oid,'TRUNCATE'))`, [SERVER_ONLY]);
+  check('server-only tables deny client TRUNCATE', !truncateGrants.length, { unexpected: truncateGrants.map(t => t.relname) });
   const authPrivate = (await query(`SELECT NOT has_table_privilege('authenticated','public.device_authorizations','SELECT,INSERT,UPDATE,DELETE')
     AND NOT has_table_privilege('anon','public.device_authorizations','SELECT,INSERT,UPDATE,DELETE') ok`))[0].ok;
   check('device_authorizations private grants', authPrivate);
@@ -238,11 +262,12 @@ async function verify(client, source, plan) {
   const requiredIndexes = ['devices_status_last_seen_idx','devices_license_idx','sessions_device_state_idx','sessions_device_created_idx',
     'sessions_technician_created_idx','idx_sessions_tech_state','session_inputs_session_seq_idx','idx_session_signals_routing',
     'ux_session_signals_attempt','ix_session_files_session','idx_session_frames_session','idx_session_cursors_session',
-    'one_current_device_authorization','expected_devices_claim_code_uq','idx_power_commands_device_queue_expiry'];
+    'one_current_device_authorization','expected_devices_claim_code_uq','idx_power_commands_device_queue_expiry',
+    'device_pairings_license','pairing_attempts_cleanup','agent_lifecycle_pending','agent_lifecycle_recent'];
   check('device/session request indexes', requiredIndexes.every(name => indexes.some(i => i.name === name && i.valid && i.ready)),
     { checked: requiredIndexes.length, total: indexes.length, missing: requiredIndexes.filter(name => !indexes.some(i => i.name === name && i.valid && i.ready)) });
   const publication = await query(`SELECT tablename FROM pg_publication_tables WHERE pubname='supabase_realtime' AND schemaname='public' ORDER BY 1`);
-  const requiredRealtime = new Set([...source.realtime, 'devices','sessions','session_frames','session_cursors','session_signals','power_commands','notifications']);
+  const requiredRealtime = new Set([...source.realtime, 'devices','sessions','session_frames','session_cursors','session_signals','power_commands','notifications','agent_runtime','agent_lifecycle_commands']);
   check('realtime source subscriptions', [...requiredRealtime].every(t => publication.some(p => p.tablename === t)),
     { published: publication.length, required: requiredRealtime.size, missing: [...requiredRealtime].filter(t => !publication.some(p => p.tablename === t)) });
   const bucket = await query(`SELECT public,file_size_limit,allowed_mime_types FROM storage.buckets WHERE id='session-files' AND name='session-files'`);
@@ -250,15 +275,31 @@ async function verify(client, source, plan) {
     Number(bucket[0].file_size_limit) === 524288000 && bucket[0].allowed_mime_types === null, { count: bucket.length, expectedFileBytes: 524288000 });
   const history = await query(`SELECT version,filename,source_checksum,applied_checksum,catalog_checksum FROM connectlive_install.migrations ORDER BY version`);
   const standard = await query(`SELECT version,name,statements FROM supabase_migrations.schema_migrations ORDER BY version`);
-  check('64 reviewed migration provenance records', history.length === plan.length && standard.length === plan.length &&
+  const baseline = standard.filter(s => s.version <= '20261021003000');
+  check('64 reviewed baseline provenance records remain unchanged', history.length === plan.length && baseline.length === plan.length &&
     plan.every((p,i) => history[i]?.version === p.version && history[i]?.filename === p.file &&
       history[i]?.source_checksum === p.source && history[i]?.applied_checksum === p.checksum &&
-      standard[i]?.version === p.version && standard[i]?.name === p.name &&
-      JSON.stringify(standard[i]?.statements) === JSON.stringify(p.parts)), { installed: history.length, standard: standard.length, source: plan.length });
-  check('catalog fingerprint matches installed reviewed schema', history.at(-1)?.catalog_checksum === await fingerprint(client));
+      baseline[i]?.version === p.version && baseline[i]?.name === p.name &&
+      JSON.stringify(baseline[i]?.statements) === JSON.stringify(p.parts)), { installed: history.length, standard: baseline.length, source: plan.length });
+  const additions = releasePlan(), tail = standard.filter(s => s.version > '20261021003000');
+  check('reviewed additive migration history', tail.length === additions.length && additions.every(m =>
+    tail.some(s => s.version === m.version && s.name === m.name && hash((s.statements || []).join('\n')) === m.sha256)),
+  { expected: additions.length, installed: tail.length, missing: additions.filter(m => !tail.some(s => s.version === m.version)).map(m => m.file) });
+  const catalogFingerprint = await fingerprint(client);
+  // Preserve the immutable installer fingerprint. Additive migrations correctly
+  // change the catalog; never overwrite the baseline merely to obtain PASS.
+  if (!tail.length) check('baseline catalog fingerprint', history.at(-1)?.catalog_checksum === catalogFingerprint);
+  else warnings.push({ name: 'Historical catalog fingerprint predates additive upgrades; current fingerprint recorded separately.' });
+  const lifecycleRpcs = ['record_agent_runtime(uuid,uuid,bigint,integer)','request_agent_relaunch(uuid,uuid)','report_agent_watch(uuid,jsonb)'];
+  const lifecyclePrivileges = [];
+  for (const name of lifecycleRpcs) lifecyclePrivileges.push((await query(`SELECT
+    NOT has_function_privilege('anon',$1,'EXECUTE') AND NOT has_function_privilege('authenticated',$1,'EXECUTE')
+    AND has_function_privilege('service_role',$1,'EXECUTE') ok`, [`public.${name}`]))[0].ok);
+  check('lifecycle mutations service-only', lifecyclePrivileges.every(Boolean), { checked: lifecycleRpcs.length });
   return { status: gaps.length ? 'GAPS' : 'PASS', readOnly: true, applicationRowsRead: false, checks, gaps, warnings,
+    catalogFingerprint, baselineFingerprint: history.at(-1)?.catalog_checksum, totalMigrations: standard.length,
     limits: ['Metadata/static literal extraction only; dynamic queries, native JSON mappings, JWT policy execution and device end-to-end flows require separate tests.',
-      'Catalog fingerprint proves no drift from reviewed installation, not that every historical policy or source behavior is correct.'] };
+      'The current fingerprint is a comparison point for this release, not proof of equivalence to the old 64-migration catalog.'] };
 }
 async function main() {
   if (process.argv.length > 3 || !['--live','--source-only'].includes(process.argv[2] || '--source-only')) throw new Error();
@@ -287,7 +328,8 @@ async function main() {
     await client.end().catch(() => {});
   }
 }
-main().catch(() => {
+if (require.main === module) main().catch(() => {
   console.error('Alignment verification stopped: source/target/TLS validation, connection, or read-only metadata query failed. Details suppressed; no writes were attempted.');
   process.exitCode = 1;
 });
+module.exports = { sourceContracts, verify, fingerprint, TABLES };

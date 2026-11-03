@@ -1,5 +1,10 @@
 # Managed Supabase release alignment
 
+> Current release: see [Database/runtime readiness](database-runtime-readiness.md)
+> for the 2026-11-03 committed upgrade and 37-table verification. The report below
+> preserves the earlier 33-table baseline audit; its pending publication gap has
+> since been resolved.
+
 ## Decision
 
 Read-only live verification on 2026-10-22 confirms **all 33 expected public tables exist**, with the installed schema matching the reviewed 64-migration provenance. No missing device/session columns or missing authorization routines were found.

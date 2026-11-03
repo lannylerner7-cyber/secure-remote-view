@@ -18,12 +18,102 @@ export type Database = {
         Row: import("@/shared/agent-lifecycle").AgentRuntime
         Insert: Partial<import("@/shared/agent-lifecycle").AgentRuntime> & { device_id: string }
         Update: Partial<import("@/shared/agent-lifecycle").AgentRuntime>
-        Relationships: []
+        Relationships: [{
+          foreignKeyName: "agent_runtime_device_id_fkey"
+          columns: ["device_id"]
+          isOneToOne: true
+          referencedRelation: "devices"
+          referencedColumns: ["id"]
+        }]
       }
       agent_lifecycle_commands: {
         Row: import("@/shared/agent-lifecycle").RelaunchCommand
         Insert: Partial<import("@/shared/agent-lifecycle").RelaunchCommand> & { device_id: string; authorization_id: string; requested_by: string }
         Update: Partial<import("@/shared/agent-lifecycle").RelaunchCommand>
+        Relationships: [{
+          foreignKeyName: "agent_lifecycle_commands_device_id_fkey"
+          columns: ["device_id"]
+          isOneToOne: false
+          referencedRelation: "devices"
+          referencedColumns: ["id"]
+        }]
+      }
+      device_pairings: {
+        Row: {
+          id: string
+          license_id: string
+          owner_id: string
+          issued_by: string
+          code_hash: string
+          disclosure_id: string
+          organization: string
+          grant_request: Json
+          created_at: string
+          expires_at: string
+          revoked_at: string | null
+          consumed_at: string | null
+          request_hash: string | null
+          device_id: string | null
+          authorization_id: string | null
+        }
+        Insert: {
+          id?: string
+          license_id: string
+          owner_id: string
+          issued_by: string
+          code_hash: string
+          disclosure_id?: string
+          organization: string
+          grant_request: Json
+          created_at?: string
+          expires_at: string
+          revoked_at?: string | null
+          consumed_at?: string | null
+          request_hash?: string | null
+          device_id?: string | null
+          authorization_id?: string | null
+        }
+        Update: {
+          id?: string
+          license_id?: string
+          owner_id?: string
+          issued_by?: string
+          code_hash?: string
+          disclosure_id?: string
+          organization?: string
+          grant_request?: Json
+          created_at?: string
+          expires_at?: string
+          revoked_at?: string | null
+          consumed_at?: string | null
+          request_hash?: string | null
+          device_id?: string | null
+          authorization_id?: string | null
+        }
+        Relationships: [{
+          foreignKeyName: "device_pairings_license_id_fkey"
+          columns: ["license_id"]
+          isOneToOne: false
+          referencedRelation: "licenses"
+          referencedColumns: ["id"]
+        }, {
+          foreignKeyName: "device_pairings_device_id_fkey"
+          columns: ["device_id"]
+          isOneToOne: false
+          referencedRelation: "devices"
+          referencedColumns: ["id"]
+        }, {
+          foreignKeyName: "device_pairings_authorization_id_fkey"
+          columns: ["authorization_id"]
+          isOneToOne: false
+          referencedRelation: "device_authorizations"
+          referencedColumns: ["id"]
+        }]
+      }
+      pairing_attempts: {
+        Row: { bucket: string; window_started: string; last_seen: string; attempts: number }
+        Insert: { bucket: string; window_started: string; last_seen: string; attempts: number }
+        Update: { bucket?: string; window_started?: string; last_seen?: string; attempts?: number }
         Relationships: []
       }
       admin_settings: {
