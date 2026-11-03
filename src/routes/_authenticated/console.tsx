@@ -19,8 +19,6 @@ import {
   type LiveCursor,
   type Nav,
   NAV_VALUES,
-  STALE_MS,
-  OFFLINE_MS,
 } from "@/lib/console-types";
 import { keyToVirtualKey, getContainedPoint } from "@/lib/console-input";
 import { VirtualTrackpad } from "@/components/console/VirtualTrackpad";
@@ -36,7 +34,20 @@ import { ReaperPanel } from "@/components/console/ReaperPanel";
 import { ExpectedDevicesPanel } from "@/components/console/ExpectedDevicesPanel";
 import { RenderHealthPanel } from "@/components/console/RenderHealthPanel";
 import { RemoteCursorOverlay } from "@/components/console/RemoteCursorOverlay";
+import { RemoteDisplayFrame } from "@/components/console/RemoteDisplayFrame";
+import { DevicePairingDialog } from "@/components/console/DevicePairingDialog";
+import { revokeManagedDeviceAccess } from "@/lib/device-pairing.functions";
+import { useLiveAuthorization } from "@/lib/use-live-authorization";
+import type { AgentMode } from "@/lib/browser-actions";
+import { videoSessionStatus } from "@/lib/video-session-status";
+import type { ViewerScaleMode } from "@/lib/viewer-geometry";
+import { useVideoSourceSize } from "@/lib/use-video-source-size";
 import { MonitorPicker, type MonitorEntry } from "@/components/console/MonitorPicker";
+import { usesLegacyActions } from "@/shared/legacy-monitor";
+import { requestLegacyMonitor } from "@/lib/legacy-monitor.functions";
+import { requestAgentRelaunch } from "@/lib/agent-lifecycle.functions";
+import { devicePresence, deviceRuntime, runtimeDescription, type AgentRuntime, type RelaunchCommand } from "@/shared/agent-lifecycle";
+import type { CurtainState } from "@/lib/browser-curtain";
 
 
 export const Route = createFileRoute("/_authenticated/console")({
@@ -72,6 +83,7 @@ export const Route = createFileRoute("/_authenticated/console")({
 function AdminPage() {
   const navigate = useNavigate();
   const notify = useServerFn(sendTelegramNotify);
+  const relaunchAgent = useServerFn(requestAgentRelaunch);
   const fetchRole = useServerFn(getMyRole);
   const [role, setRole] = useState<AppRole | null>(null);
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -108,12 +120,34 @@ function AdminPage() {
   const pointerLockRelRef = useRef({ dx: 0, dy: 0 });
 
   const [devices, setDevices] = useState<Device[]>([]);
+  const [runtimes, setRuntimes] = useState<Record<string, AgentRuntime>>({});
+  const [relaunches, setRelaunches] = useState<Record<string, RelaunchCommand>>({});
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [relaunching, setRelaunching] = useState(false);
   const [latestVersions, setLatestVersions] = useState<{ agent: string | null; android: string | null }>({ agent: null, android: null });
   const [sessions, setSessions] = useState<Session[]>([]);
   const [audit, setAudit] = useState<Tables<"audit_logs">[]>([]);
   const [userEmail, setUserEmail] = useState<string>("");
   const [userId, setUserId] = useState<string | null>(null);
   const [liveId, setLiveId] = useState<string | null>(null);
+  const currentLiveSession = sessions.find((s) => s.id === liveId);
+  const liveSurfaceDeviceId = currentLiveSession?.device_id;
+  const activeLiveId = currentLiveSession?.state === "active" ? currentLiveSession.id : null;
+  const liveVideoOnly = currentLiveSession?.media_mode === "video";
+  const liveAuthorization = useLiveAuthorization(activeLiveId, currentLiveSession?.authorization_id ?? null);
+  const legacyActions = usesLegacyActions(currentLiveSession?.media_mode,
+    devices.find(device => device.id === liveSurfaceDeviceId)?.metadata);
+  const [agentMode, setAgentMode] = useState<AgentMode>(null);
+  const [curtain, setCurtain] = useState<CurtainState>({ supported: false, active: null, pending: false, reason: null });
+  const controlGranted = currentLiveSession?.mode === "control" && (legacyActions || agentMode === "control") &&
+    liveAuthorization.grant?.capabilities.control === true;
+  const [viewerAttempt, setViewerAttempt] = useState(0);
+  const [viewerPaused, setViewerPaused] = useState(false);
+  const [viewerUnsupported, setViewerUnsupported] = useState(false);
+  const viewerStartedAtRef = useRef(0);
+  const lastInputNoticeRef = useRef(0);
+  const [monitorSwitching, setMonitorSwitching] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
   const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
   const lastRealtimePushAtRef = useRef<number>(0);
@@ -122,6 +156,7 @@ function AdminPage() {
   >("connecting");
   // WebRTC video is the primary surface; the JPEG frame pipe is the fallback.
   const [rtcState, setRtcState] = useState<WebRtcState>("idle");
+  const controlReady = controlGranted && rtcState === "connected";
   const rtcVideoLive = rtcState === "connected";
   const rtcVideoLiveRef = useRef(false);
   // When the video track drops we unsubscribe/resubscribe the JPEG fallback,
@@ -139,6 +174,20 @@ function AdminPage() {
   // video surface is real — until then we keep the JPEG fallback alive and
   // label the transport honestly.
   const [videoDecoding, setVideoDecoding] = useState(false);
+  // Viewer geometry (presentation only): reactive video dimensions, local
+  // Fit / 1:1 scale mode and the collapsible action rail.
+  const [viewerVideo, setViewerVideo] = useState<HTMLVideoElement | null>(null);
+  const videoSourceSize = useVideoSourceSize(viewerVideo, liveId);
+  const [viewerScaleMode, setViewerScaleMode] = useState<ViewerScaleMode>("fit");
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [pairingOpen, setPairingOpen] = useState(false);
+  const revokeAccess = useServerFn(revokeManagedDeviceAccess);
+  const [revokingAccess, setRevokingAccess] = useState(false);
+  useEffect(() => {
+    setViewerScaleMode("fit");
+    setFilesOpen(false);
+    setLiveFrame(null);
+  }, [liveId]);
   const videoDecodingRef = useRef(false);
   videoDecodingRef.current = videoDecoding;
 
@@ -203,7 +252,9 @@ function AdminPage() {
     }
     let cancelled = false;
     // Only stand down the JPEG pipe once video is genuinely decoding.
-    const wantFrames = !videoDecoding;
+    // Unknown and migrated sessions never start a JPEG pipeline.
+    const wantFrames = currentLiveSession?.media_mode === "legacy" && !videoDecoding && !viewerPaused;
+    if (!wantFrames) setLiveFrame(null);
 
     setRealtimeStatus("connecting");
     lastRealtimePushAtRef.current = 0;
@@ -236,6 +287,7 @@ function AdminPage() {
           filter: `session_id=eq.${liveId}`,
         },
         (payload) => {
+          if (cancelled) return;
           const row = payload.new as never as LiveFrame;
           if (row) {
             setLiveFrame(row);
@@ -257,6 +309,7 @@ function AdminPage() {
       "postgres_changes",
       { event: "*", schema: "public", table: "session_cursors", filter: `session_id=eq.${liveId}` },
       (payload) => {
+        if (cancelled) return;
         const row = payload.new as never as LiveCursor;
         if (row) {
           setLiveCursor(row);
@@ -299,24 +352,43 @@ function AdminPage() {
       supabase.removeChannel(ch);
       clearInterval(poll);
     };
-  }, [liveId, videoDecoding]);
+  }, [liveId, currentLiveSession?.media_mode, videoDecoding, viewerPaused]);
 
   useEffect(() => {
-    if (!liveId) {
+    setAgentMode(null);
+    setViewerPaused(false);
+    setViewerUnsupported(false);
+    if (!activeLiveId) {
       rtcRef.current?.close();
       rtcRef.current = null;
+      setViewerVideo(null);
       setRtcState("idle");
       setFilesReady(false);
       return;
     }
-    const live = startWebRtcLive(liveId);
+    if (typeof RTCPeerConnection !== "function") {
+      setViewerUnsupported(true);
+      setRtcState("failed");
+      return;
+    }
+    viewerStartedAtRef.current = Date.now();
+    const live = startWebRtcLive(activeLiveId, {
+      videoOnly: liveVideoOnly, authorizationId: currentLiveSession?.authorization_id,
+    });
     rtcRef.current = live;
+    setViewerVideo(live.video);
     live.onRecording((active) => {
       if (rtcRef.current === live) setRecording(active);
     });
     setRtcState(live.state());
     live.onState((s) => {
       if (rtcRef.current === live) setRtcState(s);
+    });
+    const offMode = live.onAgentMode(mode => {
+      if (rtcRef.current === live) setAgentMode(mode);
+    });
+    const offCurtain = live.onCurtain(state => {
+      if (rtcRef.current === live) setCurtain(state);
     });
 
     // S21 — inbound transfers must announce themselves even when the Files
@@ -371,18 +443,26 @@ function AdminPage() {
     return () => {
       offFile();
       offClip();
+      offMode();
+      offCurtain();
+      setCurtain({ supported: false, active: null, pending: false, reason: null });
       window.clearInterval(filesTick);
       if (rtcRef.current === live) rtcRef.current = null;
+      setViewerVideo((current) => current === live.video ? null : current);
       setRtcState("idle");
       setFilesReady(false);
       setClipReady(false);
       setRecording(false);
       live.close();
     };
-  }, [liveId]);
+  }, [activeLiveId, liveVideoOnly, currentLiveSession?.authorization_id, viewerAttempt]);
 
   /** S22 — push the technician's local clipboard to the remote machine. */
   async function pushClipboard() {
+    if (!liveAuthorization.grant?.capabilities.clipboard) {
+      toast.error("Clipboard exchange is not authorized for this session.");
+      return;
+    }
     const live = rtcRef.current;
     if (!live?.clipboardReady()) {
       toast.error("Clipboard channel is not connected");
@@ -401,7 +481,7 @@ function AdminPage() {
       toast.info("Local clipboard is empty");
       return;
     }
-    if (live.sendClipboard(text)) toast.success("Clipboard sent to the remote machine");
+    if (live.sendClipboard(text)) toast.info("Clipboard queued on the live channel; remote application is not confirmed.");
     else toast.error("Clipboard send failed");
   }
 
@@ -409,6 +489,10 @@ function AdminPage() {
   async function toggleRecording(sessionId: string) {
     const live = rtcRef.current;
     if (!live) return;
+    if (!live.recording() && !liveAuthorization.grant?.capabilities.recording) {
+      toast.error("Recording is not authorized for this session.");
+      return;
+    }
     if (live.recording()) {
       const result = await live.stopRecording();
       setRecording(false);
@@ -453,7 +537,7 @@ function AdminPage() {
     return () => {
       if (video.parentElement === host) host.removeChild(video);
     };
-  }, [liveId, rtcVideoLive]);
+  }, [liveId, rtcVideoLive, liveSurfaceDeviceId, viewerVideo]);
 
   // Measure decoded video frame rate. requestVideoFrameCallback fires once per
   // presented frame, so this is the true stream cadence — the old HUD only ever
@@ -581,18 +665,30 @@ function AdminPage() {
     return () => document.removeEventListener("pointerlockchange", onChange);
   }, []);
   useEffect(() => {
-    if (!liveId) return;
-    const s = sessions.find((x) => x.id === liveId);
-    if (s?.mode !== "control" && document.pointerLockElement) document.exitPointerLock();
-  }, [liveId, sessions]);
+    if ((!controlReady || viewerPaused) && document.pointerLockElement === liveSurfaceRef.current)
+      document.exitPointerLock();
+  }, [controlReady, viewerPaused]);
 
   async function refresh() {
-    const [d, s, a, releases] = await Promise.all([
+    const [d, s, a, releases, runtime, commands] = await Promise.all([
       supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
       supabase.from("sessions").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("releases").select("product, version, published_at").eq("published", true).eq("channel", "stable").in("product", ["agent", "android"]).order("published_at", { ascending: false }),
+      supabase.from("agent_runtime").select("*"),
+      supabase.from("agent_lifecycle_commands").select("*").order("requested_at", { ascending: false }).limit(100),
     ]);
+    if (runtime.error || commands.error) {
+      setLifecycleError("Recovery status could not be loaded. Check server connectivity and the lifecycle migration; relaunch is disabled.");
+      setRuntimes({});
+      setRelaunches({});
+    } else {
+      setLifecycleError(null);
+      setRuntimes(Object.fromEntries((runtime.data ?? []).map(row => [row.device_id, row])));
+      const latest: Record<string, RelaunchCommand> = {};
+      for (const row of commands.data ?? []) if (!latest[row.device_id]) latest[row.device_id] = row;
+      setRelaunches(latest);
+    }
     if (d.data) setDevices(d.data);
     if (s.data) setSessions(s.data);
     if (a.data) setAudit(a.data);
@@ -642,15 +738,7 @@ function AdminPage() {
   }
 
   const presenceOf = (d: Device): "online" | "reconnecting" | "offline" | "stopped" => {
-    // "stopped" is a hard state set by the watch-app beacon — a user killed
-    // ConnectLive.exe in Task Manager. It stays until the next heartbeat
-    // (via auto-relaunch) flips the row back to online.
-    if (d.status === "stopped") return "stopped";
-    const last = d.last_seen_at ? new Date(d.last_seen_at).getTime() : 0;
-    const age = now - last;
-    if (d.status === "online" && age < STALE_MS) return "online";
-    if (age < OFFLINE_MS) return "reconnecting";
-    return "offline";
+    return devicePresence(d, now, runtimes[d.id]);
   };
 
   // Single funnel for Telegram pushes so delivery problems (muted toggle,
@@ -687,7 +775,7 @@ function AdminPage() {
       if (was !== "stopped" && p === "stopped") {
         void pushNotify(
           "agent_stopped",
-          `🛑 Agent process was terminated on <b>${d.display_name ?? "Device"}</b> (${d.hostname ?? d.device_id}). It will relaunch within ~60s.`,
+          `Agent reported a stopped state on <b>${d.display_name ?? "Device"}</b>. Check authorized startup and local access status; a restart is not guaranteed.`,
         );
       } else if (was !== "offline" && was !== "stopped" && p === "offline") {
         void pushNotify(
@@ -699,9 +787,8 @@ function AdminPage() {
     for (const id of [...prev.keys()]) if (!devices.some((d) => d.id === id)) prev.delete(id);
   }, [devices, now]);
 
-  // Open a session on a specific enrolled device. The agent picks it up
-  // via /heartbeat within ~5s (no PIN, no user prompt) and starts streaming
-  // immediately — the standalone agent has no local consent dialog.
+  // Invite an enrolled device. The Agent checks its standing grant; attended
+  // sessions require local acceptance. Video starts only after activation.
   async function connectDevice(d: Device) {
     const { data: u } = await supabase.auth.getUser();
     // Reuse the newest live session for this device instead of stacking a
@@ -727,20 +814,27 @@ function AdminPage() {
         mode: "view",
         state: "invited",
         device_id: d.id,
+        media_mode: d.platform === "windows" &&
+          (d.metadata as Record<string, unknown> | null)?.browser_video === 1 ? "video" : "legacy",
       })
       .select()
       .single();
     if (error) return alert(error.message);
-    if (data) setLiveId(data.id);
+    if (data) {
+      setSessions(previous => [data, ...previous.filter(session => session.id !== data.id)]);
+      setLiveId(data.id);
+    }
   }
 
   async function endSession(s: Session) {
     await sendInput(s.id, "release_inputs", {});
     await sendInput(s.id, "curtain_off", {});
-    await supabase
+    const { data: ended, error } = await supabase
       .from("sessions")
       .update({ state: "ended", ended_at: new Date().toISOString(), pairing_code: null })
-      .eq("id", s.id);
+      .eq("id", s.id).select("id").maybeSingle();
+    if (error || !ended) { toast.error("The session could not be ended."); return; }
+    setLiveId(current => current === s.id ? null : current);
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
     void pushNotify("session_end", `⏹️ Session ended on <b>${dev?.display_name ?? "device"}</b>`);
   }
@@ -836,83 +930,52 @@ function AdminPage() {
 
   async function toggleControl(s: Session) {
     const nextMode = s.mode === "control" ? "view" : "control";
-    const { error: modeError } = await supabase.from("sessions").update({ mode: nextMode }).eq("id", s.id);
-    if (modeError) {
-      alert(modeError.message);
+    if (nextMode === "control" && !liveAuthorization.grant?.capabilities.control) {
+      toast.error("Keyboard/mouse control is not authorized.");
       return;
     }
-    // Fire the curtain command through the same input relay the agent already polls.
-    // curtain_on doubles as the watchdog heartbeat on the agent — if these stop
-    // arriving for >5s, the agent auto-releases BlockInput.
-    await supabase.from("session_inputs").insert({
-      session_id: s.id,
-      kind: nextMode === "control" ? "curtain_on" : "curtain_off",
-      payload: {} as never,
-    });
+    const { data: changed, error: modeError } = await supabase.from("sessions")
+      .update({ mode: nextMode }).eq("id", s.id).eq("state", "active").select("id").maybeSingle();
+    if (modeError || !changed) {
+      toast.error(modeError?.message ?? "Session is no longer active or access was denied.");
+      return;
+    }
+    // Keyboard/mouse control is not a privacy curtain or a local input lock.
+    if (nextMode === "view") {
+      await sendInput(s.id, "release_inputs", {});
+      await sendInput(s.id, "curtain_off", {});
+    }
+    toast.info("Mode requested; waiting for the Agent to acknowledge it.");
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
     void pushNotify(
       nextMode === "control" ? "control_taken" : "control_released",
       nextMode === "control"
-        ? `🎮 Curtain engaged on <b>${dev?.display_name ?? "device"}</b>`
-        : `👤 Curtain released on <b>${dev?.display_name ?? "device"}</b>`,
+        ? `Keyboard/mouse control requested for <b>${dev?.display_name ?? "device"}</b>; awaiting Agent acknowledgement.`
+        : `View-only mode requested for <b>${dev?.display_name ?? "device"}</b>; awaiting Agent acknowledgement.`,
     );
   }
 
   async function requestReconnect(s: Session) {
-    if (!s.device_id) return;
-    await sendInput(s.id, "curtain_off", {});
-    const { error } = await supabase
-      .from("sessions")
-      .update({ state: "active", mode: "view", updated_at: new Date().toISOString() })
-      .eq("id", s.id);
-    if (error) return alert(error.message);
-    // Explicit wake: the SYSTEM updater picks this up on its next heartbeat
-    // and relaunches the agent even if the user closed it manually.
-    const wakeQueued = await queueWakeAgent(s.device_id, s.id);
-    if (!wakeQueued) return;
-    setLiveId(s.id);
-    const dev = devices.find((d) => d.id === s.device_id);
-    void pushNotify(
-      "session_start",
-      `🔁 Wake sent — waiting for <b>${dev?.display_name ?? "device"}</b> to reconnect to the existing session.`,
-    );
-    void refresh();
-  }
-
-  // Queue a `wake_agent` power command so the SYSTEM updater respawns the
-  // agent in the interactive desktop session. Best-effort: a failure here
-  // never blocks the session flow.
-  async function queueWakeAgent(deviceRowId: string, sessionId?: string) {
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return false;
-    const { error } = await supabase.from("power_commands").insert({
-      device_id: deviceRowId,
-      kind: "wake_agent",
-      payload: (sessionId ? { session_id: sessionId } : {}) as never,
-      state: "queued",
-      requested_by: auth.user.id,
-      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
-    });
-    if (error) {
-      alert(`Reconnect could not be queued: ${error.message}`);
-      return false;
-    }
-    return true;
+    await restartStream(s);
   }
 
   // Enqueue a mouse/keyboard event for the agent to replay via SendInput.
   // Coordinates are normalized (0..1) relative to the rendered surface.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
-    // Continuous mouse streams stay RTC-only to avoid flooding the DB.
-    // The curtain dead-man ping is also RTC-first: at 1s cadence against the
-    // agent's 5s watchdog it has 5x margin on either transport, so there is no
-    // reason to write a DB row every second when the data channel is open.
-    // Discrete "one-shot" events (clicks, keys, text) go BOTH via RTC and DB
-    // so an unhealthy data channel can never silently drop a keystroke.
-    const continuous =
-      kind === "mousemove" || kind === "mousemove_rel" || kind === "wheel" || kind === "curtain_on";
-    const sentRealtime = rtcRef.current?.sendInput({ kind, payload }) ?? false;
-    if (continuous && sentRealtime) return;
+    const live = rtcRef.current;
+    const cleanup = kind === "release_inputs" || kind === "curtain_off";
+    if (!cleanup && (live?.sessionId !== sessionId || !controlReady || viewerPaused || role === "viewer")) return;
+    const target = sessions.find(session => session.id === sessionId);
+    const sentRealtime = live?.sessionId === sessionId && live.sendInput({ kind, payload });
+    if (sentRealtime) return;
+    if (!target || target.media_mode === "video") {
+      if (!["mousemove", "mousemove_rel", "wheel", "release_inputs", "curtain_off"].includes(kind) &&
+          Date.now() - lastInputNoticeRef.current > 2000) {
+        lastInputNoticeRef.current = Date.now();
+        toast.error("Live input is unavailable. No input was queued.");
+      }
+      return;
+    }
     await supabase
       .from("session_inputs")
       .insert({ session_id: sessionId, kind, payload: payload as never });
@@ -1029,33 +1092,22 @@ function AdminPage() {
     setSharedNote((v) => (v + text).slice(-240));
   }
 
-  // Dead-man's switch on the admin side: while we hold a control session open,
-  // ping curtain_on every 1s. If this tab closes, crashes, or the network drops,
-  // the agent's watchdog releases BlockInput within ~5s.
+  // Losing browser focus releases held keys/buttons. It never enables privacy.
   useEffect(() => {
-    if (!liveId) return;
-    const s = sessions.find((x) => x.id === liveId);
-    if (!s || s.mode !== "control" || !s.device_id) return;
-    const ping = () => {
-      void sendInput(s.id, "curtain_on", {});
-    };
-    ping();
-    const t = setInterval(ping, 1000);
+    const live = rtcRef.current;
+    if (!live) return;
+    const release = () => { live.sendInput({ kind: "release_inputs", payload: {} }); };
     const onHide = () => {
-      if (document.visibilityState === "hidden") {
-        void sendInput(s.id, "curtain_off", {});
-      } else {
-        ping();
-      }
+      if (document.visibilityState === "hidden") release();
     };
     document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("blur", release);
     return () => {
-      clearInterval(t);
       document.removeEventListener("visibilitychange", onHide);
-      // Best-effort release when the live view closes or session mode changes.
-      void sendInput(s.id, "curtain_off", {});
+      window.removeEventListener("blur", release);
+      release();
     };
-  }, [liveId, sessions]);
+  }, [activeLiveId, viewerAttempt]);
 
   function toggleSelect(id: string) {
     setSelected((s) => {
@@ -1091,60 +1143,55 @@ function AdminPage() {
   }
 
   async function bulkRestartAgent() {
-    if (selectedDevices.length === 0) return;
-    if (!confirm(`Soft-restart ${selectedDevices.length} agent(s)?`)) return;
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return;
-    const rows = selectedDevices.map((d) => ({
-      device_id: d.id,
-      kind: normalizePlatform(d.platform) === "android" ? "restart_app" : "restart_agent",
-      payload: {} as never,
-      state: "queued",
-      requested_by: auth.user.id,
-      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
-    }));
-    const { error } = await supabase.from("power_commands").insert(rows);
-    if (error) alert(`Restart agent failed: ${error.message}`);
-    setSelected(new Set());
+    if (!selectedDevices.length || relaunching) return;
+    if (lifecycleError) { toast.error(lifecycleError); return; }
+    if (selectedDevices.length > 50 || selectedDevices.some(d => normalizePlatform(d.platform) !== "windows")) {
+      toast.error("Select up to 50 Windows devices for this Agent recovery action."); return;
+    }
+    if (!confirm(`Ask authorized Watch companions to relaunch ${selectedDevices.length} absent Agent(s)? Healthy Agents stay running; local disable is never overridden.`)) return;
+    setRelaunching(true);
+    try {
+      let accepted = 0;
+      const failures: string[] = [];
+      for (let index = 0; index < selectedDevices.length; index += 5) {
+        const batch = await Promise.allSettled(selectedDevices.slice(index, index + 5).map(d =>
+          relaunchAgent({ data: { deviceId: d.id } })));
+        for (const result of batch) {
+          if (result.status === "fulfilled") accepted++;
+          else failures.push(result.reason instanceof Error ? result.reason.message : "Recovery request failed.");
+        }
+      }
+      if (accepted) toast.info(`${accepted} recovery request(s) recorded. Follow the Agent acknowledgements in the device list.`);
+      if (failures.length) toast.error(`${failures.length} request(s) rejected. ${failures[0]}`);
+      await refresh();
+    } finally { setRelaunching(false); }
   }
 
-  // Queue a restart_stream power command for the session's device. The agent
-  // rebuilds its WebRTC peer + capture pipeline without exiting the process.
+  // Reconnect only this viewer. This is not an Agent process relaunch.
   async function restartStream(s: Session) {
-    if (!s.device_id) return;
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return;
-    const { error } = await supabase.from("power_commands").insert({
-      device_id: s.device_id,
-      kind: "restart_stream",
-      payload: {} as never,
-      state: "queued",
-      requested_by: auth.user.id,
-      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
-    });
-    if (error) return alert(`Restart stream failed: ${error.message}`);
+    if (s.state !== "active") { toast.info("Wait for an authorized active session before reconnecting."); return; }
+    setLiveId(s.id);
+    setViewerAttempt(value => value + 1);
   }
 
-  // SCOPE:CAPTURE — browser twin of the native admin picker. Enqueue
-  // switch_monitor, then restart_stream: a display change invalidates every
-  // buffered frame and the encoder's reference chain, so a fresh stream beats
-  // torn pixels at the previous display's resolution.
+  // Current receivers acknowledge direct requests. Older receivers have only
+  // the scoped capture queue; queued must never be presented as applied.
   async function switchMonitor(s: Session, m: MonitorEntry) {
-    if (!s.device_id) return;
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return;
-    const { error } = await supabase.from("power_commands").insert({
-      device_id: s.device_id,
-      kind: "switch_monitor",
-      payload: { device_name: m.device_name, index: m.index } as never,
-      state: "queued",
-      requested_by: auth.user.id,
-      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
-    });
-    if (error) return alert(`Switch display failed: ${error.message}`);
-    setLiveFrame(null);
-    setLiveCursor(null);
-    await restartStream(s);
+    const live = rtcRef.current;
+    if (s.id !== liveId || !live || !liveAuthorization.grant?.capabilities.view) return;
+    setMonitorSwitching(true);
+    try {
+      if (legacyActions) {
+        await requestLegacyMonitor({ data: { sessionId: s.id, deviceName: m.device_name } });
+        toast.info("Legacy display request queued for up to 10 seconds. Application is not confirmed; check the reported display.");
+      } else {
+        await live.selectMonitor(m.device_name);
+        toast.success("Agent confirmed the display selection; waiting for updated video.");
+      }
+      setLiveCursor(null);
+      void refresh();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Display selection failed."); }
+    finally { setMonitorSwitching(false); }
   }
 
 
@@ -1219,8 +1266,11 @@ function AdminPage() {
               <NotificationBell userId={userId} />
               {role !== "viewer" && (
                 <span className="hidden text-xs text-white/50 xl:inline">
-                  Devices auto-enroll — click <b>Connect</b> on any online device.
+                  Pair an authorized device, then choose <b>Connect</b>.
                 </span>
+              )}
+              {role !== "viewer" && (
+                <Button size="sm" onClick={() => setPairingOpen(true)}>Pair device</Button>
               )}
               <button
                 onClick={signOut}
@@ -1336,6 +1386,15 @@ function AdminPage() {
 
             {nav === "devices" && (
               <DevicesTable
+                lifecycleError={lifecycleError}
+                canRelaunch={role === "admin" || role === "super_admin"}
+                relaunching={relaunching}
+                lifecycleStatus={d => {
+                  const command = relaunches[d.id];
+                  const expired = command && ["queued", "received", "starting"].includes(command.state) && Date.parse(command.expires_at) <= now;
+                  return runtimeDescription(deviceRuntime(d, runtimes[d.id]), now) + (command
+                    ? ` · Relaunch: ${expired ? "expired" : command.state.replaceAll("_", " ")}${command.detail_code ? ` (${command.detail_code.replaceAll("_", " ")})` : ""}` : "");
+                }}
                 devices={devices}
                 latestVersions={latestVersions}
                 presenceOf={presenceOf}
@@ -1435,6 +1494,7 @@ function AdminPage() {
       </div>
 
       {/* Live view modal */}
+      <DevicePairingDialog open={pairingOpen} onOpenChange={setPairingOpen} />
       {liveId &&
         (() => {
           const s = sessions.find((x) => x.id === liveId);
@@ -1465,13 +1525,13 @@ function AdminPage() {
                       : frameAge < 8000
                         ? "lag"
                         : "stalled";
-          const streamTone =
+          const legacyStreamTone =
             streamState === "live"
               ? "bg-emerald-400"
               : streamState === "lag" || streamState === "waiting" || streamState === "reconnecting"
                 ? "bg-amber-400"
                 : "bg-rose-500";
-          const streamCopy = {
+          const legacyStreamCopy = {
             live: "Live",
             lag: "Lagging",
             stalled: "Stalled",
@@ -1479,6 +1539,15 @@ function AdminPage() {
             reconnecting: "Device reconnecting",
             paused: "Session paused",
           }[streamState];
+          const videoStatus = videoSessionStatus({
+            sessionState: s.state, supported: !viewerUnsupported, viewerPaused,
+            deviceOnline: presence === "online", rtcState, decoding: videoDecoding,
+            attemptAgeMs: now - viewerStartedAtRef.current,
+          });
+          const streamTone = liveVideoOnly ? videoStatus.tone : legacyStreamTone;
+          const streamCopy = liveVideoOnly ? videoStatus.label :
+            viewerPaused ? "Viewer paused — sharing continues" : legacyStreamCopy;
+          const control = controlReady && role !== "viewer" && !viewerPaused;
           const rtSinceLastPush = lastRealtimePushAtRef.current
             ? now - lastRealtimePushAtRef.current
             : Infinity;
@@ -1512,14 +1581,15 @@ function AdminPage() {
                 : "bg-amber-400";
           // Candidate type turns the LAN-vs-cross-network test into a direct
           // read: host = LAN, srflx = NAT-traversed direct path.
-          const iceKind = rtcRef.current?.candidateType?.() ?? null;
+          const iceKind = rtcState === "connected" ? rtcRef.current?.candidateType?.() ?? null : null;
+          const actionButtonClass = "border-white/15 bg-transparent text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-50";
           // S16 — a deployment with no TURN relay cannot traverse symmetric NAT,
           // so the session sits on JPEG frames forever. Name it in the pill
           // instead of leaving "Frame fallback" looking like an agent problem.
           const relay = rtcRef.current?.relay?.() ?? "pending";
           const noRelay = relay === "none" && !videoDecoding;
           const videoLabel = `WebRTC video${iceKind ? ` · ${iceKind}` : ""}${videoFps ? ` · ${videoFps} fps` : ""}`;
-          const transportLabel = {
+          const legacyTransportLabel = {
             connecting: "Connecting",
             video: videoLabel,
             negotiating: `WebRTC negotiating${iceKind ? ` · ${iceKind}` : ""} · no frames yet`,
@@ -1527,22 +1597,33 @@ function AdminPage() {
             reconnecting: "Reconnecting",
             polling: `Frame fallback (polling)${noRelay ? " · no relay" : ""}`,
           }[transport];
+          const transportLabel = liveVideoOnly
+            ? videoDecoding || viewerPaused
+              ? `WebRTC video${iceKind === "relay" ? " · TURN" : iceKind ? " · direct" : " · path unverified"}`
+              : `${streamCopy} · video only${noRelay ? " · TURN unavailable" : ""}`
+            : legacyTransportLabel;
 
 
+          const displaySource =
+            liveVideoOnly || videoDecoding || viewerPaused
+              ? videoSourceSize
+              : liveFrame?.frame && liveFrame?.width && liveFrame?.height
+                ? { width: liveFrame.width, height: liveFrame.height }
+                : videoSourceSize;
           return (
             <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-2 sm:p-4"
               onClick={() => setLiveId(null)}
             >
               <div
                 ref={viewerPanelRef}
                 className={viewerFullscreen
                   ? "flex h-full w-full flex-col overflow-y-auto overflow-x-hidden bg-[#0F172A]"
-                  : "flex max-h-[calc(100dvh-2rem)] w-full max-w-[min(100%,1040px)] flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl"}
+                  : "flex max-h-[calc(100dvh-1rem)] w-full max-w-[min(100%,1280px)] flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0F172A] shadow-2xl sm:max-h-[calc(100dvh-2rem)]"}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-3">
-                  <div className="flex items-center gap-3">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-3">
                     <span
                       className={`h-2.5 w-2.5 rounded-full ${active ? "bg-[#4F7CFF] animate-pulse" : "bg-amber-400"}`}
                     />
@@ -1551,12 +1632,12 @@ function AdminPage() {
                         {dev?.display_name ?? "Waiting for agent…"}
                       </div>
                       <div className="text-xs text-white/50">
-                        {s.mode === "control" ? "Remote control" : "View only"} · {s.state} ·{" "}
+                        {s.mode === "control" ? (legacyActions ? "Control authorized — legacy receiver unconfirmed" : controlReady ? "Agent control ready" : "Control requested — awaiting Agent") : "View mode"} · {s.state} ·{" "}
                         {streamCopy}
                       </div>
                     </div>
                     <span
-                      title={`WebRTC: ${rtcState}. ICE relay: ${relay === "relay" ? "TURN available" : relay === "none" ? "none — direct paths only, symmetric NAT will fail" : "resolving"}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                      title={`WebRTC: ${rtcState}. TURN: ${relay === "relay" ? "configured (availability only, not proof of use)" : relay === "none" ? "not configured, direct paths only" : "resolving"}. Selected path: ${iceKind ? (iceKind === "relay" ? "relay (TURN in use)" : iceKind) : "not yet selected"}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
                       className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
                     >
                       <span
@@ -1566,9 +1647,51 @@ function AdminPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="button-toggle-rail"
+                      aria-expanded={!railCollapsed}
+                      aria-controls="viewer-action-rail"
+                      onClick={() => setRailCollapsed((v) => !v)}
+                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                    >
+                      {railCollapsed ? "Show actions" : "Hide actions"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const el = viewerPanelRef.current;
+                        if (!el) return;
+                        if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => toast.error("Could not exit fullscreen"));
+                        else if (el.requestFullscreen) void el.requestFullscreen().catch(() => toast.error("Fullscreen unavailable"));
+                        else toast.error("Fullscreen unavailable");
+                      }}
+                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                      title={viewerFullscreen ? "Exit fullscreen (Esc)" : "Show the remote screen fullscreen"}
+                    >
+                      {viewerFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                    </button>
+                    <button
+                      onClick={() => setLiveId(null)}
+                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                    >
+                        Close viewer
+                    </button>
+                  </div>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+                  {!railCollapsed && (
+                    <nav
+                      id="viewer-action-rail"
+                      aria-label="Session actions"
+                      className="flex shrink-0 flex-row flex-wrap gap-1.5 border-b border-white/10 bg-[#0B1220] p-2 md:w-48 md:flex-col md:flex-nowrap md:overflow-y-auto md:border-b-0 md:border-r [&_button]:text-left md:[&>button]:w-full"
+                    >
+                      <div className="hidden px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40 md:block">
+                        Session actions
+                      </div>
                     {s.device_id && role !== "viewer" && (
                       <MonitorPicker
                         device={dev}
+                        disabled={monitorSwitching || (!legacyActions && !agentMode) || !liveAuthorization.grant?.capabilities.view}
                         onSelect={(m) => void switchMonitor(s, m)}
                       />
                     )}
@@ -1579,28 +1702,29 @@ function AdminPage() {
                           setLiveFrame(null);
                           setLiveCursor(null);
                           void restartStream(s);
-                          void requestReconnect(s);
                         }}
                         className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
-                        title="Ask the agent to rebuild its capture + WebRTC pipeline for this session"
+                        disabled={!active}
+                        title="Reconnect this browser's video peer without changing device authorization or waking a stopped Agent"
                       >
-                        Restart stream
+                        Reconnect viewer
                       </button>
                     )}
                     {s.device_id && role !== "viewer" && (
                       <button
                         onClick={() => toggleControl(s)}
+                        disabled={!active || !agentMode || !liveAuthorization.grant?.capabilities.control}
                         className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-red-500/90 hover:bg-red-500 text-white" : "bg-white/10 hover:bg-white/15"}`}
                         title={
                           s.mode === "control"
-                            ? "Release curtain and return control to the user"
-                            : "Block the user's keyboard/mouse and take control"
+                            ? "Existing action: switch this session back to view mode"
+                            : "Existing action: request control mode for this session"
                         }
                       >
-                        {s.mode === "control" ? "🔓 Release curtain" : "🔒 Curtain (take control)"}
+                        {s.mode === "control" ? "Release control mode" : "Request control mode"}
                       </button>
                     )}
-                    {s.device_id && s.mode === "control" && role !== "viewer" && (
+                    {s.device_id && control && (
                       <button
                         onClick={() => {
                           const el = liveSurfaceRef.current;
@@ -1619,59 +1743,147 @@ function AdminPage() {
                             : "Capture pointer — send raw mouse deltas for a native feel"
                         }
                       >
-                        {pointerLocked ? "🎯 Pointer locked" : "🎯 Capture pointer"}
+                        {pointerLocked ? "Pointer locked" : "Capture pointer"}
                       </button>
                     )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className={actionButtonClass}
+                      disabled={!clipReady || !liveAuthorization.grant?.capabilities.clipboard}
+                      title={!liveAuthorization.grant?.capabilities.clipboard ? "Clipboard was not included in this authorization." : "Requires the live clipboard channel."}
+                      onClick={() => void pushClipboard()}
+                    >
+                      Send clipboard
+                    </Button>
+                    <Button type="button" size="sm" variant="outline"
+                      className={actionButtonClass}
+                      disabled={!liveAuthorization.grant?.capabilities.files || role === "viewer"}
+                      title={!liveAuthorization.grant?.capabilities.files ? "File exchange was not included in this authorization." : "Open session files"}
+                      onClick={() => setFilesOpen(value => !value)}>
+                      {filesOpen ? "Hide files" : "Files"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={recording ? "destructive" : "outline"}
+                      className={recording ? undefined : actionButtonClass}
+                      disabled={!recording && (!videoDecoding || !liveAuthorization.grant?.capabilities.recording)}
+                      onClick={() => void toggleRecording(s.id)}
+                    >
+                      {recording ? "Stop recording" : "Record session"}
+                    </Button>
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      className={actionButtonClass}
+                      disabled={!viewerPaused && !videoDecoding}
+                      title="Pauses playback here only. End sharing to stop the remote session."
+                      onClick={() => {
+                        if (!viewerVideo) return;
+                        if (!viewerPaused) { viewerVideo.pause(); setViewerPaused(true); }
+                        else void viewerVideo.play().then(() => setViewerPaused(false))
+                          .catch(() => toast.error("Playback could not resume. Reconnect the viewer."));
+                      }}
+                    >
+                      {viewerPaused ? "Resume viewer" : "Pause viewer"}
+                    </Button>
+                    <Button type="button" size="sm" variant={curtain.active ? "destructive" : "outline"}
+                      className={curtain.active ? undefined : actionButtonClass}
+                      disabled={!curtain.supported || curtain.pending || (curtain.active === false && !controlReady)}
+                      aria-pressed={curtain.active === true}
+                      title="Shows a local maintenance notice and pauses ordinary local input. Ctrl+Alt+Shift+Esc on the device stops remote access."
+                      onClick={async () => {
+                        try { await rtcRef.current?.setCurtain(curtain.active === false); }
+                        catch (error) { toast.error(error instanceof Error ? error.message : "Curtain request failed."); }
+                      }}>
+                      {curtain.pending ? "Waiting for Agent…" : curtain.active === null ? "Clear unconfirmed curtain" :
+                        curtain.active ? "Turn curtain off" : "Privacy curtain"}
+                    </Button>
+                    <p aria-live="polite" className="max-w-xs px-1 py-1 text-[10px] leading-relaxed text-white/50">
+                      {!curtain.supported ? "This Agent has not advertised browser curtain support." :
+                        curtain.active === true ? "Agent confirmed local curtain. The notice is on the remote device, not this viewer." :
+                        curtain.reason ? `Curtain: ${curtain.reason.replaceAll("_", " ")}. No automatic reactivation.` : "Curtain is off until explicitly enabled."}
+                      {" "}Windows secure-desktop access is not enabled.
+                    </p>
+                    {liveAuthorization.error && <p role="alert" className="px-1 text-xs text-amber-200">{liveAuthorization.error}</p>}
+                    <details className="max-w-xs rounded border border-white/10 px-3 py-1.5 text-xs">
+                      <summary className="cursor-pointer">Device details</summary>
+                      <dl className="mt-2 space-y-1 break-words text-white/60">
+                        <dt>Hostname</dt><dd className="text-white">{dev?.hostname ?? "Not reported"}</dd>
+                        <dt>Operating system</dt><dd className="text-white">{dev?.os ?? "Not reported"}</dd>
+                        <dt>Last check-in</dt><dd className="text-white">{dev?.last_seen_at ? new Date(dev.last_seen_at).toLocaleString() : "Never"}</dd>
+                      </dl>
+                    </details>
                     {role !== "viewer" && (
                       <button
-                        onClick={() => {
-                          endSession(s);
-                          setLiveId(null);
-                        }}
+                        onClick={() => void endSession(s)}
                         className="rounded bg-red-500/80 px-3 py-1.5 text-xs"
                       >
-                        End
+                        End sharing
                       </button>
                     )}
-                    <button
-                      onClick={() => {
-                        const el = viewerPanelRef.current;
-                        if (!el) return;
-                        if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => toast.error("Could not exit fullscreen"));
-                        else if (el.requestFullscreen) void el.requestFullscreen().catch(() => toast.error("Fullscreen unavailable"));
-                        else toast.error("Fullscreen unavailable");
-                      }}
-                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
-                      title={viewerFullscreen ? "Exit fullscreen (Esc)" : "Show the remote screen fullscreen"}
+                    {s.device_id && role !== "viewer" && (
+                      <button
+                        disabled={revokingAccess}
+                        onClick={async () => {
+                          if (!s.device_id || !confirm("Revoke this device's remote-access authorization and end its sessions? Local reauthorization will be required.")) return;
+                          setRevokingAccess(true);
+                          try {
+                            await revokeAccess({ data: { deviceId: s.device_id } });
+                            toast.success("Remote-access authorization revoked");
+                              setLiveId(current => current === s.id ? null : current);
+                          } catch (error) {
+                            toast.error(error instanceof Error ? error.message : "Could not revoke access");
+                          } finally { setRevokingAccess(false); }
+                        }}
+                        className="rounded border border-red-400/30 px-3 py-1.5 text-xs text-red-200 hover:bg-red-500/10 disabled:opacity-50"
+                      >
+                        {revokingAccess ? "Revoking access…" : "Revoke device access"}
+                      </button>
+                    )}
+                    </nav>
+                  )}
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <RemoteDisplayFrame
+                      source={displaySource}
+                      mode={viewerScaleMode}
+                      onModeChange={setViewerScaleMode}
+                      fullscreen={viewerFullscreen}
+                      sourceLabel={videoDecoding || !liveFrame?.frame ? "Video" : "Fallback frame"}
+                      awaiting={
+                        !s.device_id ? (
+                          <span className="text-sm text-white/60">Session has no device attached.</span>
+                         ) : !videoDecoding && !viewerPaused && !liveFrame?.frame ? (
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 text-center">
+                      <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
+                        {streamCopy}
+                      </div>
+                      <div className="text-sm text-white/60">
+                        {presence && presence !== "online"
+                          ? "The device heartbeat is stale; awaiting a fresh check-in."
+                          : active
+                             ? liveVideoOnly
+                               ? "Waiting for decoded video. Check the Agent encoder and direct/TURN connectivity; this session never falls back to JPEG."
+                               : "Waiting for decoded video or a fresh legacy fallback frame."
+                             : "Wait for Agent acceptance, or start a new authorized session."}
+                      </div>
+                    </div>
+                        ) : undefined
+                      }
                     >
-                      {viewerFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                    </button>
-                    <button
-                      onClick={() => setLiveId(null)}
-                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-                <div className={viewerFullscreen ? "flex min-h-0 flex-1 items-center justify-center bg-black" : "flex justify-center bg-black/40 px-3 py-4 sm:px-6"}>
-                <div
-                  className="relative aspect-video w-full max-w-full overflow-hidden bg-black"
-                  style={viewerFullscreen
-                    ? { maxWidth: "min(100%, calc((100dvh - 4rem) * 16 / 9))" }
-                    : { maxWidth: "min(100%, 960px, calc(55vh * 16 / 9))" }}
-                >
                   {!s.device_id ? (
                     <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
                       Session has no device attached.
                     </div>
-                  ) : videoDecoding || liveFrame?.frame ? (
+                  ) : (
                     <div
                       ref={liveSurfaceRef}
-                      tabIndex={s.mode === "control" ? 0 : -1}
-                      className={`absolute inset-0 outline-none ${s.mode === "control" ? "cursor-crosshair" : ""}`}
+                      tabIndex={control ? 0 : -1}
+                      className={`absolute inset-0 outline-none ${control ? "cursor-crosshair" : ""}`}
                       onMouseMove={
-                        s.mode === "control"
+                        control
                           ? (e) => {
                               if (pointerLocked && document.pointerLockElement === e.currentTarget) {
                                 queueRelMove(s.id, e.movementX, e.movementY);
@@ -1689,7 +1901,7 @@ function AdminPage() {
                           : undefined
                       }
                       onMouseDown={
-                        s.mode === "control"
+                        control
                           ? (e) => {
                               e.preventDefault();
                               focusLiveSurface();
@@ -1709,7 +1921,7 @@ function AdminPage() {
                           : undefined
                       }
                       onMouseUp={
-                        s.mode === "control"
+                        control
                           ? (e) => {
                               e.preventDefault();
                               mouseButtonDownRef.current = false;
@@ -1719,15 +1931,15 @@ function AdminPage() {
                           : undefined
                       }
                       onMouseLeave={
-                        s.mode === "control"
+                        control
                           ? () => {
                               mouseButtonDownRef.current = false;
                             }
                           : undefined
                       }
-                      onContextMenu={s.mode === "control" ? (e) => e.preventDefault() : undefined}
+                      onContextMenu={control ? (e) => e.preventDefault() : undefined}
                       onWheel={
-                        s.mode === "control"
+                        control
                           ? (e) => {
                               e.preventDefault();
                               void sendInput(s.id, "wheel", { dy: e.deltaY });
@@ -1735,21 +1947,21 @@ function AdminPage() {
                           : undefined
                       }
                       onKeyDown={
-                        s.mode === "control" ? (e) => sendKeyboardDown(s.id, e) : undefined
+                        control ? (e) => sendKeyboardDown(s.id, e) : undefined
                       }
-                      onKeyUp={s.mode === "control" ? (e) => sendKeyboardUp(s.id, e) : undefined}
+                      onKeyUp={control ? (e) => sendKeyboardUp(s.id, e) : undefined}
                     >
                       {/* Primary layer: the WebRTC video track (hardware-decoded,
                         real frame rate). The element itself is created and owned
                         by startWebRtcLive(); we only host it here. */}
                       <div
                         ref={videoHostRef}
-                        className={`pointer-events-none absolute inset-0 ${videoDecoding ? "" : "hidden"}`}
+                        className={`pointer-events-none absolute inset-0 ${videoDecoding || viewerPaused ? "" : "opacity-0"}`}
                       />
                       {/* Fallback layer: base64 JPEG slideshow from session_frames.
                         Same object-contain letterboxing so coordinate mapping is
                         identical apart from the source dimensions. */}
-                      {!videoDecoding && liveFrame?.frame && (
+                      {!liveVideoOnly && !viewerPaused && !videoDecoding && liveFrame?.frame && (
                         <img
                           src={`data:image/jpeg;base64,${liveFrame.frame}`}
                           alt="Live screen"
@@ -1759,20 +1971,6 @@ function AdminPage() {
                         />
                       )}
                     </div>
-                  ) : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
-                      <div className="flex items-center gap-2 rounded-full border border-[#4F7CFF]/30 bg-[#4F7CFF]/10 px-3 py-1 text-xs text-[#B9CCFF]">
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#4F7CFF] animate-pulse" />
-                        {streamCopy}
-                      </div>
-                      <div className="text-sm text-white/60">
-                        {presence && presence !== "online"
-                          ? "The device heartbeat is reconnecting; the stream will resume when the agent checks in."
-                          : active
-                            ? "The agent is active; waiting for its screen uploader to send a fresh frame."
-                            : "Open or restart the session to resume streaming."}
-                      </div>
-                    </div>
                   )}
                   {s.device_id &&
                     (videoDecoding || liveFrame?.frame) &&
@@ -1780,7 +1978,8 @@ function AdminPage() {
                     liveCursor.visible && (
                       <RemoteCursorOverlay cursor={liveCursor} frame={liveFrame} />
                     )}
-                  <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-white/70">
+                    </RemoteDisplayFrame>
+                  <div data-testid="status-viewer" className="flex flex-wrap items-center gap-2 border-t border-white/10 px-3 py-1.5 font-mono text-[10px] text-white/70">
                     {(() => {
                       // Stream health: green <2s, amber <8s, red otherwise. Gives the
                       // admin an at-a-glance signal that the frame pipe is healthy
@@ -1788,7 +1987,7 @@ function AdminPage() {
                       return (
                         <span className="flex items-center gap-1">
                           <span className={`inline-block h-1.5 w-1.5 rounded-full ${streamTone}`} />
-                          <span>{streamState}</span>
+                          <span>{liveVideoOnly ? videoStatus.key : streamState}</span>
                         </span>
                       );
                     })()}
@@ -1800,7 +1999,7 @@ function AdminPage() {
                       ·{" "}
                       {videoDecoding
                         ? `${videoFps} fps video`
-                        : `${fpsCounterRef.current.fps} fps frames`}
+                        : liveVideoOnly ? (viewerPaused ? "viewer paused" : "no decoded video") : `${fpsCounterRef.current.fps} fps frames`}
                     </span>
                     {!videoDecoding && liveFrame?.updated_at && (
                       <span>· {new Date(liveFrame.updated_at).toLocaleTimeString()}</span>
@@ -1814,7 +2013,7 @@ function AdminPage() {
                           filesReady ? "bg-emerald-400" : "bg-white/30"
                         }`}
                       />
-                      <span>{filesReady ? "files direct" : "files via archive"}</span>
+                       <span>{filesReady ? "files: data channel" : "files: archive"}</span>
                     </span>
                     {/* S22 — clipboard channel state. */}
                     <span className="flex items-center gap-1">
@@ -1824,7 +2023,7 @@ function AdminPage() {
                           clipReady ? "bg-emerald-400" : "bg-white/30"
                         }`}
                       />
-                      <span>{clipReady ? "clipboard synced" : "clipboard offline"}</span>
+                       <span>{clipReady ? "clipboard channel ready" : "clipboard offline"}</span>
                     </span>
                     {recording && (
                       <span className="flex items-center gap-1 text-red-300">
@@ -1834,12 +2033,12 @@ function AdminPage() {
                       </span>
                     )}
                   </div>
-
-
-
-
-
-                  {s.mode === "control" && s.device_id && (
+                    {control && s.device_id && (
+                      <details className="border-t border-white/10">
+                        <summary className="cursor-pointer px-3 py-2 text-xs text-white/70">
+                          Keyboard and trackpad
+                        </summary>
+                      <div className="relative min-h-[400px] overflow-hidden">
                     <>
                       <VirtualTrackpad
                         onMove={(dx, dy) => void sendInput(s.id, "mousemove_rel", { dx, dy })}
@@ -1879,29 +2078,12 @@ function AdminPage() {
                         }}
                       />
                     </>
-                  )}
-                </div>
-                </div>
-                <div className="flex flex-wrap justify-center gap-2 border-t border-white/10 px-5 py-3">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={!clipReady}
-                      onClick={() => void pushClipboard()}
-                    >
-                      Send clipboard
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={recording ? "destructive" : "outline"}
-                      onClick={() => void toggleRecording(s.id)}
-                    >
-                      {recording ? "Stop recording" : "Record session"}
-                    </Button>
+                      </div>
+                      </details>
+                    )}
                   </div>
-                {s.device_id && role !== "viewer" && s.mode === "control" && (
+                </div>
+                {s.device_id && control && (
                   <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
                     <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
                       Typing tunnel to remote PC
@@ -1939,10 +2121,11 @@ function AdminPage() {
                     </div>
                   </div>
                 )}
-                {s.device_id && role !== "viewer" && (
-                  <SessionFilesPanel sessionId={s.id} getRtc={() => rtcRef.current} />
+                {s.device_id && role !== "viewer" && liveAuthorization.grant?.capabilities.files && (
+                  <div hidden={!filesOpen}>
+                    <SessionFilesPanel sessionId={s.id} getRtc={() => rtcRef.current?.sessionId === s.id ? rtcRef.current : null} />
+                  </div>
                 )}
-
               </div>
             </div>
           );

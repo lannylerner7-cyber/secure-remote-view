@@ -2,17 +2,12 @@
 <!--
   ConnectLive Agent - per-machine WiX v4 installer (standalone, agent-only).
 
-  There is no helper service. Startup persistence is delivered by the Agent
-  itself (HKCU Run key + Startup shortcut, self-healed on every launch) plus
-  four autostart triggers created at install time:
-
-    1. HKLM\Software\Microsoft\Windows\CurrentVersion\Run
-    2. All-users Startup folder shortcut
-    3. Per-machine ONLOGON Scheduled Task (with /IT interactive-only)
-    4. Install metadata under HKLM\Software\ConnectLive
+  There is no helper service and no installer-created autorun. The interactive
+  user authorizes startup/recovery inside the Agent. Program Files updates are
+  administrator-managed; the runtime updater does not elevate or loosen ACLs.
 
   build.ps1 injects the version:
-    wix build ConnectLive.wxs -d Version=1.9.3 ...
+    Build through agent/build.ps1 -Version 1.10.1.
 
   Silent install / upgrade:
     msiexec /i ConnectLiveAgent.msi /qn
@@ -22,12 +17,12 @@
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
 
   <?ifndef Version ?>
-  <?define Version = "1.9.2" ?>
+  <?error Supply Version through agent/build.ps1 ?>
   <?endif ?>
 
   <Package Name="ConnectLive Agent"
            Manufacturer="ConnectLive"
-           Version="$(Version)"
+           Version="$(var.Version)"
            UpgradeCode="7f2e6b9c-9a35-4a1b-8f2d-91b0a8f8c7d1"
            Scope="perMachine"
            InstallerVersion="500">
@@ -55,9 +50,8 @@
       <Directory Id="PROGRAMDATA_CONNECTLIVE" Name="ConnectLive" />
     </StandardDirectory>
 
-    <!-- All-users Startup folder — the shortcut is removed with its component. -->
-    <StandardDirectory Id="StartupFolder">
-      <Directory Id="STARTUP_CONNECTLIVE" Name="." />
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="PROGRAMMENU_CONNECTLIVE" Name="ConnectLive" />
     </StandardDirectory>
 
     <ComponentGroup Id="ConnectLiveComponents">
@@ -73,18 +67,18 @@
                               Outbound="yes" IgnoreFailure="yes" />
       </Component>
 
+      <Component Id="WatchExe" Directory="INSTALLDIR" Guid="847d7424-dc04-49f6-9c64-bf9ce72f714b">
+        <File Id="WatchExeFile" Source="..\..\dist\ConnectLiveWatch.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="UpdateWorkerExe" Directory="INSTALLDIR" Guid="2911a2cd-df77-4d69-90ad-309e8fabfe5c">
+        <File Id="UpdateWorkerExeFile" Source="..\..\dist\ConnectLiveUpdate.exe" KeyPath="yes" />
+      </Component>
+
       <Component Id="ProgramDataDir"
                  Directory="PROGRAMDATA_CONNECTLIVE"
                  Guid="e9a6f3c4-ad5b-4e1a-bf2d-3c4d5e6f7081">
-        <CreateFolder>
-          <util:PermissionEx User="SYSTEM"         GenericAll="yes" />
-          <util:PermissionEx User="Administrators" GenericAll="yes" />
-          <util:PermissionEx User="AuthenticatedUsers"
-                             GenericRead="yes"
-                             GenericWrite="yes"
-                             Delete="yes" />
-        </CreateFolder>
-        <!-- Install metadata + machine-wide Run key. All removed on uninstall. -->
+        <CreateFolder />
+        <!-- Install metadata only. No installer-created autorun or service. -->
         <RegistryValue Root="HKLM"
                        Key="Software\ConnectLive"
                        Name="Installed" Type="integer" Value="1" />
@@ -93,52 +87,66 @@
                        Name="InstallPath" Type="string" Value="[INSTALLDIR]" />
         <RegistryValue Root="HKLM"
                        Key="Software\ConnectLive"
-                       Name="Version" Type="string" Value="$(Version)" />
-        <RegistryValue Root="HKLM"
-                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
-                       Name="ConnectLive" Type="string"
-                       Value="&quot;[INSTALLDIR]ConnectLive.exe&quot; /background" />
+                       Name="Version" Type="string" Value="$(var.Version)" />
+        <RegistryValue Root="HKLM" Key="Software\ConnectLive"
+                       Name="UninstallRequested" Type="string" Value="none" />
+        <RemoveRegistryValue Id="RemoveLegacyMachineAutorun" Root="HKLM"
+                             Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                             Name="ConnectLive" />
         <RemoveFolder Id="RemoveProgramDataDir" On="uninstall" />
       </Component>
 
-      <Component Id="StartupShortcut"
-                 Directory="STARTUP_CONNECTLIVE"
-                 Guid="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
-        <Shortcut Id="ConnectLiveStartupShortcut"
+      <Component Id="StartMenuShortcut"
+                 Directory="PROGRAMMENU_CONNECTLIVE"
+                 Guid="f0e4269b-7999-4f03-b2c6-067827bb8d0f">
+        <Shortcut Id="ConnectLiveStartMenuShortcut"
                   Name="ConnectLive"
                   Target="[INSTALLDIR]ConnectLive.exe"
-                  Arguments="/background"
-                  Description="ConnectLive background agent" />
+                  Description="ConnectLive pairing, status and remote-access settings" />
         <RegistryValue Root="HKLM"
                        Key="Software\ConnectLive"
-                       Name="StartupShortcut"
+                       Name="StartMenuShortcut"
                        Type="integer" Value="1"
                        KeyPath="yes" />
-        <RemoveFolder Id="RemoveStartupDir" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramMenuDir" On="uninstall" />
       </Component>
 
     </ComponentGroup>
 
     <!--
-      Register + tear down the ONLOGON Scheduled Task via schtasks.exe.
-      /IT = interactive logons only (the agent needs a desktop for capture
-      and consent). /RL LIMITED + /DELAY 0000:10 keep the least-privilege,
-      network-ready semantics from the Inno installer.
+      Remove only legacy machine task names. Current per-user startup is
+      enrolled inside the Agent; MSI never invents that authorization.
     -->
-    <CustomAction Id="RegisterLogonTask"
-                  Directory="INSTALLDIR"
-                  ExeCommand="schtasks.exe /Create /F /SC ONLOGON /TN &quot;ConnectLiveAgent&quot; /TR &quot;\&quot;[INSTALLDIR]ConnectLive.exe\&quot; /background&quot; /RL LIMITED /DELAY 0000:10 /IT"
-                  Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="RemoveLogonTask"
                   Directory="INSTALLDIR"
-                  ExeCommand="schtasks.exe /Delete /F /TN &quot;ConnectLiveAgent&quot;"
+                  ExeCommand="&quot;[System64Folder]schtasks.exe&quot; /Delete /F /TN &quot;ConnectLiveAgent&quot;"
                   Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveLegacyWatchTask" Directory="INSTALLDIR"
+                  ExeCommand="&quot;[System64Folder]schtasks.exe&quot; /Delete /F /TN &quot;ConnectLiveWatch&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- Explicit removal pauses all opted-in per-user companions before file
+         removal. Upgrades do NOT revoke enrollment. Rollback clears the
+         machine marker, but never restores a user's withdrawn authorization. -->
+    <CustomAction Id="RollbackRemovalMarker" Directory="INSTALLDIR"
+                  ExeCommand="&quot;[System64Folder]reg.exe&quot; ADD &quot;HKLM\Software\ConnectLive&quot; /v UninstallRequested /t REG_SZ /d none /f /reg:64"
+                  Execute="rollback" Impersonate="no" Return="check" />
+    <CustomAction Id="MarkRemoval" Directory="INSTALLDIR"
+                  ExeCommand="&quot;[System64Folder]reg.exe&quot; ADD &quot;HKLM\Software\ConnectLive&quot; /v UninstallRequested /t REG_SZ /d &quot;[INSTALLDIR].&quot; /f /reg:64"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="WithdrawCurrentUser" FileRef="AgentExeFile" ExeCommand="/uninstall"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="RegisterLogonTask" After="InstallFiles"
-              Condition="NOT Installed" />
       <Custom Action="RemoveLogonTask"  Before="RemoveFiles"
-              Condition="REMOVE=&quot;ALL&quot;" />
+              Condition="NOT Installed OR REMOVE=&quot;ALL&quot;" />
+      <Custom Action="RemoveLegacyWatchTask" Before="RemoveLogonTask"
+              Condition="NOT Installed OR REMOVE=&quot;ALL&quot;" />
+      <Custom Action="WithdrawCurrentUser" Before="RemoveLegacyWatchTask"
+              Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="MarkRemoval" Before="WithdrawCurrentUser"
+              Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RollbackRemovalMarker" Before="MarkRemoval"
+              Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
 
   </Package>

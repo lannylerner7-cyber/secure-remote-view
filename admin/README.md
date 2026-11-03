@@ -2,7 +2,20 @@
 
 ## Configure before running source
 
-Edit `src/admin.config.json` before running `dotnet run` from `admin/src`.
+From the extracted archive, open PowerShell in `admin` and run:
+
+```powershell
+.\configure.ps1
+cd src
+dotnet run
+```
+
+The setup helper asks locally for your Supabase **public publishable key**
+(`sb_publishable_...`) and saves it into the source configuration. It does not
+fetch secrets from Replit or copy any server credentials. Use the key belonging
+to the Supabase project shown below. Do not use `--no-build` after setup.
+
+Alternatively, edit `src/admin.config.json` before running `dotnet run` from `admin/src`.
 The command is `dotnet run`, not `dotnet rub`.
 
 - `baseUrl`: `https://connectliveagent.com`
@@ -14,6 +27,9 @@ An empty key is deliberately not usable; source downloads do not contain keys.
 Startup errors identify the exact loaded configuration file. The file beside the
 built application takes precedence over `%AppData%\ConnectLiveAdmin\admin.config.json`.
 Rebuild after editing the source configuration so it is copied to the output.
+Do not edit only `bin/Debug/.../admin.config.json`: a later build can overwrite it.
+Successful setup is not a connection test; sign-in still requires a reachable
+deployment and a valid technician account.
 
 The live viewer starts as a centered, resizable window rather than maximized.
 Its viewing surface is capped at 960×540 display-independent pixels and shrinks

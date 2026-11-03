@@ -35,7 +35,7 @@ namespace ConnectLive.Agent;
 /// Transport is HTTPS-only; the old realtime WebSocket path was removed
 /// (heartbeat + long-poll already deliver invites and signaling).
 /// </summary>
-public sealed class ApiClient
+public sealed partial class ApiClient
 {
     // Override at build time or via first-run --api-url flag.
     public const string DefaultApiBaseUrl = "https://connectliveagent.com";
@@ -52,11 +52,10 @@ public sealed class ApiClient
     private static readonly string SessionPath = Path.Combine(ConfigDir, "session.dat");
     private static readonly string LicensePath = Path.Combine(ConfigDir, "license.dat");
 
-    /// <summary>Delegate that yields a Meeting ID for enrollment. The App
-    /// wires this to <see cref="MeetingIdPrompt"/> on foreground launches and
-    /// leaves it null on headless (/BACKGROUND, /WAKE) launches — those must
-    /// never surface UI, so they defer enrollment until a foreground run.</summary>
-    public Func<string?, string?>? MeetingIdProvider { get; set; }
+    /// <summary>Available only during explicit foreground enrollment.
+    /// Background starts and later authentication failures never open a prompt
+    /// or silently create a replacement device.</summary>
+    internal Func<CancellationToken, Task<bool>>? PairingProvider { get; set; }
 
     /// <summary>Last license verdict returned by enroll/heartbeat. Consumed by
     /// the splash and dormancy logic; null until the first successful call.</summary>
@@ -70,6 +69,7 @@ public sealed class ApiClient
     internal LocalGrant? LocalAuthorization { get; set; }
     internal PeerInputPermission? LivePermission { get; set; }
     internal string? LiveSessionId { get; set; }
+    internal bool LiveVideoOnly { get; set; }
     internal event Action? LiveAuthorityRejected;
     internal bool Allows(string sessionId, string scope, CancellationToken ct) =>
         !ct.IsCancellationRequested && LiveSessionId == sessionId && LivePermission?.Allows(scope) == true;
@@ -195,65 +195,10 @@ public sealed class ApiClient
     public async Task EnrollIfNeededAsync(CancellationToken ct)
     {
         if (!string.IsNullOrEmpty(DeviceToken)) return;
-
-        // Reuse a Meeting ID from a prior install if present, else ask the
-        // user via MeetingIdProvider. Headless launches (no provider) enroll
-        // without one — the server will accept but mark the device blocked
-        // until a foreground run supplies an ID. This preserves the "install
-        // silently, activate later" flow ops teams rely on.
-        string? meetingId = LoadMeetingId();
-        string? lastError = null;
-
-        while (true)
-        {
-            if (string.IsNullOrEmpty(meetingId) && MeetingIdProvider is not null)
-            {
-                meetingId = MeetingIdProvider(lastError);
-                if (string.IsNullOrWhiteSpace(meetingId))
-                    throw new OperationCanceledException("Meeting ID required.");
-            }
-
-            var payload = new
-            {
-                hostname = Environment.MachineName,
-                os = Environment.OSVersion.VersionString,
-                displayName = Environment.MachineName,
-                agentVersion = typeof(ApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0",
-                meetingId = meetingId,
-            };
-            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/enroll")
-            {
-                Content = JsonContent.Create(payload),
-            };
-            using var resp = await _http.SendAsync(req, ct);
-
-            // A wrong Meeting ID is the one recoverable failure — loop back to
-            // the prompt with a clear message instead of aborting startup.
-            if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            {
-                var errJson = await resp.Content.ReadAsStringAsync(ct);
-                if (errJson.Contains("invalid_meeting_id", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (MeetingIdProvider is null)
-                        throw new InvalidOperationException("Invalid Meeting ID (headless enroll).");
-                    lastError = "That Meeting ID was not recognized. Check the email your license was issued from.";
-                    meetingId = null;
-                    continue;
-                }
-            }
-
-            resp.EnsureSuccessStatusCode();
-            var body = await resp.Content.ReadFromJsonAsync<EnrollResponse>(cancellationToken: ct)
-                       ?? throw new InvalidOperationException("Empty enrollment response");
-
-            DeviceId = body.DeviceId;
-            DeviceToken = body.DeviceToken;
-            SaveDeviceCreds(new EnrollResponse(body.DeviceId, body.DeviceToken));
-            if (!string.IsNullOrEmpty(meetingId)) SaveMeetingId(meetingId!);
-            if (body.License is { } lic) UpdateLicense(lic);
-            Interlocked.Increment(ref _tokenGeneration);
-            return;
-        }
+        if (PairingProvider == null)
+            throw new InvalidOperationException("Pairing required — open ConnectLive in the foreground. Background enrollment is disabled.");
+        if (!await PairingProvider(ct) || string.IsNullOrEmpty(DeviceToken) || LocalAuthorization == null)
+            throw new OperationCanceledException("Pairing was not completed.");
     }
 
 
@@ -331,8 +276,11 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
     }
 
+    private long _runtimeSequence;
+    internal int HeartbeatSeconds { get; set; } = 10;
     public async Task<string> HeartbeatAsync(CancellationToken ct)
     {
+        if (LocalAuthorization is { } local) AgentProcessState.Announce(local.Authorization.Id);
         // Best-effort LAN fingerprint so admins can pick a peer for WoL.
         var (subnet, mac, ipv4) = PowerRelay.LocalLanFingerprint();
 
@@ -387,6 +335,13 @@ public sealed class ApiClient
             // and a staged rollout has something to target. Merged into
             // devices.metadata.agent_version by the heartbeat route.
             version = AgentVersion,
+            browserVideo = 1,
+            browserCurtain = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) ? 1 : 0,
+            runtime = new {
+                instance = AgentProcessState.Instance,
+                sequence = System.Threading.Interlocked.Increment(ref _runtimeSequence),
+                heartbeat_seconds = Math.Clamp(HeartbeatSeconds, 5, 60),
+            },
             encoder = new
             {
                 // Wire codec actually in use. Derived from CodecPolicy rather

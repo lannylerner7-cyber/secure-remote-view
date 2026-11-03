@@ -5,7 +5,10 @@ const read = file => fs.readFileSync(root + file, "utf8");
 const capture = read("agent/src/ScreenCapture.cs");
 assert.ok(capture.includes("LatestWorkPump<"));
 assert.ok(capture.includes("permission.Token"));
-assert.ok(capture.includes("uploads.Offer("));
+assert.ok(capture.includes("uploads!.Offer("));
+assert.ok(capture.includes("videoOnly ? null : new LatestWorkPump<"),
+  "Video-only sessions must not create an HTTP/JPEG upload worker");
+assert.ok(capture.includes("if (!videoOnly)"), "JPEG encoding remains gated to legacy sessions");
 assert.ok(!capture.slice(capture.indexOf('while (!ct.IsCancellationRequested')).includes("await api.PostFrameAsync"),
   "Capture loop must not await HTTP fallback");
 const dxgi = read("agent/src/DxgiCapture.cs");

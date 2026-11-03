@@ -14,27 +14,56 @@ public partial class App : Application
     private ApiClient? _api;
     private bool _authorizing;
     private bool _stopping;
+    private System.Windows.Threading.DispatcherTimer? _withdrawalTimer;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        InputBlocker.LocalStopRequested += () => Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
 
-        // Check before enrollment, network, session restore or recovery.
-        // Background/watchdog launches must not undo local withdrawal.
-        if (LocalAccessState.IsDisabled() && Array.Exists(e.Args, a =>
+        // An explicit local stop also works during an update handoff when no
+        // Agent owns the tray yet. It never clears the withdrawal marker.
+        var uninstalling = Array.Exists(e.Args, a => a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase));
+        if (uninstalling || Array.Exists(e.Args, a => a.Equals("/disable", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { LocalAccessState.Disable(); StartupConsent.Clear(); StartupSelfHeal.RemoveAll(); }
+            catch { MessageBox.Show("Could not persist withdrawal. Uninstall ConnectLive or contact your IT administrator.", "ConnectLive"); }
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try { await CompanionAuthorization.ReportWithdrawalAsync(uninstalling, deadline.Token); }
+            catch { Log.Warn("local withdrawal saved; lifecycle report unavailable"); }
+            Shutdown();
+            return;
+        }
+        var backgroundLaunch = Array.Exists(e.Args, a =>
             a.Equals("/BACKGROUND", StringComparison.OrdinalIgnoreCase) ||
             a.Equals("--background", StringComparison.OrdinalIgnoreCase) ||
             a.Equals("/WAKE", StringComparison.OrdinalIgnoreCase) ||
             a.Equals("--wake", StringComparison.OrdinalIgnoreCase) ||
             a.Equals("/MINIMIZED", StringComparison.OrdinalIgnoreCase) ||
-            a.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))
+            a.Equals("--minimized", StringComparison.OrdinalIgnoreCase));
+        // Check before enrollment, network, session restore or recovery.
+        // Background/watchdog launches must not undo local withdrawal.
+        if (backgroundLaunch && !StartupConsent.IsAllowed())
         {
             Shutdown();
             return;
         }
 
-        _singleInstance = new Mutex(true, @"Global\ConnectLive.Agent", out var firstInstance);
-        if (!firstInstance)
+        if (UpdateEnvironment.Pending() && !UpdateEnvironment.AllowCandidate(e.Args, ApiClient.AgentVersion))
+        {
+            var recovering = UpdateEnvironment.StartRecovery(foregroundRepair: !backgroundLaunch);
+            if (!backgroundLaunch) MessageBox.Show(recovering
+                ? "Recovering an interrupted update. Open ConnectLive again after recovery. Remote permissions are unchanged."
+                : "An interrupted update needs recovery. Remote access remains stopped; contact your IT administrator.",
+                "ConnectLive update recovery");
+            Shutdown();
+            return;
+        }
+        _singleInstance = new Mutex(false, @"Global\ConnectLive.Agent");
+        bool ownsMutex;
+        try { ownsMutex = _singleInstance.WaitOne(0); }
+        catch (AbandonedMutexException) { ownsMutex = true; }
+        if (!ownsMutex)
         {
             // The running instance remains accessible from its taskbar window.
             Shutdown();
@@ -94,12 +123,12 @@ public partial class App : Application
             var api = new ApiClient(apiUrl);
             if (apiUrl != null) ApiClient.SaveConfig(new ApiClient.AgentConfig(api.ApiBaseUrl));
             _api = api;
-            // Only foreground launches can surface the Meeting-ID prompt. A
+            // Only foreground launches can surface the pairing disclosure. A
             // /BACKGROUND or /WAKE start with no prior enrollment must stay silent
             // and simply defer until the user opens the agent themselves.
             if (!background && !wake)
             {
-                api.MeetingIdProvider = (err) => MeetingIdPrompt.Ask(err);
+                api.PairingProvider = (ct) => PairingPrompt.ShowAsync(api, ct);
             }
             api.OnLicenseChanged += OnLicenseChanged;
             var dispatcher = new WpfDispatcher(Current.Dispatcher);
@@ -117,13 +146,19 @@ public partial class App : Application
             // Never enter foreground agreement or start the Agent after local
             // withdrawal/shutdown during an attempt or asynchronous retry delay.
             if (!enrolled || _stopping || _cts.IsCancellationRequested) return;
+            // Later authentication failures must not silently re-enroll or
+            // interrupt an active session with another enrollment window.
+            api.PairingProvider = null;
             api.LocalAuthorization = GrantStore.Load();
-            if (!background && !wake)
+            if (!background && !wake && (LocalAccessState.IsDisabled() ||
+                api.LocalAuthorization == null || api.LocalAuthorization.DeviceId != api.DeviceId ||
+                api.LocalAuthorization.Origin != LocalGrant.OriginOf(api.ApiBaseUrl)))
             {
                 var agreement = AuthorizationPrompt.Ask(LocalGrant.OriginOf(api.ApiBaseUrl), api.DeviceId!);
                 if (agreement != null)
                 {
                     await api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
+                    StartupConsent.Save(api.LocalAuthorization!, agreement.Value.Startup);
                     LocalAccessState.CompleteForegroundReauthorization();
                 }
                 else
@@ -134,10 +169,7 @@ public partial class App : Application
             }
             _splash?.SetStatus("Registering with ConnectLive…");
 
-            // Self-persistence: three redundant logon triggers (HKCU Run key,
-            // Startup folder shortcut, Scheduled Task) — re-asserted every
-            // launch. Dev-path guard inside means a Downloads/dist run never
-            // clobbers an installed machine's autostart.
+            // A local opt-in, not enrollment alone, authorizes startup/recovery.
             try { StartupSelfHeal.EnsureAll(); } catch { }
 
             _splash?.SetDevice(api.DeviceId ?? "not enrolled");
@@ -153,6 +185,12 @@ public partial class App : Application
             if (api.LocalAuthorization != null) _splash?.MinimizeToTray();
             _agent = new Agent(api, s => _splash?.SetStatus(s), dispatcher, onWake: null);
             _agent.SessionStateChanged += OnSessionStateChanged;
+            _withdrawalTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _withdrawalTimer.Tick += (_, _) =>
+            {
+                if (LocalAccessState.IsDisabled() || InstallationLifecycle.RemovalRequested()) DisableRemoteAccess();
+            };
+            _withdrawalTimer.Start();
 
             // Heartbeat runs for the full application lifetime.
             await _agent.RunAsync(_cts.Token);
@@ -163,9 +201,9 @@ public partial class App : Application
         }
         catch (OperationCanceledException)
         {
-            // Dismissing Meeting ID is not an offline failure. Do not repeatedly
+            // Dismissing pairing is not an offline failure. Do not repeatedly
             // reopen a local enrollment prompt as a background recovery action.
-            _splash?.SetStatus("Activation required — open ConnectLive in the foreground");
+            _splash?.SetStatus("Pairing required — open ConnectLive in the foreground");
         }
         catch (Exception ex)
         {
@@ -194,7 +232,9 @@ public partial class App : Application
             }
             await _api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
             if (_stopping || _cts.IsCancellationRequested) return;
+            StartupConsent.Save(_api.LocalAuthorization!, agreement.Value.Startup);
             LocalAccessState.CompleteForegroundReauthorization();
+            StartupSelfHeal.EnsureAll();
             _agent?.ResumeAfterAuthorization();
             _splash?.MinimizeToTray();
         }
@@ -214,6 +254,7 @@ public partial class App : Application
         try
         {
             LocalAccessState.Disable();
+            StartupConsent.Clear();
         }
         catch (Exception)
         {
@@ -224,6 +265,12 @@ public partial class App : Application
             // Do not falsely report persistence if the disk/ACL prevents it.
             MessageBox.Show("This agent is stopping, but Windows could not save the disabled state. Uninstall the agent to prevent a later restart.",
                 "ConnectLive — could not save withdrawal", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        StartupSelfHeal.RemoveAll();
+        using (var reportDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+        {
+            try { await CompanionAuthorization.ReportWithdrawalAsync(InstallationLifecycle.RemovalRequested(), reportDeadline.Token); }
+            catch { Log.Warn("local withdrawal saved; lifecycle report unavailable"); }
         }
         // Best effort only; local invalidation above never depends on network.
         if (_api != null)
@@ -259,6 +306,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _withdrawalTimer?.Stop();
         _cts.Cancel();
         try { _agent?.StopLocally(); } catch { }
         try { _singleInstance?.ReleaseMutex(); } catch { }

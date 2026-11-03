@@ -6,7 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../update-core/ConnectLive.UpdateCore.csproj" />
     <Compile Include="../NativeGatewayPolicy.cs" Link="NativeGatewayPolicy.cs" />
+    <Compile Include="../PeerSignalBinding.cs" Link="PeerSignalBinding.cs" />
+    <Compile Include="../SignalIdentity.cs" Link="SignalIdentity.cs" />
+    <Compile Include="../PeerInputPermission.cs" Link="PeerInputPermission.cs" />
+    <Compile Include="../CurtainLease.cs" Link="CurtainLease.cs" />
+    <Compile Include="../LocalEscapeGesture.cs" Link="LocalEscapeGesture.cs" />
+    <Compile Include="../RecoveryBudget.cs" Link="RecoveryBudget.cs" />
     <Compile Include="../../../admin/src/Api/AppConfig.cs" Link="AppConfig.cs" />
   </ItemGroup>
 </Project>

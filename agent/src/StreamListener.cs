@@ -9,20 +9,14 @@ namespace ConnectLive.Agent;
 /// <summary>
 /// SCOPE:WAKE — long-lived SSE client against /api/public/agent/stream.
 ///
-/// The route is fully implemented server-side (1 s poll, keepalive comment
-/// every 15 s) but nothing on the agent was opening it, so wake commands
-/// waited for the next heartbeat tick (up to 10 s). This listener collapses
-/// that to sub-second in the healthy case, without changing the source of
-/// truth: the heartbeat still dispatches queued commands, so a dropped
-/// stream never blocks delivery.
+/// Event hints accelerate heartbeat reconciliation, never confer authority.
+/// Healthy requires a ready event and continuing keepalives, not just HTTP 200.
 ///
 /// Design:
 ///  - One consumer per process, restarted with exponential back-off (max 30 s).
 ///  - Uses its OWN HttpClient with no read timeout — the shared client has a
 ///    20 s send timeout which would kill the long-poll every keepalive gap.
-///  - Every `event: wake` frame just pings the wake signal; the heartbeat
-///    loop is what actually calls DispatchPowerCommands on the row. This
-///    keeps idempotency (attempt_id) and rate-limit logic in one place.
+///  - Every wake pings the heartbeat loop. No generic power-command execution.
 /// </summary>
 internal sealed class StreamListener
 {
@@ -70,23 +64,31 @@ internal sealed class StreamListener
             try
             {
                 await ConsumeAsync(ct);
-                // Clean EOF from server-side close: reconnect quickly.
-                backoff = TimeSpan.FromSeconds(1);
+                await Task.Delay(TimeSpan.FromMilliseconds(500 + Random.Shared.Next(500)), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { Healthy = false; break; }
             catch (Exception ex)
             {
                 Log.Warn($"sse: {ex.Message} — reconnecting in {backoff.TotalSeconds:0}s");
-                try { await Task.Delay(backoff, ct); } catch { }
+                SetHealthy(false);
+                try { await Task.Delay(backoff + TimeSpan.FromMilliseconds(Random.Shared.Next(500)), ct); } catch { }
                 backoff = TimeSpan.FromSeconds(Math.Min(30, backoff.TotalSeconds * 2));
             }
             finally
             {
                 // Whatever ended the read, the heartbeat must snap back to its
                 // fast cadence until a new stream is proven up.
-                Healthy = false;
+                SetHealthy(false);
             }
         }
+        _http.Dispose();
+    }
+
+    private void SetHealthy(bool value)
+    {
+        var wasHealthy = Healthy;
+        Healthy = value;
+        if (wasHealthy != value) try { _wakeNudge(); } catch { }
     }
 
     private async Task ConsumeAsync(CancellationToken ct)
@@ -96,25 +98,28 @@ internal sealed class StreamListener
         req.Headers.Add("X-Device-Token", _api.DeviceToken!);
         req.Headers.Accept.ParseAdd("text/event-stream");
 
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(40));
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
         if ((int)resp.StatusCode == 401)
         {
-            // Token rotated or revoked — force a re-enroll on the heartbeat side.
-            Log.Warn("sse: 401 from stream — dropping and waiting for re-enroll");
+            // Never reopen enrollment over an active desktop.
+            Log.Warn("sse: device authentication rejected; presence will report the failure");
             try { await Task.Delay(TimeSpan.FromSeconds(10), ct); } catch { }
             return;
         }
         resp.EnsureSuccessStatusCode();
 
         Log.Info("sse: connected to /api/public/agent/stream");
-        Healthy = true;
-        using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var stream = await resp.Content.ReadAsStreamAsync(deadline.Token);
         using var reader = new StreamReader(stream);
 
         string? currentEvent = null;
         string? line;
-        while (!ct.IsCancellationRequested && (line = await reader.ReadLineAsync(ct)) != null)
+        while (!ct.IsCancellationRequested && (line = await reader.ReadLineAsync(deadline.Token)) != null)
         {
+            deadline.CancelAfter(TimeSpan.FromSeconds(40));
+            if (line.Length > 4096) throw new IOException("SSE frame exceeds the allowed size");
             if (line.Length == 0)
             {
                 // Frame terminator — reset accumulator.
@@ -129,11 +134,12 @@ internal sealed class StreamListener
             }
             if (line.StartsWith("data:", StringComparison.Ordinal))
             {
+                if (currentEvent == "ready") SetHealthy(true);
+                if (currentEvent == "fallback" || currentEvent == "error") SetHealthy(false);
                 if (currentEvent == "wake")
                 {
                     try { _wakeNudge(); } catch (Exception ex) { Log.Warn($"sse wake nudge: {ex.Message}"); }
                 }
-                // Any other event ("ready", "error") is diagnostic only.
             }
         }
     }

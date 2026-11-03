@@ -35,7 +35,13 @@ the current user.
 
 ## Configuration
 
-`admin.config.json` (next to the exe) overrides the built-in defaults:
+Source downloads contain an empty key deliberately. Run `.\configure.ps1`
+from `admin` before building, or edit `src/admin.config.json` directly.
+Replit/Coolify environment variables do not automatically reach your Windows PC.
+
+The app reads `admin.config.json` next to the executable first; it only checks
+`%AppData%\ConnectLiveAdmin\admin.config.json` if that file is absent. There are
+no working built-in credentials:
 
 ```json
 {

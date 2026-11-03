@@ -17,7 +17,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>1.9.2</Version>
+    <Version>1.10.1</Version>
     <Company>ConnectLive</Company>
     <Product>ConnectLive Agent</Product>
     <AssemblyTitle>ConnectLive Agent</AssemblyTitle>
@@ -38,9 +38,13 @@
   <ItemGroup>
     <!-- Watch is a separate project, not source for the WPF Agent. -->
     <Compile Remove="Watch\**\*.cs" />
+    <Compile Remove="UpdateHost\**\*.cs" />
     <Compile Remove="Tests\**\*.cs" />
     <EmbeddedResource Remove="Watch\**\*" />
     <None Remove="Watch\**\*" />
+    <None Remove="UpdateHost\**\*" />
+    <EmbeddedResource Remove="UpdateHost\**\*" />
+    <ProjectReference Include="..\update-core\ConnectLive.UpdateCore.csproj" />
     <Resource Include="..\assets\logo.png" Link="Assets\logo.png" Condition="Exists('..\assets\logo.png')" />
   </ItemGroup>
 

@@ -105,7 +105,9 @@ function sanitize(file, original) {
 }
 function buildPlan() {
   const dir = path.join(root, 'supabase/migrations');
-  const files = fs.readdirSync(dir).filter(f => f.endsWith('.sql')).sort();
+  // Frozen reviewed baseline. Later additive upgrades use their own reviewed
+  // runner; they must not silently enter this legacy sanitization pipeline.
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.sql') && f.slice(0, 14) <= '20261021003000').sort();
   const sources = files.map(file => ({ file, original: fs.readFileSync(path.join(dir, file), 'utf8') }));
   gate(files.length === 64 && hash(JSON.stringify(sources.map(s => [s.file, hash(s.original)]))) === SOURCE_DIGEST,
     'Source migration inventory/checksum changed; a new review is required.');

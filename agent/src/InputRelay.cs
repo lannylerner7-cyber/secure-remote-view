@@ -33,8 +33,11 @@ public static class InputRelay
         }
     }
 
-    public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
+    public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct, bool videoOnly = false)
     {
+        // Migrated sessions use the ordered WebRTC input channel only. Do not
+        // replay delayed HTTP keystrokes after a channel interruption.
+        if (videoOnly) { await Task.Delay(Timeout.Infinite, ct); return; }
         var permission = api.LivePermission;
         long since = 0;
         using var pump = new InputPump(permission);
@@ -105,7 +108,7 @@ public static class InputRelay
 
     internal static void Apply(JsonElement it, PeerInputPermission permission)
     {
-        if (!permission.Allows("control")) return;
+        if (InputBlocker.LocalStopPending || !permission.Allows("control")) return;
         _applyingPermission = permission;
         if (it.ValueKind != JsonValueKind.Object) return;
         if (!it.TryGetProperty("kind", out var kv) || kv.ValueKind != JsonValueKind.String) return;
@@ -210,27 +213,10 @@ public static class InputRelay
     {
         var permission = _applyingPermission;
         if (permission?.Allows("control") != true) return;
-        // Every curtain_on message doubles as the watchdog heartbeat.
-        InputBlocker.Heartbeat();
-        bool ok = InputBlocker.Engage(_ => HideCurtainOnUiThread());
-        if (!permission.Allows("control"))
-        {
-            // Withdrawal may have occurred while Windows installed hooks.
-            InputBlocker.Release("authority_withdrawn_during_engage");
-            return;
-        }
-        if (ok)
-        {
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (permission.Allows("control") && !CurtainOverlay.Show())
-                    InputBlocker.Release("curtain_display_failed");
-            }));
-        }
-        else
-        {
-            Log.Warn("curtain unavailable — agent is not elevated");
-        }
+        // Legacy clients repeat curtain_on as renewal. The browser uses the
+        // separate owner-bound renew action and application receipts.
+        if (CurtainController.Renew(permission)) return;
+        CurtainController.Enable(permission, ok => { if (!ok) Log.Warn("curtain was not applied"); });
     }
 
     private static void ReleaseCurtain()
@@ -240,6 +226,11 @@ public static class InputRelay
 
     private static void ReleaseCurtain(string reason)
     {
+        if (_applyingPermission is { } owner)
+        {
+            CurtainController.Release(owner, reason);
+            return;
+        }
         InputBlocker.Release(reason);
         HideCurtainOnUiThread();
     }
@@ -320,7 +311,7 @@ public static class InputRelay
     {
         lock (NativeGate)
         {
-            if (!cleanup && _applyingPermission?.Allows("control") != true) return;
+            if (!cleanup && (InputBlocker.LocalStopPending || _applyingPermission?.Allows("control") != true)) return;
             foreach (var input in inputs)
             {
                 if (input.type == INPUT_KEYBOARD && input.U.ki.wVk != 0)

@@ -36,8 +36,10 @@ import { Route as ApiPublicAgentEnrollRouteImport } from './routes/api/public/ag
 import { Route as ApiPublicAgentHeartbeatRouteImport } from './routes/api/public/agent/heartbeat'
 import { Route as ApiPublicAgentHelloRouteImport } from './routes/api/public/agent/hello'
 import { Route as ApiPublicAgentIceRouteImport } from './routes/api/public/agent/ice'
+import { Route as ApiPublicAgentPairingRouteImport } from './routes/api/public/agent/pairing'
 import { Route as ApiPublicAgentReleaseRouteImport } from './routes/api/public/agent/release'
 import { Route as ApiPublicAgentStreamRouteImport } from './routes/api/public/agent/stream'
+import { Route as ApiPublicAgentWatchRouteImport } from './routes/api/public/agent/watch'
 import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
 import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
 import { Route as ApiPublicNewsletterUnsubscribeRouteImport } from './routes/api/public/newsletter/unsubscribe'
@@ -191,6 +193,11 @@ const ApiPublicAgentIceRoute = ApiPublicAgentIceRouteImport.update({
   path: '/api/public/agent/ice',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAgentPairingRoute = ApiPublicAgentPairingRouteImport.update({
+  id: '/api/public/agent/pairing',
+  path: '/api/public/agent/pairing',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicAgentReleaseRoute = ApiPublicAgentReleaseRouteImport.update({
   id: '/api/public/agent/release',
   path: '/api/public/agent/release',
@@ -199,6 +206,11 @@ const ApiPublicAgentReleaseRoute = ApiPublicAgentReleaseRouteImport.update({
 const ApiPublicAgentStreamRoute = ApiPublicAgentStreamRouteImport.update({
   id: '/api/public/agent/stream',
   path: '/api/public/agent/stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicAgentWatchRoute = ApiPublicAgentWatchRouteImport.update({
+  id: '/api/public/agent/watch',
+  path: '/api/public/agent/watch',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicAuthLoginRoute = ApiPublicAuthLoginRouteImport.update({
@@ -328,8 +340,10 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/ice': typeof ApiPublicAgentIceRoute
+  '/api/public/agent/pairing': typeof ApiPublicAgentPairingRoute
   '/api/public/agent/release': typeof ApiPublicAgentReleaseRoute
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
+  '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
@@ -375,8 +389,10 @@ export interface FileRoutesByTo {
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/ice': typeof ApiPublicAgentIceRoute
+  '/api/public/agent/pairing': typeof ApiPublicAgentPairingRoute
   '/api/public/agent/release': typeof ApiPublicAgentReleaseRoute
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
+  '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
@@ -424,8 +440,10 @@ export interface FileRoutesById {
   '/api/public/agent/heartbeat': typeof ApiPublicAgentHeartbeatRoute
   '/api/public/agent/hello': typeof ApiPublicAgentHelloRoute
   '/api/public/agent/ice': typeof ApiPublicAgentIceRoute
+  '/api/public/agent/pairing': typeof ApiPublicAgentPairingRoute
   '/api/public/agent/release': typeof ApiPublicAgentReleaseRoute
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
+  '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
@@ -473,8 +491,10 @@ export interface FileRouteTypes {
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/ice'
+    | '/api/public/agent/pairing'
     | '/api/public/agent/release'
     | '/api/public/agent/stream'
+    | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
     | '/api/public/newsletter/unsubscribe'
@@ -520,8 +540,10 @@ export interface FileRouteTypes {
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/ice'
+    | '/api/public/agent/pairing'
     | '/api/public/agent/release'
     | '/api/public/agent/stream'
+    | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
     | '/api/public/newsletter/unsubscribe'
@@ -568,8 +590,10 @@ export interface FileRouteTypes {
     | '/api/public/agent/heartbeat'
     | '/api/public/agent/hello'
     | '/api/public/agent/ice'
+    | '/api/public/agent/pairing'
     | '/api/public/agent/release'
     | '/api/public/agent/stream'
+    | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
     | '/api/public/newsletter/unsubscribe'
@@ -615,8 +639,10 @@ export interface RootRouteChildren {
   ApiPublicAgentHeartbeatRoute: typeof ApiPublicAgentHeartbeatRoute
   ApiPublicAgentHelloRoute: typeof ApiPublicAgentHelloRoute
   ApiPublicAgentIceRoute: typeof ApiPublicAgentIceRoute
+  ApiPublicAgentPairingRoute: typeof ApiPublicAgentPairingRoute
   ApiPublicAgentReleaseRoute: typeof ApiPublicAgentReleaseRoute
   ApiPublicAgentStreamRoute: typeof ApiPublicAgentStreamRoute
+  ApiPublicAgentWatchRoute: typeof ApiPublicAgentWatchRoute
   ApiPublicAuthLoginRoute: typeof ApiPublicAuthLoginRoute
   ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
   ApiPublicNewsletterUnsubscribeRoute: typeof ApiPublicNewsletterUnsubscribeRoute
@@ -825,6 +851,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentIceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/pairing': {
+      id: '/api/public/agent/pairing'
+      path: '/api/public/agent/pairing'
+      fullPath: '/api/public/agent/pairing'
+      preLoaderRoute: typeof ApiPublicAgentPairingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/agent/release': {
       id: '/api/public/agent/release'
       path: '/api/public/agent/release'
@@ -837,6 +870,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/agent/stream'
       fullPath: '/api/public/agent/stream'
       preLoaderRoute: typeof ApiPublicAgentStreamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/agent/watch': {
+      id: '/api/public/agent/watch'
+      path: '/api/public/agent/watch'
+      fullPath: '/api/public/agent/watch'
+      preLoaderRoute: typeof ApiPublicAgentWatchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/auth/login': {
@@ -1031,8 +1071,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentHeartbeatRoute: ApiPublicAgentHeartbeatRoute,
   ApiPublicAgentHelloRoute: ApiPublicAgentHelloRoute,
   ApiPublicAgentIceRoute: ApiPublicAgentIceRoute,
+  ApiPublicAgentPairingRoute: ApiPublicAgentPairingRoute,
   ApiPublicAgentReleaseRoute: ApiPublicAgentReleaseRoute,
   ApiPublicAgentStreamRoute: ApiPublicAgentStreamRoute,
+  ApiPublicAgentWatchRoute: ApiPublicAgentWatchRoute,
   ApiPublicAuthLoginRoute: ApiPublicAuthLoginRoute,
   ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
   ApiPublicNewsletterUnsubscribeRoute: ApiPublicNewsletterUnsubscribeRoute,

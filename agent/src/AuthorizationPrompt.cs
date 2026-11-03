@@ -6,7 +6,7 @@ namespace ConnectLive.Agent;
 
 internal static class AuthorizationPrompt
 {
-    internal static (string Mode, GrantScopes Scopes)? Ask(string origin, string deviceId)
+    internal static (string Mode, GrantScopes Scopes, bool Startup)? Ask(string origin, string deviceId)
     {
         var window = new Window { Title = "ConnectLive — authorize remote access", Width = 490,
             Height = 590, WindowStartupLocation = WindowStartupLocation.CenterScreen, ResizeMode = ResizeMode.CanResize };
@@ -51,6 +51,12 @@ internal static class AuthorizationPrompt
             choice.Checked += (_, _) => SyncAll();
             choice.Unchecked += (_, _) => SyncAll();
         }
+        var startup = new CheckBox
+        {
+            IsChecked = StartupConsent.IsAllowed(), Margin = new Thickness(0, 14, 0, 0),
+            Content = new TextBlock { Text = StartupConsent.Notice, TextWrapping = TextWrapping.Wrap },
+        };
+        panel.Children.Add(startup);
         var agree = new Button { Content = "Allow selected permissions", Margin = new Thickness(0, 18, 0, 0), Padding = new Thickness(8) };
         panel.Children.Add(agree);
         var decline = new Button { Content = "Don't allow remote access", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(8), IsCancel = true };
@@ -70,6 +76,7 @@ internal static class AuthorizationPrompt
         if (window.ShowDialog() != true) return null;
         return (unattended.IsChecked == true ? "unattended" : "attended",
             new(choices[0].IsChecked == true, choices[1].IsChecked == true,
-                choices[2].IsChecked == true, choices[3].IsChecked == true, choices[4].IsChecked == true));
+                choices[2].IsChecked == true, choices[3].IsChecked == true, choices[4].IsChecked == true),
+            startup.IsChecked == true);
     }
 }

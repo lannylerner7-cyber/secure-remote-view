@@ -6,6 +6,7 @@ using ConnectLive.Native;
 using ConnectLive.Admin.Api;
 
 var passed = 0;
+LifecycleTests.Run();
 void Check(bool condition, string name)
 {
     if (!condition) throw new Exception("FAIL: " + name);
@@ -106,6 +107,19 @@ using (var timeout = new CancellationTokenSource(NativeGatewayPolicy.IceBudget))
         watch.Elapsed < TimeSpan.FromSeconds(15), "stalled lookup cancelled at total deadline");
 }
 Console.WriteLine($"{passed} checks passed");
+ConnectLive.Agent.PeerLifecycleTests.Run();
+await UpdateTests.RunAsync();
+if (args.Length == 2 && args[0] == "--browser-signal-fixture")
+{
+    using var fixture = System.Text.Json.JsonDocument.Parse(File.ReadAllText(args[1]));
+    if (!ConnectLive.Agent.SignalIdentity.TryRead(fixture.RootElement, true, out var clientId, out var peerId) ||
+        !clientId!.StartsWith("web-", StringComparison.Ordinal) || !Guid.TryParse(peerId, out _))
+        throw new InvalidOperationException("Actual browser-generated offer identity was rejected by the Agent");
+    var receiver = new ConnectLive.Agent.PeerSignalBinding(() => true);
+    if (!receiver.TryBind(clientId, peerId) || !receiver.Matches(clientId, peerId))
+        throw new InvalidOperationException("Browser offer could not bind to the native receiver");
+    Console.WriteLine("PASS: actual browser-generated video offer identity accepted by native signaling and binding");
+}
 
 sealed class DelayedHandler(TimeSpan delay) : HttpMessageHandler
 {

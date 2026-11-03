@@ -14,6 +14,18 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_runtime: {
+        Row: import("@/shared/agent-lifecycle").AgentRuntime
+        Insert: Partial<import("@/shared/agent-lifecycle").AgentRuntime> & { device_id: string }
+        Update: Partial<import("@/shared/agent-lifecycle").AgentRuntime>
+        Relationships: []
+      }
+      agent_lifecycle_commands: {
+        Row: import("@/shared/agent-lifecycle").RelaunchCommand
+        Insert: Partial<import("@/shared/agent-lifecycle").RelaunchCommand> & { device_id: string; authorization_id: string; requested_by: string }
+        Update: Partial<import("@/shared/agent-lifecycle").RelaunchCommand>
+        Relationships: []
+      }
       admin_settings: {
         Row: {
           notify_on_agent_stopped: boolean
@@ -1215,6 +1227,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          media_mode: "legacy" | "video"
           authorization_id: string | null
           authorization_mode: string | null
           admin_bound_at: string | null
@@ -1231,6 +1244,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          media_mode?: "legacy" | "video"
           authorization_id?: string | null
           authorization_mode?: string | null
           admin_bound_at?: string | null
@@ -1247,6 +1261,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          media_mode?: "legacy" | "video"
           authorization_id?: string | null
           authorization_mode?: string | null
           admin_bound_at?: string | null
@@ -1397,6 +1412,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      record_agent_runtime: { Args: { _device: string; _instance: string; _sequence: number; _heartbeat_seconds: number }; Returns: boolean }
+      request_agent_relaunch: { Args: { _actor: string; _device: string }; Returns: Json }
+      report_agent_watch: { Args: { _device: string; _report: Json }; Returns: Json }
+      consume_pairing_attempt: { Args: { _bucket: string }; Returns: boolean }
+      create_device_pairing: { Args: { _actor: string; _license: string; _code_hash: string; _grant: Json }; Returns: Json }
+      inspect_device_pairing: { Args: { _code_hash: string }; Returns: Json }
+      redeem_device_pairing: { Args: { _code_hash: string; _request_hash: string; _token_hash: string; _disclosure_id: string; _hostname: string; _os: string; _agent_version: string }; Returns: Json }
+      revoke_device_pairing: { Args: { _actor: string; _pairing_id: string }; Returns: boolean }
+      revoke_managed_device_access: { Args: { _actor: string; _device_id: string }; Returns: boolean }
       device_authorization: { Args: { _device_id: string }; Returns: Json }
       record_device_authorization: { Args: { _device_id: string; _grant: Json }; Returns: Json }
       revoke_device_authorization: { Args: { _device_id: string }; Returns: undefined }

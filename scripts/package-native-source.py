@@ -1,7 +1,9 @@
 """Create auditable source-only archives. Never include installed/runtime files."""
 import argparse
+import base64
 import hashlib
 import json
+import re
 import subprocess
 import tempfile
 import zipfile
@@ -20,10 +22,16 @@ def sources(side):
     candidates += [APP / "docs/SIGNING.md"]
     if side == "admin":
         candidates += [APP / "agent/src/NativeGatewayPolicy.cs"]
+    else:
+        # The portable gateway regression project links this single shared
+        # configuration parser. Do not ship the Admin application itself.
+        candidates += [APP / "admin/src/Api/AppConfig.cs"]
     for p in sorted(set(candidates)):
         rel = p.relative_to(APP)
         if not p.is_file() or any(x in SKIP for x in rel.parts):
             continue
+        if not p.resolve().is_relative_to(APP.resolve()):
+            raise RuntimeError(f"Refusing an external source symlink: {rel}")
         if p.suffix.lower() not in EXTENSIONS or p.name.startswith(".env") or "_wpftmp" in p.name:
             continue
         yield rel.as_posix(), p.read_bytes()
@@ -33,6 +41,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--github-commit", help="Optional published commit; verified against remote main")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--side", choices=("agent", "admin"), help="Package only this client")
     args = parser.parse_args()
     if args.github_commit:
         remote = subprocess.check_output(
@@ -50,7 +59,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     baseline = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    for side in ("agent", "admin"):
+    for side in ((args.side,) if args.side else ("agent", "admin")):
         destination = out / f"ConnectLive-{side.title()}-Source.zip"
         if destination.exists():
             raise RuntimeError(f"Refusing to replace {destination.name}")
@@ -60,6 +69,17 @@ def main():
             APP / "supabase/migrations/20261022001000_allow_recorded_control_transition.sql").read_bytes()
         files["supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql"] = (
             APP / "supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql").read_bytes()
+        if side == "agent":
+            for name in (
+                "20261103000000_disclosed_device_pairing.sql",
+                "20261103001000_browser_video_sessions.sql",
+                "20261103002000_signed_agent_update_channel.sql",
+                "20261103003000_agent_lifecycle.sql",
+            ):
+                files[f"supabase/migrations/{name}"] = (APP / "supabase/migrations" / name).read_bytes()
+            for name in ("agent-windows-verification.md", "agent-lifecycle-implementation.md",
+                         "browser-first-verification.md", "browser-first-migration.md"):
+                files[f"docs/{name}"] = (ROOT / "docs" / name).read_bytes()
         if args.github_commit:
             for name, data in files.items():
                 tracked = "docs/native-streaming-progress.md" if name == "VERIFICATION-STATUS.md" else name
@@ -71,8 +91,34 @@ def main():
             if Path(name).suffix.lower() in {".png", ".ico"}:
                 continue
             text = data.decode("utf-8", errors="replace")
-            if "-----BEGIN PRIVATE KEY-----" in text or "-----BEGIN OPENSSH PRIVATE KEY-----" in text:
+            if re.search(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----", text):
                 raise RuntimeError(f"Private key found in {name}")
+            if re.search(r"\b(?:sb_secret_|github_pat_|ghp_|sk_live_)[A-Za-z0-9_-]{24,}", text):
+                raise RuntimeError(f"Server credential pattern found in {name}")
+            for token in re.findall(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{24,}\b", text):
+                payload = token.split(".")[1]
+                try:
+                    role = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))).get("role")
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if role == "service_role":
+                    raise RuntimeError(f"Service-role credential found in {name}")
+            if name.endswith(".json"):
+                def check_config(value):
+                    if not isinstance(value, dict):
+                        return
+                    for key, item in value.items():
+                        if re.sub(r"[^a-z]", "", key.lower()) in {
+                            "password", "devicetoken", "servicerolekey", "supabaseservicerolekey",
+                            "sessionsecret", "smtppassword", "privatekey", "licensekey",
+                            "accesstoken", "refreshtoken", "apitoken", "apisecret", "clientsecret",
+                            "githubpushtoken", "cloudflarecallsapptoken",
+                        } and item:
+                            raise RuntimeError(f"Runtime credential must not be packaged: {name}")
+                        check_config(item)
+                    if value.get("kty") in {"RSA", "EC", "OKP"} and value.get("d"):
+                        raise RuntimeError(f"Private signing material must not be packaged: {name}")
+                check_config(json.loads(text))
         manifest = {
             "workspaceBaselineCommit": baseline,
             "includesUncommittedChanges": True,
@@ -82,10 +128,24 @@ def main():
             "windowsRuntimeVerified": False,
             "files": {n: hashlib.sha256(b).hexdigest() for n, b in files.items()},
         }
-        files["SOURCE-MANIFEST.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
         files["START-HERE.txt"] = (
             f"ConnectLive {side.title()} SOURCE ONLY - work in progress\n"
             "No executable or installer is included. Extract the entire archive.\n"
+            + ("FIRST: Open PowerShell in admin and run .\\configure.ps1.\n"
+               "Enter your Supabase public sb_publishable_ key locally, never a service-role key.\n"
+               "Then cd src; dotnet run (without --no-build).\n"
+               if side == "admin" else "")
+            + ("FIRST: Read docs/agent-windows-verification.md and deploy the lifecycle backend migration/web update.\n"
+               "This ZIP is NOT the backend deployment package; server scripts run from the full updated repository.\n"
+               "Extract into a fresh directory, not over an older source bundle.\n"
+               "The single admin/src/Api/AppConfig.cs file is a shared test dependency, not another client bundle.\n"
+               "For an unsigned Windows TEST MSI: cd agent; .\\build.ps1 -Version 1.10.1 -SkipInno -SkipSign.\n"
+               "The script restores pinned WiX. Production signing is separate; this does not bypass SmartScreen.\n"
+               "Install that MSI normally. It packages Agent, Watch and the signed-update helper together.\n"
+               "A raw dotnet run does NOT package the companion executables or verify startup recovery.\n"
+               "Per-machine MSI upgrades remain IT-managed; the unprivileged self-updater cannot replace Program Files.\n"
+               if side == "agent" else "")
+            +
             f"Windows .NET 8 SDK: cd {side}\\src; dotnet build -c Release\n"
             f"Packaging: cd {side}; .\\build.ps1 (see INSTALL.md and docs/SIGNING.md).\n"
             "Keep the folder layout: shared dependencies and signing tools are included.\n"
@@ -93,6 +153,8 @@ def main():
             "No source edit disables SmartScreen. Signing requires your trusted identity.\n"
             "Windows live-session, backend transition and installer verification remain incomplete.\n"
         ).encode()
+        manifest["files"] = {n: hashlib.sha256(b).hexdigest() for n, b in files.items()}
+        files["SOURCE-MANIFEST.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
         with zipfile.ZipFile(destination, "x", zipfile.ZIP_DEFLATED) as archive:
             for name, data in sorted(files.items()):
                 archive.writestr(name, data)

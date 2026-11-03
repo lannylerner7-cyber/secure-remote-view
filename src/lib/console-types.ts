@@ -32,8 +32,5 @@ export type Nav = (typeof NAV_VALUES)[number];
 
 export type Presence = "online" | "reconnecting" | "offline" | "stopped";
 
-// Agent heartbeat cadence = 15s; backend flags reconnect after a 60s gap.
-// Give one missed beat of grace before "reconnecting", and match the backend
-// threshold for hard "offline".
-export const STALE_MS = 30_000;
-export const OFFLINE_MS = 75_000;
+// Compatibility constants; new Agents carry a bounded cadence in agent_runtime.
+export { LEGACY_STALE_MS as STALE_MS, LEGACY_OFFLINE_MS as OFFLINE_MS } from "@/shared/agent-lifecycle";

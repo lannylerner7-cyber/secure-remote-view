@@ -33,7 +33,7 @@ namespace ConnectLive.Agent;
 /// Dependencies (pure-managed, single-file-safe):
 ///   SIPSorcery, SIPSorceryMedia.Encoders (software VP8).
 /// </summary>
-public sealed class WebRtcSession : IDisposable
+public sealed partial class WebRtcSession : IDisposable
 {
     /// <summary>Active peer for the current session, or null. Read by ScreenCapture to tee frames.</summary>
     public static WebRtcSession? Current { get; private set; }
@@ -84,20 +84,27 @@ public sealed class WebRtcSession : IDisposable
     // Identity of the admin machine that owns the current peer. Null until
     // the first offer arrives. Used to detect take-over and to tag outgoing
     // answer/ICE so the admin poller's `admin_client_id` filter routes them.
-    private string? _currentAdminClientId = null;
+    private readonly PeerSignalBinding _signalBinding;
+    private string? _currentAdminClientId => _signalBinding.AdminId;
+    private PeerInputPermission? _peerPermission;
+    internal bool IsClosed => _closed;
 
     // Serialises take-over so two near-simultaneous offers from different
     // admin boxes can't tear each other down mid-negotiation.
     private readonly SemaphoreSlim _handoffLock = new(1, 1);
 
     private readonly PeerInputPermission _inputPermission;
+    private readonly bool _videoOnly;
 
-    internal WebRtcSession(ApiClient api, string sessionId, PeerInputPermission? inputPermission)
+    internal WebRtcSession(ApiClient api, string sessionId, PeerInputPermission? inputPermission, bool videoOnly = false)
     {
+        _videoOnly = videoOnly;
         _inputPermission = inputPermission ?? new PeerInputPermission("view");
         _api = api;
         _sessionId = sessionId;
         _cts = new CancellationTokenSource();
+        _signalBinding = new PeerSignalBinding(() => !_closed && !_cts.IsCancellationRequested &&
+            _inputPermission.Allows("view"));
         Current = this;
     }
 
@@ -193,6 +200,8 @@ public sealed class WebRtcSession : IDisposable
         };
 
         _pc = new RTCPeerConnection(cfg);
+        var peerPermission = _inputPermission.Fork();
+        _peerPermission = peerPermission;
         _formatReady = false;
         _videoStarted = false;
         _pushed = _encoded = _dropped = 0;
@@ -235,7 +244,8 @@ public sealed class WebRtcSession : IDisposable
                 if (sourceFormat.Codec == VideoCodecsEnum.VP8) { hasVp8 = true; break; }
         if (!hasVp8)
         {
-            Log.Warn("webrtc VP8 encoder unavailable; keeping HTTPS frame fallback");
+            Log.Warn(_videoOnly ? "webrtc VP8 encoder unavailable; video-only session cannot render" :
+                "webrtc VP8 encoder unavailable; keeping HTTPS frame fallback");
             TearDownPeer();
             return;
         }
@@ -247,7 +257,10 @@ public sealed class WebRtcSession : IDisposable
         // (browser or native admin) that supports both. VP8 stays in the list
         // as the universal floor, so a peer that cannot do H.264 still connects.
         var offered = new List<VideoFormat>();
-        bool offerH264 = CodecPolicy.AllowH264;
+        // Establish a predictable negotiated software-video baseline for the
+        // new browser protocol. DXGI capture remains unchanged. Promote
+        // hardware H.264 only after Windows compatibility measurements.
+        bool offerH264 = !_videoOnly && CodecPolicy.AllowH264;
         if (offerH264)
         {
             // profile-level-id 42e01f = Constrained Baseline 3.1, the profile the
@@ -312,7 +325,7 @@ public sealed class WebRtcSession : IDisposable
 
         _pc.ondatachannel += (dc) =>
         {
-            if (_closed || !_inputPermission.Allows("view")) { dc.close(); return; }
+            if (_closed || !peerPermission.Allows("view")) { dc.close(); return; }
             Log.Info($"webrtc dc open: {dc.label}");
 
             // ---- Step 10 — file exchange channel --------------------------
@@ -322,7 +335,7 @@ public sealed class WebRtcSession : IDisposable
             // the InputRelay parser below.
             if (dc.label == "files")
             {
-                if (_inputPermission.Allows("files")) FileTransfer.Attach(_api, _sessionId, dc, _inputPermission);
+                if (peerPermission.Allows("files")) FileTransfer.Attach(_api, _sessionId, dc, peerPermission);
                 else dc.close();
                 return;
             }
@@ -333,7 +346,7 @@ public sealed class WebRtcSession : IDisposable
             // but routing explicitly keeps the intent readable).
             if (dc.label == "clip")
             {
-                if (_inputPermission.Allows("clipboard")) ClipboardRelay.Attach(dc, _inputPermission);
+                if (peerPermission.Allows("clipboard")) ClipboardRelay.Attach(dc, peerPermission);
                 else dc.close();
                 return;
             }
@@ -343,17 +356,21 @@ public sealed class WebRtcSession : IDisposable
             // callback is checked against this peer's own revocable permission.
             if (dc.label != "input") { dc.close(); return; }
             var inputPeer = _pc;
+            AttachBrowserInputStatus(dc, peerPermission);
             dc.onmessage += (_, __, data) =>
             {
+                if (_closed || !ReferenceEquals(_pc, inputPeer) || dc.readyState != RTCDataChannelState.open ||
+                    !peerPermission.Allows("view") || data.Length > 16 * 1024) return;
                 try
                 {
                     var json = System.Text.Encoding.UTF8.GetString(data);
                     using var doc = JsonDocument.Parse(json);
                     var root = doc.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object || HandleBrowserAction(root, dc, peerPermission)) return;
                     // Direct call — InputRelay.Apply is internal, same
                     // assembly. The old reflection bridge existed only when
                     // this file lived outside the agent assembly.
-                    _inputPermission.TryApply(() => InputRelay.Apply(root, _inputPermission));
+                    peerPermission.TryApply(() => InputRelay.Apply(root, peerPermission));
                     // The overlay application is queued on the UI dispatcher by
                     // InputRelay. Queue acknowledgement behind it, not on send.
                     if (root.TryGetProperty("kind", out var command) &&
@@ -382,7 +399,7 @@ public sealed class WebRtcSession : IDisposable
                             }));
                     }
                 }
-                catch (Exception ex) { Log.Warn($"webrtc dc apply: {ex.Message}"); }
+                catch { Log.Warn("webrtc input message rejected"); }
             };
         };
 
@@ -458,6 +475,7 @@ public sealed class WebRtcSession : IDisposable
 
         var boundPeer = _pc;
         var boundAdminClientId = _currentAdminClientId;
+        var boundPeerId = _signalBinding.PeerId;
         _pc.onicecandidate += async (c) =>
         {
             if (c == null || !ReferenceEquals(_pc, boundPeer) || _closed ||
@@ -469,6 +487,7 @@ public sealed class WebRtcSession : IDisposable
                     candidate = c.candidate,
                     sdpMid = c.sdpMid,
                     sdpMLineIndex = c.sdpMLineIndex,
+                    peer_id = boundPeerId,
                 };
                 await _api.PostSignalReliableAsync(_sessionId, "ice", payload, _cts.Token, boundAdminClientId);
             }
@@ -523,6 +542,15 @@ public sealed class WebRtcSession : IDisposable
         // its replacement or recurse through this method.
         var oldPeer = _pc;
         _pc = null;
+        var oldPermission = _peerPermission;
+        _peerPermission = null;
+        oldPermission?.Revoke();
+        _browserInput = null;
+        try { InputRelay.ReleaseHeldInputs(); } catch { }
+        try { InputBlocker.Release("peer_closed"); } catch { }
+        try { System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(CurtainOverlay.Hide)); } catch { }
+        try { FileTransfer.Detach(); } catch { }
+        try { ClipboardRelay.Detach(); } catch { }
         try { _videoEnd?.PauseVideo(); } catch { }
         try { _videoEnd?.CloseVideo(); } catch { }
         try { oldPeer?.close(); } catch { }
@@ -730,9 +758,7 @@ public sealed class WebRtcSession : IDisposable
         if (_closed || !_inputPermission.Allows("view")) return;
         var kind = it.GetProperty("kind").GetString();
         var payload = it.GetProperty("payload");
-        string? incomingAdminId = null;
-        if (it.TryGetProperty("admin_client_id", out var acid) && acid.ValueKind == JsonValueKind.String)
-            incomingAdminId = acid.GetString();
+        if (!SignalIdentity.TryRead(it, _videoOnly, out var incomingAdminId, out var incomingPeerId)) return;
 
         switch (kind)
         {
@@ -748,14 +774,14 @@ public sealed class WebRtcSession : IDisposable
                     if (_pc != null &&
                         !string.IsNullOrEmpty(_currentAdminClientId) &&
                         !string.IsNullOrEmpty(incomingAdminId) &&
-                        !string.Equals(_currentAdminClientId, incomingAdminId, StringComparison.Ordinal))
+                        !_signalBinding.Matches(incomingAdminId, incomingPeerId))
                     {
                         Log.Info($"webrtc takeover: {_currentAdminClientId} -> {incomingAdminId}");
                         try
                         {
                             await _api.PostSignalReliableAsync(
                                 _sessionId, "terminated",
-                                new { reason = "superseded_by_other_client" },
+                                new { reason = "superseded_by_other_client", peer_id = _signalBinding.PeerId },
                                 _cts.Token,
                                 _currentAdminClientId);
                         }
@@ -764,7 +790,8 @@ public sealed class WebRtcSession : IDisposable
                         TearDownPeer();
                     }
 
-                    _currentAdminClientId = incomingAdminId;
+                    if (_pc != null) TearDownPeer();
+                    if (!_signalBinding.TryBind(incomingAdminId, incomingPeerId)) return;
                     await LoadIceAsync().ConfigureAwait(false);
                     if (_cts.IsCancellationRequested || _closed || !_inputPermission.Allows("view")) return;
                     // Rebuild on every offer: mutating a cached list does not
@@ -784,7 +811,7 @@ public sealed class WebRtcSession : IDisposable
                     var answer = _pc.createAnswer(null);
                     await _pc.setLocalDescription(answer);
                     await _api.PostSignalReliableAsync(_sessionId, "answer",
-                        new { type = "answer", sdp = answer.sdp }, _cts.Token, _currentAdminClientId);
+                        new { type = "answer", sdp = answer.sdp, peer_id = incomingPeerId }, _cts.Token, _currentAdminClientId);
                 }
                 finally { _handoffLock.Release(); }
                 break;
@@ -792,6 +819,7 @@ public sealed class WebRtcSession : IDisposable
             case "ice":
             {
                 if (_pc == null) return;
+                if (!_signalBinding.Matches(incomingAdminId, incomingPeerId)) return;
                 // Drop stray ICE from a superseded admin — its offer no longer
                 // owns our peer, so its candidates would poison negotiation.
                 if (!string.IsNullOrEmpty(incomingAdminId) &&
@@ -816,14 +844,15 @@ public sealed class WebRtcSession : IDisposable
                 break;
             }
             case "bye":
-                // Only honor bye from the currently-owning admin, otherwise a
-                // late packet from a superseded admin could kill the live session.
-                if (string.IsNullOrEmpty(_currentAdminClientId) ||
-                    string.IsNullOrEmpty(incomingAdminId) ||
-                    string.Equals(_currentAdminClientId, incomingAdminId, StringComparison.Ordinal))
+                await _handoffLock.WaitAsync(_cts.Token);
+                try
                 {
-                    Close();
+                    // A viewer departure ends only its peer, never the active
+                    // session grant or the signaling pump needed for reopening.
+                    if (_signalBinding.TryRelease(incomingAdminId, incomingPeerId))
+                        TearDownPeer();
                 }
+                finally { _handoffLock.Release(); }
                 break;
         }
     }

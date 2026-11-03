@@ -268,7 +268,13 @@ public sealed class Agent
         _ = Task.Run(() => stream.RunAsync(ct), ct);
 
         _splashStatus("Waiting for helpdesk…");
-        await HeartbeatLoop(ct);
+        void UpdateReady()
+        {
+            try { if (_wakeSignal.CurrentCount == 0) _wakeSignal.Release(); } catch { }
+        }
+        SelfUpdate.WorkAvailable += UpdateReady;
+        try { await HeartbeatLoop(ct); }
+        finally { SelfUpdate.WorkAvailable -= UpdateReady; }
     }
 
     /// <summary>
@@ -293,19 +299,27 @@ public sealed class Agent
         {
             try
             {
+                _api.HeartbeatSeconds = !string.IsNullOrEmpty(_currentSessionId) ? 5 : StreamListener.Healthy ? 60 : 10;
                 var body = await _api.HeartbeatAsync(ct);
                 fails = 0;
                 errDelay = TimeSpan.FromSeconds(1);
                 deadManTripped = false;
 
-                if (CheckAuthority(body))
+                var authorityValid = CheckAuthority(body);
+                if (authorityValid)
+                {
+                    UpdateEnvironment.ReportHealthy(ApiClient.AgentVersion);
+                    try { AgentProcessState.Healthy(_api.LocalAuthorization!.Authorization.Id); }
+                    catch { Log.Warn("Agent health receipt could not be written for Watch"); }
                     await DispatchPendingSessions(body, ct);
+                }
                 // Presence/wake is not authority for arbitrary remote power actions.
 
                 // S14 — self-update. Only when idle (no live session) and at
-                // most hourly; returns true once the replacement process has
-                // been launched, at which point this one hands over and exits.
-                if (string.IsNullOrEmpty(_currentSessionId) && SelfUpdate.DueForCheck)
+                // most hourly. Staging is asynchronous; true means the worker
+                // is ready to wait for THIS process to exit, not that a second
+                // Agent has been started while we still own the mutex.
+                if (authorityValid && string.IsNullOrEmpty(_currentSessionId) && SelfUpdate.DueForCheck)
                 {
                     if (await SelfUpdate.TryUpdateAsync(_api, ct))
                     {
@@ -318,7 +332,10 @@ public sealed class Agent
                 // Interruptible sleep: a wake nudge (wake_agent power command)
                 // cuts it short. Cadence is fast while a session is active.
                 var idleDelay = StreamListener.Healthy ? slowDelaySse : slowDelayFast;
-                var delay = string.IsNullOrEmpty(_currentSessionId) ? idleDelay : fastDelay;
+                var desiredDelay = string.IsNullOrEmpty(_currentSessionId) ? idleDelay : fastDelay;
+                // Never sleep beyond the cadence we just reported if dispatch
+                // ended a session during this heartbeat.
+                var delay = TimeSpan.FromSeconds(Math.Min(desiredDelay.TotalSeconds, _api.HeartbeatSeconds));
                 try { await _wakeSignal.WaitAsync(delay, ct); } catch { }
 
             }
@@ -336,7 +353,7 @@ public sealed class Agent
                     EndSession();
                     Log.Warn("dead-man: live session stopped after heartbeat loss");
                 }
-                try { await Task.Delay(errDelay, ct); } catch { }
+                try { await Task.Delay(errDelay + TimeSpan.FromMilliseconds(Random.Shared.Next(500)), ct); } catch { }
                 errDelay = TimeSpan.FromSeconds(Math.Min(30, errDelay.TotalSeconds * 2));
             }
         }
@@ -365,6 +382,7 @@ public sealed class Agent
     {
         if (!HasAuthority || ct.IsCancellationRequested) return;
         List<(string id, string state, string mode)> pending = new();
+        var videoOnlySessions = new HashSet<string>();
         try
         {
             using var doc = JsonDocument.Parse(body);
@@ -376,7 +394,11 @@ public sealed class Agent
                     var state = el.TryGetProperty("state", out var s) ? s.GetString() : null;
                     var mode = el.TryGetProperty("mode", out var m) ? m.GetString() : null;
                     if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(state))
+                    {
                         pending.Add((id!, state!, mode ?? ""));
+                        if (el.TryGetProperty("media_mode", out var media) && media.GetString() == "video")
+                            videoOnlySessions.Add(id!);
+                    }
                 }
             }
         }
@@ -387,6 +409,7 @@ public sealed class Agent
             return;
         }
 
+        _videoOnlySessions = videoOnlySessions;
         _eligibleInvites = new HashSet<string>(pending.FindAll(p => p.state == "invited").ConvertAll(p => p.id + "|" + p.mode));
         foreach (var s in pending)
         {
@@ -452,22 +475,22 @@ public sealed class Agent
             && !_sessionCts.IsCancellationRequested
             && _screenTask != null && !_screenTask.IsCompleted
             && _inputTask != null && !_inputTask.IsCompleted
-            && _cursorTask != null && !_cursorTask.IsCompleted;
+            && _cursorTask != null && !_cursorTask.IsCompleted
+            && _rtc?.IsClosed != true;
     }
 
     private void EnsureSessionLoops(string sessionId, string mode)
     {
-        if (_loopMode != mode)
-        {
-            JoinActiveSession(sessionId, mode);
-            return;
-        }
+        var modeChanged = _loopMode != mode;
         _peerInputPermission?.SetMode(mode);
+        _loopMode = mode;
         if (mode != "control")
         {
+            try { InputRelay.ReleaseHeldInputs(); } catch { }
             try { InputBlocker.Release("control_permission_removed"); } catch { }
             try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
         }
+        if (modeChanged) _rtc?.ReportPermissionState();
         if (SessionLoopsHealthy(sessionId)) return;
         Log.Warn($"session {sessionId} loop health check failed; restarting loops");
         JoinActiveSession(sessionId, mode);
@@ -496,6 +519,8 @@ public sealed class Agent
         }, CancellationToken.None);
     }
 
+    private HashSet<string> _videoOnlySessions = new();
+
     private void StartSessionLoops(string sessionId, string mode)
     {
         if (!HasAuthority || _outerCt.IsCancellationRequested ||
@@ -508,13 +533,15 @@ public sealed class Agent
             _api.LocalAuthorization!.Authorization.Capabilities, () => HasAuthority);
         _api.LivePermission = _peerInputPermission;
         _api.LiveSessionId = sessionId;
+        var videoOnly = _videoOnlySessions.Contains(sessionId);
+        _api.LiveVideoOnly = videoOnly;
         _sessionCts?.Cancel();
         _sessionCts = CancellationTokenSource.CreateLinkedTokenSource(_outerCt);
         var t = _sessionCts.Token;
         _loopSessionId = sessionId;
         _loopMode = mode;
-        _screenTask = RunSessionLoop("screen", sessionId, ct => ScreenCapture.RunAsync(_api, sessionId, ct), t);
-        _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct), t);
+        _screenTask = RunSessionLoop("screen", sessionId, ct => ScreenCapture.RunAsync(_api, sessionId, ct, videoOnly), t);
+        _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct, videoOnly), t);
         _cursorTask = RunSessionLoop("cursor", sessionId, ct => CursorPump.RunAsync(_api, sessionId, ct), t);
         Log.Info($"session {sessionId} loops started ({mode})");
         ReportState($"Session active ({mode})");
@@ -528,7 +555,7 @@ public sealed class Agent
         StartSessionLoops(sessionId, mode);
         try
         {
-            _rtc = new WebRtcSession(_api, sessionId, _peerInputPermission);
+            _rtc = new WebRtcSession(_api, sessionId, _peerInputPermission, _api.LiveVideoOnly);
             _ = _rtc.StartAsync();
         }
         catch (Exception ex) { Log.Warn($"webrtc start: {ex.Message}"); }
@@ -578,7 +605,7 @@ public sealed class Agent
         // NAT, no TURN), the HTTPS loops above already carry the whole session.
         try
         {
-            _rtc = new WebRtcSession(_api, sessionId, _peerInputPermission);
+            _rtc = new WebRtcSession(_api, sessionId, _peerInputPermission, _api.LiveVideoOnly);
             await _rtc.StartAsync();
         }
         catch (Exception ex) { Log.Warn($"webrtc start: {ex.Message}"); }

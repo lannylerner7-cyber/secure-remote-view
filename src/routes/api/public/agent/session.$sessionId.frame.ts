@@ -27,11 +27,14 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/frame
         // Ownership check: the session must belong to this device and be live.
         const { data: session } = await ctx.admin
           .from("sessions")
-          .select("id, device_id, state")
+          .select("id, device_id, state, media_mode")
           .eq("id", params.sessionId)
           .maybeSingle();
         if (!session || session.device_id !== ctx.device.id) {
           return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+        }
+        if (session.media_mode === "video") {
+          return Response.json({ error: "video_only_session" }, { status: 409 });
         }
         if (session.state !== "active" || !(await sessionAuthorized(ctx.admin, session.id))) {
           return new Response(JSON.stringify({ error: "not_active", state: session.state }), {

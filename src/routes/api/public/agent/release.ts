@@ -27,7 +27,8 @@ import { normalizePlatform, releaseProductFor } from "@/shared/platform";
 
 // agent = Windows agent, android = Android APK, admin = native console.
 const PRODUCTS = new Set(["agent", "admin", "android"]);
-const CHANNELS = new Set(["stable", "beta"]);
+// Runtime updates are separate from user-facing installer downloads.
+const CHANNELS = new Set(["stable", "beta", "stable-update"]);
 
 async function verifyTechnician(request: Request): Promise<boolean> {
   const auth = request.headers.get("authorization");
@@ -59,8 +60,18 @@ export const Route = createFileRoute("/api/public/agent/release")({
           ? releaseProductFor(normalizePlatform((device.device as { platform?: string }).platform))
           : (url.searchParams.get("product") ?? "agent");
         const channel = url.searchParams.get("channel") ?? "stable";
-        if (!PRODUCTS.has(product) || !CHANNELS.has(channel)) {
+        if (!PRODUCTS.has(product) || !CHANNELS.has(channel) ||
+            (channel === "stable-update" && product !== "agent")) {
           return new Response("bad request", { status: 400 });
+        }
+        // Checksum-only legacy Agents must be bootstrapped by an installer.
+        // Never hand an installer EXE/MSI to their old in-place binary swapper.
+        // Technician downloads and the native Admin banner remain unchanged.
+        if (device && product === "agent" && channel !== "stable-update") {
+          return new Response(null, { status: 204, headers: {
+            "cache-control": "no-store",
+            "x-connectlive-update-policy": "signed-updater-bootstrap-required",
+          } });
         }
 
         const { data, error } = await adminClient()

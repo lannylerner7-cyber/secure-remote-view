@@ -62,6 +62,11 @@ public static class StartupRegistration
 
     internal static bool IsRunningFromInstallDir(string exePath, out string? installDir)
     {
+        if (UpdateEnvironment.IsUserInstall(Path.GetDirectoryName(exePath)!))
+        {
+            installDir = UpdateEnvironment.UserInstall;
+            return true;
+        }
         installDir = InstalledDirectory();
         if (string.IsNullOrWhiteSpace(installDir)) return false;
         try
@@ -76,6 +81,7 @@ public static class StartupRegistration
 
     public static void RegisterStartupWithWindows()
     {
+        if (!StartupConsent.IsAllowed()) { Unregister(); return; }
         try
         {
             var exePath = CurrentExePath();

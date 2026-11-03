@@ -38,7 +38,8 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/recon
           return new Response(JSON.stringify({ error: "wrong_device" }), { status: 403 });
         }
          // Reconnect is transport recovery, never a consent/state transition.
-         if (session.state !== "active" || !(await sessionAuthorized(ctx.admin, session.id))) {
+          if (session.state !== "active" || !session.consent_at ||
+              !(await sessionAuthorized(ctx.admin, session.id))) {
            return new Response(JSON.stringify({ error: "session_not_authorized" }), { status: 409 });
         }
         if (code && session.pairing_code && session.pairing_code !== code) {

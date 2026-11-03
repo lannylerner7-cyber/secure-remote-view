@@ -1,225 +1,206 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
-using System.Linq;
 using System.Net.Http;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using ConnectLive.Updates;
 
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// S14 — agent self-update (download → verify → swap → restart).
-///
-/// The agent is standalone: there is no watcher/updater service to swap the
-/// binary for it, so the running process has to replace itself. Windows will
-/// not let a running image be overwritten, but it WILL let it be renamed —
-/// so the swap is:
-///
-///   1. Ask <c>/api/public/agent/release</c> for the newest published build
-///      (device-token authed). 204/failure = nothing to do, ever.
-///   2. Skip unless the manifest version is strictly newer than
-///      <see cref="ApiClient.AgentVersion"/>.
-///   3. Download to <c>%LOCALAPPDATA%\ConnectLive\update\</c>, accepting either
-///      a bare .exe or a .zip containing ConnectLive.exe.
-///   4. Verify SHA-256 when the manifest carries one. A manifest WITHOUT a
-///      checksum is never installed — an unverified binary swap is a remote
-///      code execution primitive, not an update.
-///   5. Rename the live exe to <c>*.old</c>, move the new one into its place,
-///      relaunch with <c>/background</c>, and exit the current process.
-///
-/// Safety rails, all deliberate:
-///   - never runs while a session is live (checked by the caller);
-///   - at most one attempt per version per process, and a 1 h floor between
-///     checks, so a bad manifest cannot become a restart loop;
-///   - every failure path is swallowed and logged — an update check must
-///     never be able to take presence down.
+/// Downloads and authenticates in the background. The heartbeat loop commits
+/// only while idle; a separate non-elevated worker waits for this process to
+/// exit before touching installed files. No unsigned or checksum-only update.
 /// </summary>
 public static class SelfUpdate
 {
-    private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(1);
     private static readonly SemaphoreSlim Gate = new(1, 1);
-
     private static DateTime _lastCheckUtc = DateTime.MinValue;
+    private static Task? _preparing;
+    private static string? _readyJob;
     private static string? _attemptedVersion;
+    private static Process? _worker;
+    public static event Action? WorkAvailable;
+    private static string _state = "idle";
+    public static string State
+    {
+        get => _state;
+        private set
+        {
+            if (_state == value) return;
+            _state = value;
+            Log.Info("signed update status: " + value);
+        }
+    }
+    public static bool DueForCheck => _readyJob != null ||
+        (_preparing?.IsCompleted != false && DateTime.UtcNow - _lastCheckUtc >= TimeSpan.FromHours(1));
 
-    /// <summary>Directory holding downloads and the retired *.old image.</summary>
-    private static string UpdateDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ConnectLive", "update");
-
-    /// <summary>True when the interval has elapsed since the last check.</summary>
-    public static bool DueForCheck => DateTime.UtcNow - _lastCheckUtc >= CheckInterval;
-
-    /// <summary>
-    /// Check the manifest and, when a verified newer build exists, install it
-    /// and restart. Returns true only when a restart has been launched (the
-    /// caller should stop doing work; the process exits immediately after).
-    /// </summary>
     public static async Task<bool> TryUpdateAsync(ApiClient api, CancellationToken ct)
     {
         if (!await Gate.WaitAsync(0, ct)) return false;
         try
         {
+            if (!StartupConsent.IsAllowed()) { State = "local-opt-in-required"; return false; }
+            if (!UpdateEnvironment.IsUserInstall(AppContext.BaseDirectory) || UpdateEnvironment.IsElevated())
+            { State = "administrator-managed"; return false; }
+            if (UpdatePackage.InstalledPublisherKey() == null)
+            { State = "publisher-key-required"; return false; }
+            if (_readyJob != null)
+            {
+                var id = _readyJob;
+                var directory = UpdateEnvironment.JobPath(id);
+                if (_worker != null)
+                {
+                    if (_worker.HasExited)
+                    {
+                        _worker.Dispose(); _worker = null; _readyJob = null;
+                        _attemptedVersion = null;
+                        _lastCheckUtc = DateTime.UtcNow;
+                        State = "worker-start-failed";
+                        return false;
+                    }
+                    if (File.Exists(Path.Combine(directory, "worker-ready")) &&
+                        File.ReadAllText(Path.Combine(directory, "worker-ready")) == id)
+                    {
+                        // Written only by the idle heartbeat path. A parent
+                        // crash before this point must recover, not install.
+                        var journal = UpdateJournal.Read(Path.Combine(directory, "journal.json"));
+                        // Persist before exit, including failures before backup
+                        // creation. Otherwise restarting the old build can
+                        // immediately repeat the same failed update forever.
+                        ConfigFile.Write(Path.Combine(UpdateEnvironment.Root, "attempted-version"), journal.Version);
+                        ConfigFile.Write(Path.Combine(directory, "commit"), id);
+                        State = "handoff";
+                        Log.Info("signed update worker ready; Agent exiting before replacement");
+                        return true;
+                    }
+                    return false;
+                }
+                if (UpdateEnvironment.Pending()) return false;
+                ConfigFile.Write(UpdateEnvironment.ActivePointer, id);
+                var start = new ProcessStartInfo(Path.Combine(directory, "runner", "ConnectLiveUpdate.exe"))
+                { UseShellExecute = false, CreateNoWindow = true };
+                start.ArgumentList.Add("--apply"); start.ArgumentList.Add(id);
+                _worker = Process.Start(start) ?? throw new IOException("Update worker did not start");
+                var pid = _worker.Id;
+                State = "worker-verifying";
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var observer = Process.GetProcessById(pid);
+                        var wait = Stopwatch.StartNew();
+                        while (!observer.HasExited && wait.Elapsed < TimeSpan.FromSeconds(90))
+                        {
+                            if (File.Exists(Path.Combine(directory, "worker-ready"))) break;
+                            await Task.Delay(100, ct);
+                        }
+                        WorkAvailable?.Invoke();
+                    }
+                    catch (OperationCanceledException) { }
+                    catch { WorkAvailable?.Invoke(); }
+                }, ct);
+                // Keep heartbeats, invitations and local withdrawal responsive
+                // while the worker validates/extracts the signed bundle.
+                return false;
+            }
+            if (_preparing?.IsCompleted == false || !DueForCheck) return false;
             _lastCheckUtc = DateTime.UtcNow;
-
-            var manifest = await api.GetReleaseAsync("agent", "stable", ct);
-            if (manifest?.Version is not { Length: > 0 } version) return false;
-            if (string.IsNullOrWhiteSpace(manifest.DownloadUrl)) return false;
-
-            var current = ApiClient.AgentVersion;
-            if (!manifest.IsNewerThan(current)) return false;
-            if (_attemptedVersion == version)
-            {
-                Log.Warn($"self-update: {version} already attempted this run, skipping");
-                return false;
-            }
-            _attemptedVersion = version;
-
-            if (string.IsNullOrWhiteSpace(manifest.Sha256))
-            {
-                Log.Warn($"self-update: release {version} has no sha256 — refusing unverified swap");
-                return false;
-            }
-
-            var live = StartupRegistration.CurrentExePath();
-            if (string.IsNullOrWhiteSpace(live) || !File.Exists(live))
-            {
-                Log.Warn("self-update: cannot resolve current exe path");
-                return false;
-            }
-
-            Log.Info($"self-update: {current} -> {version} ({manifest.DownloadUrl})");
-
-            var staged = await DownloadAndVerifyAsync(manifest.DownloadUrl!, manifest.Sha256!, version, ct);
-            if (staged == null) return false;
-
-            return SwapAndRestart(live!, staged, version);
+            _preparing = Task.Run(() => Prepare(api, ct), ct);
+            return false;
         }
+        catch (OperationCanceledException) { return false; }
         catch (Exception ex)
         {
-            Log.Warn($"self-update failed: {ex.Message}");
+            State = "update-failed";
+            Log.Warn($"signed update could not proceed ({ex.GetType().Name}); current installation retained");
             return false;
         }
         finally { Gate.Release(); }
     }
 
-    /// <summary>
-    /// Download the artifact, verify its SHA-256, and return the path to a
-    /// ready-to-install ConnectLive.exe (extracting it when the artifact is a
-    /// zip). Null on any mismatch or failure.
-    /// </summary>
-    private static async Task<string?> DownloadAndVerifyAsync(
-        string url, string expectedSha, string version, CancellationToken ct)
+    private static async Task Prepare(ApiClient api, CancellationToken ct)
     {
-        Directory.CreateDirectory(UpdateDir);
-        var isZip = url.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
-        var artifact = Path.Combine(UpdateDir, isZip ? $"ConnectLive-{version}.zip" : $"ConnectLive-{version}.exe");
-
+        string? jobDirectory = null;
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-            using (var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
+            State = "checking";
+            var release = await api.GetReleaseAsync("agent", "stable-update", ct);
+            if (release == null || !release.IsNewerThan(ApiClient.AgentVersion) ||
+                string.IsNullOrWhiteSpace(release.Version) || string.IsNullOrWhiteSpace(release.DownloadUrl) ||
+                string.IsNullOrWhiteSpace(release.Sha256)) { State = "current"; return; }
+            var version = release.Version;
+            UpdatePackage.ValidateVersion(version);
+            if (_attemptedVersion == version) return;
+            Directory.CreateDirectory(UpdateEnvironment.Root);
+            var failedVersion = Path.Combine(UpdateEnvironment.Root, "attempted-version");
+            if (File.Exists(failedVersion) && File.ReadAllText(failedVersion).Trim() == version)
+            { State = "failed-release-held"; return; }
+            _attemptedVersion = version;
+            if (!UpdatePackage.IsZipUrl(release.DownloadUrl) ||
+                !new Uri(release.DownloadUrl).GetLeftPart(UriPartial.Authority)
+                    .Equals(LocalGrant.OriginOf(api.ApiBaseUrl), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Update ZIP must use the configured gateway HTTPS origin");
+            using var parent = Process.GetCurrentProcess();
+            var journal = new UpdateJournal
             {
-                if (!resp.IsSuccessStatusCode)
+                InstallDirectory = AppContext.BaseDirectory, Version = version,
+                ArchiveSha256 = release.Sha256, ParentPid = parent.Id,
+                ParentStartTicks = parent.StartTime.ToUniversalTime().Ticks,
+            };
+            jobDirectory = UpdateEnvironment.JobPath(journal.Id);
+            Directory.CreateDirectory(jobDirectory);
+            var archive = Path.Combine(jobDirectory, "package.zip");
+            State = "downloading";
+            using (var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+                   { Timeout = TimeSpan.FromMinutes(10) })
+            using (var response = await http.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct))
+            {
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentLength > UpdatePackage.MaxArchiveBytes)
+                    throw new InvalidDataException("Update download exceeds size limit");
+                await using var input = await response.Content.ReadAsStreamAsync(ct);
+                await using var output = new FileStream(archive, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                var buffer = new byte[81920];
+                long total = 0;
+                int count;
+                while ((count = await input.ReadAsync(buffer, ct)) != 0)
                 {
-                    Log.Warn($"self-update: download HTTP {(int)resp.StatusCode}");
-                    return null;
+                    if (!StartupConsent.IsAllowed()) throw new OperationCanceledException("Local startup authorization withdrawn");
+                    total += count;
+                    if (total > UpdatePackage.MaxArchiveBytes) throw new InvalidDataException("Update download exceeds size limit");
+                    await output.WriteAsync(buffer.AsMemory(0, count), ct);
                 }
-                await using var src = await resp.Content.ReadAsStreamAsync(ct);
-                await using var dst = File.Create(artifact);
-                await src.CopyToAsync(dst, ct);
+                output.Flush(true);
             }
-
-            var actual = Sha256File(artifact);
-            if (!string.Equals(actual, expectedSha.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                Log.Warn($"self-update: sha256 mismatch (want {expectedSha}, got {actual}) — discarding");
-                TryDelete(artifact);
-                return null;
-            }
-            Log.Info($"self-update: sha256 verified for {version}");
-
-            if (!isZip) return artifact;
-
-            var extractDir = Path.Combine(UpdateDir, version);
-            if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true);
-            ZipFile.ExtractToDirectory(artifact, extractDir);
-            var exe = Directory
-                .EnumerateFiles(extractDir, "ConnectLive.exe", SearchOption.AllDirectories)
-                .FirstOrDefault();
-            if (exe == null)
-            {
-                Log.Warn("self-update: zip contains no ConnectLive.exe");
-                return null;
-            }
-            return exe;
+            State = "verifying";
+            UpdatePackage.VerifyAndExtract(archive, Path.Combine(jobDirectory, "stage"),
+                UpdatePackage.InstalledPublisherKey()!, version, release.Sha256);
+            var runnerDirectory = Path.Combine(jobDirectory, "runner");
+            Directory.CreateDirectory(runnerDirectory);
+            var runner = Path.Combine(runnerDirectory, "ConnectLiveUpdate.exe");
+            File.Copy(Path.Combine(AppContext.BaseDirectory, "ConnectLiveUpdate.exe"), runner);
+            journal.RunnerSha256 = UpdatePackage.HashFile(runner);
+            journal.Save(Path.Combine(jobDirectory, "journal.json"));
+            ct.ThrowIfCancellationRequested();
+            if (!StartupConsent.IsAllowed()) throw new OperationCanceledException();
+            _readyJob = journal.Id;
+            State = "staged-waiting-for-idle";
+            WorkAvailable?.Invoke();
         }
         catch (Exception ex)
         {
-            Log.Warn($"self-update: download/verify failed: {ex.Message}");
-            return null;
+            State = ex is OperationCanceledException ? "cancelled" : "verification-failed";
+            Log.Warn($"signed update staging stopped ({ex.GetType().Name}); no installed files changed");
+            if (jobDirectory != null)
+                try
+                {
+                    var activeId = File.Exists(UpdateEnvironment.ActivePointer)
+                        ? File.ReadAllText(UpdateEnvironment.ActivePointer).Trim() : null;
+                    if (activeId != Path.GetFileName(jobDirectory)) Directory.Delete(jobDirectory, true);
+                }
+                catch { } // Preserve ambiguous state for recovery rather than delete it.
         }
-    }
-
-    /// <summary>
-    /// Rename-then-replace the live image and relaunch. Any failure before the
-    /// relaunch is rolled back so the machine is never left without an agent.
-    /// </summary>
-    private static bool SwapAndRestart(string live, string staged, string version)
-    {
-        var retired = Path.Combine(UpdateDir, $"ConnectLive-{ApiClient.AgentVersion}.old");
-        TryDelete(retired);
-        try
-        {
-            // A running image can't be overwritten, but it can be renamed.
-            File.Move(live, retired);
-            try
-            {
-                File.Copy(staged, live, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                // Put the old binary back — a half-swapped install is worse
-                // than a missed update.
-                try { File.Move(retired, live); } catch { }
-                Log.Warn($"self-update: install failed, rolled back: {ex.Message}");
-                return false;
-            }
-
-            // Re-assert startup registration against the new image, then hand
-            // over. /background keeps the relaunch silent (no splash).
-            try { StartupRegistration.RegisterStartupWithWindows(); } catch { }
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = live,
-                Arguments = "/background",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-
-            Log.Info($"self-update: installed {version}, restarting");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"self-update: swap failed: {ex.Message}");
-            return false;
-        }
-    }
-
-    private static string Sha256File(string path)
-    {
-        using var sha = SHA256.Create();
-        using var fs = File.OpenRead(path);
-        return Convert.ToHexString(sha.ComputeHash(fs)).ToLowerInvariant();
-    }
-
-    private static void TryDelete(string path)
-    {
-        try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 }

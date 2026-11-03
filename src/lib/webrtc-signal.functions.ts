@@ -12,8 +12,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { sessionAuthorized } from "./authorization.server";
+import { isAdminClientId } from "@/shared/signaling-identity";
 
-const CLIENT_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 const KINDS = new Set(["offer", "ice", "bye"]);
 const MAX_PAYLOAD_BYTES = 32_000;
 
@@ -30,7 +30,7 @@ export const postAdminSignal = createServerFn({ method: "POST" })
       if (!input || typeof input !== "object") throw new Error("invalid_input");
       if (typeof input.sessionId !== "string" || input.sessionId.length < 10)
         throw new Error("invalid_session_id");
-      if (typeof input.clientId !== "string" || !CLIENT_ID_RE.test(input.clientId))
+      if (!isAdminClientId(input.clientId))
         throw new Error("invalid_client_id");
       if (!KINDS.has(input.kind)) throw new Error("invalid_kind");
       if (typeof input.attemptId !== "string" || input.attemptId.length < 4 || input.attemptId.length > 80)
@@ -83,7 +83,7 @@ export const bindAdmin = createServerFn({ method: "POST" })
     if (!input || typeof input !== "object") throw new Error("invalid_input");
     if (typeof input.sessionId !== "string" || input.sessionId.length < 10)
       throw new Error("invalid_session_id");
-    if (typeof input.clientId !== "string" || !CLIENT_ID_RE.test(input.clientId))
+    if (!isAdminClientId(input.clientId))
       throw new Error("invalid_client_id");
     return input;
   })

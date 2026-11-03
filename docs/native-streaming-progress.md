@@ -1,3 +1,19 @@
+# Agent/browser lifecycle implementation — 2026-11-03
+
+The 1.10.1 source update adds acknowledged browser curtain controls, cadence-aware
+presence, a separate authorized Watch recovery command, stale-report protection,
+and deliberate Agent/Watch/update-helper packaging. It does not retire native
+Admin or claim Windows runtime parity.
+
+- Implementation and deployment order: [agent-lifecycle-implementation.md](agent-lifecycle-implementation.md).
+- Required Windows evidence: [agent-windows-verification.md](agent-windows-verification.md).
+- The lifecycle migration is prepared, not applied to a remote database.
+- Linux cross-builds and portable protocol/SQL tests do not validate MSI
+  installation, Windows input hooks, display capture or update recovery.
+- No production deployment or GitHub push is part of this source validation.
+
+Earlier entries below remain historical evidence, not certification of this update.
+
 # Native streaming investigation — 2026-10-22
 
 ## Status: partial implementation, NOT a production certification

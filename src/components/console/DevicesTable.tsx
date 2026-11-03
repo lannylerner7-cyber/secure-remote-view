@@ -20,6 +20,10 @@ export function DevicesTable({
   canShutdown,
   onWake,
   onPower,
+  lifecycleStatus,
+  lifecycleError,
+  relaunching = false,
+  canRelaunch = false,
 }: {
   devices: Device[];
   latestVersions: { agent: string | null; android: string | null };
@@ -37,6 +41,10 @@ export function DevicesTable({
   canShutdown: boolean;
   onWake: (d: Device) => void;
   onPower: (d: Device, kind: PowerKind) => void;
+  lifecycleStatus?: (d: Device) => string;
+  lifecycleError?: string | null;
+  relaunching?: boolean;
+  canRelaunch?: boolean;
 }) {
   const [updatesOnly, setUpdatesOnly] = useState(false);
   const hasUpdate = (d: Device) => {
@@ -48,6 +56,7 @@ export function DevicesTable({
 
   return (
     <div>
+      {lifecycleError && <p role="alert" className="mb-3 rounded border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">{lifecycleError}</p>}
       <div className="mb-3 flex items-center justify-between gap-3">
         <span className="text-xs text-white/50">{devices.length} devices</span>
         <button
@@ -64,8 +73,9 @@ export function DevicesTable({
           <button onClick={onBulkEnd} className="rounded bg-red-500/80 px-2 py-1">
             End sessions
           </button>
-          <button onClick={onBulkRestart} className="rounded bg-white/10 px-2 py-1">
-            Restart agent app
+          <button onClick={onBulkRestart} disabled={!canRelaunch || !!lifecycleError || relaunching}
+            className="rounded bg-white/10 px-2 py-1 disabled:opacity-40">
+            {relaunching ? "Requesting recovery…" : "Relaunch Windows Agent"}
           </button>
           <button onClick={onClearSelected} className="rounded border border-white/15 px-2 py-1">
             Clear
@@ -139,6 +149,7 @@ export function DevicesTable({
                       />
                       {p === "stopped" ? "stopped" : p}
                     </span>
+                    {lifecycleStatus && <p className="mt-1 max-w-xs text-[10px] leading-relaxed text-white/55">{lifecycleStatus(d)}</p>}
                   </td>
                   <td className="px-4 py-2 text-white/60">
                     {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "—"}

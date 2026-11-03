@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ConnectLiveUpdate</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <ApplicationManifest>..\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\update-core\ConnectLive.UpdateCore.csproj" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <Compile Include="..\LocalAccessState.cs" Link="LocalAccessState.cs" />
+    <Compile Include="..\StartupConsent.cs" Link="StartupConsent.cs" />
+    <Compile Include="..\GrantStore.cs" Link="GrantStore.cs" />
+    <Compile Include="..\AuthorizationGrant.cs" Link="AuthorizationGrant.cs" />
+    <Compile Include="..\UpdateEnvironment.cs" Link="UpdateEnvironment.cs" />
+    <Compile Include="..\ConfigFile.cs" Link="ConfigFile.cs" />
+    <Compile Include="..\CompanionAuthorization.cs" Link="CompanionAuthorization.cs" />
+    <Compile Include="..\AgentProcessState.cs" Link="AgentProcessState.cs" />
+    <Compile Include="..\InstallationLifecycle.cs" Link="InstallationLifecycle.cs" />
+  </ItemGroup>
+</Project>

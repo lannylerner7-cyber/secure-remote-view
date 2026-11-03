@@ -64,20 +64,23 @@ public static class ScreenCapture
 
 
 
-    public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct)
+    public static async Task RunAsync(ApiClient api, string sessionId, CancellationToken ct, bool videoOnly = false)
     {
         var permission = api.LivePermission;
         if (permission?.Allows("view") != true || ct.IsCancellationRequested) return;
-        var codecs = ImageCodecInfo.GetImageEncoders();
         ImageCodecInfo? jpegEnc = null;
-        foreach (var e in codecs) if (e.MimeType == "image/jpeg") { jpegEnc = e; break; }
-        if (jpegEnc == null) return;
+        if (!videoOnly)
+        {
+            foreach (var e in ImageCodecInfo.GetImageEncoders())
+                if (e.MimeType == "image/jpeg") { jpegEnc = e; break; }
+            if (jpegEnc == null) throw new InvalidOperationException("Legacy JPEG encoder unavailable.");
+        }
 
-        var motionParams = new EncoderParameters(1);
-        motionParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.MotionQuality);
+        using var motionParams = videoOnly ? null : new EncoderParameters(1);
+        if (motionParams != null) motionParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.MotionQuality);
 
-        var idleParams = new EncoderParameters(1);
-        idleParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.IdleQuality);
+        using var idleParams = videoOnly ? null : new EncoderParameters(1);
+        if (idleParams != null) idleParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.IdleQuality);
 
 
         ulong lastHash = 0;
@@ -86,8 +89,8 @@ public static class ScreenCapture
         int framesSinceKeyframe = 0;
         // HTTP fallback must not pace DXGI/WebRTC. At most one upload runs and
         // one fresh frame waits; older pending JPEGs are replaced, not replayed.
-        using var uploadsLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct, permission.Token);
-        await using var uploads = new LatestWorkPump<(byte[] Bytes, int Width, int Height)>(
+        using var uploadsLifetime = videoOnly ? null : CancellationTokenSource.CreateLinkedTokenSource(ct, permission.Token);
+        await using var uploads = videoOnly ? null : new LatestWorkPump<(byte[] Bytes, int Width, int Height)>(
             async (pending, token) =>
             {
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -99,7 +102,7 @@ public static class ScreenCapture
                 if (posted) uploadFails = 0;
                 else if (!token.IsCancellationRequested && (++uploadFails == 1 || uploadFails % 10 == 0))
                     Log.Warn($"fallback upload failed ({uploadFails}); capture continues");
-            }, uploadsLifetime.Token);
+            }, uploadsLifetime!.Token);
 
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
@@ -342,28 +345,23 @@ public static class ScreenCapture
                     lastHash = hash;
                     delayMs = motionDelayMs; // back to the rung's full rate
 
-                    // Update quality params if the mode changed at runtime.
-                    motionParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.MotionQuality);
-                    idleParams.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
-
                     // Tee the frame into the WebRTC track when a peer is connected.
                     TeeToWebRtc(frame, throttled: false);
 
-
-                    // Use higher quality for idle keyframes, lower for motion frames.
-                    var encP = wasIdle ? idleParams : motionParams;
-                    using var ms = new MemoryStream();
-                    // S17 step 1 — time the ENCODE alone. The upload is measured
-                    // separately below; folding them together would make a slow
-                    // link look like a slow encoder, which is the exact
-                    // confusion the S17 decision has to avoid.
-                    var encodeSw = System.Diagnostics.Stopwatch.StartNew();
-                    frame.Save(ms, jpegEnc, encP);
-                    encodeSw.Stop();
-                    EncodeStats.NoteJpegEncode(
-                        encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, w, h);
-                    if (!uploads.Offer((ms.ToArray(), w, h)) && !ct.IsCancellationRequested)
-                        Log.Warn("fallback upload worker stopped accepting frames");
+                    if (!videoOnly)
+                    {
+                        motionParams!.Param[0] = new EncoderParameter(Encoder.Quality, rung.MotionQuality);
+                        idleParams!.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
+                        var encP = wasIdle ? idleParams : motionParams;
+                        using var ms = new MemoryStream();
+                        var encodeSw = System.Diagnostics.Stopwatch.StartNew();
+                        frame.Save(ms, jpegEnc!, encP);
+                        encodeSw.Stop();
+                        EncodeStats.NoteJpegEncode(
+                            encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, w, h);
+                        if (!uploads!.Offer((ms.ToArray(), w, h)) && !ct.IsCancellationRequested)
+                            Log.Warn("fallback upload worker stopped accepting frames");
+                    }
                     MaybeLogEncodeStats();
                 }
             }

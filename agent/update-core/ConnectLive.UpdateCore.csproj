@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UpdatePublicKeyPath)' != ''">
+    <EmbeddedResource Include="$(UpdatePublicKeyPath)" LogicalName="ConnectLive.UpdatePublisher.pem" />
+  </ItemGroup>
+  <Target Name="ValidatePublisherPublicKey" BeforeTargets="PrepareResources" Condition="'$(UpdatePublicKeyPath)' != ''">
+    <Error Condition="$([System.IO.File]::ReadAllText('$(UpdatePublicKeyPath)').Contains('PRIVATE KEY'))"
+           Text="Never embed a private signing key. UpdatePublicKeyPath must be a public SPKI PEM." />
+    <Error Condition="!$([System.IO.File]::ReadAllText('$(UpdatePublicKeyPath)').Contains('-----BEGIN PUBLIC KEY-----'))"
+           Text="UpdatePublicKeyPath must contain a public SPKI PEM." />
+  </Target>
+</Project>

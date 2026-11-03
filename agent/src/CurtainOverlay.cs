@@ -6,6 +6,8 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Forms;
+using System.Threading.Tasks;
+using System.Linq;
 
 namespace ConnectLive.Agent;
 
@@ -15,12 +17,13 @@ namespace ConnectLive.Agent;
 /// the admin's stream stays clean while the physical user sees the notice.
 ///
 /// The overlay is display-only: physical input is disabled at the OS layer
-/// by InputBlocker, and admin input arrives via SendInput which is not
-/// affected by BlockInput while the agent runs elevated.
+/// by an ordinary-desktop input filter. It neither elevates nor replaces
+/// Windows security boundaries. Capture exclusion requires Windows testing.
 /// </summary>
 public sealed class CurtainOverlay
 {
     [DllImport("user32.dll")] private static extern uint SetWindowDisplayAffinity(IntPtr hwnd, uint dwAffinity);
+    [DllImport("user32.dll")] private static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint affinity);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll", SetLastError = true)] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll", SetLastError = true)] private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
@@ -34,24 +37,39 @@ public sealed class CurtainOverlay
     private const int WS_EX_LAYERED = 0x00080000;
 
     private static readonly List<Window> _windows = new();
-    private static bool _active;
+    private static readonly List<TaskCompletionSource<bool>> _rendered = new();
+    private static volatile bool _active;
 
     public static bool IsShown => _active;
 
     public static bool Show()
     {
         if (_active) return true;
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041)) return false;
         try
         {
             foreach (var screen in Screen.AllScreens)
             {
                 var w = BuildWindow(screen);
                 _windows.Add(w);
-                w.Show();
-                var hwnd = new WindowInteropHelper(w).Handle;
+                var rendered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _rendered.Add(rendered);
+                w.ContentRendered += (_, _) => rendered.TrySetResult(true);
+                // Create the HWND while still hidden. Never show even a first
+                // frame before Windows accepts the requested capture exclusion.
+                var hwnd = new WindowInteropHelper(w).EnsureHandle();
                 ApplyGhostStyles(hwnd);
-                if (SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) == 0)
+                if (SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) == 0 ||
+                    !GetWindowDisplayAffinity(hwnd, out var affinity) || affinity != WDA_EXCLUDEFROMCAPTURE)
                     throw new InvalidOperationException("Windows rejected curtain capture exclusion.");
+                var bounds = screen.Bounds;
+                if (!SetWindowPos(hwnd, HWND_TOPMOST, bounds.Left, bounds.Top, bounds.Width, bounds.Height, SWP_NOACTIVATE))
+                    throw new InvalidOperationException("Windows rejected curtain placement.");
+                w.Show();
+                // Native pixel bounds avoid treating per-monitor physical
+                // pixels as WPF DIPs. Reassert after WPF's first layout pass.
+                if (!SetWindowPos(hwnd, HWND_TOPMOST, bounds.Left, bounds.Top, bounds.Width, bounds.Height, SWP_NOACTIVATE))
+                    throw new InvalidOperationException("Windows rejected curtain placement.");
             }
             if (_windows.Count == 0) throw new InvalidOperationException("No display available for curtain.");
             _active = true;
@@ -65,6 +83,17 @@ public sealed class CurtainOverlay
         }
     }
 
+    internal static async Task<bool> ShowRenderedAsync()
+    {
+        if (!Show()) return false;
+        try
+        {
+            await Task.WhenAll(_rendered.Select(signal => signal.Task)).WaitAsync(TimeSpan.FromSeconds(2));
+            return _active;
+        }
+        catch { Hide(); return false; }
+    }
+
     public static void Hide()
     {
         _active = false;
@@ -73,6 +102,8 @@ public sealed class CurtainOverlay
             try { w.Close(); } catch { }
         }
         _windows.Clear();
+        foreach (var signal in _rendered) signal.TrySetCanceled();
+        _rendered.Clear();
     }
 
     private static Window BuildWindow(Screen screen)
@@ -88,10 +119,8 @@ public sealed class CurtainOverlay
             ShowInTaskbar = false,
             Focusable = false,
             WindowStartupLocation = WindowStartupLocation.Manual,
-            Left = screen.Bounds.Left,
-            Top = screen.Bounds.Top,
-            Width = screen.Bounds.Width,
-            Height = screen.Bounds.Height,
+            Width = 1,
+            Height = 1,
             Title = "ConnectLive maintenance",
         };
 
@@ -126,7 +155,7 @@ public sealed class CurtainOverlay
         });
         stack.Children.Add(new TextBlock
         {
-            Text = "Your keyboard and mouse are temporarily disabled. To override and regain control at any time, press Ctrl + Alt + Del.",
+            Text = "Local keyboard and mouse input is temporarily paused. Press Ctrl + Alt + Shift + Esc to stop remote access. Windows Ctrl + Alt + Del remains available.",
             Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
             FontSize = 13,
             TextWrapping = TextWrapping.Wrap,

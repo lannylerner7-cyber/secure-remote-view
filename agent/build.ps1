@@ -7,9 +7,7 @@
 #
 # Prerequisites (install once):
 #   Inno Setup 6+  https://jrsoftware.org/isinfo.php   (iscc must be on PATH)
-#   WiX v4         dotnet tool install --global wix
-#                  wix extension add -g WixToolset.Util.wixext
-#                  wix extension add -g WixToolset.Firewall.wixext
+#   WiX 4.0.6      restored from agent/.config/dotnet-tools.json by this script
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File build.ps1
@@ -24,12 +22,44 @@ param(
     [switch]$SkipInno,
     [switch]$SkipMsi,
     [switch]$SkipSign,
-    [string]$Version
+    [string]$Version,
+    [string]$UpdatePublicKeyPath,
+    [switch]$CreateUpdateBundle
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+    throw "Installer compilation and MSI inspection require Windows. Linux cross-builds do not validate MSI installation."
+}
+function Invoke-PinnedWix {
+    param([string[]]$WixArguments)
+    # WiX 4 targets .NET 6. Run its managed tool on the required .NET 8
+    # runtime rather than asking operators to install unsupported .NET 6.
+    $previous = $env:DOTNET_ROLL_FORWARD
+    try {
+        $env:DOTNET_ROLL_FORWARD = "Major"
+        & dotnet tool run wix -- @WixArguments
+        if ($LASTEXITCODE -ne 0) { throw "Pinned WiX command failed: $($WixArguments[0])" }
+    } finally {
+        if ($null -eq $previous) { Remove-Item Env:DOTNET_ROLL_FORWARD -ErrorAction SilentlyContinue }
+        else { $env:DOTNET_ROLL_FORWARD = $previous }
+    }
+}
+if ($CreateUpdateBundle -and -not $UpdatePublicKeyPath) {
+    throw "A reviewed publisher public key is required for signed runtime updates."
+}
+$publisherProperties = @()
+if ($UpdatePublicKeyPath) {
+    $UpdatePublicKeyPath = (Resolve-Path -LiteralPath $UpdatePublicKeyPath).Path
+    $publisherProperties += "-p:UpdatePublicKeyPath=$UpdatePublicKeyPath"
+} else {
+    Write-Warning "No publisher pin supplied. Automatic updates will be disabled in this build."
+}
+if ($CreateUpdateBundle -and -not $env:CONNECTLIVE_UPDATE_SIGNING_KEY_PEM) {
+    throw "Configure the update signing secret in the protected build environment first."
+}
 
 # S25 - Authenticode signing. Credentials come from CODESIGN_* environment
 # variables; see docs/SIGNING.md. Unconfigured = unsigned build + warning,
@@ -63,6 +93,19 @@ if ($Version -notmatch '^\d{1,3}\.\d{1,3}\.\d{1,5}$') {
 $parts = $Version.Split('.') | ForEach-Object { [int]$_ }
 if ($parts[0] -gt 255 -or $parts[1] -gt 255 -or $parts[2] -gt 65535) { throw "Version exceeds MSI limits." }
 if ($SkipMsi -and $SkipInno) { throw "Select at least one installer target." }
+if (-not $SkipMsi) {
+    & dotnet tool restore
+    if ($LASTEXITCODE -ne 0) { throw "Pinned WiX tool restore failed." }
+    foreach ($extension in @("WixToolset.Util.wixext/4.0.6", "WixToolset.Firewall.wixext/4.0.6")) {
+        Invoke-PinnedWix -WixArguments @("extension", "add", "-g", $extension)
+    }
+}
+if (-not $SkipInno -and -not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+    throw "Inno Setup 6 is not on PATH. Install it, or build MSI only with -SkipInno."
+}
+foreach ($directory in @("publish/agent", "publish/watch", "publish/update-host")) {
+    if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
+}
 # Remove only generated installer outputs so skipped targets cannot leak from
 # an earlier build into this run's archive or signature summary.
 foreach ($artifact in @("dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi", "dist/ConnectLiveAgent.zip", "dist/Intune-app.json")) {
@@ -87,8 +130,25 @@ dotnet publish src/ConnectLiveAgent.csproj `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
     -p:Version=$Version `
+    "-p:AssemblyVersion=$Version.0" `
+    "-p:FileVersion=$Version.0" `
+    @publisherProperties `
     -o publish/agent
 if ($LASTEXITCODE -ne 0) { throw "Agent publish failed (exit $LASTEXITCODE). See the compiler error above." }
+
+# Watch and the update worker are deliberately packaged, not optional stale
+# files from an earlier build. Both run as the interactive user, not services.
+foreach ($companion in @(
+    @{ Project = "src/Watch/ConnectLiveWatch.csproj"; Output = "publish/watch" },
+    @{ Project = "src/UpdateHost/ConnectLiveUpdate.csproj"; Output = "publish/update-host" }
+)) {
+    & dotnet publish $companion.Project -c Release -r win-x64 --self-contained true `
+        -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:EnableCompressionInSingleFile=true "-p:Version=$Version" `
+        "-p:AssemblyVersion=$Version.0" "-p:FileVersion=$Version.0" `
+        @publisherProperties -o $companion.Output
+    if ($LASTEXITCODE -ne 0) { throw "Companion publish failed: $($companion.Project)" }
+}
 
 # -- 3. Stage binaries to dist\ ------------------------------------------------
 # Both packaging/inno/ConnectLiveSetup.iss and packaging/msi/ConnectLive.wxs
@@ -110,11 +170,12 @@ function Assert-Published([string]$Dir, [string]$Exe, [string]$Project) {
 }
 
 Copy-Item (Assert-Published "publish/agent" "ConnectLive.exe" "src\ConnectLiveAgent.csproj") dist/ -Force
+Copy-Item (Assert-Published "publish/watch" "ConnectLiveWatch.exe" "src\Watch\ConnectLiveWatch.csproj") dist/ -Force
+Copy-Item (Assert-Published "publish/update-host" "ConnectLiveUpdate.exe" "src\UpdateHost\ConnectLiveUpdate.csproj") dist/ -Force
 
-$required = @("dist/ConnectLive.exe")
+$required = @("dist/ConnectLive.exe", "dist/ConnectLiveWatch.exe", "dist/ConnectLiveUpdate.exe")
 
-# Standalone build: the Agent is the only payload. Purge any helper-service
-# binary left over from an older full build so it cannot leak into a package.
+# Retired elevated helpers are not the new limited-user companions.
 foreach ($stale in @("dist/ConnectLiveService.exe", "dist/ConnectLiveUpdater.exe", "publish/updater")) {
     if (Test-Path $stale) {
         Remove-Item $stale -Force -Recurse
@@ -140,7 +201,17 @@ if (Test-Path assets/icon.ico) {
 # The exe must be signed BEFORE the installers embed it, otherwise the payload
 # extracted onto the endpoint is unsigned even when the installer is not.
 
-Invoke-ConnectLiveSign -Paths @("dist/ConnectLive.exe") -Skip:$SkipSign
+Invoke-ConnectLiveSign -Paths $required -Skip:$SkipSign
+
+# Runtime updates are NOT the installer distribution ZIP. Sign only the three
+# final runtime executables after Authenticode, so the manifest hashes match.
+if ($CreateUpdateBundle) {
+    $updateZip = "dist/ConnectLiveAgent-$Version-update.zip"
+    & dotnet run --project tools/UpdatePackager/UpdatePackager.csproj -c Release -- `
+        dist $Version $UpdatePublicKeyPath $updateZip
+    if ($LASTEXITCODE -ne 0) { throw "Signed runtime bundle creation failed." }
+    Write-Host "  Signed runtime bundle: $updateZip (publish as agent / stable-update)"
+}
 
 # -- 4. Build Inno Setup installer ---------------------------------------------
 
@@ -166,20 +237,15 @@ if (-not $SkipInno) {
 
 if (-not $SkipMsi) {
     Write-Host "==> Building MSI installer (WiX v4)..."
-    if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
-        throw "wix is not on PATH. Run: dotnet tool install --global wix, or re-run with -SkipMsi."
-    }
     if (-not (Test-Path packaging/msi/ConnectLive.wxs)) {
         throw "Missing packaging\msi\ConnectLive.wxs - cannot build the MSI."
     }
     Push-Location packaging/msi
     try {
-        wix build ConnectLive.wxs `
-            -d Version=$Version `
-            -ext WixToolset.Util.wixext `
-            -ext WixToolset.Firewall.wixext `
-            -arch x64 `
-            -o (Join-Path $root "dist/ConnectLiveAgent.msi")
+        Invoke-PinnedWix -WixArguments @("build", "ConnectLive.wxs",
+            "-d", "Version=$Version", "-arch", "x64",
+            "-ext", "WixToolset.Util.wixext/4.0.6", "-ext", "WixToolset.Firewall.wixext/4.0.6",
+            "-o", (Join-Path $root "dist/ConnectLiveAgent.msi"))
         if ($LASTEXITCODE -ne 0) { throw "WiX build failed (exit $LASTEXITCODE)" }
         # Generate deployment metadata from this MSI, never from its UpgradeCode.
         $msiReader = New-Object -ComObject WindowsInstaller.Installer
@@ -245,9 +311,8 @@ if ($SkipSign) {
 }
 
 # -- 8. Release manifest (S14) --------------------------------------------------
-# Self-update refuses any release row without a sha256, so the checksum below is
-# mandatory, not decorative. Upload the artifact, then insert the row; the agent
-# picks it up on its next hourly idle check via /api/public/agent/release.
+# Stable is the installer distribution. Stable-update is the independently
+# signed runtime bundle, after its additive database migration is applied.
 
 Write-Host ""
 Write-Host "=== Release manifest (S14) ==="
@@ -265,3 +330,12 @@ Write-Host "    insert into public.releases"
 Write-Host "      (product, channel, version, download_url, sha256, notes, mandatory, published, published_at)"
 Write-Host "    values"
 Write-Host "      ('agent', 'stable', '$Version', '<download-url>', '<sha256-from-above>', '<notes>', false, true, now());"
+if ($CreateUpdateBundle) {
+    $updateHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $updateZip).Hash.ToLower()
+    Write-Host ""
+    Write-Host "  Runtime updater row (do not replace the stable installer row):"
+    Write-Host "    product='agent', channel='stable-update', version='$Version'"
+    Write-Host "    sha256='$updateHash'"
+    Write-Host "    download_url must be a direct HTTPS .zip URL on the configured gateway origin."
+    Write-Host "  Publish only after Windows lifecycle verification and release approval."
+}

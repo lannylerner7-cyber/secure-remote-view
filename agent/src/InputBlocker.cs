@@ -9,20 +9,20 @@ namespace ConnectLive.Agent;
 /// Curtain-mode input filter. Replaces the legacy BlockInput API with
 /// WH_MOUSE_LL / WH_KEYBOARD_LL low-level hooks so that:
 ///
-///   - Admin SendInput events (LLMHF_INJECTED / LLKHF_INJECTED, and our
-///     dwExtraInfo magic signature) flow at native ~60+ FPS speed.
+///   - Agent-tagged SendInput events pass through. The marker is not an
+///     operating-system security boundary or proof of a sender's identity.
 ///   - Physical user input is swallowed instantly (return 1) while the
 ///     curtain is engaged.
 ///   - Co-op mode works for free: when the curtain is off, hooks are
 ///     uninstalled and both cursors coexist natively.
 ///
 /// Hooks are installed on a dedicated thread running a Win32 GetMessage
-/// pump (0% CPU when idle, microsecond dispatch on input).
+/// pump; CPU cost and latency must be measured on Windows.
 ///
 /// Auto-release paths (unchanged from the BlockInput era):
 ///   - AppDomain.ProcessExit / UnhandledException
-///   - Input pump watchdog: no admin ping in 5s
-///   - SystemEvents.SessionSwitch (Ctrl+Alt+Del / lock / switch user)
+///   - Independent watchdog: no admin renewal in 5s
+///   - Physical Ctrl+Alt+Shift+Esc and Windows lock/session changes
 /// </summary>
 public static class InputBlocker
 {
@@ -99,9 +99,14 @@ public static class InputBlocker
     private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
     private static readonly object _lock = new();
-    private static bool _engaged;
+    private static volatile bool _engaged;
     private static long _lastPingTicks;
     private static Action<string>? _onAutoRelease;
+    private static readonly LocalEscapeGesture EscapeGesture = new();
+    public static event Action? LocalStopRequested;
+    private static volatile bool _localStopPending;
+    public static bool LocalStopPending => _localStopPending;
+    private static readonly Timer Watchdog;
 
     // Hook thread state.
     private static Thread? _hookThread;
@@ -118,6 +123,10 @@ public static class InputBlocker
 
     static InputBlocker()
     {
+        Watchdog = new Timer(_ => {
+            try { CheckWatchdog(TimeSpan.FromSeconds(5)); }
+            catch { ForceRelease("watchdog_error"); }
+        }, null, 250, 250);
         AppDomain.CurrentDomain.ProcessExit += (_, _) => ForceRelease("process_exit");
         AppDomain.CurrentDomain.UnhandledException += (_, _) => ForceRelease("unhandled_exception");
         SystemEvents.SessionSwitch += (_, e) =>
@@ -139,14 +148,16 @@ public static class InputBlocker
         lock (_lock)
         {
             _onAutoRelease = onAutoRelease ?? _onAutoRelease;
-            _lastPingTicks = DateTime.UtcNow.Ticks;
+            _lastPingTicks = Environment.TickCount64;
             if (_engaged) return true;
+            if (LocalStopPending) return false;
 
             if (!EnsureHookThread())
             {
                 Log.Warn("failed to install low-level hooks — curtain unavailable");
                 return false;
             }
+            EscapeGesture.Reset();
             _engaged = true;
             Log.Info("curtain engaged (hook filter)");
             return true;
@@ -156,7 +167,7 @@ public static class InputBlocker
     /// <summary>Called every ~1s by the input-poll loop while curtain is on.</summary>
     public static void Heartbeat()
     {
-        lock (_lock) { if (_engaged) _lastPingTicks = DateTime.UtcNow.Ticks; }
+        lock (_lock) { if (_engaged) _lastPingTicks = Environment.TickCount64; }
     }
 
     public static void Release(string reason = "admin")
@@ -176,9 +187,7 @@ public static class InputBlocker
     }
 
     /// <summary>
-    /// Called by the dedicated input pump. Releasing from the same thread
-    /// that drives admin SendInput keeps recovery fast when the admin tab
-    /// stops pinging.
+    /// Driven independently of input/capture/UI work, using a monotonic clock.
     /// </summary>
     public static bool CheckWatchdog(TimeSpan maxAge)
     {
@@ -186,7 +195,7 @@ public static class InputBlocker
         lock (_lock)
         {
             if (!_engaged) return false;
-            var age = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - _lastPingTicks);
+            var age = TimeSpan.FromMilliseconds(Environment.TickCount64 - _lastPingTicks);
             stale = age > maxAge;
         }
         if (!stale) return false;
@@ -276,8 +285,7 @@ public static class InputBlocker
             _hooksInstalled = true;
             _hooksReady.Set();
 
-            // Blocking Win32 message pump — 0% CPU when idle, instant
-            // dispatch on hardware input. Exits on WM_QUIT from Shutdown().
+            // Blocking Win32 message pump. Exits on WM_QUIT from Shutdown().
             while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
             {
                 TranslateMessage(ref msg);
@@ -310,8 +318,7 @@ public static class InputBlocker
         {
             var hs = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
             bool ours = hs.dwExtraInfo == CONNECTLIVE_INPUT_MAGIC;
-            bool injected = (hs.flags & LLMHF_INJECTED_MASK) != 0;
-            if (!ours && !injected)
+            if (!ours)
             {
                 // Physical user (or third-party synthetic without our sig) — swallow.
                 return (IntPtr)1;
@@ -327,7 +334,23 @@ public static class InputBlocker
             var hs = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
             bool ours = hs.dwExtraInfo == CONNECTLIVE_INPUT_MAGIC;
             bool injected = (hs.flags & LLKHF_INJECTED_MASK) != 0;
-            if (!ours && !injected)
+            bool down = wParam.ToInt64() is 0x100 or 0x104;
+            if (EscapeGesture.Feed(hs.vkCode, down, injected || ours))
+            {
+                // Unpause immediately. Disk/network/UI work is never performed
+                // inside a low-level hook callback.
+                _engaged = false;
+                _localStopPending = true;
+                EscapeGesture.Reset();
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try { LocalAccessState.Disable(); StartupConsent.Clear(); } catch { }
+                    try { _onAutoRelease?.Invoke("local_emergency_stop"); } catch { }
+                    try { LocalStopRequested?.Invoke(); } catch { }
+                });
+                return (IntPtr)1;
+            }
+            if (!ours)
             {
                 return (IntPtr)1;
             }

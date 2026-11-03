@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
+import { listenForAgentEvents } from "@/lib/agent-events.server";
 
 // -----------------------------------------------------------------------------
-// Server-Sent Events channel: sub-second wake dispatch to the Agent.
+// Authenticated SSE hints; sessions/commands remain the durable source of truth.
 //
 // The Agent opens ONE long-lived GET against this route (device-token gated).
-// The server polls power_commands for queued `wake_agent` rows targeted at
-// this device every 1s and pushes them as `data:` frames. A keepalive comment
-// every 15s prevents idle connection drops.
+// A shared service-side realtime subscription replaces per-device 1s DB polls.
+// "fallback" explicitly tells clients not to relax their reconciliation cadence.
 //
 // The Agent still runs its REST heartbeat (relaxed to 60s when SSE is
 // healthy), so a stream failure never blocks command delivery — SSE is a
@@ -20,70 +20,47 @@ export const Route = createFileRoute("/api/public/agent/stream")({
         const ctx = await verifyDevice(request);
         if (!ctx) return new Response("unauthorized", { status: 401 });
 
-        const deviceRowId = ctx.device.id;
-        const admin = ctx.admin;
-        const seen = new Set<string>();
-
+        const component = new URL(request.url).searchParams.get("component") === "watch" ? "watch" : "agent";
+        let cleanup = () => {};
         const stream = new ReadableStream({
-          async start(controller) {
+          start(controller) {
             const enc = new TextEncoder();
+            let closed = false;
+            let unsubscribe = () => {};
+            let timer: ReturnType<typeof setInterval> | undefined;
+            let expiry: ReturnType<typeof setTimeout> | undefined;
+            const close = () => {
+              if (closed) return;
+              closed = true;
+              if (timer) clearInterval(timer);
+              if (expiry) clearTimeout(expiry);
+              unsubscribe();
+              request.signal.removeEventListener("abort", close);
+              try { controller.close(); } catch { /* Already cancelled. */ }
+            };
+            cleanup = close;
             const send = (event: string, data: unknown) => {
+              if (closed) return;
+              // Never accumulate unbounded hints behind a stalled receiver.
+              if ((controller.desiredSize ?? 1) < -4) { close(); return; }
               try {
                 controller.enqueue(
                   enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
                 );
               } catch {
-                /* controller closed */
+                close();
               }
             };
-            send("ready", { ok: true, at: new Date().toISOString() });
-
-            const abort = request.signal;
-            let closed = false;
-            const close = () => {
-              if (closed) return;
-              closed = true;
-              try {
-                controller.close();
-              } catch {
-                /* already closed */
-              }
-            };
-            abort.addEventListener("abort", close);
-
-            let ticks = 0;
-            while (!closed && !abort.aborted) {
-              try {
-                const { data } = await admin
-                  .from("power_commands")
-                  .select("id, kind, payload, created_at")
-                  .eq("device_id", deviceRowId)
-                  .eq("kind", "wake_agent")
-                  .eq("state", "queued")
-                  .gt("expires_at", new Date().toISOString())
-                  .order("created_at", { ascending: true })
-                  .limit(5);
-                for (const cmd of data ?? []) {
-                  if (seen.has(cmd.id)) continue;
-                  seen.add(cmd.id);
-                  send("wake", cmd);
-                }
-              } catch (e) {
-                send("error", { message: e instanceof Error ? e.message : "poll_failed" });
-              }
-              // Keepalive comment every 15 ticks (~15s) so proxies don't reap us.
-              if (++ticks % 15 === 0) {
-                try {
-                  controller.enqueue(enc.encode(`: keepalive ${Date.now()}\n\n`));
-                } catch {
-                  close();
-                  break;
-                }
-              }
-              await new Promise((r) => setTimeout(r, 1000));
-            }
-            close();
+            unsubscribe = listenForAgentEvents(ctx.device.id, component,
+              event => send(event, { ok: event !== "fallback" }));
+            timer = setInterval(() => send("keepalive", { at: Date.now() }), 15_000);
+            // Periodic reconnect rechecks credentials and releases abandoned
+            // sockets. Individual commands still perform a fresh grant check.
+            expiry = setTimeout(close, 5 * 60_000);
+            request.signal.addEventListener("abort", close, { once: true });
+            if (request.signal.aborted) close();
           },
+          cancel() { cleanup(); },
         });
 
         return new Response(stream, {

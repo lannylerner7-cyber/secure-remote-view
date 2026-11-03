@@ -26,6 +26,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
 import { API_ROUTES } from "@/shared/api-routes";
 import { RecordingAuthority } from "@/lib/recording-authority";
+import { tagPeerSignal, isCurrentPeerSignal } from "@/lib/peer-signals";
+import { getWebClientId } from "@/shared/signaling-identity";
 
 /** Fallback only. The live set comes from the ICE gateway (S9), which adds
  *  TURN when the deployment has a relay configured. */
@@ -89,7 +91,6 @@ async function fetchIceServers(sessionId: string, signal: AbortSignal): Promise<
     abort.signal.removeEventListener("abort", onAbort);
   }
 }
-const WEB_CLIENT_KEY = "connectlive.web_client_id";
 const CURSOR_KEY = (sessionId: string) => `connectlive.sig_cursor.${sessionId}`;
 const HEARTBEAT_MS = 15_000;
 /** Ceiling used only while ICE never leaves new/checking. */
@@ -98,6 +99,8 @@ const MAX_ATTEMPTS = 6;
 
 
 export type WebRtcState = "idle" | "connecting" | "connected" | "failed" | "superseded";
+import { createBrowserActions, type AgentMode } from "./browser-actions";
+import type { CurtainState } from "./browser-curtain";
 
 /** Step 8 — progress/lifecycle events emitted by the `files` DataChannel. */
 export type FileTransferEvent =
@@ -111,6 +114,7 @@ export type FileTransferEvent =
 export type RecordingResult = { blob: Blob; mimeType: string; durationMs: number };
 
 export interface WebRtcLive {
+  readonly sessionId: string;
   video: HTMLVideoElement;
   state: () => WebRtcState;
   onState: (cb: (s: WebRtcState) => void) => void;
@@ -122,6 +126,10 @@ export interface WebRtcLive {
   relay: () => "pending" | "relay" | "none";
 
   sendInput: (payload: unknown) => boolean;
+  onAgentMode: (callback: (mode: AgentMode) => void) => () => void;
+  selectMonitor: (deviceName: string) => Promise<void>;
+  onCurtain: (callback: (state: CurtainState) => void) => () => void;
+  setCurtain: (enabled: boolean) => Promise<void>;
   /** True when the `files` channel is open (datachannel transfer available). */
   filesReady: () => boolean;
   /** Push a local file to the agent over the `files` channel. */
@@ -153,18 +161,6 @@ export interface WebRtcLive {
 
 
 
-function getWebClientId(): string {
-  try {
-    const existing = localStorage.getItem(WEB_CLIENT_KEY);
-    if (existing && /^[A-Za-z0-9._:-]{8,64}$/.test(existing)) return existing;
-    const fresh = "web-" + (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36));
-    localStorage.setItem(WEB_CLIENT_KEY, fresh);
-    return fresh;
-  } catch {
-    return "web-eph-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-  }
-}
-
 function loadCursor(sessionId: string): number {
   try { return Number(sessionStorage.getItem(CURSOR_KEY(sessionId)) ?? "0") || 0; } catch { return 0; }
 }
@@ -186,8 +182,11 @@ type QueueItem = {
   attempts: number;
 };
 
-export function startWebRtcLive(sessionId: string): WebRtcLive {
+export function startWebRtcLive(sessionId: string, options: {
+  videoOnly?: boolean; authorizationId?: string | null;
+} = {}): WebRtcLive {
   const webClientId = getWebClientId();
+  const peerId = crypto.randomUUID();
 
   const video = document.createElement("video");
   video.autoplay = true;
@@ -231,14 +230,19 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
   let relayState: "pending" | "relay" | "none" = "pending";
   let dc: RTCDataChannel | null = pc.createDataChannel("input", { ordered: true });
-  dc.onclose = () => { dc = null; };
+  const actions = createBrowserActions(sessionId, options.authorizationId ?? null, () => dc, active, () => {
+    setState("failed");
+    try { dc?.close(); pc.close(); } catch {}
+  });
+  dc.onmessage = event => actions.receive(event.data);
+  dc.onclose = () => { dc = null; actions.reset(); };
 
   // ---- Step 8: `files` DataChannel ---------------------------------------
-  // Separate, ordered/reliable channel so a multi-megabyte transfer can never
-  // head-of-line block the input channel. Wire format: a JSON control frame
+  // Separate ordered streams avoid mixing file chunks into input ordering.
+  // They still share network congestion. Wire format: a JSON control frame
   // ("file_begin" / "file_end"), then raw ArrayBuffer chunks in order that
   // belong to the most recent "file_begin".
-  const fileChunk = 64 * 1024;
+  const fileChunk = 16 * 1024;
   const fdc: RTCDataChannel = pc.createDataChannel("files", { ordered: true });
   fdc.binaryType = "arraybuffer";
   let incoming: { name: string; mime: string; size: number; parts: ArrayBuffer[]; got: number } | null = null;
@@ -285,7 +289,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
       fdc.send(JSON.stringify({ type: "file_begin", name: file.name, size: file.size, mime: file.type }));
       let offset = 0;
       while (offset < file.size) {
-        while (fdc.bufferedAmount > 4 * 1024 * 1024) {
+        while (fdc.bufferedAmount > 256 * 1024) {
           await new Promise((r) => setTimeout(r, 20));
           if (fdc.readyState !== "open") return false;
         }
@@ -622,7 +626,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
 
   function enqueue(kind: "offer" | "ice" | "bye", payload: unknown) {
     if (!active()) return;
-    queue.push({ kind, payload, attemptId: newAttemptId(), attempts: 0 });
+    queue.push({ kind, payload: tagPeerSignal(peerId, payload), attemptId: newAttemptId(), attempts: 0 });
     void drainQueue();
   }
 
@@ -729,6 +733,8 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     if (closed || state !== "connected" || negotiating) return;
     void pc.getStats().then(async (stats) => {
       if (!active() || state !== "connected") return;
+      // A deliberate local viewer pause is not a failed remote video stream.
+      if (video.paused) { lastMediaProgressAt = Date.now(); return; }
       let decoded = 0;
       let hasInboundVideo = false;
       // Step 1 diagnostics: loss/keyframe/geometry counters alongside framesDecoded.
@@ -771,7 +777,9 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
         return;
       }
 
-      console.warn("[webrtc] decoded video remained stalled; activating frame fallback");
+      console.warn(options.videoOnly
+        ? "[webrtc] decoded video remained stalled; reconnect required (video-only session)"
+        : "[webrtc] decoded video remained stalled; activating legacy frame fallback");
       setState("failed");
       try { pc.close(); } catch {}
     }).catch((err) => console.warn("[webrtc] media watchdog stats failed", err));
@@ -780,7 +788,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   // ---- Inbound signals (postgres_changes; broadcast-tier can be added later)
   let lastSeen = loadCursor(sessionId);
   const channel = supabase
-    .channel(`signals-${sessionId}-${webClientId}`)
+    .channel(`signals-${sessionId}-${webClientId}-${peerId}`)
     .on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "session_signals", filter: `session_id=eq.${sessionId}` },
@@ -794,6 +802,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
         };
         if (!active() || !row || row.from_side !== "agent" || row.id <= lastSeen) return;
         if (row.admin_client_id && row.admin_client_id !== webClientId) return;
+        if (!isCurrentPeerSignal(peerId, !!options.videoOnly, row.payload)) return;
         lastSeen = row.id;
         saveCursor(sessionId, row.id);
         try {
@@ -851,6 +860,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
   });
 
   return {
+    sessionId,
     video,
     state: () => state,
     onState: (cb) => { listeners.add(cb); },
@@ -858,12 +868,11 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     stats: async () => { try { return await pc.getStats(); } catch { return null; } },
     relay: () => relayState,
 
-    sendInput: (payload) => {
-      if (dc && dc.readyState === "open") {
-        try { dc.send(JSON.stringify(payload)); return true; } catch { return false; }
-      }
-      return false;
-    },
+    sendInput: actions.send,
+    onAgentMode: actions.onMode,
+    selectMonitor: actions.selectMonitor,
+    onCurtain: actions.onCurtain,
+    setCurtain: actions.setCurtain,
     filesReady: () => fdc.readyState === "open",
     sendFile: (file) => sendFileOverChannel(file),
     onFile: (cb) => { fileListeners.add(cb); return () => { fileListeners.delete(cb); }; },
@@ -884,6 +893,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
     close: () => {
       if (closed) return;
       closed = true;
+      actions.dispose();
       cancelIce();
       queue.length = 0;
       clearWatchdog();
@@ -903,7 +913,7 @@ export function startWebRtcLive(sessionId: string): WebRtcLive {
           sessionId,
           clientId: webClientId,
           kind: "bye",
-          payload: {},
+          payload: tagPeerSignal(peerId, {}),
           attemptId: newAttemptId(),
         },
       }).catch(() => undefined);

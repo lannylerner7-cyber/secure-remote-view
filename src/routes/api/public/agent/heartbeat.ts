@@ -1,19 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyDevice } from "@/lib/agent-auth.server";
 import { currentAuthorization, sessionAuthorized } from "@/lib/authorization.server";
+import { legacyMonitorMayBeDelivered } from "@/shared/legacy-monitor";
 import { evaluateLicense, type LicenseRow } from "@/lib/licensing.server";
 
 /**
- * Called every ~15s by the agent, and every 5-60s by the SYSTEM updater.
- * Returns pending session invites + is_session_active so the updater can
- * revive ConnectLive.exe if it crashed or the user closed it.
+ * Called by the Agent every 5-60s. Watch has a separate, authorized lifecycle
+ * endpoint; presence never grants power operations or remote-session authority.
  *
  * Reconnect detection uses a timestamp delta: any gap > 60s (or a non-
  * "online" prior status) fires a broadcast "Device reconnected" notification,
  * so post-reboot recoveries are visible in the admin panel even when no
  * offline sweeper has run.
  */
-const RECONNECT_GAP_MS = 60_000;
+const RECONNECT_GAP_MS = 150_000;
 
 export const Route = createFileRoute("/api/public/agent/heartbeat")({
   server: {
@@ -64,6 +64,9 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           // S14 — assembly version of the running agent, so the fleet's build
           // spread is a number and staged rollout has something to target.
           version?: string;
+          browserVideo?: number;
+          browserCurtain?: number;
+          runtime?: { instance?: string; sequence?: number; heartbeat_seconds?: number };
         };
 
         const nowIso = new Date().toISOString();
@@ -77,6 +80,10 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // that omits them must never erase what we already know.
         let mergedMetadata: Record<string, unknown> | undefined;
         const prevMeta = (ctx.device.metadata ?? {}) as Record<string, unknown>;
+        // Downgrades explicitly clear the new protocol advertisement.
+        prevMeta.browser_video = body.browserVideo === 1 ? 1 : 0;
+        prevMeta.browser_curtain = body.browserCurtain === 1 ? 1 : 0;
+        prevMeta.agent_runtime_protocol = body.runtime ? 1 : 0;
         if (body.lan && (body.lan.subnet_v4 || body.lan.mac || body.lan.ipv4)) {
           mergedMetadata = {
             ...prevMeta,
@@ -164,33 +171,53 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         }
 
 
-        await ctx.admin
+        if (body.runtime) {
+          const runtime = body.runtime;
+          if (typeof runtime.instance !== "string" ||
+              !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(runtime.instance) ||
+              !Number.isSafeInteger(runtime.sequence) || runtime.sequence! < 1 ||
+              !Number.isInteger(runtime.heartbeat_seconds) ||
+              runtime.heartbeat_seconds! < 5 || runtime.heartbeat_seconds! > 60)
+            return new Response("invalid_runtime_report", { status: 400 });
+          const { data: recorded, error } = await ctx.admin.rpc("record_agent_runtime", {
+            _device: ctx.device.id, _instance: runtime.instance,
+            _sequence: runtime.sequence!, _heartbeat_seconds: runtime.heartbeat_seconds!,
+          });
+          if (error) return new Response("runtime_reporting_unavailable", { status: 503 });
+          if (recorded !== true) return new Response("retired_or_stale_process", { status: 409 });
+        }
+
+        const { error: presenceError } = await ctx.admin
           .from("devices")
           .update({
-            status: "online",
-            last_seen_at: nowIso,
-            ...(mergedMetadata ? { metadata: mergedMetadata as never } : {}),
+            // New-process presence is written atomically with its instance in
+            // the RPC. A delayed metadata write must not undo Watch's stop.
+            ...(body.runtime ? {} : { status: "online", last_seen_at: nowIso }),
+            metadata: (mergedMetadata ?? prevMeta) as never,
           })
           .eq("id", ctx.device.id);
+        if (presenceError) return new Response("presence_write_failed", { status: 503 });
 
         // ---- Licence gate -----------------------------------------------
         // A blocked/expired device keeps heartbeating (so it wakes the moment
         // a seat frees) but is handed no sessions and captures nothing.
         let license: LicenseRow | null = null;
         if (ctx.device.license_id) {
-          const { data } = await ctx.admin
+          const { data, error } = await ctx.admin
             .from("licenses")
             .select("id, meeting_id, seat_limit, status, starts_at, expires_at")
             .eq("id", ctx.device.license_id)
             .maybeSingle();
+          if (error) return new Response("license_unavailable", { status: 503 });
           license = (data as LicenseRow | null) ?? null;
         }
         const verdict = await evaluateLicense(ctx.admin as never, license, ctx.device.id);
         if (verdict.state !== ctx.device.license_state) {
-          await ctx.admin
+          const { error } = await ctx.admin
             .from("devices")
             .update({ license_state: verdict.state })
             .eq("id", ctx.device.id);
+          if (error) return new Response("license_state_write_failed", { status: 503 });
         }
         // Devices with no license bound at all ("unlicensed") stay fully
         // functional — that is the pre-licensing fleet and direct admin
@@ -203,14 +230,15 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // returning them all makes the agent's session loop iterator settle
         // on the OLDEST id — frames then flow to a session no admin is
         // watching and every live view goes black. Auto-end the stragglers.
-        const { data: pendingAll } = await ctx.admin
+        const { data: pendingAll, error: sessionsError } = await ctx.admin
           .from("sessions")
-          .select("id, mode, state, created_at")
+          .select("id, mode, state, media_mode, created_at")
           .eq("device_id", ctx.device.id)
           .in("state", ["invited", "consented", "active", "paused"])
           .order("created_at", { ascending: false });
+        if (sessionsError) return new Response("sessions_unavailable", { status: 503 });
 
-        const authorizedSessions = [];
+        const authorizedSessions: NonNullable<typeof pendingAll> = [];
         for (const session of pendingAll ?? []) {
           if (authorization && authorization.revokedAt === null && authorization.capabilities.view &&
               (session.mode === "view" || (session.mode === "control" && authorization.capabilities.control)) &&
@@ -218,12 +246,14 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             authorizedSessions.push(session);
         }
         const pending = authorizedSessions.slice(0, 1);
-        const staleIds = (pendingAll ?? []).slice(1).map((r) => r.id);
+        const retainedId = pending[0]?.id;
+        const staleIds = (pendingAll ?? []).filter(r => r.id !== retainedId).map((r) => r.id);
         if (staleIds.length > 0) {
-          await ctx.admin
+          const { error } = await ctx.admin
             .from("sessions")
             .update({ state: "ended", ended_at: nowIso })
             .in("id", staleIds);
+          if (error) return new Response("session_cleanup_failed", { status: 503 });
         }
 
         const isSessionActive = licensed && pending.length > 0;
@@ -240,7 +270,9 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           .order("created_at", { ascending: true })
           .limit(8);
 
-        const powerCommands = (powerRows ?? []).map((r) => ({
+        const powerCommands = (powerRows ?? [])
+          .filter(r => legacyMonitorMayBeDelivered(r, authorization, authorizedSessions))
+          .map((r) => ({
           id: r.id,
           kind: r.kind,
           payload: r.payload,
@@ -259,18 +291,23 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             .eq("state", "queued");
         }
 
+        let notificationFailed = false;
         if (wasOffline) {
-          await ctx.admin.from("notifications").insert({
+          const { error } = await ctx.admin.from("notifications").insert({
             recipient_id: null,
             title: "Device reconnected",
             body: `${ctx.device.display_name} (${ctx.device.device_id}) is back online`,
             severity: "success",
           });
+          // Notification delivery is not session authority. Expose the error
+          // without tearing down healthy media over an unrelated side effect.
+          notificationFailed = !!error;
         }
 
         return new Response(
           JSON.stringify({
             ok: true,
+            reporting_warnings: notificationFailed ? ["reconnection_notification_failed"] : [],
             authorization,
             is_session_active: isSessionActive,
             sessions: licensed ? (pending ?? []) : [],
