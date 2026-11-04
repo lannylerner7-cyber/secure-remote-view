@@ -34,14 +34,26 @@ public sealed class H264Decoder : IDisposable
     private bool _dead;
     private long _frameIndex;
 
+    // _width/_height are the decoder's coded size (macroblock aligned, so
+    // 1920x1088 for a 1080p stream); _displayW/_displayH are the visible
+    // picture inside it. Planes are laid out by the coded size, but only the
+    // visible part is handed on, or the padding rows show up as a junk strip
+    // along the bottom edge.
     private int _width, _height, _stride;
+    private int _displayW, _displayH;
     private byte[]? _nv12;
 
-    /// <summary>Width of the last decoded picture, or 0 before the first one.</summary>
-    public int Width => _width;
+    // MF_MT_MINIMUM_DISPLAY_APERTURE / MF_MT_GEOM_APERTURE (MFVideoArea blobs).
+    // Kept here rather than in MediaFoundationInterop.cs, which is shared
+    // byte-for-byte with the agent.
+    private static readonly Guid MinimumDisplayAperture = new("d7388766-18fe-48c6-a177-ee894867c8c4");
+    private static readonly Guid GeometricAperture = new("66758743-7e5f-400d-980a-aa8596c85696");
 
-    /// <summary>Height of the last decoded picture, or 0 before the first one.</summary>
-    public int Height => _height;
+    /// <summary>Visible width of the last decoded picture, or 0 before the first one.</summary>
+    public int Width => _displayW;
+
+    /// <summary>Visible height of the last decoded picture, or 0 before the first one.</summary>
+    public int Height => _displayH;
 
     /// <summary>False once the decoder has failed; the caller must retire the H.264 path.</summary>
     public bool IsAlive => !_dead;
@@ -210,6 +222,7 @@ public sealed class H264Decoder : IDisposable
                         }
                         var strideKey = Mf.MF_MT_DEFAULT_STRIDE;
                         _stride = a.GetUINT32(ref strideKey, out uint st) >= 0 && st > 0 ? (int)st : _width;
+                        ReadDisplayArea(a);
 
                         if (mft.GetOutputStreamInfo(0, out var info) >= 0)
                         {
@@ -235,7 +248,7 @@ public sealed class H264Decoder : IDisposable
     /// </summary>
     public byte[]? Decode(byte[] annexB, out int width, out int height)
     {
-        width = _width; height = _height;
+        width = _displayW; height = _displayH;
         if (_dead || annexB == null || annexB.Length == 0) return null;
 
         lock (_gate)
@@ -253,7 +266,7 @@ public sealed class H264Decoder : IDisposable
                 }
                 finally { Marshal.Release(sample); }
 
-                width = _width; height = _height;
+                width = _displayW; height = _displayH;
                 return picture;
             }
             catch (Exception ex)
@@ -380,6 +393,33 @@ public sealed class H264Decoder : IDisposable
     }
 
     /// <summary>
+    /// Visible picture size from the display aperture, falling back to the
+    /// coded size. Rounded down to even so the 4:2:0 chroma rows still pair up.
+    /// </summary>
+    private void ReadDisplayArea(Mf.IMFAttributes a)
+    {
+        _displayW = _width;
+        _displayH = _height;
+        foreach (var key in new[] { MinimumDisplayAperture, GeometricAperture })
+        {
+            var k = key;
+            // MFVideoArea: MFOffset OffsetX, MFOffset OffsetY (4 bytes each), SIZE Area (cx, cy).
+            IntPtr blob = Marshal.AllocHGlobal(16);
+            try
+            {
+                if (a.GetBlob(ref k, blob, 16, IntPtr.Zero) < 0) continue;
+                int cx = Marshal.ReadInt32(blob, 8);
+                int cy = Marshal.ReadInt32(blob, 12);
+                if (cx <= 0 || cy <= 0 || cx > _width || cy > _height) continue;
+                _displayW = cx & ~1;
+                _displayH = cy & ~1;
+                return;
+            }
+            finally { Marshal.FreeHGlobal(blob); }
+        }
+    }
+
+    /// <summary>
     /// Copy the decoder's NV12 output into a tightly packed buffer. The MFT's
     /// rows are stride-aligned; handing the padded buffer straight to the
     /// converter is what produces a sheared picture, so rows are copied one at
@@ -396,24 +436,26 @@ public sealed class H264Decoder : IDisposable
                 if (buffer.Lock(out IntPtr src, out _, out uint len) < 0 || src == IntPtr.Zero || len == 0) return null;
                 try
                 {
-                    int w = _width, h = _height;
-                    if (w <= 0 || h <= 0) return null;
-                    int stride = _stride > 0 ? _stride : w;
+                    int w = _displayW, h = _displayH, codedH = _height;
+                    if (w <= 0 || h <= 0 || codedH < h) return null;
+                    int stride = _stride > 0 ? _stride : _width;
                     int needed = w * h * 3 / 2;
                     if (_nv12 == null || _nv12.Length != needed) _nv12 = new byte[needed];
 
-                    if (stride == w && len >= needed)
+                    if (stride == w && codedH == h && len >= needed)
                     {
                         Marshal.Copy(src, _nv12, 0, needed);
                     }
                     else
                     {
-                        long required = (long)stride * h + (long)stride * (h / 2);
+                        // The UV plane starts after the full coded luma plane,
+                        // not after the visible rows.
+                        long required = (long)stride * codedH + (long)stride * (h / 2);
                         if (len < required) return null;
                         for (int y = 0; y < h; y++)
                             Marshal.Copy(src + y * stride, _nv12, y * w, w);
                         int uvBase = w * h;
-                        int uvSrc = stride * h;
+                        int uvSrc = stride * codedH;
                         for (int y = 0; y < h / 2; y++)
                             Marshal.Copy(src + uvSrc + y * stride, _nv12, uvBase + y * w, w);
                     }

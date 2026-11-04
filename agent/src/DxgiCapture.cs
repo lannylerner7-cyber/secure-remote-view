@@ -57,6 +57,10 @@ public sealed class DxgiCapture : IDisposable
     private int _height;
     private bool _initialized;
     private bool _lastFrameChanged;
+    // True once the staging texture holds a real desktop image (a frame whose
+    // LastPresentTime was non-zero). Until then the staging texture is
+    // zero-filled, and copying or mapping it ships a black picture.
+    private bool _haveImage;
     private string _deviceName = "";
     private int _offsetX;
     private int _offsetY;
@@ -64,6 +68,8 @@ public sealed class DxgiCapture : IDisposable
 
     public bool IsInitialized => _initialized;
     public bool LastFrameHadContentChange => _lastFrameChanged;
+    /// <summary>True once at least one real desktop image has been captured on this duplication.</summary>
+    public bool HasImage => _haveImage;
     public int Width => _width;
     public int Height => _height;
 
@@ -301,7 +307,10 @@ public sealed class DxgiCapture : IDisposable
                 if (acquire.Code == unchecked((int)0x887A0027) /* DXGI_ERROR_WAIT_TIMEOUT */)
                 {
                     _lastFrameChanged = false;
-                    return null;
+                    // A still desktop never produces a new frame, so a refresh
+                    // that waits for one never happens. Serve the last good
+                    // image from the staging texture instead.
+                    return forceRefresh && _haveImage ? MapStaging() : null;
                 }
                 // ACCESS_LOST / DEVICE_REMOVED / DEVICE_RESET are what a
                 // resolution change, a GPU driver reset, a UAC secure-desktop
@@ -322,12 +331,19 @@ public sealed class DxgiCapture : IDisposable
             }
 
             frameAcquired = true;
-            _lastFrameChanged = frameInfo.TotalMetadataBufferSize > 0 ||
-                                frameInfo.LastMouseUpdateTime > 0;
+            // Only a non-zero LastPresentTime means the desktop image was
+            // updated. A mouse-only update (LastMouseUpdateTime alone) leaves
+            // the texture as it was, and on a fresh duplication that texture
+            // has never been written, so copying it shipped a black frame. The
+            // cursor travels separately (CursorPump), so mouse moves are not
+            // picture changes here.
+            _lastFrameChanged = frameInfo.LastPresentTime != 0;
 
-            if (!_lastFrameChanged && !forceRefresh)
+            if (!_lastFrameChanged)
             {
-                return null; // nothing on screen changed — save the encode.
+                // Nothing on screen changed — save the encode, or re-serve the
+                // last good image when a refresh is due.
+                return forceRefresh && _haveImage ? MapStaging() : null;
             }
 
             desktopTexture = desktopResource!.QueryInterface<ID3D11Texture2D>();
@@ -343,7 +359,39 @@ public sealed class DxgiCapture : IDisposable
             }
 
             _context.CopyResource(_staging, desktopTexture);
+            _haveImage = true;
+            return MapStaging();
+        }
+        catch (SharpGenException ex)
+        {
+            Log.Warn($"DXGI: capture failed 0x{ex.HResult:X8} — {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"DXGI: capture exception: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            desktopTexture?.Dispose();
+            desktopResource?.Dispose();
+            // Never release a frame on a newly rebuilt duplication, or after
+            // WAIT_TIMEOUT where AcquireNextFrame did not grant ownership.
+            if (frameAcquired) { try { acquiredFrom.ReleaseFrame(); } catch { } }
+        }
+    }
 
+    /// <summary>
+    /// Copy the staging texture (the last captured desktop image) into a new
+    /// <see cref="Bitmap"/>. Used for fresh frames and for refreshes of a
+    /// still desktop alike.
+    /// </summary>
+    private unsafe Bitmap? MapStaging()
+    {
+        if (_context is null || _staging is null) return null;
+        try
+        {
             var map = _context.Map(_staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
             try
             {
@@ -377,21 +425,13 @@ public sealed class DxgiCapture : IDisposable
         }
         catch (SharpGenException ex)
         {
-            Log.Warn($"DXGI: capture failed 0x{ex.HResult:X8} — {ex.Message}");
+            Log.Warn($"DXGI: staging map failed 0x{ex.HResult:X8} — {ex.Message}");
             return null;
         }
         catch (Exception ex)
         {
-            Log.Warn($"DXGI: capture exception: {ex.Message}");
+            Log.Warn($"DXGI: staging map exception: {ex.Message}");
             return null;
-        }
-        finally
-        {
-            desktopTexture?.Dispose();
-            desktopResource?.Dispose();
-            // Never release a frame on a newly rebuilt duplication, or after
-            // WAIT_TIMEOUT where AcquireNextFrame did not grant ownership.
-            if (frameAcquired) { try { acquiredFrom.ReleaseFrame(); } catch { } }
         }
     }
 
@@ -406,6 +446,7 @@ public sealed class DxgiCapture : IDisposable
         _context = null;
         _device = null;
         _initialized = false;
+        _haveImage = false;
     }
 
     /// <summary>
@@ -420,6 +461,7 @@ public sealed class DxgiCapture : IDisposable
         {
             var old = _staging;
             _staging = _device.CreateTexture2D(StagingDesc(width, height));
+            _haveImage = false;
             try { old?.Dispose(); } catch { }
             _width = width;
             _height = height;
