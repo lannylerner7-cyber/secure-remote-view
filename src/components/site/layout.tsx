@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, ChevronDown, LoaderCircle, Menu, X } from "lucide-react";
 import { SiteLink, useNewsletter, usePathname } from "./adapter";
+import { PlanCatalogProvider, type CatalogSnapshot } from "./plan-catalog";
 import { ActionButton, Badge, Button, LogoMark, TextField } from "./ui";
 
 function AnnouncementBar() {
   return (
     <div className="relative z-[51] border-b border-white/10 bg-cl-signal text-cl-canvas">
       <div className="container flex min-h-9 items-center justify-center gap-3 py-1.5 text-center text-xs font-bold">
-        <span className="font-mono uppercase tracking-[0.12em]">Promo pricing live</span>
+        <span className="font-mono uppercase tracking-[0.12em]">Monthly device plans</span>
         <span className="hidden opacity-70 sm:inline">
-          Up to 46% off every plan. Delivery within one business day of payment.
+          Delivery within one business day of payment.
         </span>
         <SiteLink
           className="inline-flex items-center gap-1 underline underline-offset-4"
@@ -406,9 +407,16 @@ function Footer() {
 }
 
 /** Public website shell — every rule of the Figma design system is scoped under `.cl-site`. */
-export function SiteShell({ children }: { children: ReactNode }) {
+export function SiteShell({
+  children,
+  initialCatalog,
+}: {
+  children: ReactNode;
+  initialCatalog?: CatalogSnapshot | null;
+}) {
   const pathname = usePathname();
   return (
+    <PlanCatalogProvider key={pathname} initial={initialCatalog}>
     <div className="cl-site">
       <div className="noise" aria-hidden="true" />
       <AnnouncementBar />
@@ -418,5 +426,6 @@ export function SiteShell({ children }: { children: ReactNode }) {
       </main>
       <Footer />
     </div>
+    </PlanCatalogProvider>
   );
 }

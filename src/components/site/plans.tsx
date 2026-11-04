@@ -1,11 +1,22 @@
 import { useState } from "react";
 import { Check } from "lucide-react";
 import { comparisonRows, faqs, plans } from "./data";
-import { PricingCard } from "./pricing-card";
+import { formatPrice, usePlanCatalog } from "./plan-catalog";
+import { CatalogStatusNotice, PricingCard } from "./pricing-card";
 import { ActionButton, Badge, Button, SectionHeading } from "./ui";
 
 export function PlansContent() {
   const [mobilePlan, setMobilePlan] = useState(1);
+  const catalog = usePlanCatalog();
+  const priceLabel = (index: number) => {
+    const plan = plans[index];
+    if (plan.contactPricing) return "Custom pricing";
+    const price = catalog.priceFor(plan.slug);
+    if (price !== null) return `$${formatPrice(price)} / month`;
+    if (catalog.status === "loading") return "Checking current price";
+    if (catalog.status === "ready") return "Not currently offered";
+    return "Price unavailable";
+  };
 
   return (
     <>
@@ -20,16 +31,19 @@ export function PlansContent() {
             an operator audit trail.
           </p>
           <div className="mt-9">
-            <Badge>Promo pricing · billed monthly · up to 46% off</Badge>
+            <Badge>Billed monthly · BTC, USDT or USDC</Badge>
           </div>
         </div>
       </section>
 
       <section className="section-tight">
-        <div className="container grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {plans.map((plan) => (
-            <PricingCard key={plan.slug} plan={plan} />
-          ))}
+        <div className="container">
+          <CatalogStatusNotice />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {plans.map((plan) => (
+              <PricingCard key={plan.slug} plan={plan} />
+            ))}
+          </div>
         </div>
       </section>
 
@@ -47,9 +61,15 @@ export function PlansContent() {
                   <th className="p-5 font-mono text-xs uppercase tracking-widest text-cl-faint">
                     Capability
                   </th>
-                  {plans.map((plan) => (
+                  {plans.map((plan, index) => (
                     <th className="p-5 font-display text-lg" key={plan.slug}>
                       {plan.name}
+                      <span
+                        className="mt-1 block font-mono text-xs font-normal text-cl-muted"
+                        data-testid={`text-compare-price-${plan.slug}`}
+                      >
+                        {priceLabel(index)}
+                      </span>
                     </th>
                   ))}
                 </tr>
@@ -89,6 +109,12 @@ export function PlansContent() {
             </div>
             <div key={mobilePlan} className="surface cl-pop mt-4 p-6">
               <h2 className="font-display text-2xl">{plans[mobilePlan].name}</h2>
+              <p
+                className="mt-2 font-mono text-sm text-cl-muted"
+                data-testid={`text-compare-price-mobile-${plans[mobilePlan].slug}`}
+              >
+                {priceLabel(mobilePlan)}
+              </p>
               <div className="mt-6 grid gap-5">
                 {comparisonRows.map((row) => (
                   <div key={row.label}>

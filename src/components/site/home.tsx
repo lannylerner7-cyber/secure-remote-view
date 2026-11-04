@@ -16,7 +16,7 @@ import agentShot from "@/assets/connectlive-agent.png";
 import adminShot from "@/assets/connectlive-admin.png";
 import sessionCore from "@/assets/connectlive-session-core.png";
 import { faqs, plans, securityFeatures, workflow } from "./data";
-import { PricingCard } from "./pricing-card";
+import { CatalogStatusNotice, PricingCard } from "./pricing-card";
 import { SessionCore } from "./session-core";
 import { ActionButton, Badge, Button, Reveal, SectionHeading, TextLink } from "./ui";
 
@@ -540,11 +540,14 @@ function PricingPreview() {
           <SectionHeading
             eyebrow="Plans"
             title="Start controlled. Scale without friction."
-            copy="Promo pricing is live on every plan. Choose the operating surface that fits today, then expand without rebuilding your workflow."
+            copy="Straightforward monthly pricing. Choose the operating surface that fits today, then expand without rebuilding your workflow."
           />
           <TextLink to="/plans">Compare every feature</TextLink>
         </div>
-        <div className="mt-14 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-14">
+          <CatalogStatusNotice />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {plans.map((plan, index) => (
             <Reveal key={plan.slug} delay={index * 0.05} className="h-full">
               <PricingCard plan={plan} compact />

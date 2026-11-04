@@ -1,0 +1,12 @@
+.cl-site .sc-shell { position: relative; }
+.cl-site .sc-stage { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; pointer-events: none; }
+.cl-site .sc-stage .orb-image { transition: opacity 600ms ease; }
+.cl-site .sc-shell[data-state="ready"] .sc-stage .orb-image { opacity: 0; }
+.cl-site .sc-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; opacity: 0;
+  pointer-events: none; touch-action: auto; transition: opacity 700ms ease;
+}
+.cl-site .sc-shell[data-state="ready"] .sc-canvas { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .cl-site .sc-stage .orb-image, .cl-site .sc-canvas { transition: none; }
+}

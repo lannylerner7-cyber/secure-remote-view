@@ -234,14 +234,8 @@ export const markOrderPaid = createServerFn({ method: "POST" })
 
 /** Admin: list active plans (also public via getActivePlansPublic). */
 export const getActivePlansPublic = createServerFn({ method: "GET" }).handler(async () => {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data, error } = await supabaseAdmin
-    .from("plans")
-    .select("code, name, description, amount_usd, sort_order")
-    .eq("active", true)
-    .order("sort_order", { ascending: true });
-  if (error) throw new Error(error.message);
-  return data ?? [];
+  const { readPublicPlanCatalog } = await import("./public-plan-catalog.server");
+  return readPublicPlanCatalog();
 });
 
 const COIN_CHAIN: Record<string, string> = {

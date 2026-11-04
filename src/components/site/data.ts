@@ -1,13 +1,14 @@
 /**
  * Display copy for the public marketing pages (from the Figma Make design).
- * Display prices mirror the live promo plan prices. The checkout itself always
- * reads real plans from the backend — these values are never sent anywhere.
+ * Prices are NOT kept here: paid-plan amounts come from the live catalog
+ * (GET /api/public/plans, same reader as checkout) via plan-catalog.tsx.
  */
 export type DisplayPlan = {
   slug: string;
   name: string;
   description: string;
-  monthly: number | null;
+  /** Enterprise-style plans priced by conversation, never from the catalog. */
+  contactPricing?: boolean;
   devices: string;
   operators: string;
   retention: string;
@@ -15,19 +16,11 @@ export type DisplayPlan = {
   featured?: boolean;
 };
 
-/** Pre-promo list prices shown struck through next to the promo price. */
-export const WAS_PRICE: Record<string, number> = {
-  starter: 250,
-  team: 570,
-  business: 840,
-};
-
 export const plans: DisplayPlan[] = [
   {
     slug: "starter",
     name: "Starter",
     description: "Remote support for compact IT operations.",
-    monthly: 150,
     devices: "10 devices",
     operators: "Technician console included",
     retention: "30-day audit history",
@@ -37,7 +30,6 @@ export const plans: DisplayPlan[] = [
     slug: "team",
     name: "Team",
     description: "Multi-department coverage for growing help desks.",
-    monthly: 310,
     devices: "20 devices",
     operators: "Multi-operator support",
     retention: "1-year audit history",
@@ -48,7 +40,6 @@ export const plans: DisplayPlan[] = [
     slug: "business",
     name: "Business",
     description: "Fleet controls for established support operations.",
-    monthly: 560,
     devices: "50 devices",
     operators: "Multi-team access",
     retention: "3-year audit history",
@@ -58,7 +49,7 @@ export const plans: DisplayPlan[] = [
     slug: "custom",
     name: "Enterprise",
     description: "Custom deployment, retention, and governance.",
-    monthly: null,
+    contactPricing: true,
     devices: "Unlimited devices",
     operators: "Unlimited operators",
     retention: "Custom retention",

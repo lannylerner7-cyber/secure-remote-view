@@ -27,6 +27,7 @@ import { Route as ConnectlivePaymentRouteImport } from './routes/connectlive.pay
 import { Route as OrderIndexRouteImport } from './routes/order.index'
 import { Route as OrderIdRouteImport } from './routes/order.$id'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
+import { Route as ApiPublicPlansRouteImport } from './routes/api/public/plans'
 import { Route as PublicAgentLoginRouteImport } from './routes/public.agent.login'
 import { Route as PublicAgentPortalRouteImport } from './routes/public.agent.portal'
 import { Route as ApiPublicAdminBootstrapRouteImport } from './routes/api/public/admin/bootstrap'
@@ -145,6 +146,11 @@ const OrderIdRoute = OrderIdRouteImport.update({
 const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
   id: '/api/public/health',
   path: '/api/public/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicPlansRoute = ApiPublicPlansRouteImport.update({
+  id: '/api/public/plans',
+  path: '/api/public/plans',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PublicAgentLoginRoute = PublicAgentLoginRouteImport.update({
@@ -331,6 +337,7 @@ export interface FileRoutesByFullPath {
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/plans': typeof ApiPublicPlansRoute
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
@@ -380,6 +387,7 @@ export interface FileRoutesByTo {
   '/order/$id': typeof OrderIdRoute
   '/order': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/plans': typeof ApiPublicPlansRoute
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
@@ -431,6 +439,7 @@ export interface FileRoutesById {
   '/order/$id': typeof OrderIdRoute
   '/order/': typeof OrderIndexRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/plans': typeof ApiPublicPlansRoute
   '/public/agent/login': typeof PublicAgentLoginRoute
   '/public/agent/portal': typeof PublicAgentPortalRoute
   '/api/public/admin/bootstrap': typeof ApiPublicAdminBootstrapRoute
@@ -482,6 +491,7 @@ export interface FileRouteTypes {
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
+    | '/api/public/plans'
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
@@ -531,6 +541,7 @@ export interface FileRouteTypes {
     | '/order/$id'
     | '/order'
     | '/api/public/health'
+    | '/api/public/plans'
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
@@ -581,6 +592,7 @@ export interface FileRouteTypes {
     | '/order/$id'
     | '/order/'
     | '/api/public/health'
+    | '/api/public/plans'
     | '/public/agent/login'
     | '/public/agent/portal'
     | '/api/public/admin/bootstrap'
@@ -630,6 +642,7 @@ export interface RootRouteChildren {
   OrderIdRoute: typeof OrderIdRoute
   OrderIndexRoute: typeof OrderIndexRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
+  ApiPublicPlansRoute: typeof ApiPublicPlansRoute
   PublicAgentLoginRoute: typeof PublicAgentLoginRoute
   PublicAgentPortalRoute: typeof PublicAgentPortalRoute
   ApiPublicAdminBootstrapRoute: typeof ApiPublicAdminBootstrapRoute
@@ -786,6 +799,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/health'
       fullPath: '/api/public/health'
       preLoaderRoute: typeof ApiPublicHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/plans': {
+      id: '/api/public/plans'
+      path: '/api/public/plans'
+      fullPath: '/api/public/plans'
+      preLoaderRoute: typeof ApiPublicPlansRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/public/agent/login': {
@@ -1061,6 +1081,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrderIdRoute: OrderIdRoute,
   OrderIndexRoute: OrderIndexRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
+  ApiPublicPlansRoute: ApiPublicPlansRoute,
   PublicAgentLoginRoute: PublicAgentLoginRoute,
   PublicAgentPortalRoute: PublicAgentPortalRoute,
   ApiPublicAdminBootstrapRoute: ApiPublicAdminBootstrapRoute,

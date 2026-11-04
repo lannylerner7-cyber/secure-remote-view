@@ -14,6 +14,7 @@ import socialImage from "@/assets/connectlive-banner.jpg";
 import { Toaster } from "@/components/ui/sonner";
 import { SiteShell } from "@/components/site/layout";
 import { NotFoundContent } from "@/components/site/not-found";
+import { sessionCoreAssets } from "@/components/site/session-core-assets";
 
 function NotFoundComponent() {
   return (
@@ -103,7 +104,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Work+Sans:wght@300;400;500;600;700&display=swap",
       },
-      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml", sizes: "any" },
+      { rel: "icon", href: sessionCoreAssets.faviconUrl, type: "image/png", sizes: "64x64" },
+      { rel: "apple-touch-icon", href: sessionCoreAssets.touchIconUrl, sizes: "180x180" },
     ],
   }),
   shellComponent: RootShell,

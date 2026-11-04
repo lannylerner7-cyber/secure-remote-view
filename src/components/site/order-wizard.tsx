@@ -6,14 +6,13 @@ import {
   ChevronRight,
   CircleDollarSign,
   Coins,
-  Gift,
   LoaderCircle,
   PlayCircle,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
 import { SiteLink, useQueryParam } from "./adapter";
-import { PAYMENT_NETWORKS, WAS_PRICE, type CoinId } from "./data";
+import { PAYMENT_NETWORKS, type CoinId } from "./data";
 import { ActionButton, Badge, Button, Notice, TextField } from "./ui";
 
 export type OrderPlan = {
@@ -162,9 +161,9 @@ export function OrderWizard({
         </div>
 
         <div className="mx-auto mt-9 flex max-w-2xl flex-wrap items-center justify-center gap-2 text-center">
-          <Gift size={16} className="text-cl-success" aria-hidden="true" />
+          <CircleDollarSign size={16} className="text-cl-success" aria-hidden="true" />
           <p className="font-mono text-xs uppercase tracking-[0.12em] text-cl-success">
-            Promo applied · $250→$150 · $570→$310 · $840→$560
+            Monthly device plans · Pay in BTC, USDT or USDC
           </p>
         </div>
 
@@ -245,11 +244,6 @@ export function OrderWizard({
                       <span className="flex items-center gap-4">
                         <span className="text-right">
                           <span className="flex items-baseline justify-end gap-2">
-                            {WAS_PRICE[item.code] && (
-                              <span className="font-mono text-xs text-cl-faint line-through">
-                                ${WAS_PRICE[item.code]}
-                              </span>
-                            )}
                             <span className="tabular font-mono text-lg">
                               ${Number(item.amount_usd).toFixed(0)}
                             </span>
@@ -466,11 +460,6 @@ export function OrderWizard({
                 <div className="flex items-end justify-between">
                   <span className="text-sm text-cl-muted">Monthly total</span>
                   <span className="flex items-baseline gap-2">
-                    {WAS_PRICE[plan.code] && (
-                      <span className="font-mono text-xs text-cl-faint line-through">
-                        ${WAS_PRICE[plan.code]}
-                      </span>
-                    )}
                     <span className="tabular font-display text-3xl">${price?.toFixed(0)}</span>
                   </span>
                 </div>
