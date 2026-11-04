@@ -28,6 +28,7 @@ import { API_ROUTES } from "@/shared/api-routes";
 import { RecordingAuthority } from "@/lib/recording-authority";
 import { tagPeerSignal, isCurrentPeerSignal } from "@/lib/peer-signals";
 import { getWebClientId } from "@/shared/signaling-identity";
+import { createRemoteMediaSignals } from "@/lib/remote-media-signals";
 
 /** Fallback only. The live set comes from the ICE gateway (S9), which adds
  *  TURN when the deployment has a relay configured. */
@@ -228,6 +229,7 @@ export function startWebRtcLive(sessionId: string, options: {
   // network fell back to JPEG with no explanation; `relay()` below reports the
   // truth so the console can say "no relay" instead of "connecting" forever.
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+  const remoteMedia = createRemoteMediaSignals(pc, active);
   let relayState: "pending" | "relay" | "none" = "pending";
   let dc: RTCDataChannel | null = pc.createDataChannel("input", { ordered: true });
   const actions = createBrowserActions(sessionId, options.authorizationId ?? null, () => dc, active, () => {
@@ -713,6 +715,7 @@ export function startWebRtcLive(sessionId: string, options: {
       if (!restart) pc.addTransceiver("video", { direction: "recvonly" });
       const offer = await pc.createOffer(restart ? { iceRestart: true } : undefined);
       if (!valid()) return;
+      remoteMedia.expectAnswer();
       await pc.setLocalDescription(offer);
       if (!valid()) return;
       enqueue("offer", { type: offer.type, sdp: offer.sdp });
@@ -787,6 +790,8 @@ export function startWebRtcLive(sessionId: string, options: {
 
   // ---- Inbound signals (postgres_changes; broadcast-tier can be added later)
   let lastSeen = loadCursor(sessionId);
+  const initialCursor = lastSeen;
+  const receivedSignalIds = new Set<number>();
   const channel = supabase
     .channel(`signals-${sessionId}-${webClientId}-${peerId}`)
     .on(
@@ -800,16 +805,22 @@ export function startWebRtcLive(sessionId: string, options: {
           payload: unknown;
           admin_client_id: string | null;
         };
-        if (!active() || !row || row.from_side !== "agent" || row.id <= lastSeen) return;
+        if (!active() || !row || row.from_side !== "agent" ||
+            row.id <= initialCursor || receivedSignalIds.has(row.id)) return;
         if (row.admin_client_id && row.admin_client_id !== webClientId) return;
         if (!isCurrentPeerSignal(peerId, !!options.videoOnly, row.payload)) return;
-        lastSeen = row.id;
-        saveCursor(sessionId, row.id);
+        receivedSignalIds.add(row.id);
+        if (receivedSignalIds.size > 512)
+          receivedSignalIds.delete(receivedSignalIds.values().next().value!);
+        // A later ICE INSERT must not make an earlier answer disappear if
+        // realtime delivery/transaction commits arrive out of ID order.
+        lastSeen = Math.max(lastSeen, row.id);
+        saveCursor(sessionId, lastSeen);
         try {
           if (row.kind === "answer") {
-            await pc.setRemoteDescription(row.payload as RTCSessionDescriptionInit);
+            await remoteMedia.answer(row.payload as RTCSessionDescriptionInit);
           } else if (row.kind === "ice") {
-            await pc.addIceCandidate(row.payload as RTCIceCandidateInit);
+            await remoteMedia.ice(row.payload as RTCIceCandidateInit);
           } else if (row.kind === "terminated") {
             setState("superseded");
             try { dc?.close(); } catch {}
@@ -817,8 +828,9 @@ export function startWebRtcLive(sessionId: string, options: {
           } else if (row.kind === "bye") {
             setState("failed");
           }
-        } catch (err) {
-          console.warn("[webrtc] signal apply failed", err);
+        } catch {
+          // Candidate/SDP values and errors that may embed them are private.
+          console.warn("[webrtc] remote media signal could not be applied");
         }
       },
     )
@@ -893,6 +905,7 @@ export function startWebRtcLive(sessionId: string, options: {
     close: () => {
       if (closed) return;
       closed = true;
+      remoteMedia.close();
       actions.dispose();
       cancelIce();
       queue.length = 0;
