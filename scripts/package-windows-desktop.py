@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import urllib.request
 import zipfile
@@ -24,6 +25,13 @@ def main():
     if not OUT.is_relative_to(ROOT / "generated-artifacts") or OUT == ROOT / "generated-artifacts/windows-desktop":
         raise RuntimeError("Use a new generated-artifacts directory; preserve prior archives.")
     provenance = json.loads((OUT / "source-manifest.json").read_text())
+    versions = provenance["versions"]
+    if not all(re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", versions[side])
+               for side in ("agent", "admin")):
+        raise RuntimeError("Invalid project versions in source manifest.")
+    build_date = provenance["builtAtUtc"][:10].replace("-", "")
+    if not re.fullmatch(r"\d{8}", build_date):
+        raise RuntimeError("Missing build date in source manifest.")
     if list(OUT.glob("*.zip")):
         raise RuntimeError("Refusing to replace existing archives.")
     key = os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY", "")
@@ -53,27 +61,35 @@ Do not run directly inside the ZIP. Keep all supplied files together.
 These executables are unsigned. Windows may show an unknown-publisher warning.
 Verify the SHA256 against SHA256SUMS.txt. Follow your organization's approval
 policy; do not disable Defender or other security controls.
-These are portable builds, NOT MSI/setup installers. They do not install a
-watchdog service or startup task. Do not distribute as a signed production release.
+These are portable builds, NOT MSI/setup installers. Extracting the ZIP does not
+install a service or startup task. Existing local authorization, stop and startup
+consent controls remain in force. Do not distribute as a signed production release.
 
 Backend: https://connectliveagent.com
+Web technician/admin login: https://connectliveagent.com/connectlive/admin
+The shorter /admin address is not the configured sign-in route.
 HTTP health checks do not prove the deployed backend revision,
 signed-in workflows, TURN relay, or DXGI media performance.
 Built on Linux for Windows. No Windows application was launched here.
 
-KNOWN RELEASE BLOCKERS remain: consent-to-RTC timing, control/reconnect state
-contracts, native input envelope mismatch, concurrent-window/logout/takeover
-isolation, multi-monitor input, installer/update behavior. This build fixes
-fresh-profile config persistence only; it does not certify those workflows.
+WINDOWS ACCEPTANCE GATES remain: pairing with the matching live backend,
+actual screen capture and input, local stop/revocation, reconnect/takeover,
+multi-monitor input, startup/recovery and installation/update behavior.
+Deploy and verify the matching reviewed server code and database migrations
+before testing new protocol features. These ZIPs do not update the website or
+database, and packaging does not establish what revision is deployed.
 Do not publish these packages as an automatic production update.
 
 First-session checks on two authorized Windows devices:
-1. Enroll the Agent and accept the displayed access permissions.
-2. Sign into Admin with an existing authorized technician account.
+1. Sign into the web console with an existing authorized admin account.
+2. Use Access > Pair device with an eligible active license. Enter the temporary
+   code in the Agent, then review and accept the displayed permissions locally.
 3. Verify the device appears, then start an authorized viewing session.
 4. Verify separate viewing/control permissions, first frame and input response.
 5. End the session and confirm sharing/control stop; verify local stop/revocation.
 6. Check reconnect, takeover and a network requiring TURN relay.
+The native Admin is also included as a separate compatibility test download.
+The redesigned Access dashboard is in the WEB console, not the native Admin.
 Report the exact error and time if a check fails; never share keys or passwords.
 
 If an older installed Agent is already running, close it normally first or use
@@ -86,6 +102,10 @@ Launch Start-Agent.cmd. It explicitly selects the production address, including
 on a PC with older saved configuration. This updates the Agent's saved API URL.
 The Agent displays its authorization UI; no permissions are bypassed.
 Use the visible Agent window to stop access. No license or account is bundled.
+Keep ConnectLiveWatch.exe and ConnectLiveUpdate.exe beside ConnectLive.exe.
+They are self-contained companions used by the existing authorized lifecycle
+flows, not separate launchers. Do not start them directly or bypass local consent.
+Their inclusion is not proof of Windows startup/recovery or signed-update success.
 """,
         "admin": """
 ADMIN
@@ -98,25 +118,29 @@ Do not copy any server, SMTP, session or Cloudflare credential into this file.
     (OUT / "agent/Start-Agent.cmd").write_bytes(
         b'@echo off\r\ncd /d "%~dp0"\r\nstart "" "%~dp0ConnectLive.exe" --api-url https://connectliveagent.com\r\n')
     manifest = []
-    for side, exe, name in [
-        ("agent", "ConnectLive.exe", "ConnectLive-Agent-Windows-x64"),
-        ("admin", "ConnectLiveAdmin.exe", "ConnectLive-Admin-Windows-x64"),
-    ]:
+    executable_names = {
+        "agent": {"ConnectLive.exe", "ConnectLiveWatch.exe", "ConnectLiveUpdate.exe"},
+        "admin": {"ConnectLiveAdmin.exe"},
+    }
+    for side in ("agent", "admin"):
+        version = versions[side]
+        name = f"ConnectLive-{side.title()}-{version}-Windows-x64-{build_date}"
         directory = OUT / side
-        binary = (directory / exe).read_bytes()
-        assert binary[:2] == b"MZ", "Missing Windows executable"
-        pe = struct.unpack_from("<I", binary, 0x3C)[0]
-        assert binary[pe:pe+4] == b"PE\0\0"
-        assert struct.unpack_from("<H", binary, pe+4)[0] == 0x8664, "Not x64"
-        assert len(binary) > 50_000_000, "Expected self-contained publish"
-        (directory / "README.txt").write_text(common + instructions[side])
+        for exe in executable_names[side]:
+            binary = (directory / exe).read_bytes()
+            assert binary[:2] == b"MZ", "Missing Windows executable"
+            pe = struct.unpack_from("<I", binary, 0x3C)[0]
+            assert binary[pe:pe+4] == b"PE\0\0"
+            assert struct.unpack_from("<H", binary, pe+4)[0] == 0x8664, "Not x64"
+            assert len(binary) > 50_000_000, "Expected self-contained publish"
+        (directory / "README.txt").write_text(
+            f"ConnectLive {side.title()} {version} - built {build_date}\n\n" + common + instructions[side])
         (directory / "SOURCE.json").write_text(json.dumps(provenance, indent=2) + "\n")
         files = sorted(p for p in directory.iterdir()
                        if p.is_file() and p.suffix != ".pdb" and p.name != "SHA256SUMS.txt")
-        assert {p.name for p in files} == (
-            {exe, "Start-Agent.cmd", "README.txt", "SOURCE.json"} if side == "agent"
-            else {exe, "admin.config.json", "README.txt", "SOURCE.json"}
-        ), "Unexpected publish contents; review before packaging"
+        expected = executable_names[side] | {"README.txt", "SOURCE.json"}
+        expected.add("Start-Agent.cmd" if side == "agent" else "admin.config.json")
+        assert {p.name for p in files} == expected, "Unexpected publish contents; review before packaging"
         sums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in files)
         (directory / "SHA256SUMS.txt").write_text(sums)
         files.append(directory / "SHA256SUMS.txt")
@@ -131,9 +155,11 @@ Do not copy any server, SMTP, session or Cloudflare credential into this file.
                 assert hashlib.sha256(z.read(name + "/" + p.name)).hexdigest() == hashlib.sha256(p.read_bytes()).hexdigest()
         manifest.append({"file": archive.name, "bytes": archive.stat().st_size,
                          "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-                         "platform": "win-x64", "version": "1.9.2" if side == "agent" else "1.7.3",
+                          "platform": "win-x64", "version": version,
                          "source": provenance, "signed": False, "windowsRuntimeVerified": False})
     (OUT / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (OUT / "SHA256SUMS.txt").write_text(
+        "".join(f"{item['sha256']}  {item['file']}\n" for item in manifest))
     print(json.dumps([{k: v for k, v in item.items() if k != "source"} for item in manifest], indent=2))
 
 

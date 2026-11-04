@@ -71,6 +71,8 @@ async function cleanup(file) {
     await client.query('DELETE FROM public.device_pairings WHERE license_id=$1', [fixture.licenseId]);
     await client.query('DELETE FROM public.devices WHERE license_id=$1', [fixture.licenseId]);
     await client.query('DELETE FROM public.licenses WHERE id=$1', [fixture.licenseId]);
+    await client.query('DELETE FROM public.login_attempts WHERE identifier = ANY($1::text[])',
+      [[fixture.email.toLowerCase(), `tech-${fixture.userId}@connectlive.internal`]]);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
   finally { await client.end().catch(() => {}); }

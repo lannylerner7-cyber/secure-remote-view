@@ -42,7 +42,10 @@ function formatRemaining(ms: number): string {
 }
 
 function errorText(e: unknown, fallback: string): string {
-  return e instanceof Error && e.message ? e.message : fallback;
+  if (e instanceof Error && e.message) return e.message;
+  if (e && typeof e === "object" && "message" in e && typeof e.message === "string" && e.message)
+    return e.message;
+  return fallback;
 }
 
 /**
@@ -75,29 +78,45 @@ export function DevicePairingDialog({
   const [revokedNotice, setRevokedNotice] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const createLock = useRef(false);
+  const loadGeneration = useRef(0);
 
   const listRef = useRef(listFn);
   listRef.current = listFn;
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setLoadError(null);
+    setLicenses(null);
     try {
       const rows = (await listRef.current()) as License[];
+      if (generation !== loadGeneration.current) return;
+      if (!Array.isArray(rows) || rows.some((row) => !row ||
+        typeof row.id !== "string" || typeof row.organization !== "string" ||
+        typeof row.expiresAt !== "string" ||
+        (row.seatLimit !== null && typeof row.seatLimit !== "number"))) {
+        throw new Error("The server returned an invalid license list. Refresh this page and try again.");
+      }
       setLicenses(rows);
       setLicenseId((prev) => {
         if (prev && rows.some((r) => r.id === prev && r.organization)) return prev;
         return rows.find((r) => r.organization)?.id ?? "";
       });
     } catch (e) {
-      setLoadError(errorText(e, "Could not load eligible licenses."));
+      if (generation !== loadGeneration.current) return;
+      const message = errorText(e, "Could not load eligible licenses.");
+      setLoadError(/failed to fetch|load failed|networkerror|network request failed/i.test(message)
+        ? "The license request could not reach the server. Check your connection, then retry."
+        : message);
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (open) void load();
+    else setLoading(false);
+    return () => { loadGeneration.current += 1; };
   }, [open, load]);
 
   useEffect(() => {
@@ -107,13 +126,13 @@ export function DevicePairingDialog({
   }, [issued]);
 
   const selected = licenses?.find((l) => l.id === licenseId) ?? null;
-  const canCreate = !!selected && !!selected.organization && !creating && !issued;
+  const canCreate = !!selected && !!selected.organization && !loading && !loadError && !creating && !issued;
   const expiresMs = issued ? new Date(issued.expiresAt).getTime() - now : 0;
   const expired = !!issued && expiresMs <= 0;
   const allSelected = OPTIONAL_CAPS.every((c) => caps[c]);
 
   async function create() {
-    if (!selected || !selected.organization || createLock.current) return;
+    if (!canCreate || !selected || createLock.current) return;
     createLock.current = true;
     setCreating(true);
     setCreateError(null);
@@ -241,7 +260,7 @@ export function DevicePairingDialog({
               <li>On the Windows device, open the ConnectLive Agent.</li>
               <li>Enter this code.</li>
               <li>Review the organization and permissions shown.</li>
-              <li>Press Pair &amp; authorize.</li>
+              <li>Confirm pairing in the Agent.</li>
             </ol>
 
             <p className="text-xs text-white/50">
@@ -290,17 +309,26 @@ export function DevicePairingDialog({
 
             <div>
               <div className={sectionLabel}>Organization license</div>
-              {loading && !licenses ? (
-                <div className="mt-2 space-y-2" aria-busy="true">
+              {loading || (!licenses && !loadError) ? (
+                <div className="mt-2 space-y-2" aria-busy="true" role="status">
+                  <p className="text-xs text-white/65">Loading eligible organization licenses…</p>
                   <div className="h-9 animate-pulse rounded bg-white/5" />
                   <div className="h-9 animate-pulse rounded bg-white/5" />
                 </div>
               ) : loadError ? (
                 <div role="alert" className="mt-2 flex items-center justify-between gap-3 rounded border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
-                  <span>{loadError}</span>
-                  <Button type="button" size="sm" variant="outline" onClick={() => void load()}>
-                    Retry
-                  </Button>
+                  <div>
+                    <span>{loadError}</span>
+                    <p className="mt-1 text-white/60">If this persists, sign in again and reopen Pair device.</p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-center gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => void load()}>
+                      Retry
+                    </Button>
+                    <a href="/connectlive/admin" className="text-xs text-[#9DB8FF] underline">
+                      Sign in again
+                    </a>
+                  </div>
                 </div>
               ) : licenses && licenses.length === 0 ? (
                 <div className="mt-2 flex items-center justify-between gap-3 rounded border border-white/10 bg-[#0B1220] px-3 py-2 text-xs text-white/60">
@@ -364,7 +392,7 @@ export function DevicePairingDialog({
               </div>
               <p className="mt-1.5 text-xs text-white/55">
                 {mode === "unattended"
-                  ? "Unattended access survives restarts without asking the user at each session. Connection status, stop and revocation remain available to the user on the device at all times."
+                  ? "Unattended access does not ask for approval at each session. The Agent shows the selected permissions during pairing, then runs in the background. Local disable/uninstall and administrator revocation remain available."
                   : "The person at the device must approve each session."}
               </p>
             </fieldset>

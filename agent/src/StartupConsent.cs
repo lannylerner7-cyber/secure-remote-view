@@ -10,8 +10,8 @@ internal static class StartupConsent
 {
     internal const string Notice =
         "Start ConnectLive with Windows, keep Watch available for crash recovery and authorized web relaunch, " +
-        "and install signed updates while idle. Relaunch never overrides Disable remote access. " +
-        "Status stays visible in the tray. Disable remote access stops these functions. " +
+        "and install signed updates while idle. Relaunch never overrides local withdrawal. " +
+        "Run ConnectLive.exe /disable or uninstall ConnectLive to stop these functions. " +
         "This does not add remote permissions or administrator privileges.";
     private static string FileName => Path.Combine(Environment.GetFolderPath(
         Environment.SpecialFolder.LocalApplicationData), "ConnectLive", "startup-consent.dat");

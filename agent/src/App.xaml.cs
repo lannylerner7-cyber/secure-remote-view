@@ -9,10 +9,8 @@ public partial class App : Application
 {
     private readonly CancellationTokenSource _cts = new();
     private Mutex? _singleInstance;
-    private SplashWindow? _splash;
     private Agent? _agent;
     private ApiClient? _api;
-    private bool _authorizing;
     private bool _stopping;
     private System.Windows.Threading.DispatcherTimer? _withdrawalTimer;
 
@@ -21,13 +19,20 @@ public partial class App : Application
         base.OnStartup(e);
         InputBlocker.LocalStopRequested += () => Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
 
-        // An explicit local stop also works during an update handoff when no
-        // Agent owns the tray yet. It never clears the withdrawal marker.
-        var uninstalling = Array.Exists(e.Args, a => a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase));
-        if (uninstalling || Array.Exists(e.Args, a => a.Equals("/disable", StringComparison.OrdinalIgnoreCase)))
+        // Local command-line withdrawal remains available without a second UI.
+        // It also works during an update handoff and never clears the marker.
+        var uninstalling = Array.Exists(e.Args, a => a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase));
+        if (uninstalling || Array.Exists(e.Args, a => a.Equals("/disable", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--disable", StringComparison.OrdinalIgnoreCase)))
         {
             try { LocalAccessState.Disable(); StartupConsent.Clear(); StartupSelfHeal.RemoveAll(); }
-            catch { MessageBox.Show("Could not persist withdrawal. Uninstall ConnectLive or contact your IT administrator.", "ConnectLive"); }
+            catch
+            {
+                MessageBox.Show("Could not persist withdrawal. Uninstall ConnectLive or contact your IT administrator.", "ConnectLive");
+                Shutdown(1);
+                return;
+            }
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             try { await CompanionAuthorization.ReportWithdrawalAsync(uninstalling, deadline.Token); }
             catch { Log.Warn("local withdrawal saved; lifecycle report unavailable"); }
@@ -65,126 +70,62 @@ public partial class App : Application
         catch (AbandonedMutexException) { ownsMutex = true; }
         if (!ownsMutex)
         {
-            // The running instance remains accessible from its taskbar window.
+            if (!backgroundLaunch)
+                MessageBox.Show("ConnectLive is already running. Run ConnectLive.exe /disable before starting another copy.",
+                    "ConnectLive");
             Shutdown();
             return;
         }
 
         string? apiUrl = null;
-        string? wakeSessionId = null;
-        bool wake = false;
-        bool background = false;
         for (int i = 0; i < e.Args.Length; i++)
         {
             var a = e.Args[i];
             if (a == "--api-url" && i + 1 < e.Args.Length)
             {
-                apiUrl = e.Args[i + 1];
-            }
-            else if (string.Equals(a, "/BACKGROUND", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(a, "--background", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(a, "/MINIMIZED", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(a, "--minimized", StringComparison.OrdinalIgnoreCase))
-            {
-                background = true;
-            }
-            else if (string.Equals(a, "/WAKE", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(a, "--wake",  StringComparison.OrdinalIgnoreCase))
-            {
-                wake = true;
-            }
-            else if (a.StartsWith("/SESSION=", StringComparison.OrdinalIgnoreCase))
-            {
-                wakeSessionId = a.Substring("/SESSION=".Length).Trim('"');
-            }
-            else if (string.Equals(a, "--session", StringComparison.OrdinalIgnoreCase) && i + 1 < e.Args.Length)
-            {
-                wakeSessionId = e.Args[i + 1];
+                apiUrl = e.Args[++i];
             }
         }
 
-        // No grant prompts on background launch. Keep a taskbar status surface
-        // available for local withdrawal and explicit foreground review.
-        _splash = new SplashWindow();
-        _splash.DisableAccessRequested += DisableRemoteAccess;
-        _splash.AuthorizationRequested += ReviewAuthorization;
-        _splash.Closing += (_, args) =>
-        {
-            if (_stopping) return;
-            args.Cancel = true;
-            // Defer shutdown until this Closing event has returned.
-            Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
-        };
-        if (background) _splash.WindowState = WindowState.Minimized;
-        _splash.Show();
-
         try
         {
+            // Pairing is the only normal Agent UI; no status window or tray menu.
             var api = new ApiClient(apiUrl);
             if (apiUrl != null) ApiClient.SaveConfig(new ApiClient.AgentConfig(api.ApiBaseUrl));
             _api = api;
-            // Only foreground launches can surface the pairing disclosure. A
-            // /BACKGROUND or /WAKE start with no prior enrollment must stay silent
-            // and simply defer until the user opens the agent themselves.
-            if (!background && !wake)
-            {
-                api.PairingProvider = (ct) => PairingPrompt.ShowAsync(api, ct);
-            }
-            api.OnLicenseChanged += OnLicenseChanged;
-            var dispatcher = new WpfDispatcher(Current.Dispatcher);
-
-            _splash?.SetStatus("Registering with ConnectLive…");
-            var enrolled = await EnrollmentRetry.RunAsync(
-                api.EnrollIfNeededAsync,
-                () => !_stopping && ((!background && !wake) || !LocalAccessState.IsDisabled()),
-                ex =>
-                {
-                    Log.Warn($"startup enrollment retry: {ex.Message}");
-                    _splash?.SetStatus("Waiting for network — registration will retry…");
-                },
-                _cts.Token);
-            // Never enter foreground agreement or start the Agent after local
-            // withdrawal/shutdown during an attempt or asynchronous retry delay.
-            if (!enrolled || _stopping || _cts.IsCancellationRequested) return;
-            // Later authentication failures must not silently re-enroll or
-            // interrupt an active session with another enrollment window.
-            api.PairingProvider = null;
             api.LocalAuthorization = GrantStore.Load();
-            if (!background && !wake && (LocalAccessState.IsDisabled() ||
-                api.LocalAuthorization == null || api.LocalAuthorization.DeviceId != api.DeviceId ||
-                api.LocalAuthorization.Origin != LocalGrant.OriginOf(api.ApiBaseUrl)))
+            if (InstallationLifecycle.RemovalRequested())
+                throw new InvalidOperationException("This copy is being removed. Complete its removal before pairing or starting it.");
+            var startWithWindows = Array.Exists(e.Args, a => a.Equals("--start-with-windows", StringComparison.OrdinalIgnoreCase));
+            var forcePair = startWithWindows || Array.Exists(e.Args, a => a.Equals("--pair", StringComparison.OrdinalIgnoreCase));
+            if (forcePair || !HasUsablePairing(api))
             {
-                var agreement = AuthorizationPrompt.Ask(LocalGrant.OriginOf(api.ApiBaseUrl), api.DeviceId!);
-                if (agreement != null)
-                {
-                    await api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
-                    StartupConsent.Save(api.LocalAuthorization!, agreement.Value.Startup);
-                    LocalAccessState.CompleteForegroundReauthorization();
-                }
-                else
+                // Saved legacy credentials alone are NOT a pairing. Background
+                // recovery cannot display a prompt or bypass local withdrawal.
+                if (backgroundLaunch) { Shutdown(); return; }
+                if (!await PairingPrompt.ShowAsync(api, _cts.Token, startWithWindows))
                 {
                     DisableRemoteAccess();
                     return;
                 }
             }
-            _splash?.SetStatus("Registering with ConnectLive…");
+            if (_stopping || _cts.IsCancellationRequested) return;
+            if (!HasUsablePairing(api))
+                throw new InvalidOperationException("Pairing did not save matching device authorization. Remote access remains stopped.");
+            // Later authentication failures must never open a new code window
+            // or silently enroll another device.
+            api.PairingProvider = null;
+            api.OnLicenseChanged += OnLicenseChanged;
+            var dispatcher = new WpfDispatcher(Current.Dispatcher);
 
             // A local opt-in, not enrollment alone, authorizes startup/recovery.
             try { StartupSelfHeal.EnsureAll(); } catch { }
 
-            _splash?.SetDevice(api.DeviceId ?? "not enrolled");
-
             // Session bindings and /SESSION flags are not consent evidence.
             // Only fresh heartbeat authority and local acceptance can start work.
             ApiClient.ClearSessionBinding();
-            _splash?.SetStatus(api.LocalAuthorization == null ? "Authorization required — open ConnectLive in the foreground" : "Standing by");
-            _splash?.SetSession("No active session");
-
             if (_stopping || _cts.IsCancellationRequested) return;
-            // Status remains available without stealing focus on each wake.
-            if (api.LocalAuthorization != null) _splash?.MinimizeToTray();
-            _agent = new Agent(api, s => _splash?.SetStatus(s), dispatcher, onWake: null);
-            _agent.SessionStateChanged += OnSessionStateChanged;
+            _agent = new Agent(api, Log.Info, dispatcher, onWake: null);
             _withdrawalTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _withdrawalTimer.Tick += (_, _) =>
             {
@@ -201,46 +142,28 @@ public partial class App : Application
         }
         catch (OperationCanceledException)
         {
-            // Dismissing pairing is not an offline failure. Do not repeatedly
-            // reopen a local enrollment prompt as a background recovery action.
-            _splash?.SetStatus("Pairing required — open ConnectLive in the foreground");
+            // Cancellation must not leave a half-enrolled background agent.
+            DisableRemoteAccess();
         }
         catch (Exception ex)
         {
+            try { _agent?.StopLocally(); } catch { }
+            _cts.Cancel();
             Log.Warn($"startup: {ex.Message}");
-            _splash?.SetStatus($"Error: {ex.Message}");
+            if (!backgroundLaunch)
+                MessageBox.Show($"ConnectLive could not start. Remote access remains stopped.\n\n{ex.Message}",
+                    "ConnectLive", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
         }
     }
 
-    private void OnSessionStateChanged(string state)
-    {
-        try { Current?.Dispatcher.Invoke(() => _splash?.SetSession(state)); } catch { }
-    }
-
-    private async void ReviewAuthorization()
-    {
-        if (_stopping || _authorizing || _api?.DeviceId == null) return;
-        _authorizing = true;
-        _agent?.SuspendForAuthorization();
-        try
-        {
-            var agreement = AuthorizationPrompt.Ask(LocalGrant.OriginOf(_api.ApiBaseUrl), _api.DeviceId);
-            if (agreement == null)
-            {
-                DisableRemoteAccess();
-                return;
-            }
-            await _api.RecordAuthorizationAsync(agreement.Value.Mode, agreement.Value.Scopes, _cts.Token);
-            if (_stopping || _cts.IsCancellationRequested) return;
-            StartupConsent.Save(_api.LocalAuthorization!, agreement.Value.Startup);
-            LocalAccessState.CompleteForegroundReauthorization();
-            StartupSelfHeal.EnsureAll();
-            _agent?.ResumeAfterAuthorization();
-            _splash?.MinimizeToTray();
-        }
-        catch (Exception ex) { _splash?.SetStatus($"Authorization failed: {ex.Message}"); }
-        finally { _authorizing = false; }
-    }
+    private static bool HasUsablePairing(ApiClient api) =>
+        !LocalAccessState.IsDisabled() && !InstallationLifecycle.RemovalRequested() &&
+        !string.IsNullOrWhiteSpace(api.DeviceId) && !string.IsNullOrWhiteSpace(api.DeviceToken) &&
+        api.LocalAuthorization is { Authorization: { } authorization } local &&
+        local.DeviceId == api.DeviceId && local.Origin == LocalGrant.OriginOf(api.ApiBaseUrl) &&
+        Guid.TryParse(authorization.Id, out _) && authorization.Capabilities is { View: true } &&
+        authorization.Mode is ("attended" or "unattended");
 
     private async void DisableRemoteAccess()
     {
@@ -284,24 +207,12 @@ public partial class App : Application
 
     /// <summary>
     /// Dormancy UX. The agent never nags: a blocked/expired license only
-    /// changes the wording on the splash (while it is still visible) and the
-    /// log. The machine stays enrolled and keeps heartbeating, so it revives
+    /// changes diagnostics, not the UI. The machine stays enrolled and keeps heartbeating, so it revives
     /// the instant a seat frees or the subscription renews.
     /// </summary>
     private void OnLicenseChanged(ApiClient.LicenseState lic)
     {
-        var text = lic.State switch
-        {
-            "active" => lic.MeetingId is { Length: > 0 } m ? $"Licensed — Meeting {m}" : "Licensed",
-            "expired" => "Subscription expired — renew to resume support",
-            "blocked" => lic.Reason == "seat_limit"
-                ? "All seats in use — remove a device in your portal"
-                : "Device not activated on this license",
-            _ => null,
-        };
-        if (text is null) return;
         Log.Warn($"license: {lic.State} ({lic.Reason ?? "-"})");
-        try { Current?.Dispatcher.Invoke(() => _splash?.SetStatus(text)); } catch { }
     }
 
     protected override void OnExit(ExitEventArgs e)

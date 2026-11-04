@@ -1,22 +1,18 @@
 # ConnectLive Agent (Windows)
 
-Transparent remote-support agent for managed Windows devices. Sessions require
-consent, Curtain Mode has dead-man recovery, and nothing captures without an
-explicit "Allow". No hidden capture, no detection evasion.
+Transparent remote support with one pairing-code screen in ConnectLive colors.
+The administrator's organization and permitted access are reviewed inline;
+**Pair and connect** records the local acceptance. There is no separate
+authorization popup or status/splash window. Attended sessions still require
+their chosen per-session approval. No hidden capture or silent permission grants.
 
-After authorization, the status window minimizes to a persistent ConnectLive
-notification-area (tray) icon. Double-click it to see device/session status;
-its menu also offers authorization review and Disable remote access. Windows
-may place notification icons in its overflow area. No status window is raised
-for each live-session update. If the tray cannot be initialized, the status
-window remains available instead.
+After pairing the Agent runs in the background: no status window, tray menu,
+or Stop/Disconnect control UI. The code is the only input; the administrator's
+access choices are read-only context. Local withdrawal still works through
+`ConnectLive.exe /disable`, `.\run.ps1 -Disable`, or uninstalling.
 
-Enrollment offers **Select all permissions**, optional individual choices, and
-explicit Allow / Don't allow buttons. No permissions are selected by default.
-Attended/unattended remains an explicit choice. Declining, closing the
-authorization dialog, closing the status window, or selecting Disable withdraws
-local access; minimizing does not. Session-level acceptance remains required
-for attended enrollment.
+**Start here: [RUN-SOURCE.md](RUN-SOURCE.md).** On your Windows terminal, run
+`.\run.ps1 -Pair` to build and test the actual source before any MSI bundling.
 
 ICE establishes network paths; it does not lock Windows input. A curtain request
 requires live control authorization. If Windows refuses the curtain display,
@@ -32,20 +28,22 @@ behavior or establish that curtain rendering works on a particular Windows PC.
 | `src/StreamListener.cs` | SSE wake channel client (`GET /api/public/agent/stream`) |
 | `src/StartupSelfHeal.cs` | Re-registers its own autostart (HKCU Run, Startup shortcut, ONLOGON task) |
 | `src/ConsentPrompt.cs` | Consent dialog — 90 s auto-decline, optional standing consent |
-| `src/SplashWindow.xaml.cs` | Tray indicator and on-demand status/stop window |
+| `src/PairingPrompt.cs` | One pairing-code screen with inline organization/access review |
 | `src/DxgiCapture.cs` / `src/ScreenCapture.cs` | Desktop Duplication capture with GDI fallback |
 | `src/MonitorSelector.cs` | Which display is captured; source of truth for bounds |
 | `src/BitrateController.cs` | Adaptive bitrate + resolution ladder (RTCP/latency driven) |
 | `src/HwEncoderProbe.cs` | Hardware H.264 (NVENC/QSV/AMF) discovery, reported via heartbeat |
 | `src/WebRtcSession.cs` | WebRTC/VP8 transport, RTCP PLI/FIR, HTTPS JPEG fallback |
-| `src/App.xaml` / `src/App.xaml.cs` | WPF entry, splash window styling, launch-flag handling |
+| `src/App.xaml` / `src/App.xaml.cs` | WPF entry, brand resources, pairing-only startup and launch flags |
 | `src/ConnectLiveAgent.csproj` | .NET 8 single-file project |
 | `assets/logo.svg` / `assets/icon.ico` | ConnectLive branding |
-| `build.ps1` | One-command build → `dist/ConnectLiveAgent.zip` |
+| `run.ps1` | Manual source build/run, optional startup request, and local disable without a control UI |
+| `build.ps1` | Deferred installer/release packaging, including MSI generation |
 
-## Build (on your Windows box)
+## Installer packaging (only after manual source testing)
 
-Requires .NET 8 SDK.
+Requires .NET 8 SDK and the documented installer tools. This is not the
+terminal-test command. `-SkipInno` still creates an MSI.
 
 ```powershell
 cd agent

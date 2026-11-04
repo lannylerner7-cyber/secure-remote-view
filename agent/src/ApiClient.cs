@@ -58,7 +58,7 @@ public sealed partial class ApiClient
     internal Func<CancellationToken, Task<bool>>? PairingProvider { get; set; }
 
     /// <summary>Last license verdict returned by enroll/heartbeat. Consumed by
-    /// the splash and dormancy logic; null until the first successful call.</summary>
+    /// diagnostic and dormancy logic; null until the first successful call.</summary>
     public LicenseState? License { get; private set; }
     public event Action<LicenseState>? OnLicenseChanged;
 

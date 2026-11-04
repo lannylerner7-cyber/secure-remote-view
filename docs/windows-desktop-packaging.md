@@ -1,6 +1,29 @@
 # Windows desktop ZIP verification — 2026-10-22
 
-## Latest rebuild: Agent 1.9.2 / Admin 1.7.3
+## Latest rebuild: Agent 1.10.1 / Admin 1.7.3 — 2026-11-03
+
+New outputs are in ignored
+`generated-artifacts/windows-clients-20261103-v2-agent-1.10.1-admin-1.7.3/`.
+Built from a fresh source snapshot at workspace commit `db5a406`, matching
+GitHub `main` (`a9ed954`, the merged ScreenConnect-inspired Access update).
+
+- Agent ZIP `ConnectLive-Agent-1.10.1-Windows-x64-20261103.zip` (139,446,677 bytes)
+  SHA256: `908899b1130b6351d30c9a89d31e230ea2a79d8627655e1ebc5aa392bb56f345`
+- Admin ZIP `ConnectLive-Admin-1.7.3-Windows-x64-20261103.zip` (79,770,992 bytes)
+  SHA256: `863c8fe7c0adb11ea366ad7aa1e015d84daa7deb493faf0822cb46d9179667c6`
+- Native source SHA256: `0ae9865484a9b733376417c9019368654df1da79690b49d452a7227d8dcb096b`
+
+Unlike the 1.9.2/1.7.3 archives, the Agent ZIP now also carries the runtime
+companion executables `ConnectLiveWatch.exe` and `ConnectLiveUpdate.exe`
+(self-contained, alongside `ConnectLive.exe`), which the Agent expects for its
+authorized recovery/update flows. All four executables were published fresh
+(no reused bin/obj), PE x64-checked, and archive CRC + per-member SHA256
+verified. An earlier same-day output directory was discarded untrusted and is
+not release evidence. These remain unsigned portable verification builds:
+no Windows runtime, pairing, capture, input, reconnect, startup-recovery or
+update claim is made.
+
+## Previous rebuild: Agent 1.9.2 / Admin 1.7.3
 
 New outputs are in ignored `generated-artifacts/windows-desktop-agent-1.9.2-admin-1.7.3/`.
 The older ZIPs below were preserved and their hashes rechecked unchanged.

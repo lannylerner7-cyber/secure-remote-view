@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -11,17 +12,22 @@ namespace ConnectLive.Agent;
 /// <summary>One local disclosure, not a series of prompts or a silent grant.</summary>
 internal static class PairingPrompt
 {
-    internal static Task<bool> ShowAsync(ApiClient api, CancellationToken applicationToken)
+    internal static Task<bool> ShowAsync(ApiClient api, CancellationToken applicationToken, bool startWithWindows = false)
     {
+        if (applicationToken.IsCancellationRequested) return Task.FromResult(false);
         if (!Application.Current.Dispatcher.CheckAccess())
-            return Application.Current.Dispatcher.InvokeAsync(() => ShowAsync(api, applicationToken)).Task.Unwrap();
+            return Application.Current.Dispatcher.InvokeAsync(() => ShowAsync(api, applicationToken, startWithWindows)).Task.Unwrap();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(applicationToken);
         var token = cancellation.Token;
         var window = new Window
         {
-            Title = "ConnectLive — pair this device", Width = 520, Height = 660,
-            MinWidth = 420, MinHeight = 500, WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            Background = Brushes.White, Foreground = Brushes.Black,
+            Title = "ConnectLive — pairing code", Width = 500, MinWidth = 400,
+            SizeToContent = SizeToContent.Height,
+            MaxHeight = Math.Max(360, SystemParameters.WorkArea.Height - 60),
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Background = (Brush)Application.Current.Resources["BrandSurface"],
+            Foreground = (Brush)Application.Current.Resources["BrandInk"],
+            FontFamily = (FontFamily)Application.Current.Resources["BrandFont"],
         };
         var root = new StackPanel { Margin = new Thickness(24) };
         window.Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -29,35 +35,83 @@ internal static class PairingPrompt
         {
             Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
         });
-        Text("Pair this Windows device", 22);
-        Text($"Server: {api.ApiBaseUrl}");
-        Text("Enter the one-time code from your administrator. Review the organization and permissions before activating remote access.");
-        var input = new TextBox { FontSize = 20, MaxLength = 40, Padding = new Thickness(8), Margin = new Thickness(0, 0, 0, 12) };
+        root.Children.Add(new TextBlock
+        {
+            Text = "ConnectLive", FontSize = 24, FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["BrandAccent"],
+            Margin = new Thickness(0, 0, 0, 20),
+        });
+        Text("Pair this device", 20);
+        Text("Enter the one-time pairing code from your administrator.");
+        Text($"Server: {LocalGrant.OriginOf(api.ApiBaseUrl)}", 11);
+        Text("Pairing code", 12);
+        var input = new TextBox
+        {
+            FontSize = 22, FontFamily = new FontFamily("Consolas"),
+            MaxLength = 40, CharacterCasing = CharacterCasing.Upper,
+            Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 12),
+            Background = Brushes.White, BorderBrush = (Brush)Application.Current.Resources["BrandBorder"],
+        };
         System.Windows.Automation.AutomationProperties.SetName(input, "One-time pairing code");
         root.Children.Add(input);
-        var review = new Button { Content = "Review pairing", Padding = new Thickness(12, 8, 12, 8), IsDefault = true };
+        var review = new Button
+        {
+            Content = "Continue", IsDefault = true,
+            Style = (Style)Application.Current.Resources["PrimaryButton"],
+        };
         root.Children.Add(review);
-        var disclosure = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 18, 0, 12) };
-        root.Children.Add(disclosure);
+        var details = new StackPanel { Visibility = Visibility.Collapsed };
+        root.Children.Add(details);
+        var disclosure = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 12), FontSize = 13 };
+        details.Children.Add(disclosure);
+        var expires = new TextBlock { FontSize = 11, Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
+        details.Children.Add(expires);
         var error = new TextBlock { Foreground = Brushes.DarkRed, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) };
         root.Children.Add(error);
-        var startup = new CheckBox
+        var companionsAvailable = File.Exists(Path.Combine(AppContext.BaseDirectory, "ConnectLiveWatch.exe")) &&
+            File.Exists(Path.Combine(AppContext.BaseDirectory, "ConnectLiveUpdate.exe"));
+        var enableStartup = startWithWindows && companionsAvailable;
+        details.Children.Add(new TextBlock
         {
-            IsChecked = false, Margin = new Thickness(0, 0, 0, 14),
-            Content = new TextBlock { Text = StartupConsent.Notice, TextWrapping = TextWrapping.Wrap },
+            Text = enableStartup
+                ? "Windows startup was requested for this launch. " + StartupConsent.Notice
+                : startWithWindows
+                    ? "Startup/recovery cannot be enabled because the companion apps are missing. This copy must be opened manually."
+                    : "Windows startup/recovery is not enabled by this pairing.",
+            FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = "Pairing accepts the administrator's access settings above. The Agent then runs in the background, without a status window or tray controls. To disable access locally, run ConnectLive.exe /disable or uninstall ConnectLive.",
+            FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
+        });
+        var pair = new Button
+        {
+            Content = "Pair and connect", IsEnabled = false, Visibility = Visibility.Collapsed,
+            Style = (Style)Application.Current.Resources["PrimaryButton"],
         };
-        root.Children.Add(startup);
-        var pair = new Button { Content = "Pair & authorize", IsEnabled = false, Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 10) };
         root.Children.Add(pair);
-        var cancel = new Button { Content = "Cancel — do not activate", IsCancel = true, Padding = new Thickness(12, 8, 12, 8) };
+        var cancel = new Button
+        {
+            Content = "Cancel", IsCancel = true, Margin = new Thickness(0, 10, 0, 0),
+            Style = (Style)Application.Current.Resources["SecondaryButton"],
+        };
         root.Children.Add(cancel);
 
         PairingAttempt? attempt = null;
         bool busy = false, closed = false, paired = false;
-        input.TextChanged += (_, _) => { attempt = null; pair.IsEnabled = false; disclosure.Text = ""; error.Text = ""; };
+        input.TextChanged += (_, _) =>
+        {
+            attempt = null; pair.IsEnabled = false; pair.IsDefault = false;
+            pair.Visibility = Visibility.Collapsed; details.Visibility = Visibility.Collapsed;
+            review.Visibility = Visibility.Visible; review.IsDefault = true;
+            disclosure.Text = ""; expires.Text = ""; error.Text = "";
+        };
         review.Click += async (_, _) =>
         {
             if (busy) return;
+            if (string.IsNullOrWhiteSpace(input.Text))
+            { error.Text = "Enter your pairing code first."; input.Focus(); return; }
             busy = true; review.IsEnabled = false; input.IsEnabled = false; pair.IsEnabled = false; error.Text = "";
             try
             {
@@ -65,17 +119,21 @@ internal static class PairingPrompt
                 if (closed || token.IsCancellationRequested) return;
                 attempt = new PairingAttempt(input.Text.Trim(), offer);
                 var allowed = new List<string> { "View screen" };
-                if (offer.Capabilities.Control) allowed.Add("Keyboard/mouse control (includes privacy curtain in legacy clients)");
+                if (offer.Capabilities.Control) allowed.Add("Keyboard/mouse control and privacy curtain");
                 if (offer.Capabilities.Clipboard) allowed.Add("Clipboard text");
                 if (offer.Capabilities.Files) allowed.Add("File transfer");
                 if (offer.Capabilities.Recording) allowed.Add("Record shared sessions");
-                disclosure.Text = $"Organization: {offer.Organization}\n\nAllowed: {string.Join(", ", allowed)}.\n\n" +
+                disclosure.Text = $"Organization: {offer.Organization}\n\n" +
                     (offer.Mode == "unattended"
-                        ? "Unattended access: this organization can connect without another session prompt, including after restart.\n\n"
-                        : "Attended access: you must accept each session.\n\n") +
-                    "ConnectLive status remains available in the system tray. Use Disable remote access to stop sharing and revoke access, even while offline.\n\n" +
-                    $"Code expires at {offer.ExpiresAt.ToLocalTime():HH:mm}. Pair & authorize records these permissions.";
+                        ? "Unattended access — this organization can connect without another session prompt, including after restart.\n\n"
+                        : "Attended access — approve each session.\n\n") +
+                    $"Permissions: {string.Join(", ", allowed)}.";
+                expires.Text = $"Code expires at {offer.ExpiresAt.ToLocalTime():HH:mm}.";
+                details.Visibility = Visibility.Visible;
+                review.Visibility = Visibility.Collapsed; review.IsDefault = false;
+                pair.Visibility = Visibility.Visible; pair.IsDefault = true;
                 pair.IsEnabled = true;
+                pair.Focus();
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { if (!closed) error.Text = ex.Message; }
             catch (OperationCanceledException) { }
@@ -85,14 +143,15 @@ internal static class PairingPrompt
         {
             if (busy || attempt == null) return;
             if (attempt.Offer.ExpiresAt <= DateTimeOffset.UtcNow)
-            { error.Text = "This code expired. Ask for a new code and review it."; pair.IsEnabled = false; return; }
-            busy = true; pair.IsEnabled = false; review.IsEnabled = false; input.IsEnabled = false; error.Text = "";
+            { error.Text = "This code expired. Ask for a new code and enter it above."; pair.IsEnabled = false; return; }
+            busy = true; pair.IsEnabled = false; review.IsEnabled = false; input.IsEnabled = false;
+            pair.Content = "Pairing…"; error.Text = "";
             try
             {
                 await api.CompletePairingAsync(attempt, token);
                 token.ThrowIfCancellationRequested();
                 StartupConsent.Save(api.LocalAuthorization ?? throw new InvalidOperationException("Pairing did not record authorization"),
-                    startup.IsChecked == true);
+                    enableStartup);
                 LocalAccessState.CompleteForegroundReauthorization();
                 paired = true;
                 window.DialogResult = true;
@@ -102,7 +161,11 @@ internal static class PairingPrompt
             finally
             {
                 busy = false;
-                if (!closed) { pair.IsEnabled = attempt != null; review.IsEnabled = true; input.IsEnabled = true; }
+                if (!closed)
+                {
+                    pair.IsEnabled = attempt != null && attempt.Offer.ExpiresAt > DateTimeOffset.UtcNow;
+                    pair.Content = "Pair and connect"; review.IsEnabled = true; input.IsEnabled = true;
+                }
             }
         };
         window.Closed += (_, _) => { closed = true; if (!paired) cancellation.Cancel(); };

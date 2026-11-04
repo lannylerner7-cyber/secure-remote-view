@@ -3,10 +3,12 @@ import argparse
 import base64
 import hashlib
 import json
+import posixpath
 import re
 import subprocess
 import tempfile
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +16,24 @@ APP = ROOT / "."
 EXTENSIONS = {".cs", ".csproj", ".xaml", ".manifest", ".ps1", ".bat", ".cmd",
               ".md", ".txt", ".json", ".xml", ".wxs", ".iss", ".svg", ".ico",
               ".png", ".sh", ".plist", ".config", ".props", ".targets", ".sln"}
-SKIP = {"bin", "obj", "dist", "publish", "node_modules", ".git"}
+SKIP = {"bin", "obj", "dist", "publish", "node_modules", ".git", ".vs",
+        "generated-artifacts", "TestResults", "__pycache__"}
+
+
+def validate_project_references(files):
+    """Every explicit first-party C# link/project must exist inside the ZIP."""
+    for name, data in files.items():
+        if not name.endswith(".csproj"):
+            continue
+        for element in ET.fromstring(data).iter():
+            if element.tag not in {"Compile", "ProjectReference"}:
+                continue
+            reference = element.get("Include", "").replace("\\", "/")
+            if not reference or any(marker in reference for marker in ("$(", "*", "?", ";")):
+                continue
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(name), reference))
+            if target not in files:
+                raise RuntimeError(f"Source dependency is missing: {name} -> {reference}")
 
 
 def sources(side):
@@ -60,7 +79,11 @@ def main():
     baseline = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     for side in ((args.side,) if args.side else ("agent", "admin")):
-        destination = out / f"ConnectLive-{side.title()}-Source.zip"
+        source_version = ET.parse(APP / "agent/src/ConnectLiveAgent.csproj").findtext(".//Version") if side == "agent" else None
+        if source_version and not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", source_version):
+            raise RuntimeError("Invalid source version for archive filename")
+        version_suffix = f"-{source_version}" if source_version else ""
+        destination = out / f"ConnectLive-{side.title()}{version_suffix}-Source.zip"
         if destination.exists():
             raise RuntimeError(f"Refusing to replace {destination.name}")
         files = dict(sources(side))
@@ -70,6 +93,7 @@ def main():
         files["supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql"] = (
             APP / "supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql").read_bytes()
         if side == "agent":
+            files["tests/agent-ui-regression.cjs"] = (ROOT / "tests/agent-ui-regression.cjs").read_bytes()
             for name in (
                 "20261103000000_disclosed_device_pairing.sql",
                 "20261103001000_browser_video_sessions.sql",
@@ -80,6 +104,7 @@ def main():
             for name in ("agent-windows-verification.md", "agent-lifecycle-implementation.md",
                          "browser-first-verification.md", "browser-first-migration.md"):
                 files[f"docs/{name}"] = (ROOT / "docs" / name).read_bytes()
+        validate_project_references(files)
         if args.github_commit:
             for name, data in files.items():
                 tracked = "docs/native-streaming-progress.md" if name == "VERIFICATION-STATUS.md" else name
@@ -105,6 +130,10 @@ def main():
                     raise RuntimeError(f"Service-role credential found in {name}")
             if name.endswith(".json"):
                 def check_config(value):
+                    if isinstance(value, list):
+                        for item in value:
+                            check_config(item)
+                        return
                     if not isinstance(value, dict):
                         return
                     for key, item in value.items():
@@ -120,6 +149,10 @@ def main():
                         raise RuntimeError(f"Private signing material must not be packaged: {name}")
                 check_config(json.loads(text))
         manifest = {
+            "archiveKind": "source-only",
+            "sourceVersion": source_version,
+            "nativeBuildPerformedForArchive": False,
+            "prebuiltExecutablesIncluded": False,
             "workspaceBaselineCommit": baseline,
             "includesUncommittedChanges": True,
             "githubPushVerified": bool(args.github_commit),
@@ -135,22 +168,31 @@ def main():
                "Enter your Supabase public sb_publishable_ key locally, never a service-role key.\n"
                "Then cd src; dotnet run (without --no-build).\n"
                if side == "admin" else "")
-            + ("FIRST: Read docs/agent-windows-verification.md and deploy the lifecycle backend migration/web update.\n"
-               "This ZIP is NOT the backend deployment package; server scripts run from the full updated repository.\n"
+            + ("FIRST: Read agent/RUN-SOURCE.md. Use a Windows x64 machine with the .NET 8 SDK.\n"
                "Extract into a fresh directory, not over an older source bundle.\n"
+               "Stop the old Agent before running this source (run.ps1 -Disable, or its old tray menu).\n"
+               "Open PowerShell in the extracted folder, then run:\n"
+               "  cd .\\agent\n"
+               "  Unblock-File .\\run.ps1\n"
+               "  .\\run.ps1 -Pair\n"
+               "This builds the actual Agent, Watch and updater source on YOUR machine; no MSI is created.\n"
+               "The one pairing-code window replaces both old startup windows. Access details stay inline.\n"
+               "Get a fresh code from your administrator. After pairing there is no status window or tray/control UI.\n"
+               "Local disable still works: .\\run.ps1 -Disable or ConnectLive.exe /disable.\n"
+               "Source files are in agent/src, agent/update-core and agent/tools; they are not download links.\n"
                "The single admin/src/Api/AppConfig.cs file is a shared test dependency, not another client bundle.\n"
-               "For an unsigned Windows TEST MSI: cd agent; .\\build.ps1 -Version 1.10.1 -SkipInno -SkipSign.\n"
-               "The script restores pinned WiX. Production signing is separate; this does not bypass SmartScreen.\n"
-               "Install that MSI normally. It packages Agent, Watch and the signed-update helper together.\n"
-               "A raw dotnet run does NOT package the companion executables or verify startup recovery.\n"
-               "Per-machine MSI upgrades remain IT-managed; the unprivileged self-updater cannot replace Program Files.\n"
+               "Do NOT run agent/build.ps1 for the initial terminal test: -SkipInno still creates an MSI.\n"
+               "Installer bundling comes later, after your manual source test.\n"
+               "This ZIP does not deploy the server. SQL/verification documents are reference material only.\n"
                if side == "agent" else "")
             +
-            f"Windows .NET 8 SDK: cd {side}\\src; dotnet build -c Release\n"
-            f"Packaging: cd {side}; .\\build.ps1 (see INSTALL.md and docs/SIGNING.md).\n"
+            (f"Windows .NET 8 SDK: cd {side}\\src; dotnet build -c Release\n"
+             f"Packaging: cd {side}; .\\build.ps1 (see INSTALL.md and docs/SIGNING.md).\n"
+             if side == "admin" else "")
+            +
             "Keep the folder layout: shared dependencies and signing tools are included.\n"
-            "Agent installer additionally requires Inno Setup / WiX as documented.\n"
             "No source edit disables SmartScreen. Signing requires your trusted identity.\n"
+            "No Windows binary was compiled for this archive.\n"
             "Windows live-session, backend transition and installer verification remain incomplete.\n"
         ).encode()
         manifest["files"] = {n: hashlib.sha256(b).hexdigest() for n, b in files.items()}
