@@ -1,5 +1,18 @@
 # ConnectLive virtual guide — Meshy production brief
 
+> **Implementation status (2026-11-04):** v1 is live on the homepage
+> (`src/components/site/guide/`). The rigged model ships with 6 clips —
+> `Sit_Cross_Legged`, `Wave_One_Hand`, `Talk_with_Hands_Open`,
+> `Talk_with_Left_Hand_Raised`, `Walking`, `Running` — so the seated idle,
+> welcome wave and talking gestures below are real; `stand_up`, `sit_down`,
+> `listening`, `thinking`, `point_to_board`, `confirm_nod`, `uncertain_open_hand`
+> and `empathetic_pause` are NOT in the model yet and remain spec-only. The model
+> has **no facial morph targets**: emotions are conveyed through body animation
+> and chat styling, and lip-sync is impossible until a facial rig is added in
+> Blender. Answers come from the curated knowledge folder
+> (`imports/connectlive/knowledge/`) via a local matcher — no LLM is connected,
+> and no ElevenLabs voice is wired yet.
+
 ## What this brief produces
 
 Create a friendly, branded female guide who sits in a small lounge area, stands and waves when a visitor reaches her section, and explains ConnectLive through an accessible chat interface. A separate board can illustrate short explanations.

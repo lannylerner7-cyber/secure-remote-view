@@ -49,6 +49,8 @@ assert.match(app, /LocalAccessState\.Disable\(\)/);
 assert.match(app, /StartupConsent\.Clear\(\)/);
 assert.match(app, /a\.Equals\("\/disable"/);
 assert.match(app, /a\.Equals\("--disable"/);
+assert.ok(app.indexOf('Log.Info("startup entered') < app.indexOf("var uninstalling"),
+  "file logging must initialize before early startup exits");
 assert.match(app, /if \(LocalAccessState\.IsDisabled\(\) \|\| InstallationLifecycle\.RemovalRequested\(\)\) DisableRemoteAccess\(\)/);
 assert.match(read("App.xaml"), /ShutdownMode="OnExplicitShutdown"/);
 const runner = fs.readFileSync(path.join(dir, "../run.ps1"), "utf8");
@@ -61,5 +63,14 @@ assert.match(runner, /Start-Process/);
 assert.match(runner, /if \(\$Disable\)/);
 assert.match(runner, /-ArgumentList "\/disable"/);
 assert.match(runner, /--start-with-windows/);
+assert.match(runner, /\[switch\]\$Logs/);
+assert.ok(runner.indexOf("if ($Logs)") < runner.indexOf("Get-Command dotnet"),
+  "opening logs must not need the SDK");
+assert.match(runner, /Start-Transcript/);
+assert.match(runner, /Stop-Transcript/);
+assert.match(runner, /RedirectStandardError/);
+assert.match(read("Agent.cs"), /System\.IO\.Path\.GetTempPath\(\)/);
+assert.match(read("ScreenCapture.cs"), /RefreshUnchangedJpeg/);
+assert.match(read("ScreenCapture.cs"), /first JPEG uploaded successfully/);
 assert.doesNotMatch(runner, /Invoke-WebRequest|Invoke-RestMethod|&.*build\.ps1|dotnet publish|msiexec|Compress-Archive/i);
 console.log("PASS: single-input pairing, no tray/status controls, inline admin-selected access, explicit startup, and local command-line withdrawal (static checks only)");

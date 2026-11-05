@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { replaceWithJpegDiagnostic, selectSessionMediaMode } from "@/lib/jpeg-diagnostic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -156,6 +157,8 @@ function AdminPage() {
   const [viewerAttempt, setViewerAttempt] = useState(0);
   const [viewerPaused, setViewerPaused] = useState(false);
   const [viewerUnsupported, setViewerUnsupported] = useState(false);
+  const [jpegDiagnosticStarting, setJpegDiagnosticStarting] = useState(false);
+  const jpegDiagnosticBusyRef = useRef(false);
   const viewerStartedAtRef = useRef(0);
   const lastInputNoticeRef = useRef(0);
   const [monitorSwitching, setMonitorSwitching] = useState(false);
@@ -163,6 +166,8 @@ function AdminPage() {
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
   const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
   const lastRealtimePushAtRef = useRef<number>(0);
+  const lastFramePushAtRef = useRef<number>(0);
+  const lastCursorPushAtRef = useRef<number>(0);
   const [realtimeStatus, setRealtimeStatus] = useState<
     "connecting" | "subscribed" | "reconnecting" | "closed"
   >("connecting");
@@ -270,6 +275,8 @@ function AdminPage() {
 
     setRealtimeStatus("connecting");
     lastRealtimePushAtRef.current = 0;
+    lastFramePushAtRef.current = 0;
+    lastCursorPushAtRef.current = 0;
     if (wantFrames) {
       supabase
         .from("session_frames")
@@ -303,7 +310,7 @@ function AdminPage() {
           const row = payload.new as never as LiveFrame;
           if (row) {
             setLiveFrame(row);
-            lastRealtimePushAtRef.current = Date.now();
+            lastRealtimePushAtRef.current = lastFramePushAtRef.current = Date.now();
             // FPS counter
             const c = fpsCounterRef.current;
             c.count++;
@@ -325,7 +332,7 @@ function AdminPage() {
         const row = payload.new as never as LiveCursor;
         if (row) {
           setLiveCursor(row);
-          lastRealtimePushAtRef.current = Date.now();
+          lastRealtimePushAtRef.current = lastCursorPushAtRef.current = Date.now();
         }
       },
     );
@@ -336,24 +343,28 @@ function AdminPage() {
         setRealtimeStatus("reconnecting");
       else if (status === "CLOSED") setRealtimeStatus("closed");
     });
-    // Fallback poller: only fetches when the realtime socket has been quiet
-    // for >5s, so we can prove the pipe is alive even when postgres_changes drops.
+    // Recover each subscription independently. Cursor events do not prove that
+    // screen frames are arriving (and frame events do not prove cursor health).
     const poll = setInterval(async () => {
       if (cancelled) return;
-      if (Date.now() - lastRealtimePushAtRef.current < 5000) return;
+      const pollFrames = wantFrames && Date.now() - lastFramePushAtRef.current >= 5000;
+      const pollCursor = Date.now() - lastCursorPushAtRef.current >= 5000;
+      if (!pollFrames && !pollCursor) return;
       const [{ data: f }, { data: c }] = await Promise.all([
-        wantFrames
+        pollFrames
           ? supabase
               .from("session_frames")
               .select("frame,width,height,updated_at")
               .eq("session_id", liveId)
               .maybeSingle()
           : Promise.resolve({ data: null } as { data: null }),
-        supabase
-          .from("session_cursors")
-          .select("x,y,frame_w,frame_h,kind,visible,updated_at")
-          .eq("session_id", liveId)
-          .maybeSingle(),
+        pollCursor
+          ? supabase
+              .from("session_cursors")
+              .select("x,y,frame_w,frame_h,kind,visible,updated_at")
+              .eq("session_id", liveId)
+              .maybeSingle()
+          : Promise.resolve({ data: null } as { data: null }),
       ]);
       if (cancelled) return;
       if (f) setLiveFrame(f as never);
@@ -807,23 +818,29 @@ function AdminPage() {
 
   // Invite an enrolled device. The Agent checks its standing grant; attended
   // sessions require local acceptance. Video starts only after activation.
-  async function connectDevice(d: Device) {
+  async function connectDevice(d: Device, jpegDiagnostic = false): Promise<boolean> {
     const { data: u } = await supabase.auth.getUser();
+    if (!u.user) { toast.error("Sign in before starting a session."); return false; }
     // Reuse the newest live session for this device instead of stacking a
     // fresh invite each click. Stacked invites are the black-screen bug:
     // the agent's session loop settles on the OLDEST id and pushes frames
     // to a session no one is polling.
-    const { data: existingRows } = await supabase
+    const { data: existingRows, error: lookupError } = await supabase
       .from("sessions")
       .select("id, created_at")
       .eq("device_id", d.id)
       .in("state", ["invited", "consented", "active", "paused"])
       .order("created_at", { ascending: false })
       .limit(1);
+    if (lookupError) { toast.error("Could not check existing sessions. No new session was started."); return false; }
     const existing = existingRows?.[0];
     if (existing) {
+      if (jpegDiagnostic) {
+        toast.error("Another live session remains open. End it before starting JPEG diagnosis.");
+        return false;
+      }
       setLiveId(existing.id);
-      return;
+      return true;
     }
     const { data, error } = await supabase
       .from("sessions")
@@ -832,16 +849,18 @@ function AdminPage() {
         mode: "view",
         state: "invited",
         device_id: d.id,
-        media_mode: d.platform === "windows" &&
-          (d.metadata as Record<string, unknown> | null)?.browser_video === 1 ? "video" : "legacy",
+        media_mode: selectSessionMediaMode(d.platform, d.metadata, jpegDiagnostic),
       })
       .select()
       .single();
-    if (error) return alert(error.message);
+    if (error) { toast.error(error.message); return false; }
     if (data) {
       setSessions(previous => [data, ...previous.filter(session => session.id !== data.id)]);
       setLiveId(data.id);
+      if (jpegDiagnostic) toast.success("JPEG fallback enabled. Existing viewing permission and session approval still apply.");
+      return true;
     }
+    return false;
   }
 
   async function endSession(s: Session) {
@@ -851,10 +870,27 @@ function AdminPage() {
       .from("sessions")
       .update({ state: "ended", ended_at: new Date().toISOString(), pairing_code: null })
       .eq("id", s.id).select("id").maybeSingle();
-    if (error || !ended) { toast.error("The session could not be ended."); return; }
+    if (error || !ended) { toast.error("The session could not be ended."); return false; }
     setLiveId(current => current === s.id ? null : current);
     const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
     void pushNotify("session_end", `⏹️ Session ended on <b>${dev?.display_name ?? "device"}</b>`);
+    return true;
+  }
+
+  async function diagnoseWithJpeg(s: Session) {
+    const device = devices.find(d => d.id === s.device_id);
+    if (!device || !canMutate || jpegDiagnosticBusyRef.current) return;
+    if (!confirm("End this session and invite a new view-only session with JPEG fallback? Existing viewing permissions still apply, including local approval for attended access. Video will also keep trying. No device will be re-paired or restarted.")) return;
+    jpegDiagnosticBusyRef.current = true;
+    setJpegDiagnosticStarting(true);
+    try {
+      await replaceWithJpegDiagnostic(() => endSession(s), () => connectDevice(device, true));
+    } catch {
+      toast.error("JPEG diagnosis could not start. Check the session list before retrying.");
+    } finally {
+      jpegDiagnosticBusyRef.current = false;
+      setJpegDiagnosticStarting(false);
+    }
   }
 
   async function deleteSession(s: Session) {
@@ -1665,6 +1701,17 @@ function AdminPage() {
                     </button>
                   </div>
                 </div>
+                {s.media_mode === "legacy" && dev?.platform === "windows" &&
+                  (dev.metadata as Record<string, unknown> | null)?.browser_video === 1 && (
+                  <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="jpeg-diagnostic-status" role="status">
+                    <strong>JPEG fallback enabled.</strong>{" "}
+                    {videoDecoding ? "WebRTC video is decoding; JPEG is on standby." :
+                      active && liveFrame?.frame && frameAge < 8000
+                        ? "JPEG received: screen capture and HTTPS upload are working. Check the Agent log for the separate WebRTC signaling, encoder and ICE path."
+                        : "Waiting for an authorized, fresh JPEG frame. No picture does not yet prove a capture failure—check session acceptance and the Agent log."}
+                    {" "}Video: {rtcState}. Logs: <code>%LOCALAPPDATA%\ConnectLive\logs</code>
+                  </div>
+                )}
                 <div className="flex min-h-0 flex-1 flex-col md:flex-row">
                   {!railCollapsed && (
                     <nav
@@ -1695,6 +1742,18 @@ function AdminPage() {
                         title="Reconnect this browser's video peer without changing device authorization or waking a stopped Agent"
                       >
                         Reconnect viewer
+                      </button>
+                    )}
+                    {s.media_mode === "video" && s.device_id && canMutate && (
+                      <button
+                        type="button"
+                        data-testid="button-jpeg-diagnostic"
+                        onClick={() => void diagnoseWithJpeg(s)}
+                        disabled={jpegDiagnosticStarting || !["invited", "consented", "active", "paused"].includes(s.state)}
+                        className="rounded border border-amber-400/30 bg-amber-400/5 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-400/10 disabled:opacity-50"
+                        title="Ends this session and starts a new view-only session that permits JPEG fallback; no permission bypass or database migration"
+                      >
+                        {jpegDiagnosticStarting ? "Starting diagnosis…" : "Test JPEG fallback"}
                       </button>
                     )}
                     {s.device_id && role !== "viewer" && (

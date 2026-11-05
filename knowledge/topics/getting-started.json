@@ -1,0 +1,36 @@
+{
+  "id": "getting-started",
+  "title": "Getting started",
+  "entries": [
+    {
+      "id": "start-how",
+      "keywords": ["get started", "getting started", "how do i start", "begin", "setup", "set up", "install", "deployment", "onboarding", "new customer"],
+      "question": "How do I get started?",
+      "answer": "Four steps: 1) Choose a plan and check out. 2) After payment confirms, your delivery pack arrives — normally within one business day — with the Agent installer, admin console installer, your Meeting ID and sign-in details. 3) Install the Agent and enroll your devices. 4) Sign in to the admin console and start your first authorized session. Step-by-step video guides are included in the pack.",
+      "board": {
+        "heading": "Getting started",
+        "lines": ["1. Choose a plan", "2. Receive your delivery pack", "3. Install Agent + enroll devices", "4. Connect from the admin console"]
+      },
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "See plans", "to": "/plans" }, { "label": "Start an order", "to": "/order" }]
+    },
+    {
+      "id": "start-requirements",
+      "keywords": ["requirements", "support", "windows", "mac", "linux", "operating system", "os", "supported", "compatibility", "browser"],
+      "question": "What platforms are supported?",
+      "answer": "The ConnectLive Agent runs on Windows devices. Technicians use the web admin console from a modern browser — no technician installation required to view a session. If you have a mixed fleet, mention it when you order and the team will advise.",
+      "emotion": "neutral",
+      "animation": "talk_open",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    },
+    {
+      "id": "start-delivery",
+      "keywords": ["delivery", "how fast", "how long", "provision", "when will i get", "delivery pack", "after payment"],
+      "question": "How quickly is a workspace provisioned?",
+      "answer": "Once payment confirms, the delivery pack normally lands within 24 hours — 48 hours at the outside on business days. Keep an eye on your spam folder and mark our address as safe.",
+      "emotion": "neutral",
+      "animation": "talk_open"
+    }
+  ]
+}

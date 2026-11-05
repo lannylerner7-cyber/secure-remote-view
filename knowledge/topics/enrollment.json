@@ -1,0 +1,37 @@
+{
+  "id": "enrollment",
+  "title": "Device enrollment and authorization",
+  "entries": [
+    {
+      "id": "enroll-how",
+      "keywords": ["enroll", "enrollment", "device", "meeting id", "pair", "pairing", "add device", "connect device", "agent", "authorize", "authorization", "install agent"],
+      "question": "How does device enrollment work?",
+      "answer": "A device is authorized when the ConnectLive Agent on it enrolls against a valid Meeting ID from your delivery pack, with seats available on your plan. Install the Agent on the Windows device, enter your Meeting ID, and the device appears in your admin console. Only enrolled devices can ever receive sessions.",
+      "board": {
+        "heading": "Enrolling a device",
+        "lines": ["Install the Windows Agent", "Enter your Meeting ID", "Device joins your workspace", "Connect from the console"]
+      },
+      "emotion": "attentive",
+      "animation": "talk_open",
+      "links": [{ "label": "How it works", "to": "/#workflow" }]
+    },
+    {
+      "id": "enroll-meeting-id",
+      "keywords": ["meeting id", "code", "where is my meeting id", "lost meeting id", "invalid meeting id", "credentials"],
+      "question": "Where is my Meeting ID?",
+      "answer": "Your Meeting ID and sign-in details arrive in the delivery pack after your payment confirms. Treat the Meeting ID like a credential — it is what authorizes devices into your workspace. If yours is lost or exposed, contact the team so it can be rotated.",
+      "emotion": "attentive",
+      "animation": "talk_raised",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    },
+    {
+      "id": "enroll-seats",
+      "keywords": ["seats", "seat", "many", "device limit", "more devices", "upgrade devices", "capacity", "how many devices"],
+      "question": "How many devices can I enroll?",
+      "answer": "Each plan includes a device allowance — Starter covers 10 devices, Team 20, Business 50, and Enterprise is unlimited. Enrollment enforces seat availability, so a device only joins while a seat is free. You can move between tiers as you grow without changing your workflow.",
+      "emotion": "neutral",
+      "animation": "talk_open",
+      "links": [{ "label": "Compare plans", "to": "/plans" }]
+    }
+  ]
+}

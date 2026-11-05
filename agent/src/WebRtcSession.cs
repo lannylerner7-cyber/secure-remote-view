@@ -758,12 +758,24 @@ public sealed partial class WebRtcSession : IDisposable
         if (_closed || !_inputPermission.Allows("view")) return;
         var kind = it.GetProperty("kind").GetString();
         var payload = it.GetProperty("payload");
-        if (!SignalIdentity.TryRead(it, _videoOnly, out var incomingAdminId, out var incomingPeerId)) return;
+        if (!SignalIdentity.TryRead(it, _videoOnly, out var incomingAdminId, out var incomingPeerId))
+        {
+            // Previously a silent drop. A malformed or unaddressed signal in a
+            // video-only session means the viewer never gets an answer, so say
+            // so (shape only — never the IDs or SDP themselves).
+            Log.Warn($"webrtc {kind} rejected: identity check failed " +
+                     $"(admin_client_id={(it.TryGetProperty("admin_client_id", out var a) && a.ValueKind == JsonValueKind.String ? "present" : "missing")}, " +
+                     $"peer_id={(payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("peer_id", out var p) ? p.ValueKind.ToString() : "missing")}, " +
+                     $"videoOnly={_videoOnly})");
+            return;
+        }
 
         switch (kind)
         {
             case "offer":
             {
+                Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc offer received (videoOnly={_videoOnly}, " +
+                         $"peer={(_pc == null ? "none" : "existing")})");
                 await _handoffLock.WaitAsync(_cts.Token);
                 try
                 {
@@ -812,6 +824,7 @@ public sealed partial class WebRtcSession : IDisposable
                     await _pc.setLocalDescription(answer);
                     await _api.PostSignalReliableAsync(_sessionId, "answer",
                         new { type = "answer", sdp = answer.sdp, peer_id = incomingPeerId }, _cts.Token, _currentAdminClientId);
+                    Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc answer posted");
                 }
                 finally { _handoffLock.Release(); }
                 break;

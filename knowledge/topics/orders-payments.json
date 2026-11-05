@@ -1,0 +1,36 @@
+{
+  "id": "orders-payments",
+  "title": "Orders and payments",
+  "entries": [
+    {
+      "id": "pay-how",
+      "keywords": ["pay", "payment", "how do i pay", "bitcoin", "btc", "usdt", "usdc", "crypto", "card", "checkout", "invoice"],
+      "question": "How do I pay?",
+      "answer": "Checkout issues a live invoice payable in Bitcoin, USDT (ERC-20), or USDC (ERC-20) — no card details are ever requested. The price is locked for 15 minutes and the invoice page tracks network confirmations in real time.",
+      "board": {
+        "heading": "Paying an invoice",
+        "lines": ["Choose BTC, USDT or USDC", "Send the exact quoted amount", "Price locked for 15 minutes", "Confirmations tracked live"]
+      },
+      "emotion": "neutral",
+      "animation": "talk_open",
+      "links": [{ "label": "Start an order", "to": "/order" }]
+    },
+    {
+      "id": "pay-exact",
+      "keywords": ["exact amount", "rounded", "wrong amount", "price lock", "expired", "15 minutes", "order reference", "confirmation", "confirmations", "network"],
+      "question": "Why must I send the exact quoted amount?",
+      "answer": "Each invoice carries a unique quoted amount for its asset and network — that is how your payment is matched to your order automatically. Send exactly what the invoice shows, on the network it shows, before the 15-minute price lock expires. Never substitute a rounded amount.",
+      "emotion": "attentive",
+      "animation": "talk_raised"
+    },
+    {
+      "id": "pay-status",
+      "keywords": ["payment status", "did my payment arrive", "where is my order", "order status", "license lookup", "check order", "paid", "not received", "pending"],
+      "question": "How do I check my order or license status?",
+      "answer": "Your invoice page tracks network confirmations in real time, and you can look up a license from the License page. I can't see account or payment state from this public chat, so for anything stuck, message the team with your order reference — never share wallet keys or full transaction credentials.",
+      "emotion": "attentive",
+      "animation": "talk_open",
+      "links": [{ "label": "License lookup", "to": "/license" }, { "label": "Contact the team", "to": "/contact" }]
+    }
+  ]
+}

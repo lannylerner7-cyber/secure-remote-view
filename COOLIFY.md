@@ -19,8 +19,9 @@ non-root user with a `/health` probe wired for zero-downtime deploys.
   policy before merging a release branch; this check does not change it.
 
 ## 2. Environment variables
-Copy `.env.sample` into Coolify's Environment Variables tab and replace the
-placeholder values with your real production keys. Required:
+Use `.env.sample` as a list of names, not as a replacement for existing settings.
+Add or edit individual variables in Coolify's Normal view; replacing the entire
+Developer-view contents can remove unrelated settings. Required:
 
 - `PORT=3000`
 - `NODE_ENV=production`
@@ -39,6 +40,42 @@ build arguments. See `docs/coolify-configuration-guide.md` in the Replit workspa
 for the full runtime inventory, including `SESSION_SECRET_KEY` and SMTP/TURN.
 The build uses Bun 1.3.6 with its checked-in text lockfile and no unlocked fallback;
 runtime uses Node 24.
+
+### Guide voice on this host
+
+Add these two variables individually in Coolify's **runtime** environment:
+
+- `GUIDE_SPEECH_PROVIDER=elevenlabs`
+- `ELEVENLABS_API_KEY` — a key from **your own** ElevenLabs account, with Text
+  to Speech permission and a spending/credit limit. Enter its value privately
+  in Coolify; never paste it into chat or this repository.
+
+Do not enable build-time availability for either variable. Do not prefix the
+key with `VITE_`, add it to Docker `ARG`/`ENV`, or copy Replit connector tokens,
+`REPL_ID`, or Replit identity into Coolify. The explicit provider setting uses
+the direct ElevenLabs API even if an unrelated Replit variable was copied.
+Replit preview can keep the default `auto` provider and its managed connection.
+
+Keep the existing Supabase server settings: the service-role client needs
+read/write access to `connectlive-brand-assets` for MP3 files and timing JSON.
+Cached clips still play without a speech key. `cache-only` intentionally
+disables new generation; it is **not** sufficient for newly edited answers
+or changed live-price hashes. A missing/invalid key never substitutes old
+audio for new wording.
+
+Saving settings here does not change the running container. Apply them only
+during a separately authorized restart/release, after the source changes are
+merged. No deployment, price change or restart is authorized by this guide.
+Then verify one changed approved reply and both persisted objects:
+
+```sh
+node scripts/warm-guide-voice.cjs <verified-app-url> --only <approved-answer-id>
+```
+
+Run from a source checkout. A warmed answer proves playback/storage, **not**
+that the external provider works; use an approved answer whose current hash
+is not already cached. See [knowledge/README.md](knowledge/README.md) for
+provider modes, limits and failure behavior.
 
 ## 3. Health endpoints
 - `GET /health` → `200 OK` (Dockerfile `HEALTHCHECK` uses this)

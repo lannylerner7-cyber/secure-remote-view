@@ -6,12 +6,32 @@ param(
     [switch]$Pair,
     [switch]$StartWithWindows,
     [switch]$Disable,
+    [switch]$Logs,
     [string]$UpdatePublicKeyPath
 )
 
 $ErrorActionPreference = "Stop"
 if ($env:OS -ne "Windows_NT") {
     throw "Run this script from PowerShell on your Windows test machine."
+}
+$logDirectory = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "ConnectLive\logs"
+$fallbackLogDirectory = Join-Path ([IO.Path]::GetTempPath()) "ConnectLive\logs"
+if ($Logs) {
+    $found = $false
+    foreach ($directory in (@($logDirectory, $fallbackLogDirectory) | Select-Object -Unique)) {
+        Write-Host "Log location: $directory"
+        if (Test-Path -LiteralPath $directory) {
+            $found = $true
+            Get-ChildItem -LiteralPath $directory -File |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 8 Name, LastWriteTime, Length | Format-Table
+            Invoke-Item -LiteralPath $directory
+        }
+    }
+    if (-not $found) {
+        Write-Warning "No log folder exists for this Windows user. Start the updated source, or run -Logs under the Windows account that launched the Agent. Older builds may not write a file."
+    }
+    return
 }
 if ($Disable) {
     $sessionId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
@@ -30,6 +50,18 @@ if ($Disable) {
     Write-Host "Remote access is disabled for this Windows user."
     return
 }
+try { New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null }
+catch {
+    Write-Warning "The normal log folder is unavailable; using the current user's temporary folder."
+    $logDirectory = $fallbackLogDirectory
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+}
+$runLog = Join-Path $logDirectory "source-run-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+Start-Transcript -Path $runLog -Append | Out-Null
+try {
+Write-Host "Source-run log: $runLog"
+Write-Host "Agent logs: $logDirectory\agent-YYYYMMDD.log"
+Write-Host "Open logs at any time with: .\run.ps1 -Logs (no build or pairing required)"
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw "Install the Windows .NET 8 SDK, then reopen PowerShell."
 }
@@ -102,7 +134,11 @@ Write-Host "Enter the administrator's pairing code in the app, not in this termi
 Write-Host "After pairing, no status window or tray controls are shown."
 Write-Host "To stop locally, run .\run.ps1 -Disable in another PowerShell window."
 $process = Start-Process -FilePath (Join-Path $output "ConnectLive.exe") `
-    -ArgumentList $launchArguments -WorkingDirectory $output -PassThru -Wait
+    -ArgumentList $launchArguments -WorkingDirectory $output -PassThru -Wait `
+    -RedirectStandardError (Join-Path $logDirectory "startup-$runId.stderr.log")
 if ($process.ExitCode -ne 0) {
     throw "ConnectLive exited with code $($process.ExitCode). Check its startup message and local logs."
+}
+} finally {
+    Stop-Transcript | Out-Null
 }

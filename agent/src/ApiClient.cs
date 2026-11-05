@@ -63,6 +63,7 @@ public sealed partial class ApiClient
     public event Action<LicenseState>? OnLicenseChanged;
 
     private readonly HttpClient _http;
+    private int _frameUploadFailures;
     public string ApiBaseUrl { get; }
     public string? DeviceId { get; private set; }
     public string? DeviceToken { get; private set; }
@@ -514,9 +515,23 @@ public sealed partial class ApiClient
                 {
                     Content = JsonContent.Create(payload),
                 }, ct);
-            return resp.IsSuccessStatusCode;
+            if (resp.IsSuccessStatusCode)
+            {
+                Interlocked.Exchange(ref _frameUploadFailures, 0);
+                return true;
+            }
+            return NoteFrameUploadFailure($"HTTP {(int)resp.StatusCode}");
         }
-        catch { return false; }
+        catch (OperationCanceledException) { return false; }
+        catch (Exception ex) { return NoteFrameUploadFailure(ex.GetType().Name); }
+    }
+
+    private bool NoteFrameUploadFailure(string category)
+    {
+        var failures = Interlocked.Increment(ref _frameUploadFailures);
+        if (failures == 1 || failures % 10 == 0)
+            Log.Warn($"JPEG upload failed: {category}; count={failures}. 401/403: device or viewing authorization; 409: inactive or video-only session. No frame payload is logged.");
+        return false;
     }
 
     // ---- Step 10: session file chunk upload (DataChannel fallback) -----
@@ -643,22 +658,63 @@ public sealed partial class ApiClient
         finally { gate.Release(); }
     }
 
+    // Signal-poll failures used to be swallowed completely. A 403/404/409 from
+    // the gateway, or a transport fault, left the Agent silently never answering
+    // an offer — indistinguishable from a healthy idle session. Log state
+    // *changes* only (first failure, each distinct status, and recovery) so a
+    // long outage does not flood the file at the 500 ms poll cadence.
+    private string? _lastSignalPollFailure;
+    private long _signalPollFailures;
+
     public async Task<(long max, System.Collections.Generic.List<JsonElement>? items)> PollSignalsAsync(string sessionId, long since, CancellationToken ct)
     {
         try
         {
             using var resp = await SendAuthedAsync(
                 () => new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/signal?since={since}"), ct);
-            if (!resp.IsSuccessStatusCode) return (since, null);
+            if (!resp.IsSuccessStatusCode)
+            {
+                string detail = "";
+                try
+                {
+                    var text = await resp.Content.ReadAsStringAsync(ct);
+                    detail = text.Length > 160 ? text[..160] : text;
+                }
+                catch { }
+                NoteSignalPollFailure($"HTTP {(int)resp.StatusCode} {detail}".TrimEnd());
+                return (since, null);
+            }
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
             long max = doc.RootElement.TryGetProperty("max", out var m) ? m.GetInt64() : since;
             var list = new System.Collections.Generic.List<JsonElement>();
             if (doc.RootElement.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array)
                 foreach (var el in arr.EnumerateArray()) list.Add(el.Clone());
+            NoteSignalPollRecovered();
             return (max, list);
         }
-        catch { return (since, null); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return (since, null); }
+        catch (Exception ex)
+        {
+            NoteSignalPollFailure($"{ex.GetType().Name}: {ex.Message}");
+            return (since, null);
+        }
+    }
+
+    private void NoteSignalPollFailure(string reason)
+    {
+        _signalPollFailures++;
+        if (string.Equals(_lastSignalPollFailure, reason, StringComparison.Ordinal)) return;
+        _lastSignalPollFailure = reason;
+        Log.Warn($"webrtc signal poll failing: {reason}");
+    }
+
+    private void NoteSignalPollRecovered()
+    {
+        if (_lastSignalPollFailure == null) return;
+        Log.Info($"webrtc signal poll recovered after {_signalPollFailures} failed poll(s)");
+        _lastSignalPollFailure = null;
+        _signalPollFailures = 0;
     }
 
     // ---- (Removed) Realtime WebSocket ---------------------------------

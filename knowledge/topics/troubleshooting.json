@@ -1,0 +1,37 @@
+{
+  "id": "troubleshooting",
+  "title": "Troubleshooting",
+  "entries": [
+    {
+      "id": "ts-offline",
+      "keywords": ["offline", "device offline", "not showing", "can't connect", "cannot connect", "wont connect", "won't connect", "failed", "not working", "broken", "error", "problem", "issue", "help"],
+      "question": "My device won't connect — what should I check?",
+      "answer": "A few quick checks: 1) Is the Windows device on and online? 2) Is the ConnectLive Agent running on it? 3) Is it enrolled with your current Meeting ID, with a seat free on your plan? 4) Any firewall or proxy blocking outbound connections? If those look fine, send the team the device name and what the console shows — never your Meeting ID or passwords.",
+      "board": {
+        "heading": "Connection checklist",
+        "lines": ["Device on and online?", "Agent running?", "Enrolled with current Meeting ID?", "Firewall allowing outbound?"]
+      },
+      "emotion": "concerned",
+      "animation": "talk_raised",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    },
+    {
+      "id": "ts-video",
+      "keywords": ["black screen", "no video", "video", "stream", "lag", "slow", "reconnecting", "frozen", "freeze", "stuck", "quality"],
+      "question": "The video stream is stuck or black.",
+      "answer": "Session quality is visible in the console, and a 'reconnecting' state usually points to the network path between device and console rather than the enrollment. Try restarting the stream from the console first. If it stays black on a specific device, note the Agent version and Windows build and send both to the team — that narrows it down fastest.",
+      "emotion": "concerned",
+      "animation": "talk_raised",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    },
+    {
+      "id": "ts-credentials",
+      "keywords": ["password", "forgot", "reset", "cant sign in", "can't sign in", "locked out", "credentials", "sign in problem"],
+      "question": "I can't sign in to the admin console.",
+      "answer": "Sign-in details arrive in your delivery pack. If they've stopped working or are lost, contact the team from your order email so ownership can be verified before anything is reset. Never paste your password or Meeting ID into this chat — I don't need them to help.",
+      "emotion": "concerned",
+      "animation": "talk_raised",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    }
+  ]
+}

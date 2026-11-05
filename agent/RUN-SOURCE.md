@@ -1,6 +1,6 @@
 # Run the complete Agent source before packaging
 
-This is the **Windows Agent source**, version **1.10.3**. It includes C#,
+This is the **Windows Agent source**, version **1.10.4**. It includes C#,
 XAML, project files, branding assets, Watch, the update helper, shared update
 code, native tests and build scripts. It is not a binary-download launcher.
 No Agent executable or MSI has been built for this source delivery.
@@ -111,6 +111,101 @@ dotnet run --project .\src\ConnectLiveAgent.csproj -- --pair
 This does not build Watch or the updater; startup/recovery cannot be enabled
 if those executables are absent. Prefer `run.ps1` for testing
 the complete source. Neither command installs an MSI.
+
+Without Watch running, the administrator console shows the device as
+**"Agent reporting · Watch unavailable"**. That line describes the separate
+startup/recovery companion, not screen capture or video; it is expected for
+an Agent-only run.
+
+## Agent log file (where to look when video does not appear)
+
+Open the folder from a second PowerShell window, without building or pairing:
+
+```powershell
+.\run.ps1 -Logs
+```
+
+Or press **Win+R** and enter `%LOCALAPPDATA%\ConnectLive\logs`.
+`%APPDATA%` is the different **Roaming** folder; the Agent uses **Local**.
+Use the Windows account that actually launched the Agent.
+
+The source runner also saves `source-run-*.log` (build/launch transcript)
+and `startup-*.stderr.log` (early runtime failures). If the normal directory
+is not writable, the Agent tries `%TEMP%\ConnectLive\logs`; `-Logs` checks
+both locations. An empty stderr file is normal. A missing Agent log with a
+present runner log means startup did not reach the Agent logger—inspect the
+build/launch transcript, stderr and source version rather than assuming a
+screen-capture failure.
+
+The Agent is a windowed process, so the terminal that launched it shows
+little or nothing. Every diagnostic line is written to:
+
+```
+%LOCALAPPDATA%\ConnectLive\logs\agent-YYYYMMDD.log
+```
+
+When launched from a terminal the same lines are echoed there as well. The
+file can be opened or copied while the Agent is running; files older than
+seven days are removed automatically. Nothing in it is a credential: it never
+records pairing codes, device tokens, ICE credentials or SDP.
+
+For a live-video session the healthy sequence, in order, is:
+
+```
+session <id> loops started (view)
+DXGI: Desktop Duplication initialized \\.\DISPLAY1 1366x768 @ (0,0)
+webrtc offer received (videoOnly=True, peer=none)
+webrtc ice gateway: N server(s), turn=True
+webrtc video format negotiated: VP8 pt=...
+webrtc answer posted
+webrtc pc state: connected
+webrtc video source started (keyframe forced)
+capture tee first-frame 1366x768 ...
+webrtc video pipe: pushed=... encoded=... dropped=...   (every ~5 s)
+```
+
+The first line that is missing, or the first `[warn]` before it, locates the
+fault. In particular `webrtc signal poll failing: HTTP ...`,
+`webrtc ... rejected: identity check failed`, `webrtc VP8 encoder unavailable`
+and `webrtc sig apply: ...` each mean the Agent never answered the viewer's
+offer, which the viewer shows as "Connecting video" followed by
+"Video disconnected — reconnect viewer".
+
+## Diagnose missing video with JPEG fallback
+
+In the updated **web console**, open the affected video session, expand
+**Show actions** if needed, and select **Test JPEG fallback**. Confirm ending
+that session and inviting a new **view-only** diagnostic session. Existing
+authorization still applies; attended sessions still need local acceptance.
+No pairing, restart, new permission or database migration is performed.
+
+Video-only sessions intentionally reject JPEG at the Agent, API and database.
+The diagnostic option creates a separate `legacy`-media session instead of
+silently weakening those restrictions. WebRTC continues trying, and a
+**JPEG fallback enabled** notice explains which path has produced a picture.
+When done, end the diagnostic session and connect normally for video-only mode.
+
+The useful Agent log sequence is:
+
+```text
+session ... loops started (view); media=legacy; JPEG fallback=enabled
+capture loop entered; JPEG fallback=on; viewing permission verified
+first desktop frame captured: ...; source=DXGI (or GDI)
+first JPEG uploaded successfully: ...; capture and HTTPS path working
+```
+
+- JPEG visible but no video: capture and HTTPS upload work. Inspect WebRTC
+  offer/answer, encoder and ICE messages; JPEG alone cannot identify which failed.
+- Capture logged but JPEG upload fails: inspect the logged HTTP status.
+  401/403 concerns authorization; 409 can mean a video-only/inactive session.
+- No capture-loop line: check Agent startup, heartbeat/session acceptance and
+  viewing permission before blaming DXGI or VP8.
+- A stationary screen remains fresh via a bounded one-second JPEG keepalive.
+  It runs only while capture confirms unchanged pixels and viewing is authorized.
+
+The console change is part of the web source, not something the Agent ZIP
+can install on the server. Use the updated preview console or publish the web
+change separately. This source delivery does not prove Windows video works.
 
 ## Later, after your manual verification
 

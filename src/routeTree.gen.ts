@@ -43,6 +43,9 @@ import { Route as ApiPublicAgentStreamRouteImport } from './routes/api/public/ag
 import { Route as ApiPublicAgentWatchRouteImport } from './routes/api/public/agent/watch'
 import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
 import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
+import { Route as ApiPublicGuideAnswerRouteImport } from './routes/api/public/guide/answer'
+import { Route as ApiPublicGuideEventsRouteImport } from './routes/api/public/guide/events'
+import { Route as ApiPublicGuideSpeechRouteImport } from './routes/api/public/guide/speech'
 import { Route as ApiPublicNewsletterUnsubscribeRouteImport } from './routes/api/public/newsletter/unsubscribe'
 import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
@@ -230,6 +233,21 @@ const ApiPublicCronReconcileOrdersRoute =
     path: '/api/public/cron/reconcile-orders',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicGuideAnswerRoute = ApiPublicGuideAnswerRouteImport.update({
+  id: '/api/public/guide/answer',
+  path: '/api/public/guide/answer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicGuideEventsRoute = ApiPublicGuideEventsRouteImport.update({
+  id: '/api/public/guide/events',
+  path: '/api/public/guide/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicGuideSpeechRoute = ApiPublicGuideSpeechRouteImport.update({
+  id: '/api/public/guide/speech',
+  path: '/api/public/guide/speech',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicNewsletterUnsubscribeRoute =
   ApiPublicNewsletterUnsubscribeRouteImport.update({
     id: '/api/public/newsletter/unsubscribe',
@@ -353,6 +371,9 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/guide/answer': typeof ApiPublicGuideAnswerRoute
+  '/api/public/guide/events': typeof ApiPublicGuideEventsRoute
+  '/api/public/guide/speech': typeof ApiPublicGuideSpeechRoute
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
@@ -403,6 +424,9 @@ export interface FileRoutesByTo {
   '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/guide/answer': typeof ApiPublicGuideAnswerRoute
+  '/api/public/guide/events': typeof ApiPublicGuideEventsRoute
+  '/api/public/guide/speech': typeof ApiPublicGuideSpeechRoute
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
@@ -455,6 +479,9 @@ export interface FileRoutesById {
   '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
+  '/api/public/guide/answer': typeof ApiPublicGuideAnswerRoute
+  '/api/public/guide/events': typeof ApiPublicGuideEventsRoute
+  '/api/public/guide/speech': typeof ApiPublicGuideSpeechRoute
   '/api/public/newsletter/unsubscribe': typeof ApiPublicNewsletterUnsubscribeRoute
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
@@ -507,6 +534,9 @@ export interface FileRouteTypes {
     | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
+    | '/api/public/guide/answer'
+    | '/api/public/guide/events'
+    | '/api/public/guide/speech'
     | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
@@ -557,6 +587,9 @@ export interface FileRouteTypes {
     | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
+    | '/api/public/guide/answer'
+    | '/api/public/guide/events'
+    | '/api/public/guide/speech'
     | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
@@ -608,6 +641,9 @@ export interface FileRouteTypes {
     | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
+    | '/api/public/guide/answer'
+    | '/api/public/guide/events'
+    | '/api/public/guide/speech'
     | '/api/public/newsletter/unsubscribe'
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
@@ -658,6 +694,9 @@ export interface RootRouteChildren {
   ApiPublicAgentWatchRoute: typeof ApiPublicAgentWatchRoute
   ApiPublicAuthLoginRoute: typeof ApiPublicAuthLoginRoute
   ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
+  ApiPublicGuideAnswerRoute: typeof ApiPublicGuideAnswerRoute
+  ApiPublicGuideEventsRoute: typeof ApiPublicGuideEventsRoute
+  ApiPublicGuideSpeechRoute: typeof ApiPublicGuideSpeechRoute
   ApiPublicNewsletterUnsubscribeRoute: typeof ApiPublicNewsletterUnsubscribeRoute
   ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
   ApiPublicWebhooksCdpRoute: typeof ApiPublicWebhooksCdpRoute
@@ -913,6 +952,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCronReconcileOrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/guide/answer': {
+      id: '/api/public/guide/answer'
+      path: '/api/public/guide/answer'
+      fullPath: '/api/public/guide/answer'
+      preLoaderRoute: typeof ApiPublicGuideAnswerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/guide/events': {
+      id: '/api/public/guide/events'
+      path: '/api/public/guide/events'
+      fullPath: '/api/public/guide/events'
+      preLoaderRoute: typeof ApiPublicGuideEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/guide/speech': {
+      id: '/api/public/guide/speech'
+      path: '/api/public/guide/speech'
+      fullPath: '/api/public/guide/speech'
+      preLoaderRoute: typeof ApiPublicGuideSpeechRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/newsletter/unsubscribe': {
       id: '/api/public/newsletter/unsubscribe'
       path: '/api/public/newsletter/unsubscribe'
@@ -1098,6 +1158,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentWatchRoute: ApiPublicAgentWatchRoute,
   ApiPublicAuthLoginRoute: ApiPublicAuthLoginRoute,
   ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
+  ApiPublicGuideAnswerRoute: ApiPublicGuideAnswerRoute,
+  ApiPublicGuideEventsRoute: ApiPublicGuideEventsRoute,
+  ApiPublicGuideSpeechRoute: ApiPublicGuideSpeechRoute,
   ApiPublicNewsletterUnsubscribeRoute: ApiPublicNewsletterUnsubscribeRoute,
   ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
   ApiPublicWebhooksCdpRoute: ApiPublicWebhooksCdpRoute,

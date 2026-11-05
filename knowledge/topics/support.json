@@ -1,0 +1,23 @@
+{
+  "id": "support",
+  "title": "Support and contact",
+  "entries": [
+    {
+      "id": "support-contact",
+      "keywords": ["contact", "support", "email", "human", "person", "team", "talk to someone", "ticket", "reach"],
+      "question": "How do I reach a human?",
+      "answer": "The Contact page reaches the team directly. Include your order reference if your question is about an order, or the device name and what the console shows for technical issues. Never include passwords, Meeting IDs, or wallet keys.",
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    },
+    {
+      "id": "support-thanks",
+      "keywords": ["thanks", "thank you", "great", "awesome", "perfect", "bye", "goodbye", "see you"],
+      "question": "Thanks!",
+      "answer": "You're welcome! If anything else comes up — plans, enrollment, payments, or the console — just ask. And the team is always one message away on the Contact page.",
+      "emotion": "friendly",
+      "animation": "wave"
+    }
+  ]
+}

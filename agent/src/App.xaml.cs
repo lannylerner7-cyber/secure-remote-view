@@ -17,6 +17,9 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // Initialize the file log before any policy, update or duplicate-process exit.
+        // Do not log command-line arguments: they may contain private configuration.
+        Log.Info("startup entered; diagnostics initialized before pairing and session startup");
         InputBlocker.LocalStopRequested += () => Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
 
         // Local command-line withdrawal remains available without a second UI.
@@ -50,6 +53,7 @@ public partial class App : Application
         // Background/watchdog launches must not undo local withdrawal.
         if (backgroundLaunch && !StartupConsent.IsAllowed())
         {
+            Log.Info("background startup declined: local startup permission is absent");
             Shutdown();
             return;
         }
@@ -70,6 +74,7 @@ public partial class App : Application
         catch (AbandonedMutexException) { ownsMutex = true; }
         if (!ownsMutex)
         {
+            Log.Warn("startup stopped: another Agent instance owns the process lock");
             if (!backgroundLaunch)
                 MessageBox.Show("ConnectLive is already running. Run ConnectLive.exe /disable before starting another copy.",
                     "ConnectLive");

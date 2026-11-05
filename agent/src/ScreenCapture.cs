@@ -68,6 +68,7 @@ public static class ScreenCapture
     {
         var permission = api.LivePermission;
         if (permission?.Allows("view") != true || ct.IsCancellationRequested) return;
+        Log.Info($"capture loop entered; JPEG fallback={(videoOnly ? "off (video-only session)" : "on")}; viewing permission verified");
         ImageCodecInfo? jpegEnc = null;
         if (!videoOnly)
         {
@@ -86,6 +87,7 @@ public static class ScreenCapture
         ulong lastHash = 0;
         int idleCount = 0;
         int uploadFails = 0;
+        bool firstJpegUploaded = false;
         int framesSinceKeyframe = 0;
         // HTTP fallback must not pace DXGI/WebRTC. At most one upload runs and
         // one fresh frame waits; older pending JPEGs are replaced, not replayed.
@@ -99,10 +101,31 @@ public static class ScreenCapture
                 bool posted = await api.PostFrameAsync(sessionId, pending.Bytes,
                     pending.Width, pending.Height, deadline.Token).ConfigureAwait(false);
                 NoteUploadLatency(watch.ElapsedMilliseconds);
-                if (posted) uploadFails = 0;
+                if (posted)
+                {
+                    if (!firstJpegUploaded)
+                    {
+                        firstJpegUploaded = true;
+                        Log.Info($"first JPEG uploaded successfully: {pending.Width}x{pending.Height}, {pending.Bytes.Length} bytes; capture and HTTPS path working");
+                    }
+                    uploadFails = 0;
+                }
                 else if (!token.IsCancellationRequested && (++uploadFails == 1 || uploadFails % 10 == 0))
                     Log.Warn($"fallback upload failed ({uploadFails}); capture continues");
             }, uploadsLifetime!.Token);
+
+        bool firstDesktopCaptured = false;
+        (byte[] Bytes, int Width, int Height)? latestJpeg = null;
+        long lastJpegQueuedAt = 0;
+        // A confirmed unchanged desktop is still live. Refresh its last JPEG
+        // once per second, without re-encoding, so the viewer does not mark a
+        // stationary screen stale. Never do this on a capture error/withdrawal.
+        void RefreshUnchangedJpeg()
+        {
+            if (videoOnly || !latestJpeg.HasValue || ct.IsCancellationRequested ||
+                !permission.Allows("view") || Environment.TickCount64 - lastJpegQueuedAt < 1000) return;
+            if (uploads!.Offer(latestJpeg.Value)) lastJpegQueuedAt = Environment.TickCount64;
+        }
 
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
@@ -171,6 +194,7 @@ public static class ScreenCapture
                     // Force a re-scale/re-alloc on the next block and re-tee so
                     // the admin sees the new display within one frame interval.
                     prevBoundsW = prevBoundsH = 0;
+                    latestJpeg = null;
                     ResetWebRtcTee();
                 }
 
@@ -233,13 +257,17 @@ public static class ScreenCapture
                         haveFreshRaw = true;
                         framesSinceKeyframe = forceRefresh ? 0 : framesSinceKeyframe + 1;
                     }
-                    else if (!dxgi.LastFrameHadContentChange)
+                    else if (dxgi.IsInitialized && !dxgi.LastFrameHadContentChange && lastFrame != null)
                     {
                         // Nothing changed on screen — hold last frame, back off.
                         // Still keep the VP8 encoder fed (keepalive) so a static
                         // desktop never freezes the admin's decoded picture.
                         framesSinceKeyframe++;
-                        if (lastFrame != null) TeeToWebRtc(lastFrame, throttled: true);
+                        if (lastFrame != null)
+                        {
+                            TeeToWebRtc(lastFrame, throttled: true);
+                            RefreshUnchangedJpeg();
+                        }
                         try { await Task.Delay(100, ct); } catch { }
                         continue;
                     }
@@ -322,11 +350,17 @@ public static class ScreenCapture
 
                 // The frame the idle keepalive re-sends when nothing changed.
                 lastFrame = frame;
-
+                if (latestJpeg.HasValue && (latestJpeg.Value.Width != w || latestJpeg.Value.Height != h))
+                    latestJpeg = null;
+                if (!firstDesktopCaptured)
+                {
+                    firstDesktopCaptured = true;
+                    Log.Info($"first desktop frame captured: {w}x{h}; source={(haveFreshRaw ? "DXGI" : "GDI")}");
+                }
 
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
                 ulong hash = HashBitmap(frame);
-                bool unchanged = hash == lastHash;
+                bool unchanged = hash == lastHash && (videoOnly || latestJpeg.HasValue);
 
                 // Adaptive idle backoff: after 3+ unchanged frames, slow to 100ms.
                 // Force a keyframe every ~2s even when idle so a fresh admin
@@ -337,6 +371,7 @@ public static class ScreenCapture
                     delayMs = idleCount >= 3 ? 100 : motionDelayMs;
                     // Keepalive push while idle (throttled to IdleTeeIntervalMs).
                     TeeToWebRtc(frame, throttled: true);
+                    RefreshUnchangedJpeg();
                 }
                 else
                 {
@@ -359,7 +394,10 @@ public static class ScreenCapture
                         encodeSw.Stop();
                         EncodeStats.NoteJpegEncode(
                             encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, w, h);
-                        if (!uploads!.Offer((ms.ToArray(), w, h)) && !ct.IsCancellationRequested)
+                        latestJpeg = (ms.ToArray(), w, h);
+                        if (uploads!.Offer(latestJpeg.Value))
+                            lastJpegQueuedAt = Environment.TickCount64;
+                        else if (!ct.IsCancellationRequested)
                             Log.Warn("fallback upload worker stopped accepting frames");
                     }
                     MaybeLogEncodeStats();

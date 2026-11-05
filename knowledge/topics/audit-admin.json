@@ -1,0 +1,35 @@
+{
+  "id": "audit-admin",
+  "title": "Admin console and audit reports",
+  "entries": [
+    {
+      "id": "audit-reports",
+      "keywords": ["audit", "audit log", "audit report", "reports", "history", "retention", "export", "records", "who connected"],
+      "question": "What does the audit trail record?",
+      "answer": "The audit log records who connected, what happened, and when each session ended, so every connection stays reviewable. Retention depends on your plan: 30 days on Starter, 1 year on Team, 3 years on Business, and custom retention on Enterprise.",
+      "board": {
+        "heading": "Audit retention",
+        "lines": ["Starter — 30 days", "Team — 1 year", "Business — 3 years", "Enterprise — custom"]
+      },
+      "emotion": "neutral",
+      "animation": "talk_open"
+    },
+    {
+      "id": "admin-console",
+      "keywords": ["admin console", "console", "dashboard", "technician", "sign in", "log in", "login", "session", "start session", "view screen"],
+      "question": "How do technicians use the admin console?",
+      "answer": "Technicians sign in to the web admin console, pick an enrolled device, and start an authorized session — screen viewing with responsive control, session quality visible at a glance, and the privacy curtain one click away. Session recording is available per plan, and everything lands in the audit log.",
+      "emotion": "neutral",
+      "animation": "talk_open",
+      "links": [{ "label": "Technician sign-in", "to": "/connectlive/admin" }]
+    },
+    {
+      "id": "admin-recording",
+      "keywords": ["record", "recording", "session recording", "evidence", "playback"],
+      "question": "Can sessions be recorded?",
+      "answer": "Yes. Session recording is optional on Starter and included on Team and Business; Enterprise sets its own policy. Recordings complement the audit log so reviews can see exactly what happened during a session.",
+      "emotion": "neutral",
+      "animation": "talk_open"
+    }
+  ]
+}

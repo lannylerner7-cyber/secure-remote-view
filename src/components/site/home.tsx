@@ -17,6 +17,7 @@ import adminShot from "@/assets/connectlive-admin.png";
 import sessionCore from "@/assets/connectlive-session-core.png";
 import { faqs, plans, securityFeatures, workflow } from "./data";
 import { CatalogStatusNotice, PricingCard } from "./pricing-card";
+import { GuideSection } from "./guide/guide-section";
 import { SessionCore } from "./session-core";
 import { ActionButton, Badge, Button, Reveal, SectionHeading, TextLink } from "./ui";
 
@@ -670,6 +671,7 @@ export function HomeContent() {
       <Workflow />
       <PricingPreview />
       <Proof />
+      <GuideSection />
       <FAQ />
       <FinalCTA />
     </>

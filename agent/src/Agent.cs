@@ -543,7 +543,7 @@ public sealed class Agent
         _screenTask = RunSessionLoop("screen", sessionId, ct => ScreenCapture.RunAsync(_api, sessionId, ct, videoOnly), t);
         _inputTask = RunSessionLoop("input", sessionId, ct => InputRelay.RunAsync(_api, sessionId, ct, videoOnly), t);
         _cursorTask = RunSessionLoop("cursor", sessionId, ct => CursorPump.RunAsync(_api, sessionId, ct), t);
-        Log.Info($"session {sessionId} loops started ({mode})");
+        Log.Info($"session {sessionId} loops started ({mode}); media={(videoOnly ? "video" : "legacy")}; JPEG fallback={(videoOnly ? "disabled by video-only session" : "enabled")}");
         ReportState($"Session active ({mode})");
     }
 
@@ -661,10 +661,111 @@ public sealed class Agent
 }
 
 
+/// <summary>
+/// Process log. The Agent is a WinExe, so a plain <c>Console.WriteLine</c>
+/// goes nowhere when it is started from <c>dotnet run</c>, run.ps1 or the
+/// installer — every pipeline diagnostic in this assembly was being discarded.
+/// Lines now go to a per-day file under <c>%LOCALAPPDATA%\ConnectLive\logs</c>
+/// and, when a parent console exists (terminal launch), to that console too.
+/// No UI is added; the file is the only new surface.
+/// </summary>
 internal static class Log
 {
-    public static void Info(string m) => Console.WriteLine($"[info] {DateTime.Now:HH:mm:ss} {m}");
-    public static void Warn(string m) => Console.WriteLine($"[warn] {DateTime.Now:HH:mm:ss} {m}");
+    private static readonly object _gate = new();
+    private static System.IO.StreamWriter? _file;
+    private static string? _filePath;
+    private static bool _consoleUsable;
+
+    /// <summary>Full path of the active log file, or null when the directory was not writable.</summary>
+    public static string? FilePath { get { lock (_gate) return _filePath; } }
+
+    static Log()
+    {
+        _consoleUsable = TryAttachParentConsole();
+        TryOpenFile();
+        var header = $"ConnectLive Agent {ApiClient.AgentVersion} log started — pid {Environment.ProcessId}, " +
+                     $"{Environment.OSVersion}, console={( _consoleUsable ? "attached" : "none")}";
+        Write("[info]", header);
+        Write("[info]", _filePath == null ? "WARNING: file logging is unavailable; check folder permissions" : $"log file: {_filePath}");
+    }
+
+    public static void Info(string m) => Write("[info]", m);
+    public static void Warn(string m) => Write("[warn]", m);
+
+    private static void Write(string level, string m)
+    {
+        var line = $"{level} {DateTime.Now:HH:mm:ss.fff} {m}";
+        lock (_gate)
+        {
+            if (_consoleUsable)
+            {
+                try { Console.WriteLine(line); } catch { _consoleUsable = false; }
+            }
+            if (_file != null)
+            {
+                try { _file.WriteLine(line); } catch { _file = null; }
+            }
+        }
+    }
+
+    private static void TryOpenFile()
+    {
+        var directories = new[]
+        {
+            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ConnectLive", "logs"),
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ConnectLive", "logs"),
+        };
+        foreach (var dir in directories)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir);
+                var path = System.IO.Path.Combine(dir, $"agent-{DateTime.Now:yyyyMMdd}.log");
+                // Shared read so the file can be opened/copied while the Agent runs.
+                var stream = new System.IO.FileStream(path, System.IO.FileMode.Append, System.IO.FileAccess.Write,
+                    System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+                _file = new System.IO.StreamWriter(stream) { AutoFlush = true };
+                _filePath = path;
+                PruneOldLogs(dir, keepDays: 7);
+                return;
+            }
+            catch { _file = null; _filePath = null; }
+        }
+    }
+
+    private static void PruneOldLogs(string dir, int keepDays)
+    {
+        try
+        {
+            var cutoff = DateTime.Now.AddDays(-keepDays);
+            foreach (var f in System.IO.Directory.EnumerateFiles(dir, "agent-*.log"))
+                if (System.IO.File.GetLastWriteTime(f) < cutoff) { try { System.IO.File.Delete(f); } catch { } }
+        }
+        catch { }
+    }
+
+    // A GUI-subsystem process never inherits the launching terminal's console.
+    // Attach to it when there is one so `dotnet run` / run.ps1 show the log
+    // live; when there is none (installer, startup, Watch relaunch) this is a
+    // silent no-op and the file carries everything.
+    private const int ATTACH_PARENT_PROCESS = -1;
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(int dwProcessId);
+
+    private static bool TryAttachParentConsole()
+    {
+        try
+        {
+            if (!AttachConsole(ATTACH_PARENT_PROCESS)) return false;
+            // Re-open stdout against the newly attached console; the cached
+            // writer was created against an invalid handle at process start.
+            var stdout = new System.IO.StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
+            Console.SetOut(stdout);
+            Console.WriteLine();
+            return true;
+        }
+        catch { return false; }
+    }
 }
 
 // Platform dispatcher — bound to WPF Application.Current.Dispatcher in App.xaml.cs.

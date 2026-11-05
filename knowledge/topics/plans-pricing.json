@@ -1,0 +1,38 @@
+{
+  "id": "plans-pricing",
+  "title": "Plans and pricing",
+  "entries": [
+    {
+      "id": "plans-list",
+      "keywords": ["price", "prices", "pricing", "cost", "how much", "plans", "offer", "offerings", "subscription", "monthly", "starter", "team", "business", "enterprise", "tier"],
+      "question": "What plans do you offer and what do they cost?",
+      "answer": "Prices are composed at runtime from the live plan catalog.",
+      "dynamic": "plans",
+      "board": {
+        "heading": "Plans at a glance",
+        "lines": ["Starter — 10 devices", "Team — 20 devices", "Business — 50 devices", "Enterprise — unlimited, talk to us"]
+      },
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Plans page", "to": "/plans" }, { "label": "Start an order", "to": "/order" }]
+    },
+    {
+      "id": "plans-change",
+      "keywords": ["change plan", "change", "switch", "later", "upgrade", "downgrade", "switch plan", "move plan", "grow", "existing invoice", "price change", "grandfathered"],
+      "question": "Can we change plans later?",
+      "answer": "Yes. You can move between device tiers as your team grows without changing your operating workflow — contact us and the license is moved across. A public price change never rewrites an invoice that was already issued or an existing license entitlement.",
+      "emotion": "neutral",
+      "animation": "talk_open",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    },
+    {
+      "id": "plans-enterprise",
+      "keywords": ["enterprise", "custom", "unlimited", "large fleet", "contact pricing", "quote", "custom deployment"],
+      "question": "How does Enterprise pricing work?",
+      "answer": "Enterprise is priced by conversation, not a public rate: custom deployment, unlimited devices and operators, custom retention, and a dedicated success lead. Reach out on the Contact page and the team will scope it with you.",
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    }
+  ]
+}

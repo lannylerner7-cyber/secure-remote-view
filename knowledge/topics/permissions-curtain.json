@@ -1,0 +1,35 @@
+{
+  "id": "permissions-curtain",
+  "title": "Operator permissions and curtain mode",
+  "entries": [
+    {
+      "id": "perm-operators",
+      "keywords": ["permission", "permissions", "operator", "operators", "limit", "restrict", "role", "roles", "policy", "control what", "technician access"],
+      "question": "Can we limit what operators are allowed to do?",
+      "answer": "Yes. Operator access is tied to your workspace, and privileges can be mapped to the responsibilities of each support role. Tell us how your team is structured when you order, or contact us later, and the workspace is set up around it.",
+      "emotion": "neutral",
+      "animation": "talk_open",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    },
+    {
+      "id": "perm-curtain",
+      "keywords": ["curtain", "curtain mode", "privacy", "privacy mode", "hide screen", "blank screen", "black screen", "private"],
+      "question": "What is curtain mode?",
+      "answer": "Curtain (privacy) mode keeps the device's own screen private while an operator works — the console shows a clear 'privacy curtain active' state instead of the desktop. It can be toggled per session from the technician console, so support work and user privacy stay balanced.",
+      "board": {
+        "heading": "Curtain mode",
+        "lines": ["Desktop stays private on device", "Operator keeps working", "State is visible in console", "Toggled per session"]
+      },
+      "emotion": "neutral",
+      "animation": "talk_open"
+    },
+    {
+      "id": "perm-indication",
+      "keywords": ["visible", "indicated", "notify", "notification", "user know", "consent", "surreptitious", "hidden access", "secretly"],
+      "question": "Does the device user know a session is active?",
+      "answer": "Yes — active support sessions remain visibly indicated on the device. ConnectLive is built for authorized, reviewable support, not hidden access: enrollment requires your Meeting ID, sessions are indicated, and everything is written to the audit log.",
+      "emotion": "attentive",
+      "animation": "talk_raised"
+    }
+  ]
+}

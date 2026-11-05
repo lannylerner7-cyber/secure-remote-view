@@ -1,0 +1,37 @@
+{
+  "id": "about",
+  "title": "What ConnectLive is",
+  "entries": [
+    {
+      "id": "about-what",
+      "keywords": ["what is connectlive", "what does connectlive do", "about", "product", "platform", "remote support", "remote access", "what is this"],
+      "question": "What is ConnectLive?",
+      "answer": "ConnectLive is an authorization-led remote support platform for IT teams. A small Windows Agent on the device and a web admin console let your technicians connect to enrolled devices, view and control the screen, and keep a recorded audit trail of every session.",
+      "board": {
+        "heading": "ConnectLive in short",
+        "lines": ["Windows Agent on the device", "Web admin console for technicians", "Authorized enrollment only", "Every session recorded"]
+      },
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Explore the platform", "to": "/#platform" }]
+    },
+    {
+      "id": "about-security",
+      "keywords": ["secure", "security", "safe", "encrypted", "encryption", "privacy", "trust", "recorded", "audit trail"],
+      "question": "Is ConnectLive secure?",
+      "answer": "Connections are authorization-led: only devices enrolled to a valid account and Meeting ID can receive sessions, active sessions stay visibly indicated, session traffic is encrypted in transit, and the audit log records who connected, what happened, and when it ended.",
+      "emotion": "neutral",
+      "animation": "talk_open",
+      "links": [{ "label": "Security overview", "to": "/#security" }]
+    },
+    {
+      "id": "about-who",
+      "keywords": ["who are you", "are you human", "are you real", "robot", "ai", "bot", "who is this"],
+      "question": "Are you a human?",
+      "answer": "No — I'm ConnectLive's virtual guide, an AI assistant on the website. I can explain the platform using our approved documentation. For anything account-specific, the human team is one message away on the Contact page.",
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Contact the team", "to": "/contact" }]
+    }
+  ]
+}
