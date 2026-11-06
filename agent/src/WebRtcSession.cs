@@ -42,15 +42,18 @@ public sealed partial class WebRtcSession : IDisposable
     private readonly string _sessionId;
     private readonly CancellationTokenSource _cts;
     private RTCPeerConnection? _pc;
-    private VideoEncoderEndPoint? _videoEnd;
+    private Vp8FrameEncoder? _vp8;
     // Brain-engine phase 1 — hardware H.264. Non-null only once the peer has
     // actually negotiated H.264 AND a real MFT has come up for the current
-    // geometry. Everything about this path is additive: if any part of it
-    // fails, `_h264Negotiated` goes false and the VP8 route below is untouched.
+    // geometry. Failure requires a NEW offer; never emit VP8 into H.264 SDP.
     private HwH264Encoder? _h264;
     private volatile bool _h264Negotiated = false;
     private volatile bool _h264Live = false;
     private long _h264Frames = 0;
+    private volatile bool _h264UnavailableForSession;
+    private int _codecRetiring;
+    private CancellationTokenSource? _disconnectGrace;
+    internal string WireCodecTag => !_formatReady ? "none" : _h264Negotiated ? "H264" : "VP8";
 
     private long _sinceSignal = 0;
     private volatile bool _closed = false;
@@ -117,7 +120,7 @@ public sealed partial class WebRtcSession : IDisposable
     private void RequestKeyFrame(string reason)
     {
         Interlocked.Increment(ref _keyFrameRequests);
-        var end = _videoEnd;
+        var end = _vp8;
         var hw = _h264;
         // On the H.264 path the software endpoint is idle, so `_videoStarted`
         // alone is the gate; on the VP8 path we still need the endpoint.
@@ -200,6 +203,7 @@ public sealed partial class WebRtcSession : IDisposable
         };
 
         _pc = new RTCPeerConnection(cfg);
+        var boundPeer = _pc;
         var peerPermission = _inputPermission.Fork();
         _peerPermission = peerPermission;
         _formatReady = false;
@@ -226,29 +230,9 @@ public sealed partial class WebRtcSession : IDisposable
         _h264Negotiated = false;
         _h264Live = false;
         _h264Frames = 0;
+        _codecRetiring = 0;
 
-        _videoEnd = new VideoEncoderEndPoint();
-        // Codec pinning guardrail — MUST stay in lockstep with admin/src/Media/WebRtcClient.cs.
-        try
-        {
-            _videoEnd.RestrictFormats(f => f.Codec == VideoCodecsEnum.VP8);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"webrtc VP8 restriction failed: {ex.Message}");
-        }
-        var sourceFormats = _videoEnd.GetVideoSourceFormats();
-        bool hasVp8 = false;
-        if (sourceFormats != null)
-            foreach (var sourceFormat in sourceFormats)
-                if (sourceFormat.Codec == VideoCodecsEnum.VP8) { hasVp8 = true; break; }
-        if (!hasVp8)
-        {
-            Log.Warn(_videoOnly ? "webrtc VP8 encoder unavailable; video-only session cannot render" :
-                "webrtc VP8 encoder unavailable; keeping HTTPS frame fallback");
-            TearDownPeer();
-            return;
-        }
+        _vp8 = Vp8FrameEncoder.TryCreate();
 
         // Brain-engine phase 1 — offer hardware H.264 *ahead of* VP8 when this
         // machine has a real encoder and the operator has not forced VP8. The
@@ -257,10 +241,9 @@ public sealed partial class WebRtcSession : IDisposable
         // (browser or native admin) that supports both. VP8 stays in the list
         // as the universal floor, so a peer that cannot do H.264 still connects.
         var offered = new List<VideoFormat>();
-        // Establish a predictable negotiated software-video baseline for the
-        // new browser protocol. DXGI capture remains unchanged. Promote
-        // hardware H.264 only after Windows compatibility measurements.
-        bool offerH264 = !_videoOnly && CodecPolicy.AllowH264;
+        // Hardware availability is independent of VP8. A missing software
+        // encoder must not prevent a hardware-capable Agent from answering.
+        bool offerH264 = !_h264UnavailableForSession && CodecPolicy.AllowH264;
         if (offerH264)
         {
             // profile-level-id 42e01f = Constrained Baseline 3.1, the profile the
@@ -271,28 +254,23 @@ public sealed partial class WebRtcSession : IDisposable
                                         "packetization-mode=1;profile-level-id=42e01f"));
             Log.Info($"webrtc offering hardware H.264 first ({HwEncoderProbe.VendorTag}) with VP8 fallback");
         }
-        if (sourceFormats != null) offered.AddRange(sourceFormats);
+        if (_vp8 != null) offered.Add(new VideoFormat(VideoCodecsEnum.VP8, 96, 90000));
+        if (offered.Count == 0)
+        {
+            Log.Warn("webrtc no usable video encoder; authorized JPEG fallback remains available when permitted");
+            TearDownPeer();
+            return;
+        }
 
         MediaStreamTrack videoTrack = new(offered, MediaStreamStatusEnum.SendOnly);
         _pc.addTrack(videoTrack);
-
-        _videoEnd.OnVideoSourceEncodedSample += (durationRtpUnits, sample) =>
-        {
-            if (_closed || !_inputPermission.Allows("view")) return;
-            // Guard: if H.264 won the negotiation this endpoint should be idle.
-            // Sending its output would interleave VP8 payloads into an H.264
-            // stream and produce exactly the "connected but garbage" failure
-            // this whole path is meant to avoid.
-            if (_h264Negotiated) return;
-            System.Threading.Interlocked.Increment(ref _encoded);
-            _pc?.SendVideo(durationRtpUnits, sample);
-        };
 
         // WITHOUT this the encoder has no negotiated format and silently drops
         // every raw sample — the peer connects, ICE succeeds, and the admin
         // still sees nothing but the JPEG fallback. Do not remove.
         _pc.OnVideoFormatsNegotiated += (formats) =>
         {
+            if (_closed || !ReferenceEquals(_pc, boundPeer) || !_inputPermission.Allows("view")) return;
             if (formats == null || formats.Count == 0) return;
             try
             {
@@ -313,7 +291,7 @@ public sealed partial class WebRtcSession : IDisposable
                     return;
                 }
                 _h264Negotiated = false;
-                _videoEnd?.SetVideoSourceFormat(fmt);
+                if (_vp8 == null) { _formatReady = false; return; }
                 _formatReady = true;
                 _negotiatedPt = fmt.FormatID;
                 Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc video format negotiated: {fmt.Codec} pt={fmt.FormatID}");
@@ -473,7 +451,6 @@ public sealed partial class WebRtcSession : IDisposable
 
 
 
-        var boundPeer = _pc;
         var boundAdminClientId = _currentAdminClientId;
         var boundPeerId = _signalBinding.PeerId;
         _pc.onicecandidate += async (c) =>
@@ -500,6 +477,7 @@ public sealed partial class WebRtcSession : IDisposable
             Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc pc state: {s}");
             if (s == RTCPeerConnectionState.connected)
             {
+                CancelDisconnectGrace();
                 try
                 {
                     if (_h264Negotiated)
@@ -514,12 +492,11 @@ public sealed partial class WebRtcSession : IDisposable
                             Log.Info("webrtc video started on hardware H.264 path");
                         }
                     }
-                    // The encoder is a source: it stays paused until StartVideo().
-                    else if (_videoEnd != null && !_videoStarted)
+                    // Raw capture feeds VP8 only after this peer is connected.
+                    else if (_vp8 != null && !_videoStarted)
                     {
-                        await _videoEnd.StartVideo();
                         _videoStarted = true;
-                        try { _videoEnd.ForceKeyFrame(); } catch { }
+                        try { _vp8.ForceKeyFrame(); } catch { }
                         ScreenCapture.ResetWebRtcTee();
                         Log.Info("webrtc video source started (keyframe forced)");
                     }
@@ -527,17 +504,48 @@ public sealed partial class WebRtcSession : IDisposable
                 catch (Exception ex) { Log.Warn($"webrtc start video: {ex.Message}"); }
                 return;
             }
-            if (s == RTCPeerConnectionState.failed || s == RTCPeerConnectionState.closed || s == RTCPeerConnectionState.disconnected)
+            if (s == RTCPeerConnectionState.disconnected)
+            {
+                try { InputRelay.ReleaseHeldInputs(); } catch { }
+                CancelDisconnectGrace();
+                CancellationTokenSource grace;
+                try { grace = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token); }
+                catch (ObjectDisposedException) { return; }
+                var graceToken = grace.Token;
+                _disconnectGrace = grace;
+                try
+                {
+                    await Task.Delay(6000, graceToken);
+                    await _handoffLock.WaitAsync(graceToken);
+                    try
+                    {
+                        if (ReferenceEquals(_pc, boundPeer) &&
+                            boundPeer.connectionState == RTCPeerConnectionState.disconnected) TearDownPeer();
+                    }
+                    finally { _handoffLock.Release(); }
+                }
+                catch (OperationCanceledException) { }
+                finally
+                {
+                    if (ReferenceEquals(Interlocked.CompareExchange(ref _disconnectGrace, null, grace), grace))
+                        grace.Dispose();
+                }
+                return;
+            }
+            if (s == RTCPeerConnectionState.failed || s == RTCPeerConnectionState.closed)
             {
                 // Only the peer is torn down here; a follow-up offer (same or
                 // different admin) can rebuild it. HTTPS stream is unaffected.
-                TearDownPeer();
+                await _handoffLock.WaitAsync();
+                try { if (ReferenceEquals(_pc, boundPeer)) TearDownPeer(); }
+                finally { _handoffLock.Release(); }
             }
         };
     }
 
     private void TearDownPeer()
     {
+        CancelDisconnectGrace();
         // Detach first so close callbacks from an old peer cannot tear down
         // its replacement or recurse through this method.
         var oldPeer = _pc;
@@ -551,15 +559,49 @@ public sealed partial class WebRtcSession : IDisposable
         try { System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(CurtainOverlay.Hide)); } catch { }
         try { FileTransfer.Detach(); } catch { }
         try { ClipboardRelay.Detach(); } catch { }
-        try { _videoEnd?.PauseVideo(); } catch { }
-        try { _videoEnd?.CloseVideo(); } catch { }
+        try { _vp8?.Dispose(); } catch { }
         try { oldPeer?.close(); } catch { }
         DisposeH264("peer torn down");
-        _videoEnd = null;
+        _vp8 = null;
         _formatReady = false;
         _videoStarted = false;
         _h264Negotiated = false;
         _h264Live = false;
+    }
+
+    private void CancelDisconnectGrace()
+    {
+        var grace = Interlocked.Exchange(ref _disconnectGrace, null);
+        try { grace?.Cancel(); } catch { }
+        grace?.Dispose();
+    }
+
+    private void FailCodec(RTCPeerConnection peer, bool hardware)
+    {
+        if (!ReferenceEquals(_pc, peer) || Interlocked.Exchange(ref _codecRetiring, 1) != 0) return;
+        _formatReady = false;
+        if (hardware) _h264UnavailableForSession = true;
+        Log.Warn("webrtc encoder failed; retiring peer for a clean codec negotiation");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                string? adminId, peerId;
+                await _handoffLock.WaitAsync(_cts.Token);
+                try
+                {
+                    if (!ReferenceEquals(_pc, peer)) return;
+                    adminId = _currentAdminClientId;
+                    peerId = _signalBinding.PeerId;
+                    TearDownPeer();
+                }
+                finally { _handoffLock.Release(); }
+                await _api.PostSignalReliableAsync(_sessionId, "bye",
+                    new { peer_id = peerId, reason = "codec_unavailable" }, _cts.Token, adminId);
+            }
+            catch (OperationCanceledException) { }
+            catch { Log.Warn("webrtc codec retirement notification unavailable; viewer timeout will recover"); }
+        });
     }
 
     /// <summary>Release the hardware encoder and hand the ladder ceiling back to the VP8 policy.</summary>
@@ -594,7 +636,7 @@ public sealed partial class WebRtcSession : IDisposable
             return;
         }
         var pc = _pc;
-        var enc = _videoEnd;
+        var enc = _vp8;
         if (pc == null || (enc == null && !_h264Negotiated)) { Interlocked.Increment(ref _dropped); return; }
         if (pc.connectionState != RTCPeerConnectionState.connected ||
             !_formatReady || !_videoStarted)
@@ -628,15 +670,24 @@ public sealed partial class WebRtcSession : IDisposable
                 // building: if it stays well inside the ~33 ms frame budget at the
                 // 1920px rung, the CPU is not the wall.
                 var encodeSw = System.Diagnostics.Stopwatch.StartNew();
-                enc!.ExternalVideoSourceRawSample(
-                    33, width, height, bgra, VideoPixelFormatsEnum.Bgra);
+                var sample = enc!.Encode(bgra, width, height);
+                if (sample is { Length: > 0 } && ReferenceEquals(_pc, pc) &&
+                    !_closed && _formatReady && !_h264Negotiated && _inputPermission.Allows("view"))
+                {
+                    pc.SendVideo((uint)(90000 / Math.Max(1, BitrateController.Current.Fps)), sample);
+                    Interlocked.Increment(ref _encoded);
+                }
                 encodeSw.Stop();
                 EncodeStats.NoteVp8Encode(
                     encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, width, height);
             }
         }
 
-        catch (Exception ex) { Log.Warn($"webrtc encode: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            Log.Warn($"webrtc encode failed: {ex.GetType().Name}");
+            FailCodec(pc, _h264Negotiated);
+        }
         MaybeLogStats();
     }
 
@@ -660,8 +711,7 @@ public sealed partial class WebRtcSession : IDisposable
                 // The MFT died mid-session. Do not rebuild it in a tight loop:
                 // one retry per peer is enough to tell a transient from a rot.
                 DisposeH264("encoder reported dead: " + hw.DeadReason);
-                _h264Negotiated = false;
-                Log.Warn("h264: hardware path abandoned for this peer; HTTPS frame stream continues");
+                FailCodec(pc, hardware: true);
                 return;
             }
 
@@ -670,8 +720,7 @@ public sealed partial class WebRtcSession : IDisposable
             hw = HwH264Encoder.TryCreate(width, height, fps, kbps);
             if (hw == null)
             {
-                _h264Negotiated = false;
-                Log.Warn("h264: encoder could not be created; HTTPS frame stream continues");
+                FailCodec(pc, hardware: true);
                 return;
             }
             Interlocked.Exchange(ref _h264, hw);
@@ -703,7 +752,7 @@ public sealed partial class WebRtcSession : IDisposable
 
         // 90 kHz clock: one frame at the current cadence.
         uint duration = (uint)(90000 / Math.Max(1, BitrateController.Current.Fps));
-        if (_closed || !_inputPermission.Allows("view")) return;
+        if (_closed || !ReferenceEquals(_pc, pc) || !_formatReady || !_inputPermission.Allows("view")) return;
         pc.SendVideo(duration, au);
         Interlocked.Increment(ref _encoded);
         Interlocked.Increment(ref _h264Frames);

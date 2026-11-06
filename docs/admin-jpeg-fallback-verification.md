@@ -1,3 +1,65 @@
+# Codec recovery and JPEG clarity update — 2026-11-06
+
+## Current delivery status
+
+The browser recovery controller and Agent 1.10.5 source are implemented, but
+**full recovery is not end-to-end verified and is not certified for release**.
+No Windows binary or installer was built, and production deployment was not part
+of this implementation. Publishing the source does not certify either runtime gate.
+
+The native source separates JPEG detail from video downscaling: native pixels
+up to UHD-sized bounds, quality 86/94, adaptive lower cadence and a base64-safe
+payload cap. It does not invent 4K detail from a lower-resolution desktop.
+VP8 uses an actual synthetic encode probe; unavailable VP8 no longer prevents
+hardware H.264 setup. Hardware encoding consumes the capture's RGBA contract
+and failures require a fresh negotiation rather than mixing codecs.
+
+The browser uses one peer at a time in the same authorized session, with
+H.264-preferred/VP8, VP8-only and relay-only retry profiles. Healthy video is
+retained. Permission denial and supersession stop recovery. Recording
+finalization is bounded and shared with an overlapping manual Stop; repeated
+playback-state notifications cannot reset retry backoff.
+
+### Checks completed
+
+- TypeScript and the production web build passed.
+- 41 isolated media, permission, freshness and recovery tests passed.
+- 18 mocked ICE/transport scenarios and 19 recording assertions passed.
+- Static native capture/lifecycle checks and source-archive dependency,
+  checksum and no-binary checks passed.
+- The complete source ZIP contains 108 source/reference files. It requires
+  a manual Windows build; archive validity is not Windows runtime evidence.
+
+### Browser evidence and remaining blockers
+
+Only guarded, disposable identities and synthetic devices were used.
+The first browser pass rendered canvas-generated H.264 video over a host
+connection. Recording did not start despite a separately confirmed recording
+grant, so that pass did not verify saving or recovery. The initial cause was
+not isolated.
+
+After bounded recording verification, pending-state feedback, shared
+finalization and parallel capability lookups were added, the focused pass
+displayed authorized JPEG fallback and automatic retry attempts. It did not
+regain video: ICE stayed `new`, and the video element had no track or dimensions
+through attempt 11. Consequently recording remained disabled and no recording
+segment was produced. Answer/candidate write acceptance alone did not prove
+that the current receiver applied the intended answer. The cause remains
+unisolated between the synthetic sender/signaling setup and application
+transport; this is not evidence of a native Windows encoder failure.
+
+Both browser fixtures were cleaned up. A transient tool capture exposed only a
+disposable fixture's one-time pairing code; it was consumed by that fixture,
+excluded from attached screenshots, and removed with fixture cleanup. No real
+customer device or session was operated.
+
+Remaining work is a reproducible browser recovery/recording harness and actual
+Windows verification of encoding, color, text clarity, direct/TURN transport
+and reconnection. Do not describe those gates as passed.
+
+The earlier entry below describes the preceding fallback-only update, not
+certification of the newer codec controller or Agent source.
+
 # Admin video-to-JPEG recovery — 2026-11-06
 
 ## Cause and correction

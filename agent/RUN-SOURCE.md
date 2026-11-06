@@ -1,6 +1,6 @@
 # Run the complete Agent source before packaging
 
-This is the **Windows Agent source**, version **1.10.4**. It includes C#,
+This is the **Windows Agent source**, version **1.10.5**. It includes C#,
 XAML, project files, branding assets, Watch, the update helper, shared update
 code, native tests and build scripts. It is not a binary-download launcher.
 No Agent executable or MSI has been built for this source delivery.
@@ -166,24 +166,52 @@ webrtc video pipe: pushed=... encoded=... dropped=...   (every ~5 s)
 
 The first line that is missing, or the first `[warn]` before it, locates the
 fault. In particular `webrtc signal poll failing: HTTP ...`,
-`webrtc ... rejected: identity check failed`, `webrtc VP8 encoder unavailable`
+`webrtc ... rejected: identity check failed`, `webrtc no usable video encoder`
 and `webrtc sig apply: ...` each mean the Agent never answered the viewer's
 offer, which the viewer shows as "Connecting video" followed by
 "Video disconnected — reconnect viewer".
 
-## Diagnose missing video with JPEG fallback
+## Automatic video recovery and sharper JPEG fallback
 
-In the updated **web console**, open the affected video session, expand
-**Show actions** if needed, and select **Test JPEG fallback**. Confirm ending
-that session and inviting a new **view-only** diagnostic session. Existing
-authorization still applies; attended sessions still need local acceptance.
-No pairing, restart, new permission or database migration is performed.
+New sessions from the updated web console permit video and automatic JPEG
+fallback. The viewer retries H.264-preferred/VP8 with direct-or-TURN ICE,
+then VP8-only, then relay-only variants. It keeps a working peer instead of
+interrupting it to upgrade. Retries stay within the same authorized session;
+permission denial or another viewer taking ownership stops them.
+
+For an **existing video-only** session, expand **Show actions** and select
+**Enable JPEG fallback**. This explicitly asks you to confirm ending that
+session and inviting a new **view-only** session. Existing authorization still
+applies; attended sessions still need local acceptance. No pairing, restart,
+new permission or database migration is performed.
 
 Video-only sessions intentionally reject JPEG at the Agent, API and database.
-The diagnostic option creates a separate `legacy`-media session instead of
-silently weakening those restrictions. WebRTC continues trying, and a
-**JPEG fallback enabled** notice explains which path has produced a picture.
-When done, end the diagnostic session and connect normally for video-only mode.
+The replacement option creates a separate `legacy`-media session instead of
+silently weakening those restrictions. WebRTC continues trying, and the
+**Automatic JPEG fallback enabled** notice explains which path is active.
+Do not infer native video success from a visible JPEG.
+
+This source update separates JPEG detail from the video congestion ladder:
+
+- It encodes the original desktop pixels, up to a 3840-pixel edge and
+  3840×2160 total pixels, without upscaling.
+- JPEG quality is 86 during changes and 94 when static. Updates start at
+  at most two per second; slow uploads reduce cadence instead of automatically
+  shrinking text.
+- A 1,450,000-byte JPEG cap fits the existing base64 upload limit. Exceptionally
+  large images reduce quality to 80, then resolution, rather than sending
+  frames the server will reject.
+- Use the viewer's **1:1** mode to inspect text without fit-to-window scaling.
+  A 1366×768 source remains 1366×768; genuine 4K detail needs a 4K source.
+- Hardware H.264 is preferred when the hardware probe permits it. VP8 is
+  probed with an actual synthetic encode, not just a format advertisement.
+  A missing VP8 encoder no longer blocks hardware H.264. Encoder failures
+  retire the peer for a clean negotiation; they never put VP8 into H.264 SDP.
+
+`CONNECTLIVE_CODEC=vp8` remains an explicit compatibility override. The default
+is now `auto`. The sender logs the negotiated codec separately from the preference.
+The older `VP8 encoder unavailable` log does not distinguish an empty advertised
+format list from a native-library failure; this version logs the actual probe.
 
 The useful Agent log sequence is:
 
@@ -200,12 +228,14 @@ first JPEG uploaded successfully: ...; capture and HTTPS path working
   401/403 concerns authorization; 409 can mean a video-only/inactive session.
 - No capture-loop line: check Agent startup, heartbeat/session acceptance and
   viewing permission before blaming DXGI or VP8.
-- A stationary screen remains fresh via a bounded one-second JPEG keepalive.
+- A stationary screen remains fresh via a bounded JPEG keepalive (normally
+  once per second, slower on a slow upload path).
   It runs only while capture confirms unchanged pixels and viewing is authorized.
 
 The console change is part of the web source, not something the Agent ZIP
 can install on the server. Use the updated preview console or publish the web
-change separately. This source delivery does not prove Windows video works.
+change separately. The JPEG-quality and native-codec changes require rebuilding
+this Agent source on Windows. This delivery does not prove Windows video works.
 
 ## Later, after your manual verification
 

@@ -1,3 +1,33 @@
+# Automatic media recovery and JPEG clarity — 2026-11-06
+
+Agent source 1.10.5 and the browser source now implement one-peer-at-a-time
+codec/route recovery within the existing session. JPEG remains available only
+when the immutable media contract permits it; existing video-only sessions
+are not converted in place. There is no automatic consent, re-pairing,
+process relaunch or session replacement.
+
+- Browser profiles: H.264-preferred/VP8 with direct-or-TURN ICE, VP8-only with
+  direct-or-TURN ICE, then both relay-only variants. Failed attempts use
+  bounded backoff. A healthy decoded stream is retained.
+- Native VP8 availability uses a synthetic encode probe rather than an
+  advertised-format-list gate. Hardware H.264 can answer independently.
+  Hardware failure requires clean renegotiation; raw RGBA channel order is
+  respected by the hardware conversion.
+- JPEG encodes the native capture independently of video downscaling, up to
+  UHD-sized pixels, with quality 86/94 and a base64-safe payload cap. Slow
+  uploads reduce cadence first. This is not upscaling or a guarantee of 4K.
+- Interrupted browser recordings get a bounded authorized finalization before
+  peer replacement. They do not silently resume on the next peer.
+
+TypeScript, production web build and isolated recovery checks are tracked in
+the accompanying browser verification notes. **No Windows binary was compiled
+or executed for this update.** Real Windows encoder loading, color accuracy,
+4K text quality, hardware throughput, direct/TURN connectivity and full
+input/file/clipboard parity remain unverified. This source-only delivery is
+not an MSI, a GitHub push or a production deployment.
+
+Earlier entries below remain historical evidence, not certification of this update.
+
 # Agent/browser lifecycle implementation — 2026-11-03
 
 The 1.10.1 source update adds acknowledged browser curtain controls, cadence-aware

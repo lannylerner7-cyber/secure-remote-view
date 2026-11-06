@@ -120,9 +120,11 @@ test("UI keeps role, confirmation, busy guard and view-only invitation", () => {
 
 test("idle JPEG freshness stays permission-gated and video-only capture stays off", () => {
   const source = fs.readFileSync("agent/src/ScreenCapture.cs", "utf8");
-  assert.match(source, /if \(videoOnly \|\| !latestJpeg\.HasValue \|\| ct\.IsCancellationRequested \|\|\s*!permission\.Allows\("view"\)/);
-  assert.match(source, /Environment\.TickCount64 - lastJpegQueuedAt < 1000/);
+  const refresh = source.split("void RefreshUnchangedJpeg()")[1].split("// S17")[0];
+  assert.match(refresh, /if \(videoOnly \|\| ct\.IsCancellationRequested \|\| !permission\.Allows\("view"\)\) return/);
+  assert.match(refresh, /if \(jpegDirty \|\| !latestJpeg\.HasValue/);
+  assert.match(refresh, /Math\.Max\(1000, Interlocked\.Read\(ref jpegIntervalMs\)\)/);
   assert.match(source, /else if \(dxgi\.IsInitialized && !dxgi\.LastFrameHadContentChange && lastFrame != null\)/);
   assert.match(source, /await using var uploads = videoOnly \? null/);
-  assert.match(source, /latestJpeg = null;\s*ResetWebRtcTee/);
+  assert.match(source, /latestJpeg = null;\s*jpegDirty = true;\s*ResetWebRtcTee/);
 });

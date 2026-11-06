@@ -354,7 +354,7 @@ public sealed class HwH264Encoder : IDisposable
             }
             try
             {
-                ConvertBgraToNv12(bgra, width, height);
+                ConvertRgbaToNv12(bgra, width, height);
                 IntPtr sample = BuildInputSample();
                 if (sample == IntPtr.Zero) return null;
 
@@ -642,17 +642,17 @@ public sealed class HwH264Encoder : IDisposable
         if (_dead) return;
         _dead = true;
         _deadReason = reason;
-        Log.Warn($"h264: encoder retired — {reason}; falling back to software VP8");
+        Log.Warn($"h264: encoder retired — {reason}; a fresh VP8 negotiation is required");
     }
 
     // ---- colour conversion --------------------------------------------------
 
     /// <summary>
-    /// BGRA32 → NV12, BT.601 limited range. The admin's <c>FrameConvert</c>
+    /// Capture RGBA32 → NV12, BT.601 limited range. The admin's <c>FrameConvert</c>
     /// decodes with the matching 298/409/516 coefficients, so these two must
     /// stay in step or every session comes back washed out.
     /// </summary>
-    private unsafe void ConvertBgraToNv12(byte[] bgra, int width, int height)
+    private unsafe void ConvertRgbaToNv12(byte[] bgra, int width, int height)
     {
         int ySize = width * height;
         int total = ySize + ySize / 2;
@@ -670,9 +670,9 @@ public sealed class HwH264Encoder : IDisposable
                 byte* yOut = yPlane + (long)y * width;
                 for (int x = 0; x < width; x++)
                 {
-                    int b = row[x * 4 + 0];
+                    int r = row[x * 4 + 0];
                     int g = row[x * 4 + 1];
-                    int r = row[x * 4 + 2];
+                    int b = row[x * 4 + 2];
                     yOut[x] = (byte)(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
                 }
             }
@@ -687,9 +687,9 @@ public sealed class HwH264Encoder : IDisposable
                 for (int x = 0; x < width; x += 2)
                 {
                     int x1 = Math.Min(x + 1, width - 1);
-                    int b = (row0[x * 4 + 0] + row0[x1 * 4 + 0] + row1[x * 4 + 0] + row1[x1 * 4 + 0]) >> 2;
+                    int r = (row0[x * 4 + 0] + row0[x1 * 4 + 0] + row1[x * 4 + 0] + row1[x1 * 4 + 0]) >> 2;
                     int g = (row0[x * 4 + 1] + row0[x1 * 4 + 1] + row1[x * 4 + 1] + row1[x1 * 4 + 1]) >> 2;
-                    int r = (row0[x * 4 + 2] + row0[x1 * 4 + 2] + row1[x * 4 + 2] + row1[x1 * 4 + 2]) >> 2;
+                    int b = (row0[x * 4 + 2] + row0[x1 * 4 + 2] + row1[x * 4 + 2] + row1[x1 * 4 + 2]) >> 2;
 
                     int u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
                     int v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;

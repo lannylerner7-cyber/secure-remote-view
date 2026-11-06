@@ -63,19 +63,31 @@ function harness(options = {}) {
     "@/lib/recording-authority": { RecordingAuthority: class { invalidate() {} } },
   };
   const exports = {};
-  vm.runInNewContext(compiled.outputText, {
-    exports, require: name => { assert.ok(dependencies[name], name); return dependencies[name]; },
+  const context = {
+    require: name => {
+      if (dependencies[name]) return dependencies[name];
+      const file = name.startsWith("@/") ? `src/${name.slice(2)}.ts`
+        : `src/lib/${name.slice(2)}.ts`;
+      assert.ok(fs.existsSync(file), `Unmocked dependency: ${name}`);
+      dependencies[name] = {};
+      vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText, { ...context, exports: dependencies[name] });
+      return dependencies[name];
+    },
     console: Object.fromEntries(["warn", "info", "debug", "error"].map(k => [k, (...args) => logs.push(args.join(" "))])),
     window: clock, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
     Date: class extends Date { static now() { return now; } },
     AbortController, Blob, localStorage: storage, sessionStorage: storage,
     crypto: require("node:crypto").webcrypto, RTCPeerConnection: Peer,
-    document: { createElement: () => ({ style: {} }) },
+    performance: { now: () => now },
+    document: { createElement: () => ({ style: {}, play: async () => {}, pause() {} }) },
     fetch: (url, init) => {
       requests.push({ url, init });
       return options.fetch ? options.fetch(url, init, requests.length) : Promise.resolve(response(turn()));
     },
-  });
+  };
+  vm.runInNewContext(compiled.outputText, { ...context, exports });
   const live = exports.startWebRtcLive("session /?&");
   const advance = async ms => {
     const end = now + ms;
@@ -216,38 +228,46 @@ test("refresh before expiry; failed renewal removes old TURN, no endless retries
   assert.equal([...h.timers.values()].filter(t => !t.interval).length, 0);
   h.noSecrets(); h.live.close();
 });
-test("actual media restart refreshes credentials before offer; close cancels refresh", async () => {
-  for (const close of [false, true]) {
-    const wait = deferred();
-    const h = harness({ fetch: async (_url, _init, n) => n === 1 ? response(turn()) : wait.promise });
-    await settle();
-    h.peers[0].iceConnectionState = "connected"; h.peers[0].oniceconnectionstatechange();
-    await h.advance(9000);
-    assert.equal(h.requests.length, 2); assert.equal(h.peers[0].offers.length, 1);
-    await h.advance(6000); assert.equal(h.live.state(), "connected", "media watchdog must not race pending refresh");
-    if (close) h.live.close();
-    wait.resolve(response(turn())); await settle();
-    assert.equal(h.peers[0].offers.length, close ? 1 : 2);
-    if (!close) assert.equal(h.peers[0].offers[1].iceRestart, true);
-    h.noSecrets(); h.live.close();
-  }
+test("stalled media reports failure for clean outer recovery, not hidden renegotiation", async () => {
+  const h = harness();
+  await settle();
+  h.peers[0].iceConnectionState = "connected"; h.peers[0].oniceconnectionstatechange();
+  await h.advance(9000);
+  assert.equal(h.live.state(), "failed");
+  assert.equal(h.live.failure().reason, "media");
+  assert.equal(h.live.failure().retryable, true);
+  assert.equal(h.requests.length, 1); assert.equal(h.peers[0].offers.length, 1);
+  h.noSecrets(); h.live.close();
 });
-test("superseded expiry fetch cannot overwrite newer restart configuration", async () => {
+test("late credential refresh cannot configure a retired peer", async () => {
   const old = deferred();
-  const fresh = turn(); fresh.iceServers[0].urls = "turn:new.example:3478";
-  const h = harness({ fetch: async (_url, _init, n) => n === 1 ? response(turn())
-    : n === 2 ? old.promise : response(fresh) });
+  const h = harness({ fetch: async (_url, _init, n) => n === 1 ? response(turn()) : old.promise });
   await settle();
   h.peers[0].iceConnectionState = "connected"; h.peers[0].oniceconnectionstatechange();
   const expiry = [...h.timers].find(([, t]) => t.ms === 80_000);
   h.timers.delete(expiry[0]); expiry[1].fn(); await settle();
   await h.advance(9000);
-  assert.equal(h.requests.length, 3);
+  assert.equal(h.live.state(), "failed");
+  h.live.close();
   assert.equal(h.requests[1].init.signal.aborted, true);
-  assert.equal(h.peers[0].configs.at(-1).iceServers[0].urls, "turn:new.example:3478");
+  const configurations = h.peers[0].configs.length;
   old.resolve(response(turn())); await settle();
-  assert.equal(h.peers[0].configs.at(-1).iceServers[0].urls, "turn:new.example:3478");
-  assert.equal(h.peers[0].offers.length, 2); h.noSecrets(); h.live.close();
+  assert.equal(h.peers[0].configs.length, configurations);
+  assert.equal(h.peers[0].offers.length, 1); h.noSecrets();
+});
+test("new TURN availability does not renegotiate a healthy connected peer", async () => {
+  const h = harness({ fetch: async (_url, _init, n) =>
+    response(n === 1 ? { iceServers: [{ urls: "stun:example" }] } : turn()) });
+  await settle();
+  h.peers[0].getStats = async () => new Map([["video", {
+    type: "inbound-rtp", kind: "video", framesDecoded: 10,
+  }]]);
+  h.peers[0].iceConnectionState = "connected"; h.peers[0].oniceconnectionstatechange();
+  await h.advance(3000);
+  assert.equal(h.live.state(), "connected");
+  assert.equal(h.live.relay(), "relay");
+  assert.equal(h.peers[0].offers.length, 1);
+  h.noSecrets(); h.live.close();
 });
 test("denied grant stops startup without retry; 429 observes 60s cooldown", async () => {
   for (const status of [400, 401, 403, 404]) {
@@ -271,7 +291,7 @@ test("watchdog failure invalidates a pending local-description completion", asyn
   const wait = deferred(), h = harness({ local: () => wait.promise });
   await settle();
   h.peers[0].iceConnectionState = "checking"; h.peers[0].oniceconnectionstatechange();
-  await h.advance(10_000);
+  await h.advance(20_000);
   assert.equal(h.live.state(), "failed");
   wait.resolve(); await settle();
   assert.equal(h.signals.filter(s => s.kind === "offer").length, 0);
@@ -279,5 +299,5 @@ test("watchdog failure invalidates a pending local-description completion", asyn
 });
 (async () => {
   for (const { name, run } of tests) { await run(); console.log(`PASS ${name}`); }
-  console.log(`${tests.length} actual browser ICE hardening scenarios passed.`);
+  console.log(`${tests.length} ICE hardening scenarios passed with mocked browser/transport APIs.`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

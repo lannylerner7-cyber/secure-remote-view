@@ -3,6 +3,7 @@ const vm = require("node:vm");
 const ts = require("typescript");
 const assert = require("node:assert/strict");
 let now = 100, permitted = false, constructed = 0, stopped = 0, id = 0;
+let deferStop = false, finishStop;
 const timers = new Map();
 const timer = (fn, ms) => { timers.set(++id, { fn, ms }); return id; };
 const storage = { getItem: () => null, setItem() {}, removeItem() {} };
@@ -14,8 +15,11 @@ class Recorder {
   start() {}
   stop() {
     stopped++;
-    this.ondataavailable?.({ data: new Blob(["test frame"]) });
-    this.onstop?.();
+    const finish = () => {
+      this.ondataavailable?.({ data: new Blob(["test frame"]) });
+      this.onstop?.();
+    };
+    if (deferStop) finishStop = finish; else finish();
   }
 }
 class Peer {
@@ -45,7 +49,12 @@ function load(path) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path, "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { ...common, exports, require: name => {
-    if (!(name in dependencies)) throw Error(`Unmocked import ${name}`);
+    if (!(name in dependencies)) {
+      const file = name.startsWith("@/") ? `src/${name.slice(2)}.ts`
+        : `src/lib/${name.slice(2)}.ts`;
+      if (!fs.existsSync(file)) throw Error(`Unmocked import ${name}`);
+      dependencies[name] = load(file);
+    }
     return dependencies[name];
   } });
   return exports;
@@ -56,7 +65,7 @@ dependencies["@/integrations/supabase/client"] = { supabase: {
   channel: () => channel, removeChannel() {},
 } };
 dependencies["@/lib/webrtc-signal.functions"] = {
-  postAdminSignal: async () => ({ ok: true }), bindAdmin: async () => ({ ok: true }),
+  postAdminSignal: async () => ({ ok: true }), bindAdmin: async () => ({ bound: true }),
 };
 dependencies["@/shared/api-routes"] = { API_ROUTES: {
   agentIce: "/ice", adminSessionAuthorization: id => `/session/${id}/authorization`,
@@ -85,6 +94,18 @@ dependencies["@/shared/api-routes"] = { API_ROUTES: {
   assert.equal(await live.startRecording(), true);
   const saved = await live.stopRecording();
   assert.ok(saved?.blob.size > 0, "authorized recording still saves");
+  assert.equal(await live.startRecording(), true);
+  deferStop = true;
+  const manualStop = live.stopRecording();
+  for (let n = 0; n < 16; n++) await Promise.resolve();
+  assert.equal(typeof finishStop, "function");
+  assert.equal(live.recording(), true, "pending final data must retain peer ownership");
+  const recoveryStop = live.stopRecording();
+  assert.equal(manualStop, recoveryStop, "manual stop and recovery must join one finalizer");
+  finishStop();
+  const [manualResult, recoveryResult] = await Promise.all([manualStop, recoveryStop]);
+  assert.equal(manualResult.blob, recoveryResult.blob, "deliver one shared recording segment");
+  assert.equal(live.recording(), false);
   live.close();
-  console.log("13 actual WebRTC-wrapper recording assertions passed with mocked browser/transport APIs.");
+  console.log("19 recording assertions passed with mocked browser/transport APIs.");
 })().catch(e => { console.error(e); process.exitCode = 1; });

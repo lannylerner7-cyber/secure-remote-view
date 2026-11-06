@@ -29,7 +29,11 @@ export const Route = createFileRoute("/api/public/admin/session/$sessionId/autho
           const grant = await currentAuthorization(admin, session.device_id);
           if (!grant || grant.revokedAt !== null)
             return json({ allowed: false, capabilities, authorizationId: null });
-          for (const cap of CAPABILITIES) capabilities[cap] = await sessionAuthorized(admin, session.id, cap);
+          // Independent capability checks share one response deadline. Serial
+          // RPCs can consume the browser's short recording lease before use.
+          await Promise.all(CAPABILITIES.map(async cap => {
+            capabilities[cap] = await sessionAuthorized(admin, session.id, cap);
+          }));
           // Last revalidation: a concurrent end/revoke must not create permission.
           if (!capabilities.view || !(await sessionAuthorized(admin, session.id)))
             return json({ allowed: false, capabilities: { view: false, control: false, clipboard: false, files: false, recording: false }, authorizationId: null });

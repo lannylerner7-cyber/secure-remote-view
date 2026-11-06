@@ -12,12 +12,9 @@ namespace ConnectLive.Agent;
 /// Desktop capture loop. Adaptive cadence: targets the current ladder rung's
 /// FPS during motion, backs off to ~10 FPS when the screen is static.
 ///
-/// SCOPE:TRANSPORT — resolution, JPEG quality and frame cadence are NOT owned
-/// here any more. <see cref="BitrateController"/> owns the
-/// (targetBitrate, maxEdge, fps) triple and is driven by RTCP receiver reports
-/// on the WebRTC path plus HTTPS upload latency on the fallback path. This
-/// loop simply reads <see cref="BitrateController.Current"/> every frame, so a
-/// rung change takes effect on the very next capture with no restart.
+/// <see cref="BitrateController"/> owns video resolution/cadence. JPEG uses
+/// native desktop pixels (up to 4K), with its own high-quality, bounded encoder
+/// and lower cadence, so a slow video path does not blur desktop text.
 /// Reuses bitmap allocations across frames to minimise GC pressure.
 /// </summary>
 public static class ScreenCapture
@@ -69,26 +66,12 @@ public static class ScreenCapture
         var permission = api.LivePermission;
         if (permission?.Allows("view") != true || ct.IsCancellationRequested) return;
         Log.Info($"capture loop entered; JPEG fallback={(videoOnly ? "off (video-only session)" : "on")}; viewing permission verified");
-        ImageCodecInfo? jpegEnc = null;
-        if (!videoOnly)
-        {
-            foreach (var e in ImageCodecInfo.GetImageEncoders())
-                if (e.MimeType == "image/jpeg") { jpegEnc = e; break; }
-            if (jpegEnc == null) throw new InvalidOperationException("Legacy JPEG encoder unavailable.");
-        }
-
-        using var motionParams = videoOnly ? null : new EncoderParameters(1);
-        if (motionParams != null) motionParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.MotionQuality);
-
-        using var idleParams = videoOnly ? null : new EncoderParameters(1);
-        if (idleParams != null) idleParams.Param[0] = new EncoderParameter(Encoder.Quality, BitrateController.Current.IdleQuality);
-
-
         ulong lastHash = 0;
         int idleCount = 0;
         int uploadFails = 0;
         bool firstJpegUploaded = false;
         int framesSinceKeyframe = 0;
+        long jpegIntervalMs = JpegFallbackEncoder.MotionIntervalMs;
         // HTTP fallback must not pace DXGI/WebRTC. At most one upload runs and
         // one fresh frame waits; older pending JPEGs are replaced, not replayed.
         using var uploadsLifetime = videoOnly ? null : CancellationTokenSource.CreateLinkedTokenSource(ct, permission.Token);
@@ -100,7 +83,10 @@ public static class ScreenCapture
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 bool posted = await api.PostFrameAsync(sessionId, pending.Bytes,
                     pending.Width, pending.Height, deadline.Token).ConfigureAwait(false);
-                NoteUploadLatency(watch.ElapsedMilliseconds);
+                // HTTP latency changes JPEG cadence, not its resolution or
+                // the independent WebRTC congestion/codec ladder.
+                Interlocked.Exchange(ref jpegIntervalMs, Math.Clamp(
+                    watch.ElapsedMilliseconds * 2, JpegFallbackEncoder.MotionIntervalMs, 2500L));
                 if (posted)
                 {
                     if (!firstJpegUploaded)
@@ -117,19 +103,41 @@ public static class ScreenCapture
         bool firstDesktopCaptured = false;
         (byte[] Bytes, int Width, int Height)? latestJpeg = null;
         long lastJpegQueuedAt = 0;
-        // A confirmed unchanged desktop is still live. Refresh its last JPEG
-        // once per second, without re-encoding, so the viewer does not mark a
-        // stationary screen stale. Never do this on a capture error/withdrawal.
-        void RefreshUnchangedJpeg()
-        {
-            if (videoOnly || !latestJpeg.HasValue || ct.IsCancellationRequested ||
-                !permission.Allows("view") || Environment.TickCount64 - lastJpegQueuedAt < 1000) return;
-            if (uploads!.Offer(latestJpeg.Value)) lastJpegQueuedAt = Environment.TickCount64;
-        }
-
+        long lastJpegEncodedAt = 0;
+        bool jpegDirty = true, lastJpegIdle = false;
         // Reusable bitmaps — only reallocated when screen bounds change.
         Bitmap? rawBmp = null;
         Bitmap? scaledBmp = null;
+
+        void QueueNativeJpeg(bool idle)
+        {
+            if (videoOnly || rawBmp == null || ct.IsCancellationRequested || !permission.Allows("view")) return;
+            long now = Environment.TickCount64;
+            if (latestJpeg.HasValue && now - lastJpegEncodedAt < Interlocked.Read(ref jpegIntervalMs)) return;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            latestJpeg = JpegFallbackEncoder.Encode(rawBmp, idle);
+            EncodeStats.NoteJpegEncode(watch.ElapsedTicks * 1_000_000L /
+                System.Diagnostics.Stopwatch.Frequency, latestJpeg.Value.Width, latestJpeg.Value.Height);
+            lastJpegEncodedAt = now;
+            jpegDirty = false;
+            lastJpegIdle = idle;
+            if (!ct.IsCancellationRequested && permission.Allows("view") && uploads!.Offer(latestJpeg.Value))
+                lastJpegQueuedAt = Environment.TickCount64;
+        }
+
+        // A confirmed unchanged desktop is still live. Refresh its last JPEG
+        // once per second. First flush any changed frame skipped by throttling
+        // and upgrade a newly static desktop to idle quality.
+        void RefreshUnchangedJpeg()
+        {
+            if (videoOnly || ct.IsCancellationRequested || !permission.Allows("view")) return;
+            if (jpegDirty || !lastJpegIdle) QueueNativeJpeg(idle: true);
+            // Never stamp the older image fresh while a changed desktop awaits encoding.
+            if (jpegDirty || !latestJpeg.HasValue || Environment.TickCount64 - lastJpegQueuedAt <
+                Math.Max(1000, Interlocked.Read(ref jpegIntervalMs))) return;
+            if (uploads!.Offer(latestJpeg.Value)) lastJpegQueuedAt = Environment.TickCount64;
+        }
+
         // S17 — the frame actually shipped last iteration. With the 1:1
         // passthrough this is rawBmp on a native-resolution rung and scaledBmp
         // otherwise, so the idle keepalive can no longer assume scaledBmp.
@@ -195,6 +203,7 @@ public static class ScreenCapture
                     // the admin sees the new display within one frame interval.
                     prevBoundsW = prevBoundsH = 0;
                     latestJpeg = null;
+                    jpegDirty = true;
                     ResetWebRtcTee();
                 }
 
@@ -228,6 +237,8 @@ public static class ScreenCapture
                     rawBmp = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb);
                     prevBoundsW = bounds.Width;
                     prevBoundsH = bounds.Height;
+                    latestJpeg = null;
+                    jpegDirty = true;
                 }
 
                 // DXGI path: acquire from GPU. When it returns null AND the
@@ -281,7 +292,9 @@ public static class ScreenCapture
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                     framesSinceKeyframe++;
                 }
-
+                // Capture succeeded. Keep JPEG dirty until those pixels are encoded;
+                // skipping a video-sized hash match must not lose native-resolution detail.
+                jpegDirty = true;
 
                 int maxEdge = rung.MaxEdge;
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(rawBmp.Width, rawBmp.Height));
@@ -350,8 +363,6 @@ public static class ScreenCapture
 
                 // The frame the idle keepalive re-sends when nothing changed.
                 lastFrame = frame;
-                if (latestJpeg.HasValue && (latestJpeg.Value.Width != w || latestJpeg.Value.Height != h))
-                    latestJpeg = null;
                 if (!firstDesktopCaptured)
                 {
                     firstDesktopCaptured = true;
@@ -385,20 +396,7 @@ public static class ScreenCapture
 
                     if (!videoOnly)
                     {
-                        motionParams!.Param[0] = new EncoderParameter(Encoder.Quality, rung.MotionQuality);
-                        idleParams!.Param[0] = new EncoderParameter(Encoder.Quality, rung.IdleQuality);
-                        var encP = wasIdle ? idleParams : motionParams;
-                        using var ms = new MemoryStream();
-                        var encodeSw = System.Diagnostics.Stopwatch.StartNew();
-                        frame.Save(ms, jpegEnc!, encP);
-                        encodeSw.Stop();
-                        EncodeStats.NoteJpegEncode(
-                            encodeSw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, w, h);
-                        latestJpeg = (ms.ToArray(), w, h);
-                        if (uploads!.Offer(latestJpeg.Value))
-                            lastJpegQueuedAt = Environment.TickCount64;
-                        else if (!ct.IsCancellationRequested)
-                            Log.Warn("fallback upload worker stopped accepting frames");
+                        QueueNativeJpeg(wasIdle);
                     }
                     MaybeLogEncodeStats();
                 }
@@ -509,14 +507,6 @@ public static class ScreenCapture
         catch (Exception ex) { Log.Warn($"webrtc tee: {ex.Message}"); }
     }
 
-
-
-    // ---- Adaptive quality ------------------------------------------------
-    // The old two-state flip (5 slow uploads down, 30 clean seconds up) lived
-    // here. It now delegates to BitrateController, which folds this HTTPS
-    // signal together with the RTCP receiver reports from the video path so
-    // both transports move the same ladder.
-    private static void NoteUploadLatency(long ms) => BitrateController.NoteUploadLatency(ms);
 
 
     // ---- S17 step 1 measurement ------------------------------------------

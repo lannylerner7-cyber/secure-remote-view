@@ -10,7 +10,10 @@ import { getMyRole, type AppRole } from "@/lib/admins.functions";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Button } from "@/components/ui/button";
 
-import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
+import type { WebRtcState, RecordingResult } from "@/lib/webrtc-live";
+import {
+  startResilientWebRtc, type ResilientWebRtcLive, type RecoveryStatus,
+} from "@/lib/resilient-webrtc";
 import { observeVideoFrames } from "@/lib/video-frame-health";
 import type { Tables } from "@/integrations/supabase/types";
 import { isPowerKindAllowed, normalizePlatform, releaseProductFor, isUpdateAvailable, type PowerKind } from "@/shared/platform";
@@ -99,13 +102,17 @@ function AdminPage() {
   const fetchRole = useServerFn(getMyRole);
   const [role, setRole] = useState<AppRole | null>(null);
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const rtcRef = useRef<WebRtcLive | null>(null);
+  const rtcRef = useRef<ResilientWebRtcLive | null>(null);
+  const [mediaRecovery, setMediaRecovery] = useState<RecoveryStatus | null>(null);
   /** S21 — true while the reliable `files` DataChannel is open. */
   const [filesReady, setFilesReady] = useState(false);
   /** S22 — true while the `clip` DataChannel is open. */
   const [clipReady, setClipReady] = useState(false);
   /** S24 — true while a local recording of the live track is running. */
   const [recording, setRecording] = useState(false);
+  const [recordingActionPending, setRecordingActionPending] = useState(false);
+  const recordingActionRef = useRef(false);
+  const downloadedRecordingsRef = useRef(new WeakSet<Blob>());
 
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   // Explicit fullscreen for the viewer panel; normal mode stays compact.
@@ -378,6 +385,7 @@ function AdminPage() {
 
   useEffect(() => {
     setAgentMode(null);
+    setMediaRecovery(null);
     setViewerPaused(false);
     setViewerUnsupported(false);
     if (!activeLiveId) {
@@ -394,11 +402,28 @@ function AdminPage() {
       return;
     }
     viewerStartedAtRef.current = Date.now();
-    const live = startWebRtcLive(activeLiveId, {
+    const live = startResilientWebRtc(activeLiveId, {
       videoOnly: liveVideoOnly, authorizationId: currentLiveSession?.authorization_id,
     });
     rtcRef.current = live;
     setViewerVideo(live.video);
+    setMediaRecovery(live.recovery());
+    const offVideo = live.onVideo(video => {
+      if (rtcRef.current !== live) return;
+      setVideoDecoding(false);
+      setViewerVideo(video);
+    });
+    const offRecovery = live.onRecovery(status => {
+      if (rtcRef.current === live) setMediaRecovery(status);
+    });
+    const offInterruptedRecording = live.onInterruptedRecording(result => {
+      if (rtcRef.current !== live) return;
+      setRecording(false);
+      if (result) downloadRecording(activeLiveId, result, true);
+      else toast.error("Recording interrupted", {
+        description: "No recording segment could be saved. Recording will not restart automatically.",
+      });
+    });
     live.onRecording((active) => {
       if (rtcRef.current === live) setRecording(active);
     });
@@ -463,6 +488,9 @@ function AdminPage() {
     }, 1000);
 
     return () => {
+      offVideo();
+      offRecovery();
+      offInterruptedRecording();
       offFile();
       offClip();
       offMode();
@@ -470,7 +498,8 @@ function AdminPage() {
       setCurtain({ supported: false, active: null, pending: false, reason: null });
       window.clearInterval(filesTick);
       if (rtcRef.current === live) rtcRef.current = null;
-      setViewerVideo((current) => current === live.video ? null : current);
+      setViewerVideo(null);
+      setMediaRecovery(null);
       setRtcState("idle");
       setFilesReady(false);
       setClipReady(false);
@@ -478,6 +507,8 @@ function AdminPage() {
       live.close();
     };
   }, [activeLiveId, liveVideoOnly, currentLiveSession?.authorization_id, viewerAttempt]);
+
+  useEffect(() => { rtcRef.current?.setPaused(viewerPaused); }, [viewerPaused, viewerVideo]);
 
   /** S22 — push the technician's local clipboard to the remote machine. */
   async function pushClipboard() {
@@ -507,10 +538,28 @@ function AdminPage() {
     else toast.error("Clipboard send failed");
   }
 
+  function downloadRecording(sessionId: string, result: RecordingResult, interrupted = false) {
+    if (downloadedRecordingsRef.current.has(result.blob)) return;
+    downloadedRecordingsRef.current.add(result.blob);
+    const url = URL.createObjectURL(result.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `connectlive-${sessionId.slice(0, 8)}-${Date.now()}.webm`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    toast.success(interrupted ? "Recording segment saved before reconnecting" : "Recording saved", {
+      description: `${Math.round(result.durationMs / 1000)}s · ${(result.blob.size / 1048576).toFixed(1)} MB` +
+        (interrupted ? ". Start a new recording after video returns." : ""),
+    });
+  }
+
   /** S24 — start/stop a local WEBM recording of the live video track. */
   async function toggleRecording(sessionId: string) {
     const live = rtcRef.current;
-    if (!live) return;
+    if (!live || recordingActionRef.current) return;
+    recordingActionRef.current = true;
+    setRecordingActionPending(true);
+    try {
     if (!live.recording() && !liveAuthorization.grant?.capabilities.recording) {
       toast.error("Recording is not authorized for this session.");
       return;
@@ -522,15 +571,7 @@ function AdminPage() {
         toast.error("Recording produced no footage");
         return;
       }
-      const url = URL.createObjectURL(result.blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `connectlive-${sessionId.slice(0, 8)}-${Date.now()}.webm`;
-      a.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      toast.success("Recording saved", {
-        description: `${Math.round(result.durationMs / 1000)}s · ${(result.blob.size / 1048576).toFixed(1)} MB`,
-      });
+      downloadRecording(sessionId, result);
       return;
     }
     if (!live.canRecord()) {
@@ -545,12 +586,16 @@ function AdminPage() {
     } else {
       toast.error("Recording unavailable: permission was denied, expired, or could not be verified.");
     }
+    } finally {
+      recordingActionRef.current = false;
+      setRecordingActionPending(false);
+    }
   }
 
 
   // Mount the WebRTC <video> element into the live surface. The element is
-  // owned by startWebRtcLive() and reused across re-renders; we only move it
-  // in and out of the DOM here.
+  // owned by the active peer and replaced on automatic recovery; we only
+  // move the current element in and out of the DOM here.
   useEffect(() => {
     const host = videoHostRef.current;
     const video = rtcRef.current?.video;
@@ -1181,6 +1226,14 @@ function AdminPage() {
   // Reconnect only this viewer. This is not an Agent process relaunch.
   async function restartStream(s: Session) {
     if (s.state !== "active") { toast.info("Wait for an authorized active session before reconnecting."); return; }
+    if (rtcRef.current?.sessionId === s.id) {
+      if (rtcRef.current.recovery().phase === "stopped") {
+        toast.info("Video retries stopped because viewing permission or viewer ownership changed.");
+        return;
+      }
+      rtcRef.current.retry();
+      return;
+    }
     setLiveId(s.id);
     setViewerAttempt(value => value + 1);
   }
@@ -1668,15 +1721,26 @@ function AdminPage() {
                     <strong>Automatic JPEG fallback enabled.</strong>{" "}
                     {videoDecoding ? "WebRTC video is decoding; JPEG is on standby." :
                       active && liveFrame?.frame && frameAge < 8000
-                        ? "Showing JPEG because video is unavailable. Reconnect viewer to retry video; the picture switches back when video frames arrive."
+                        ? "Showing JPEG while video recovers automatically. Use 1:1 for pixel-for-pixel text."
                         : "Video is preferred. Waiting for an authorized video stream or a fresh JPEG frame; viewing permission is still required."}
-                    {" "}Video: {rtcState}. Logs: <code>%LOCALAPPDATA%\ConnectLive\logs</code>
+                    {" "}Video: {rtcState}.
+                    {mediaRecovery && <span data-testid="media-recovery-status">
+                      {" "}{mediaRecovery.phase === "live"
+                        ? `${mediaRecovery.codec ?? "Video"} · ${mediaRecovery.path === "relay" ? "TURN relay" : mediaRecovery.path ? "direct connection" : "route not yet reported"}`
+                        : mediaRecovery.phase === "stopped"
+                          ? "Retries stopped because viewing permission or viewer ownership changed."
+                          : mediaRecovery.phase === "finishing-recording"
+                            ? "Saving the recording segment before reconnecting."
+                            : `${mediaRecovery.phase === "waiting" ? "Next automatic retry" : "Trying"}: ${mediaRecovery.profile.label} · attempt ${mediaRecovery.attempt + (mediaRecovery.phase === "waiting" ? 1 : 0)}`}
+                    </span>}
+                    {" "}Logs: <code>%LOCALAPPDATA%\ConnectLive\logs</code>
                   </div>
                 )}
                 {s.media_mode === "video" && (
                   <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="video-only-session-notice" role="status">
                     This existing session is video-only. Use <strong>Enable JPEG fallback</strong> to
                     replace it with a new view-only session. Attended access still requires local approval.
+                    {mediaRecovery?.phase === "waiting" && " Video retries continue automatically without JPEG."}
                   </div>
                 )}
                 <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -1782,10 +1846,10 @@ function AdminPage() {
                       size="sm"
                       variant={recording ? "destructive" : "outline"}
                       className={recording ? undefined : actionButtonClass}
-                      disabled={!recording && (!videoDecoding || !liveAuthorization.grant?.capabilities.recording)}
+                      disabled={recordingActionPending || (!recording && (!videoDecoding || !liveAuthorization.grant?.capabilities.recording))}
                       onClick={() => void toggleRecording(s.id)}
                     >
-                      {recording ? "Stop recording" : "Record session"}
+                      {recordingActionPending ? (recording ? "Saving…" : "Starting…") : recording ? "Stop recording" : "Record session"}
                     </Button>
                     <Button
                       type="button" size="sm" variant="outline"
@@ -1795,6 +1859,7 @@ function AdminPage() {
                       onClick={() => {
                         if (!viewerVideo) return;
                         if (!viewerPaused) { viewerVideo.pause(); setViewerPaused(true); }
+                        else if (!viewerVideo.srcObject) setViewerPaused(false);
                         else void viewerVideo.play().then(() => setViewerPaused(false))
                           .catch(() => toast.error("Playback could not resume. Reconnect the viewer."));
                       }}
