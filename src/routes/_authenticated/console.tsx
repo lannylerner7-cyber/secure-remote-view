@@ -11,6 +11,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { Button } from "@/components/ui/button";
 
 import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
+import { observeVideoFrames } from "@/lib/video-frame-health";
 import type { Tables } from "@/integrations/supabase/types";
 import { isPowerKindAllowed, normalizePlatform, releaseProductFor, isUpdateAvailable, type PowerKind } from "@/shared/platform";
 import {
@@ -184,7 +185,6 @@ function AdminPage() {
   rtcVideoLiveRef.current = rtcVideoLive;
   // Decoded-video frame rate, sampled off the real <video> element so the HUD
   // reports the stream's actual cadence rather than the JPEG fallback's.
-  const videoFpsRef = useRef({ last: 0, frames: 0, fps: 0 });
   const [videoFps, setVideoFps] = useState(0);
   // "Connected" is not the same as "showing pixels": a peer can complete ICE
   // while the sender's encoder emits nothing. Only a decoded frame proves the
@@ -256,9 +256,8 @@ function AdminPage() {
   // Live surface subscriptions.
   //   * Cursor telemetry always streams (it is tiny and drives the SVG overlay).
   //   * JPEG frames (session_frames) are the FALLBACK surface only — while the
-  //     WebRTC video track is connected we unsubscribe from them entirely and
-  //     stop the poller, so the slideshow pipe costs nothing. It resumes
-  //     automatically the moment RTC drops to failed/superseded.
+  //     WebRTC video is producing fresh decoded frames we stop downloading
+  //     JPEGs. Resume on a stalled decoder as well as a failed connection.
   useEffect(() => {
     if (!liveId) {
       setLiveFrame(null);
@@ -269,7 +268,7 @@ function AdminPage() {
     }
     let cancelled = false;
     // Only stand down the JPEG pipe once video is genuinely decoding.
-    // Unknown and migrated sessions never start a JPEG pipeline.
+    // Unknown and explicitly video-only sessions never start a JPEG pipeline.
     const wantFrames = currentLiveSession?.media_mode === "legacy" && !videoDecoding && !viewerPaused;
     if (!wantFrames) setLiveFrame(null);
 
@@ -562,47 +561,26 @@ function AdminPage() {
     };
   }, [liveId, rtcVideoLive, liveSurfaceDeviceId, viewerVideo]);
 
-  // Measure decoded video frame rate. requestVideoFrameCallback fires once per
-  // presented frame, so this is the true stream cadence — the old HUD only ever
-  // counted JPEG arrivals and therefore read "1 fps" during healthy video.
+  // A previously decoded frame must expire even if ICE stays connected or the
+  // media element stops playing. Local pause still suppresses JPEG explicitly.
   useEffect(() => {
-    if (!rtcVideoLive) {
+    if (!rtcVideoLive || !viewerVideo) {
       setVideoFps(0);
       setVideoDecoding(false);
-      videoFpsRef.current = { last: 0, frames: 0, fps: 0 };
       return;
     }
-    const video = rtcRef.current?.video as
-      | (HTMLVideoElement & {
-          requestVideoFrameCallback?: (cb: () => void) => number;
-          cancelVideoFrameCallback?: (id: number) => void;
-        })
-      | undefined;
-    if (!video) return;
-    let stop = false;
-    let handle = 0;
-    const tick = () => {
-      if (stop) return;
-      const st = videoFpsRef.current;
-      const t = performance.now();
-      st.frames += 1;
-      setVideoDecoding(true);
-      if (!st.last) st.last = t;
-      else if (t - st.last >= 1000) {
-        st.fps = Math.round((st.frames * 1000) / (t - st.last));
-        st.frames = 0;
-        st.last = t;
-        setVideoFps(st.fps);
-      }
-      if (video.requestVideoFrameCallback) handle = video.requestVideoFrameCallback(tick);
-    };
+    const stopObserving = observeVideoFrames(viewerVideo, ({ decoding, fps }) => {
+      setVideoDecoding(decoding);
+      setVideoFps(fps);
+    });
+    const live = rtcRef.current;
     // Diagnostic: 3 s after the peer reports connected, say whether media is
     // actually arriving. No bytes = transport problem; bytes but no decoded
     // frames = codec/format problem on the sender.
     const probe = window.setTimeout(() => {
       void (async () => {
         try {
-          const stats = await (rtcRef.current?.stats?.() ?? Promise.resolve(null));
+          const stats = await (live?.stats?.() ?? Promise.resolve(null));
           if (!stats) return;
           stats.forEach((r: Record<string, unknown>) => {
             if (r["type"] === "inbound-rtp" && r["kind"] === "video") {
@@ -616,32 +594,11 @@ function AdminPage() {
         }
       })();
     }, 3000);
-    if (video.requestVideoFrameCallback) {
-      handle = video.requestVideoFrameCallback(tick);
-    } else {
-      // Safari/older engines: fall back to a decoded-frame-count poll.
-      const iv = setInterval(() => {
-        const q = (
-          video as unknown as { getVideoPlaybackQuality?: () => { totalVideoFrames: number } }
-        ).getVideoPlaybackQuality?.();
-        if (!q) return;
-        const st = videoFpsRef.current;
-        if (q.totalVideoFrames > 0) setVideoDecoding(true);
-        if (st.last) setVideoFps(Math.max(0, q.totalVideoFrames - st.frames));
-        st.frames = q.totalVideoFrames;
-        st.last = 1;
-      }, 1000);
-      return () => {
-        clearInterval(iv);
-        window.clearTimeout(probe);
-      };
-    }
     return () => {
-      stop = true;
+      stopObserving();
       window.clearTimeout(probe);
-      if (handle && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(handle);
     };
-  }, [liveId, rtcVideoLive]);
+  }, [liveId, rtcVideoLive, viewerVideo]);
 
   useEffect(() => {
     if (!liveId) return;
@@ -836,7 +793,7 @@ function AdminPage() {
     const existing = existingRows?.[0];
     if (existing) {
       if (jpegDiagnostic) {
-        toast.error("Another live session remains open. End it before starting JPEG diagnosis.");
+        toast.error("Another live session remains open. End it before enabling JPEG fallback.");
         return false;
       }
       setLiveId(existing.id);
@@ -886,7 +843,7 @@ function AdminPage() {
     try {
       await replaceWithJpegDiagnostic(() => endSession(s), () => connectDevice(device, true));
     } catch {
-      toast.error("JPEG diagnosis could not start. Check the session list before retrying.");
+      toast.error("JPEG fallback could not start. Check the session list before retrying.");
     } finally {
       jpegDiagnosticBusyRef.current = false;
       setJpegDiagnosticStarting(false);
@@ -1571,9 +1528,11 @@ function AdminPage() {
           const streamCopy = liveVideoOnly ? videoStatus.label :
             viewerPaused ? "Viewer paused — sharing continues" : legacyStreamCopy;
           const control = controlReady && role !== "viewer" && !viewerPaused;
-          const rtSinceLastPush = lastRealtimePushAtRef.current
-            ? now - lastRealtimePushAtRef.current
+          const rtSinceLastFramePush = lastFramePushAtRef.current
+            ? now - lastFramePushAtRef.current
             : Infinity;
+          const freshFallback = active && !viewerPaused && !liveVideoOnly &&
+            !!liveFrame?.frame && frameAge < 8000;
           // Transport pill: only a decoded frame earns the "WebRTC video" label.
           // A peer that completed ICE but never delivers pixels reads
           // "WebRTC negotiating" so this exact failure is visible at a glance.
@@ -1585,7 +1544,9 @@ function AdminPage() {
             | "reconnecting"
             | "polling" = videoDecoding
             ? "video"
-            : rtcVideoLive
+            : freshFallback
+              ? rtSinceLastFramePush < 5000 ? "live" : "polling"
+              : rtcVideoLive
               ? "negotiating"
               : rtcState === "connecting" || handingOver
                 ? "connecting"
@@ -1593,7 +1554,7 @@ function AdminPage() {
                   ? "reconnecting"
                   : realtimeStatus === "connecting"
                     ? "connecting"
-                    : rtSinceLastPush < 5000
+                    : rtSinceLastFramePush < 5000
                       ? "live"
                       : "polling";
           const transportTone =
@@ -1660,7 +1621,7 @@ function AdminPage() {
                       </div>
                     </div>
                     <span
-                      title={`WebRTC: ${rtcState}. TURN: ${relay === "relay" ? "configured (availability only, not proof of use)" : relay === "none" ? "not configured, direct paths only" : "resolving"}. Selected path: ${iceKind ? (iceKind === "relay" ? "relay (TURN in use)" : iceKind) : "not yet selected"}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                      title={`WebRTC: ${rtcState}. TURN: ${relay === "relay" ? "configured (availability only, not proof of use)" : relay === "none" ? "not configured, direct paths only" : "resolving"}. Selected path: ${iceKind ? (iceKind === "relay" ? "relay (TURN in use)" : iceKind) : "not yet selected"}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastFramePush) ? `${Math.round(rtSinceLastFramePush)}ms ago` : "never"}.`}
                       className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
                     >
                       <span
@@ -1704,12 +1665,18 @@ function AdminPage() {
                 {s.media_mode === "legacy" && dev?.platform === "windows" &&
                   (dev.metadata as Record<string, unknown> | null)?.browser_video === 1 && (
                   <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="jpeg-diagnostic-status" role="status">
-                    <strong>JPEG fallback enabled.</strong>{" "}
+                    <strong>Automatic JPEG fallback enabled.</strong>{" "}
                     {videoDecoding ? "WebRTC video is decoding; JPEG is on standby." :
                       active && liveFrame?.frame && frameAge < 8000
-                        ? "JPEG received: screen capture and HTTPS upload are working. Check the Agent log for the separate WebRTC signaling, encoder and ICE path."
-                        : "Waiting for an authorized, fresh JPEG frame. No picture does not yet prove a capture failure—check session acceptance and the Agent log."}
+                        ? "Showing JPEG because video is unavailable. Reconnect viewer to retry video; the picture switches back when video frames arrive."
+                        : "Video is preferred. Waiting for an authorized video stream or a fresh JPEG frame; viewing permission is still required."}
                     {" "}Video: {rtcState}. Logs: <code>%LOCALAPPDATA%\ConnectLive\logs</code>
+                  </div>
+                )}
+                {s.media_mode === "video" && (
+                  <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="video-only-session-notice" role="status">
+                    This existing session is video-only. Use <strong>Enable JPEG fallback</strong> to
+                    replace it with a new view-only session. Attended access still requires local approval.
                   </div>
                 )}
                 <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -1751,9 +1718,9 @@ function AdminPage() {
                         onClick={() => void diagnoseWithJpeg(s)}
                         disabled={jpegDiagnosticStarting || !["invited", "consented", "active", "paused"].includes(s.state)}
                         className="rounded border border-amber-400/30 bg-amber-400/5 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-400/10 disabled:opacity-50"
-                        title="Ends this session and starts a new view-only session that permits JPEG fallback; no permission bypass or database migration"
+                        title="Confirm replacement with a new view-only session using video and automatic JPEG fallback; existing permissions still apply"
                       >
-                        {jpegDiagnosticStarting ? "Starting diagnosis…" : "Test JPEG fallback"}
+                        {jpegDiagnosticStarting ? "Enabling fallback…" : "Enable JPEG fallback"}
                       </button>
                     )}
                     {s.device_id && role !== "viewer" && (
@@ -1911,8 +1878,8 @@ function AdminPage() {
                           ? "The device heartbeat is stale; awaiting a fresh check-in."
                           : active
                              ? liveVideoOnly
-                               ? "Waiting for decoded video. Check the Agent encoder and direct/TURN connectivity; this session never falls back to JPEG."
-                               : "Waiting for decoded video or a fresh legacy fallback frame."
+                               ? "Waiting for decoded video. This existing video-only session needs Enable JPEG fallback before it can show JPEG."
+                               : "Waiting for decoded video or a fresh JPEG fallback frame."
                              : "Wait for Agent acceptance, or start a new authorized session."}
                       </div>
                     </div>
@@ -2002,6 +1969,7 @@ function AdminPage() {
                         by startWebRtcLive(); we only host it here. */}
                       <div
                         ref={videoHostRef}
+                        data-testid="viewer-video"
                         className={`pointer-events-none absolute inset-0 ${videoDecoding || viewerPaused ? "" : "opacity-0"}`}
                       />
                       {/* Fallback layer: base64 JPEG slideshow from session_frames.
@@ -2009,6 +1977,7 @@ function AdminPage() {
                         identical apart from the source dimensions. */}
                       {!liveVideoOnly && !viewerPaused && !videoDecoding && liveFrame?.frame && (
                         <img
+                          data-testid="viewer-jpeg"
                           src={`data:image/jpeg;base64,${liveFrame.frame}`}
                           alt="Live screen"
                           className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:auto]"

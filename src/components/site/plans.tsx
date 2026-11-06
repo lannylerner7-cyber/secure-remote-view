@@ -31,7 +31,7 @@ export function PlansContent() {
             an operator audit trail.
           </p>
           <div className="mt-9">
-            <Badge>Billed monthly · BTC, USDT or USDC</Badge>
+            <Badge>Billed monthly · Bitcoin only</Badge>
           </div>
         </div>
       </section>

@@ -101,8 +101,13 @@ function createServerFn() {
     },
   };
 }
-const rates = { BTC: 100000, USDT_ERC20: 1, USDC_ERC20: 1 };
+const rates = { BTC: 100000 };
 const conversions = load(path.join(app, "src/lib/pricing.server.ts"));
+const paymentIdentity = load(path.join(app, "src/shared/payment-identity.ts"));
+const bitcoin = load(path.join(app, "src/shared/bitcoin.ts"), {
+  "bitcoin-address-validation": appRequire("bitcoin-address-validation"),
+  "./payment-identity": paymentIdentity,
+});
 const catalog = load(path.join(app, "src/lib/public-plan-catalog.server.ts"), {
   "@/integrations/supabase/client.server": { supabaseAdmin },
 });
@@ -110,6 +115,7 @@ const orders = load(path.join(app, "src/lib/orders.functions.ts"), {
   "@tanstack/react-start": { createServerFn },
   "@/integrations/supabase/auth-middleware": { requireSupabaseAuth: {} },
   zod: appRequire("zod"),
+  "@/shared/bitcoin": bitcoin,
   "./pricing.server": { ...conversions, getUsdToCoinRates: async () => rates },
   "@/integrations/supabase/client.server": { supabaseAdmin },
   "./cdp.server": { issueReceiveAddress: async () => "synthetic-receiving-address" },
@@ -135,12 +141,12 @@ const orders = load(path.join(app, "src/lib/orders.functions.ts"), {
         new Date(quote._order.price_locked_at), 15 * 60 * 1000);
     }
   }
-  assert.equal(planQueries, 9, "Each new quote reads the current database price");
+  assert.equal(planQueries, 3, "Each new BTC quote reads the current database price");
   await assert.rejects(orders.createOrderPublic({ data: {
     full_name: "Pricing test", email: "pricing@example.invalid",
     plan_code: "custom", coin: "BTC",
   } }), /Plan not available/);
-  assert.equal(quotes.length, 9, "Custom enterprise must not issue a fixed-price invoice");
+  assert.equal(quotes.length, 3, "Custom enterprise must not issue a fixed-price invoice");
   rows[0].amount_usd = 23.75;
   assert.equal((await catalog.readPublicPlanCatalog())[0].amount_usd, 23.75,
     "Marketing catalog must read future database prices, not a fixed amount");
@@ -153,5 +159,5 @@ const orders = load(path.join(app, "src/lib/orders.functions.ts"), {
   assert.equal(quotes[0]._order.amount_usd, 19, "Already-issued quotes retain their locked amounts");
   rows[0].amount_usd = NaN;
   await assert.rejects(catalog.readPublicPlanCatalog(), /invalid price/);
-  console.log("PASS: live catalog parity, future price changes, 10/20/50 limits, ten isolated coin quotes, locked existing amounts, invalid-price rejection and no marketing price literals.");
+  console.log("PASS: live catalog parity, future price changes, 10/20/50 limits, four isolated BTC quotes, locked existing amounts, invalid-price rejection and no marketing price literals.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

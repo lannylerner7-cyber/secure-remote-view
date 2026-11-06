@@ -29,13 +29,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "ConnectLive is an authorised remote-support platform for IT, help desks, and enterprise fleets. Sub-50ms sessions, curtain mode, and a full audit trail.",
+          "ConnectLive remote support for authorized Windows devices. Explore Agent setup, monthly plans, the admin console, support, and refund information.",
       },
       { property: "og:title", content: "ConnectLive — Remote Support Platform" },
       {
         property: "og:description",
         content:
-          "Authorised remote support for 10 to unlimited devices. Precise, secure, auditable.",
+          "Authorized Windows remote support. Explore Agent setup, current plans, the admin console, support, and refund information.",
       },
       { property: "og:type", content: "website" },
       { property: "og:image", content: new URL(bannerImage, "https://connectliveagent.com").href },

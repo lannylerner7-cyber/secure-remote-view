@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Pause, Play, RotateCcw, SendHorizonal, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, SendHorizonal, Volume2, VolumeX } from "lucide-react";
 import { guideAssets } from "./guide-assets";
 import { guideManifest } from "./guide-knowledge";
 import { GuideScene } from "./guide-scene";
@@ -8,11 +8,12 @@ import { paginateGuideWords } from "./guide-captions";
 import type { GuideActivity, GuideBoardPage, GuideReply } from "./guide-contract";
 import { trackGuide } from "./guide-tracking";
 import { useGuideVoice } from "./use-guide-voice";
+import { GUIDE_QUICK_TOPICS, GuideQuickAnswers } from "./guide-quick-answers";
 import { ActionButton, Badge } from "../ui";
 import "./guide.css";
 
 type ChatMessage = { id: number; role: "visitor" | "guide"; text: string; reply?: GuideReply };
-const SUGGESTIONS = ["What plans do you offer?", "How does device enrollment work?", "How do payments work?", "What is curtain mode?"];
+const SUGGESTIONS = GUIDE_QUICK_TOPICS.map((topic) => topic.label);
 
 function prefersStatic(): boolean {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return true;
@@ -50,18 +51,12 @@ export function GuideSection() {
   const messagesRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(false);
   const greetedRef = useRef(false);
+  const visibleRef = useRef(false);
+  const collapsedRef = useRef(false);
   const requestRef = useRef<AbortController | null>(null);
   const sequenceRef = useRef(0);
   const nextId = useRef(0);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const update = () => setStaticMode(prefersStatic());
-    update();
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    preference.addEventListener("change", update);
-    return () => preference.removeEventListener("change", update);
-  }, []);
 
   const send = useCallback(async (raw: string, welcome = false) => {
     const text = raw.trim();
@@ -73,6 +68,7 @@ export function GuideSection() {
     setInput("");
     setManualPage(null);
     voiceRef.current.cancel();
+    if (!welcome) voiceRef.current.prepareForInput();
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     setTextActivity("seated");
     if (!welcome) {
@@ -93,7 +89,7 @@ export function GuideSection() {
       setMessages((previous) => [...previous.slice(-39), { id: nextId.current++, role: "guide", text: answer.text, reply: answer }]);
       setNonce((value) => value + 1);
       trackGuide("answer_ready", { topic: answer.id, durationMs: Math.round(performance.now() - started) });
-      if (voiceRef.current.enabled) void voiceRef.current.speak(answer);
+      if (!welcome && !collapsedRef.current && visibleRef.current && document.visibilityState === "visible" && voiceRef.current.enabled) void voiceRef.current.speak(answer);
       else {
         setTextActivity(welcome ? "greeting" : "presenting");
         idleTimerRef.current = setTimeout(() => setTextActivity("seated"), welcome ? 3500 : 6500);
@@ -114,26 +110,38 @@ export function GuideSection() {
 
   useEffect(() => {
     const el = sectionRef.current;
-    if (!el || staticMode === null) return;
+    if (!el) return;
     const load = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
+        // Do not create even a probe WebGL context during initial page load.
+        setStaticMode(prefersStatic());
         setStageActive(true);
         load.disconnect();
       }
     }, { rootMargin: "400px" });
     const visible = new IntersectionObserver((entries) => {
       const inView = entries.some((entry) => entry.isIntersecting);
+      visibleRef.current = inView;
       if (!inView) voiceRef.current.pause("offscreen");
       if (inView && !greetedRef.current) {
         trackGuide("section_viewed");
-        if (staticMode) trackGuide("static_mode", { reason: "static" });
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) trackGuide("static_mode", { reason: "static" });
         void send("hello", true);
       }
     }, { threshold: 0.08 });
     load.observe(el);
     visible.observe(el);
     return () => { load.disconnect(); visible.disconnect(); };
-  }, [send, staticMode]);
+  }, [send]);
+
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      if (stageActive) setStaticMode(prefersStatic());
+    };
+    preference.addEventListener("change", update);
+    return () => preference.removeEventListener("change", update);
+  }, [stageActive]);
 
   useEffect(() => {
     const box = messagesRef.current;
@@ -163,7 +171,7 @@ export function GuideSection() {
     activity = reply?.id === "greeting" ? "greeting"
       : voice.wordIndex >= Math.min(14, Math.floor(captionWords.length / 3)) ? "presenting" : "speaking";
   } else if (["paused", "loading"].includes(voice.status) && voice.speech) activity = "paused";
-  else if (voice.enabled) activity = "seated";
+  else if (voice.enabled && voice.speech) activity = "seated";
 
   useEffect(() => {
     if (reply) trackGuide("caption_page", { topic: reply.id, page: pageIndex + 1 });
@@ -171,17 +179,18 @@ export function GuideSection() {
 
   const toggleCollapsed = () => {
     const next = !collapsed;
+    collapsedRef.current = next;
     if (next) { voice.pause("hidden"); setTextActivity("seated"); }
     setCollapsed(next);
     trackGuide(next ? "guide_hidden" : "guide_shown");
   };
   const changePage = (offset: number) => {
-    voice.pause("visitor");
     setManualPage(Math.max(0, Math.min(pages.length - 1, pageIndex + offset)));
   };
+  const autoFollowing = voice.status === "playing" || voice.status === "loading";
   const showScene = staticMode === false && !sceneFailed && stageActive;
   const voiceLabel = voice.status === "playing" ? "Speaking" : voice.status === "loading" ? "Preparing voice…"
-    : voice.status === "paused" ? "Paused" : voice.status === "error" ? "Text available" : voice.enabled ? "Voice ready" : "Voice off";
+    : voice.status === "paused" ? "Ready for your next question" : voice.status === "error" ? "Text available" : voice.enabled ? "Replies speak automatically" : "Sound off · text replies";
 
   return (
     <section id="guide" ref={sectionRef} className="gd-section border-b border-white/10 py-20 md:py-28" aria-labelledby="guide-heading" data-testid="section-guide">
@@ -239,23 +248,18 @@ export function GuideSection() {
 
               <div className="gd-player">
                 <div className="gd-voice-controls">
-                  {!voice.enabled ? (
-                    <button className="gd-listen" type="button" disabled={!reply || busy} onClick={() => { if (reply) { setManualPage(null); voice.enable(reply); } }} data-testid="guide-enable-voice">
-                      <Volume2 size={17} aria-hidden="true" /> Listen to guide
-                    </button>
-                  ) : (
-                    <>
-                      <button className="gd-listen" type="button" disabled={!reply || busy} onClick={() => {
-                        if (voice.status === "playing" || voice.status === "loading") voice.pause();
-                        else if (reply) { setManualPage(null); voice.resume(reply); }
-                      }} data-testid="guide-play-pause">
-                        {["playing", "loading"].includes(voice.status) ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
-                        {voice.status === "playing" || voice.status === "loading" ? "Pause" : "Play"}
-                      </button>
-                      <button type="button" className="gd-icon-button" disabled={!reply || busy} onClick={() => { if (reply) { setManualPage(null); voice.replay(reply); } }} aria-label="Replay answer" data-testid="guide-replay"><RotateCcw size={16} /></button>
-                      <button type="button" className="gd-icon-button" onClick={voice.disable} aria-label="Turn voice off" data-testid="guide-mute"><VolumeX size={17} /></button>
-                    </>
-                  )}
+                  <button className="gd-listen" type="button" disabled={!reply || busy}
+                    aria-pressed={voice.enabled} aria-label={voice.enabled ? "Turn sound off" : "Turn sound on"}
+                    onClick={() => {
+                      if (voice.enabled) voice.disable();
+                      else if (reply) { setManualPage(null); voice.enable(reply); }
+                    }} data-testid="guide-sound-toggle">
+                    {voice.enabled ? <Volume2 size={17} aria-hidden="true" /> : <VolumeX size={17} aria-hidden="true" />}
+                    Sound {voice.enabled ? "on" : "off"}
+                  </button>
+                  {voice.blocked && <button className="gd-listen" type="button" disabled={!reply || busy}
+                    onClick={() => { if (reply) { setManualPage(null); voice.resume(reply); } }}
+                    data-testid="guide-sound-permission">Enable sound</button>}
                   <label className="gd-speed">Pace
                     <select aria-label="Voice pace" value={voice.rate} onChange={(event) => voice.updateRate(Number(event.target.value))}>
                       <option value={0.85}>Unhurried</option><option value={1}>Natural</option><option value={1.1}>Brisk</option>
@@ -264,9 +268,9 @@ export function GuideSection() {
                   <span className="gd-voice-credit">Bella · AI-generated female voice</span>
                 </div>
                 <div className="gd-page-controls" aria-label="Board pages">
-                  <button type="button" onClick={() => changePage(-1)} disabled={pageIndex === 0} aria-label="Previous board page" data-testid="guide-page-prev"><ArrowLeft size={16} /></button>
+                  <button type="button" onClick={() => changePage(-1)} disabled={autoFollowing || pageIndex === 0} aria-label="Previous board page" data-testid="guide-page-prev"><ArrowLeft size={16} /></button>
                   <span data-testid="guide-page-number">Board {pageIndex + 1} <span>/ {pages.length}</span></span>
-                  <button type="button" onClick={() => changePage(1)} disabled={pageIndex === pages.length - 1} aria-label="Next board page" data-testid="guide-page-next"><ArrowRight size={16} /></button>
+                  <button type="button" onClick={() => changePage(1)} disabled={autoFollowing || pageIndex === pages.length - 1} aria-label="Next board page" data-testid="guide-page-next"><ArrowRight size={16} /></button>
                 </div>
               </div>
               {voice.error && <p className="gd-notice" role="status" data-testid="guide-voice-error">{voice.error}</p>}
@@ -284,7 +288,7 @@ export function GuideSection() {
                   <span className="gd-verified"><Check size={13} aria-hidden="true" /> Approved answers</span>
                 </div>
                 <div ref={messagesRef} className="gd-messages" aria-live="polite" aria-relevant="additions" data-testid="guide-messages">
-                  {messages.length === 0 && !busy && <p className="gd-hint">Ask a question below. Sound stays off until you choose to listen.</p>}
+                  {messages.length === 0 && !busy && <p className="gd-hint">Submit a question or choose a topic. Replies speak automatically; turn sound off for text only.</p>}
                   {messages.map((message) => (
                     <div key={message.id} className={`gd-msg gd-msg-${message.role}`}>
                       <p>{message.text}</p>
@@ -296,10 +300,10 @@ export function GuideSection() {
                 {answerError && <p className="gd-notice" role="alert" data-testid="guide-answer-error">{answerError}</p>}
                 <form className="gd-inputrow" onSubmit={(event) => { event.preventDefault(); void send(input); }}>
                   <label htmlFor="guide-input" className="sr-only">Ask the ConnectLive virtual guide a question</label>
-                  <input id="guide-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about plans, enrollment, payments…" autoComplete="off" maxLength={500} disabled={busy} data-testid="guide-input" />
+                  <input id="guide-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Try “about”, “order status”, or “refund”…" autoComplete="off" maxLength={500} disabled={busy} data-testid="guide-input" />
                   <button type="submit" disabled={busy || !input.trim()} aria-label="Send question" data-testid="guide-send"><SendHorizonal size={18} /></button>
                 </form>
-                <p className="gd-footnote">AI guide, not a human operator. Never share passwords, pairing codes, or wallet keys.</p>
+                <p className="gd-footnote">Replies speak after you submit input. Sound off keeps answers in text. Never share passwords, pairing codes, or wallet keys.</p>
               </div>
               <aside className="gd-help-panel">
                 <span className="gd-eyebrow">A GOOD PLACE TO START</span>
@@ -323,6 +327,7 @@ export function GuideSection() {
             </div>
           </div>
         )}
+        <GuideQuickAnswers />
       </div>
     </section>
   );

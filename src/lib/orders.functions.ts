@@ -2,10 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { getUsdToCoinRates, usdToCoin } from "./pricing.server";
+import { BITCOIN_CONFIRMATIONS, isBitcoinAddress, normalizeBitcoinAddress, type PaymentsHealth } from "@/shared/bitcoin";
 
 export type Coin = "BTC" | "USDT_ERC20" | "USDC_ERC20";
-
-const COINS = ["BTC", "USDT_ERC20", "USDC_ERC20"] as const;
 
 const CreateInput = z.object({
   full_name: z.string().min(2).max(120),
@@ -13,7 +12,7 @@ const CreateInput = z.object({
   phone: z.string().max(60).optional().nullable(),
   company: z.string().max(160).optional().nullable(),
   plan_code: z.string().min(1).max(64),
-  coin: z.enum(COINS),
+  coin: z.literal("BTC"),
 });
 
 export type CreateOrderInput = z.infer<typeof CreateInput>;
@@ -37,15 +36,15 @@ export const createOrderPublic = createServerFn({ method: "POST" })
     if (planErr) throw new Error(planErr.message);
     if (!plan) throw new Error("Plan not available");
 
+    // Fail quickly before rate-provider calls if checkout has no usable wallet.
+    const address = await issueReceiveAddress(data.coin);
+    if (!address) throw new Error("Bitcoin receiving wallet is not configured. Please contact support.");
+
     // Price lock
     const rates = await getUsdToCoinRates();
     const amountCoin = usdToCoin(Number(plan.amount_usd), data.coin, rates);
     const now = new Date();
     const expires = new Date(now.getTime() + PRICE_LOCK_MINUTES * 60_000);
-
-    // Address (may be null if operator hasn't configured this coin yet)
-    const address = await issueReceiveAddress(data.coin);
-    if (!address) throw new Error("Receiving wallet is not configured for this currency.");
 
     // The RPC atomically reserves the amount and creates the invoice. Never
     // fall back to a shared, non-unique amount if the migration is missing.
@@ -112,6 +111,7 @@ export const listOrdersAdmin = createServerFn({ method: "GET" })
       .parse(raw),
   )
   .handler(async ({ data, context }) => {
+    await assertPaymentAdmin(context.supabase as never, context.userId);
     let q = context.supabase
       .from("orders")
       .select(
@@ -129,6 +129,7 @@ export const listOrdersAdmin = createServerFn({ method: "GET" })
 export const getOrderTotals = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    await assertPaymentAdmin(context.supabase as never, context.userId);
     const { data: rows, error } = await context.supabase
       .from("orders")
       .select("status, amount_usd, coin, amount_coin");
@@ -177,6 +178,7 @@ export const setOrderAccessLink = createServerFn({ method: "POST" })
       .parse(raw),
   )
   .handler(async ({ data, context }) => {
+    await assertPaymentAdmin(context.supabase as never, context.userId);
     const { data: updated, error } = await context.supabase
       .from("orders")
       .update({ access_link: data.access_link, access_link_sent_at: null })
@@ -194,8 +196,8 @@ export const setOrderAccessLink = createServerFn({ method: "POST" })
 /** Super-admin: manually mark an order paid (audit-logged). */
 export const markOrderPaid = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((raw: { id: string; note?: string }) =>
-    z.object({ id: z.string().uuid(), note: z.string().max(500).optional() }).parse(raw),
+  .inputValidator((raw: { id: string; note: string }) =>
+    z.object({ id: z.string().uuid(), note: z.string().trim().min(10, "Explain why this payment is being confirmed (at least 10 characters).").max(500) }).parse(raw),
   )
   .handler(async ({ data, context }) => {
     const { data: rr } = await context.supabase
@@ -207,22 +209,28 @@ export const markOrderPaid = createServerFn({ method: "POST" })
     if (!rr) throw new Error("Forbidden");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin
+    const { data: updated, error } = await supabaseAdmin
       .from("orders")
-      .update({ status: "paid", notes: data.note ?? null })
-      .eq("id", data.id);
+      .update({ status: "paid", notes: data.note })
+      .eq("id", data.id)
+      .in("status", ["pending", "detected", "expired"])
+      .select("id");
     if (error) throw new Error(error.message);
-    await supabaseAdmin.from("payment_events").insert({
+    if (!updated?.length) throw new Error("This order cannot be marked paid. Refresh its current status.");
+    const { error: eventError } = await supabaseAdmin.from("payment_events").insert({
       order_id: data.id,
       source: "admin",
       event_type: "manual_paid",
       raw: { by: context.userId, note: data.note ?? null },
     });
-    await supabaseAdmin.from("audit_logs").insert({
+    const { error: auditError } = await supabaseAdmin.from("audit_logs").insert({
       actor: context.userId,
       event: "order.manual_paid",
       detail: { order_id: data.id, note: data.note ?? null },
     });
+    if (eventError || auditError) {
+      throw new Error("Order marked paid, but audit tracking failed. Refresh the order and contact support; do not repeat the payment confirmation.");
+    }
     try {
       const { sendOrderEmailById } = await import("./order-emails.server");
       await sendOrderEmailById("order_confirmed", data.id);
@@ -237,12 +245,6 @@ export const getActivePlansPublic = createServerFn({ method: "GET" }).handler(as
   const { readPublicPlanCatalog } = await import("./public-plan-catalog.server");
   return readPublicPlanCatalog();
 });
-
-const COIN_CHAIN: Record<string, string> = {
-  BTC: "bitcoin",
-  USDT_ERC20: "ethereum",
-  USDC_ERC20: "ethereum",
-};
 
 async function assertSuperAdmin(
   supabase: {
@@ -265,6 +267,15 @@ async function assertSuperAdmin(
   if (!data) throw new Error("Forbidden");
 }
 
+async function assertPaymentAdmin(
+  supabase: { from: (table: string) => { select: (columns: string) => { eq: (column: string, value: string) => { in: (column: string, values: string[]) => { limit: (count: number) => PromiseLike<{ data: unknown[] | null; error: unknown }> } } } } },
+  userId: string,
+) {
+  const { data, error } = await supabase.from("user_roles").select("role")
+    .eq("user_id", userId).in("role", ["admin", "super_admin"]).limit(1);
+  if (error || !data?.length) throw new Error("Forbidden");
+}
+
 /** Super-admin: list configured payout wallets. */
 export const listWalletsAdmin = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -274,73 +285,84 @@ export const listWalletsAdmin = createServerFn({ method: "GET" })
     const { data, error } = await supabaseAdmin
       .from("admin_wallets")
       .select("id, coin, chain, cdp_wallet_id, addresses_issued, updated_at")
+      .eq("coin", "BTC")
+      .eq("chain", "bitcoin")
       .order("coin");
     if (error) throw new Error(error.message);
     return data ?? [];
   });
 
-/** Super-admin: create or replace the payout address for a coin. */
+/** Super-admin: replace the Bitcoin address for NEW invoices only. */
 export const upsertWalletAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((raw: { coin: Coin; address: string }) =>
+  .inputValidator((raw: { coin: "BTC"; address: string; expected_address: string | null }) =>
     z
       .object({
-        coin: z.enum(COINS),
-        address: z.string().trim().min(20).max(120),
+        coin: z.literal("BTC"),
+        address: z.string().trim().max(90).transform(normalizeBitcoinAddress),
+        expected_address: z.string().max(120).nullable(),
       })
       .parse(raw),
   )
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context.supabase as never, context.userId);
-    const chain = COIN_CHAIN[data.coin] ?? "bitcoin";
+    const chain = "bitcoin";
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: existing } = await supabaseAdmin
+    const { data: existing, error: readError } = await supabaseAdmin
       .from("admin_wallets")
       .select("id")
       .eq("coin", data.coin)
       .eq("chain", chain)
       .maybeSingle();
+    if (readError) throw new Error(readError.message);
     if (existing) {
-      const { error } = await supabaseAdmin
+      let update = supabaseAdmin
         .from("admin_wallets")
         .update({ cdp_wallet_id: data.address, updated_at: new Date().toISOString() })
         .eq("id", existing.id);
+      update = data.expected_address === null
+        ? update.is("cdp_wallet_id", null)
+        : update.eq("cdp_wallet_id", data.expected_address);
+      const { data: saved, error } = await update.select("id");
       if (error) throw new Error(error.message);
+      if (!saved?.length) throw new Error("Another administrator changed the wallet. Reload it before saving.");
     } else {
+      if (data.expected_address !== null) throw new Error("The wallet changed. Reload it before saving.");
       const { error } = await supabaseAdmin
         .from("admin_wallets")
         .insert({ coin: data.coin, chain, cdp_wallet_id: data.address });
       if (error) throw new Error(error.message);
     }
-    await supabaseAdmin.from("audit_logs").insert({
+    const { error: auditError } = await supabaseAdmin.from("audit_logs").insert({
       actor: context.userId,
       event: "wallet.upserted",
       detail: { coin: data.coin, chain },
     });
-    return { ok: true };
+    return { ok: true, ...(auditError ? { warning: "Wallet saved, but audit tracking failed. Contact support; do not repeat the change." } : {}) };
   });
 
-/** Admin: payments-panel health status (wallets/webhook/cron/cdp). */
+/** Admin: BTC configuration, not a claim of a running scheduler or payment receipt. */
 export const getPaymentsHealth = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async () => {
+  .handler(async ({ context }): Promise<PaymentsHealth> => {
+    await assertPaymentAdmin(context.supabase as never, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { validateCdpConfig } = await import("./cdp-config.server");
-    const { data: wallets } = await supabaseAdmin
+    const { data: wallet, error } = await supabaseAdmin
       .from("admin_wallets")
-      .select("coin")
-      .not("cdp_wallet_id", "is", null);
-    const configured = new Set((wallets ?? []).map((w) => w.coin));
-    const cdp = validateCdpConfig();
+      .select("cdp_wallet_id")
+      .eq("coin", "BTC").eq("chain", "bitcoin").maybeSingle();
+    if (error) throw new Error("Could not read Bitcoin wallet configuration.");
+    const { data: cron, error: cronError } = await supabaseAdmin.from("cron_tokens")
+      .select("name").eq("name", "reconcile-orders").maybeSingle();
+    if (cronError) throw new Error("Could not read payment-monitor authorization.");
+    const ready = !!wallet?.cdp_wallet_id && isBitcoinAddress(wallet.cdp_wallet_id);
     return {
-      wallets: {
-        BTC: configured.has("BTC"),
-        USDT_ERC20: configured.has("USDT_ERC20"),
-        USDC_ERC20: configured.has("USDC_ERC20"),
-      },
-      webhook_secret_set: !!process.env.CDP_WEBHOOK_SECRET,
-      cdp_configured: cdp.ok,
-      cdp_reason: cdp.ok ? null : cdp.reason,
+      wallets: { BTC: ready },
+      wallet_issue: ready ? null : wallet?.cdp_wallet_id ? "Saved address is not a valid Bitcoin mainnet address." : "No Bitcoin receiving address has been saved.",
+      network: "bitcoin-mainnet",
+      confirmations_required: BITCOIN_CONFIRMATIONS,
+      cron_secret_configured: !!cron,
+      monitoring_note: "Configuration only. Scheduled reconciliation and a real on-chain payment must be verified on the deployed host. No Coinbase account or API key is required for BTC.",
     };
   });
 

@@ -49,20 +49,31 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
         const { data: orders, error } = await supabaseAdmin
           .from("orders")
           .select(
-            "id, coin, amount_coin, receive_address, status, price_expires_at, tx_hash, confirmations",
+            "id, coin, amount_coin, receive_address, status, price_locked_at, price_expires_at, tx_hash, confirmations",
           )
           .in("status", ["pending", "detected"])
           .not("receive_address", "is", null)
+          .order("created_at", { ascending: true })
           .limit(200);
         if (error) return new Response(error.message, { status: 500 });
 
         let processed = 0;
+        let unavailable = 0;
+        // Many invoices share one wallet. Fetch its history once per run, not
+        // once per invoice, to avoid rate-limiting the public chain API.
+        const histories = new Map<string, ReturnType<typeof fetchInboundTxs>>();
         for (const o of orders ?? []) {
           const coin = o.coin as CoinKey;
-          const txs = await fetchInboundTxs(coin, o.receive_address!);
+          const key = `${coin}:${o.receive_address}`;
+          if (!histories.has(key)) histories.set(key, fetchInboundTxs(coin, o.receive_address!));
+          let txs: Awaited<ReturnType<typeof fetchInboundTxs>>;
+          try { txs = await histories.get(key)!; }
+          catch { unavailable++; continue; }
           const match = txs.find(
             (t) =>
-              exactPaymentAmount(t.amountCoin, o.amount_coin, coin),
+              exactPaymentAmount(t.amountCoin, o.amount_coin, coin)
+              && (!o.tx_hash || o.tx_hash === t.txHash)
+              && t.timestamp >= new Date(o.price_locked_at).getTime(),
           );
 
           if (!match) {
@@ -70,7 +81,9 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
               o.status === "pending" &&
               new Date(o.price_expires_at).getTime() < Date.now() - 60_000
             ) {
-              await supabaseAdmin.from("orders").update({ status: "expired" }).eq("id", o.id);
+              const { error: expireError } = await supabaseAdmin.from("orders").update({ status: "expired" })
+                .eq("id", o.id).eq("status", "pending");
+              if (expireError) return Response.json({ ok: false, reason: "order_update_failed" }, { status: 503 });
             }
             continue;
           }
@@ -109,7 +122,10 @@ export const Route = createFileRoute("/api/public/cron/reconcile-orders")({
           }
         }
 
-        return Response.json({ ok: true, checked: orders?.length ?? 0, processed });
+        return Response.json({
+          ok: unavailable === 0, checked: orders?.length ?? 0, processed, unavailable,
+          ...(unavailable ? { reason: "bitcoin_lookup_unavailable" } : {}),
+        }, { status: unavailable ? 503 : 200 });
       },
     },
   },

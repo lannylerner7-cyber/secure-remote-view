@@ -69,7 +69,7 @@ function Hero() {
               one business day
             </span>
             <span className="flex items-center gap-2">
-              <Check size={13} className="text-cl-success" aria-hidden="true" /> Pay in BTC, USDT
+              <Check size={13} className="text-cl-success" aria-hidden="true" /> Pay in Bitcoin
               or USDC
             </span>
           </div>
@@ -354,25 +354,54 @@ const motionClips = [
 function LoopVideoCard({ src, title, label }: { src: string; title: string; label: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const reduceMotion = usePrefersReducedMotion();
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [inView, setInView] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const [userPaused, setUserPaused] = useState(false);
+  const [saveData, setSaveData] = useState(true);
+
+  useEffect(() => {
+    setSaveData(!!(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData);
+    const video = videoRef.current;
+    if (!video) return;
+    const observer = new IntersectionObserver((entries) => {
+      setInView(entries.some((entry) => entry.isIntersecting));
+    }, { threshold: 0.05 });
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (reduceMotion) {
+    const shouldPlay = inView && !userPaused && (requested || (!reduceMotion && !saveData));
+    if (shouldPlay && !loaded) { setLoaded(true); return; }
+    if (shouldPlay) {
+      void video.play().catch(() => setPlaying(false));
+    } else {
       video.pause();
       setPlaying(false);
     }
-  }, [reduceMotion]);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") video.pause();
+      else if (shouldPlay) void video.play().catch(() => setPlaying(false));
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [inView, loaded, reduceMotion, requested, saveData, userPaused]);
 
   const togglePlayback = async () => {
     const video = videoRef.current;
     if (!video) return;
     try {
       if (video.paused) {
-        await video.play();
-        setPlaying(true);
+        setRequested(true);
+        setUserPaused(false);
+        setLoaded(true);
+        if (loaded) await video.play();
       } else {
+        setUserPaused(true);
         video.pause();
         setPlaying(false);
       }
@@ -386,12 +415,11 @@ function LoopVideoCard({ src, title, label }: { src: string; title: string; labe
       <video
         ref={videoRef}
         className="source-image absolute inset-0 h-full w-full object-cover"
-        src={src}
-        autoPlay
+        src={loaded ? src : undefined}
         muted
         loop
         playsInline
-        preload="metadata"
+        preload="none"
         disablePictureInPicture
         aria-label={title}
         onPlay={() => setPlaying(true)}
@@ -419,6 +447,7 @@ function LoopVideoCard({ src, title, label }: { src: string; title: string; labe
 }
 
 function MotionShowcase() {
+  const [setupStarted, setSetupStarted] = useState(false);
   return (
     <section className="section" id="setup">
       <div className="container">
@@ -435,15 +464,20 @@ function MotionShowcase() {
         <div className="mt-14 grid gap-4 lg:grid-cols-[1.45fr_0.55fr]">
           <div className="surface overflow-hidden p-2">
             <div className="aspect-video overflow-hidden rounded-[1.1rem] bg-black">
-              <iframe
+              {setupStarted ? <iframe
                 className="h-full w-full"
-                src="https://www.youtube.com/embed/xjtQdMZFOKg?autoplay=1&mute=1&loop=1&playlist=xjtQdMZFOKg&rel=0&modestbranding=1&playsinline=1"
+                src="https://www.youtube-nocookie.com/embed/xjtQdMZFOKg?autoplay=1&rel=0&playsinline=1"
                 title="ConnectLive agent setup guide"
                 loading="lazy"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 referrerPolicy="strict-origin-when-cross-origin"
                 allowFullScreen
-              />
+              /> : <button type="button" className="relative flex h-full w-full items-center justify-center"
+                onClick={() => setSetupStarted(true)} aria-label="Play ConnectLive setup walkthrough" data-testid="button-load-setup-video">
+                <img src="https://i.ytimg.com/vi/xjtQdMZFOKg/hqdefault.jpg" alt="" loading="lazy" decoding="async"
+                  width={480} height={360} className="absolute inset-0 h-full w-full object-cover opacity-60" />
+                <span className="relative flex items-center gap-3 rounded-xl bg-black/80 px-5 py-4 text-sm font-semibold"><Play size={20} aria-hidden="true" /> Play setup walkthrough</span>
+              </button>}
             </div>
             <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div>

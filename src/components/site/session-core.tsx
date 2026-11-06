@@ -55,10 +55,6 @@ export function SessionCore({ compact = false }: { compact?: boolean }) {
     const shell = shellRef.current;
     const canvas = canvasRef.current;
     if (!shell || !canvas || !sessionCoreAssets.modelUrl) return;
-    if (prefersStatic()) {
-      setState("static");
-      return;
-    }
     let disposed = false;
     // Idempotent teardown steps, registered the moment each resource exists.
     const teardown: (() => void)[] = [];
@@ -76,6 +72,11 @@ export function SessionCore({ compact = false }: { compact?: boolean }) {
     };
 
     const start = async () => {
+      if (disposed) return;
+      if (prefersStatic()) {
+        setState("static");
+        return;
+      }
       setState("loading");
       try {
         const THREE = await import("three");
@@ -224,12 +225,24 @@ export function SessionCore({ compact = false }: { compact?: boolean }) {
       }
     };
 
-    // Defer the 3D download until the hero is near the viewport.
+    // Paint the useful page and poster before downloading/compiling optional
+    // 3D. Above-the-fold intersection alone used to compete with initial load.
+    let idle: number | undefined;
+    let delay: ReturnType<typeof setTimeout> | undefined;
+    const afterLoad = () => {
+      delay = setTimeout(() => {
+        if (disposed) return;
+        if ("requestIdleCallback" in window) {
+          idle = window.requestIdleCallback(() => void start(), { timeout: 2000 });
+        } else void start();
+      }, 500);
+    };
     const gate = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
           gate.disconnect();
-          void start();
+          if (document.readyState === "complete") afterLoad();
+          else window.addEventListener("load", afterLoad, { once: true });
         }
       },
       { rootMargin: "200px" },
@@ -238,6 +251,9 @@ export function SessionCore({ compact = false }: { compact?: boolean }) {
 
     return () => {
       disposed = true;
+      window.removeEventListener("load", afterLoad);
+      if (delay !== undefined) clearTimeout(delay);
+      if (idle !== undefined) window.cancelIdleCallback(idle);
       gate.disconnect();
       disposeAll();
     };

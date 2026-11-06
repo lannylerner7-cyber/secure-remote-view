@@ -5,14 +5,13 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
-  Coins,
   LoaderCircle,
   PlayCircle,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
 import { SiteLink, useQueryParam } from "./adapter";
-import { PAYMENT_NETWORKS, type CoinId } from "./data";
+import { type CoinId } from "./data";
 import { ActionButton, Badge, Button, Notice, TextField } from "./ui";
 
 export type OrderPlan = {
@@ -30,13 +29,6 @@ export type OrderInput = {
   plan_code: string;
   coin: CoinId;
 };
-
-const COIN_ICON = { BTC: Bitcoin, USDT_ERC20: Coins, USDC_ERC20: CircleDollarSign } as const;
-const COIN_TINT = {
-  BTC: "text-[#F7931A]",
-  USDT_ERC20: "text-[#26A17B]",
-  USDC_ERC20: "text-[#2775CA]",
-} as const;
 
 const STEP_LABELS = ["Plan", "Contact", "Payment", "Invoice"];
 
@@ -61,7 +53,7 @@ export function OrderWizard({
   const requestedPlan = useQueryParam("plan");
   const [step, setStep] = useState(1);
   const [selected, setSelected] = useState("");
-  const [coin, setCoin] = useState<CoinId>("BTC");
+  const coin = "BTC" as const;
   const [form, setForm] = useState({ full_name: "", email: "", phone: "", company: "" });
   const [errors, setErrors] = useState<{ full_name?: string; email?: string }>({});
   const [submitting, setSubmitting] = useState(false);
@@ -90,7 +82,6 @@ export function OrderWizard({
 
   const plan = plans?.find((p) => p.code === selected) ?? null;
   const price = plan ? Number(plan.amount_usd) : null;
-  const network = PAYMENT_NETWORKS.find((n) => n.id === coin);
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
@@ -150,12 +141,12 @@ export function OrderWizard({
     <section className="section-tight">
       <div className="container">
         <div className="mx-auto max-w-4xl text-center">
-          <Badge>Crypto checkout · BTC · USDT · USDC</Badge>
+          <Badge>Bitcoin checkout · Mainnet only</Badge>
           <h1 ref={headingRef} tabIndex={-1} className="display-lg balanced mt-7 outline-none">
             Buy a ConnectLive license.
           </h1>
           <p className="body-lg pretty mx-auto mt-5 max-w-2xl">
-            Choose a device plan, add the delivery contact, and select Bitcoin, USDT, or USDC.
+            Choose a device plan, add the delivery contact, and pay with Bitcoin.
             You'll get an invoice with a live payment tracker.
           </p>
         </div>
@@ -163,7 +154,7 @@ export function OrderWizard({
         <div className="mx-auto mt-9 flex max-w-2xl flex-wrap items-center justify-center gap-2 text-center">
           <CircleDollarSign size={16} className="text-cl-success" aria-hidden="true" />
           <p className="font-mono text-xs uppercase tracking-[0.12em] text-cl-success">
-            Monthly device plans · Pay in BTC, USDT or USDC
+            Monthly device plans · Pay in Bitcoin
           </p>
         </div>
 
@@ -342,33 +333,13 @@ export function OrderWizard({
 
             {step === 3 && (
               <div key="s3" className="cl-pop">
-                <p className="hairline-title">03 / Choose payment network</p>
-                <div className="mt-7 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Pay with">
-                  {PAYMENT_NETWORKS.map((option) => {
-                    const Icon = COIN_ICON[option.id];
-                    const active = coin === option.id;
-                    return (
-                      <ActionButton
-                        key={option.id}
-                        role="radio"
-                        aria-checked={active}
-                        className={`!h-auto !justify-start !rounded-xl !p-5 text-left ${
-                          active ? "!bg-cl-signal/10 shadow-[0_0_0_1px_var(--signal)]" : ""
-                        }`}
-                        variant="secondary"
-                        onClick={() => setCoin(option.id)}
-                        data-testid={`button-coin-${option.id}`}
-                      >
-                        <Icon size={19} className={COIN_TINT[option.id]} aria-hidden="true" />
-                        <span>
-                          <span className="block text-sm">{option.name}</span>
-                          <span className="mt-1 block text-xs font-normal text-cl-faint">
-                            {option.network}
-                          </span>
-                        </span>
-                      </ActionButton>
-                    );
-                  })}
+                <p className="hairline-title">03 / Review Bitcoin payment</p>
+                <div className="mt-7 flex items-start gap-4 rounded-xl border border-white/15 p-5" data-testid="payment-network-btc">
+                  <Bitcoin size={23} className="shrink-0 text-cl-signal-bright" aria-hidden="true" />
+                  <div>
+                    <p className="font-semibold">Bitcoin (BTC) · Mainnet</p>
+                    <p className="mt-2 text-sm leading-6 text-cl-muted">Send BTC on the Bitcoin network only. Lightning, wrapped Bitcoin, and other coins or networks are not accepted for new orders.</p>
+                  </div>
                 </div>
                 <div className="mt-7 grid gap-3">
                   <ReviewRow label="Contact" value={`${form.full_name} · ${form.email}`} />
@@ -381,7 +352,7 @@ export function OrderWizard({
                     label="Plan"
                     value={plan ? `${plan.name} · $${Number(plan.amount_usd).toFixed(0)}/month` : "—"}
                   />
-                  <ReviewRow label="Payment" value={network?.network ?? coin} />
+                  <ReviewRow label="Payment" value="Bitcoin · Mainnet" />
                 </div>
                 <p className="mt-6 text-xs leading-5 text-cl-faint">
                   Price is locked for 15 minutes after you create the invoice. The invoice shows the
@@ -475,8 +446,8 @@ export function OrderWizard({
               </div>
             )}
             <div className="mt-7 rounded-xl bg-white/5 p-4 text-xs leading-5 text-cl-faint shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
-              Paying with {network?.name ?? "crypto"}. Your invoice page tracks the payment until
-              network confirmations complete, then your access details are delivered by email.
+              Paying with Bitcoin. Your invoice contains the receiving address, an exact-amount QR,
+              and confirmation updates. Access delivery is shown separately from payment confirmation.
             </div>
           </aside>
         </div>

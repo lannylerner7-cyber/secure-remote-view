@@ -4,12 +4,13 @@
   "entries": [
     {
       "id": "about-what",
+      "aliases": ["about", "about us", "connectlive", "product", "platform"],
       "keywords": ["what is connectlive", "what does connectlive do", "about", "product", "platform", "remote support", "remote access", "what is this"],
       "question": "What is ConnectLive?",
-      "answer": "ConnectLive is an authorization-led remote support platform for IT teams. A small Windows Agent on the device and a web admin console let your technicians connect to enrolled devices, view and control the screen, and keep a recorded audit trail of every session.",
+      "answer": "ConnectLive helps IT teams support authorized Windows devices remotely. The Agent runs on the device; technicians use the admin console. Access permissions and session audit logs keep support accountable.",
       "board": {
         "heading": "ConnectLive in short",
-        "lines": ["Windows Agent on the device", "Web admin console for technicians", "Authorized enrollment only", "Every session recorded"]
+        "lines": ["Windows Agent on the device", "Admin console for technicians", "Authorized enrollment only", "Session audit logs"]
       },
       "emotion": "friendly",
       "animation": "talk_open",

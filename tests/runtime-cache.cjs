@@ -29,13 +29,13 @@ async function main() {
   let checks = 0;
   const a = worker(), b = worker();
   const results = await Promise.all(Array.from({ length: 50 }, () => a.pricing.getUsdToCoinRates()));
-  assert.equal(a.calls(), 3, '50 requests share one three-pair fetch'); checks++;
+  assert.equal(a.calls(), 1, '50 requests share one BTC-only fetch'); checks++;
   assert(results.every(r => r === results[0])); checks++;
   assert(Object.isFrozen(results[0])); checks++;
   await a.pricing.getUsdToCoinRates();
-  assert.equal(a.calls(), 3, 'fresh value cached'); checks++;
+  assert.equal(a.calls(), 1, 'fresh value cached'); checks++;
   await b.pricing.getUsdToCoinRates();
-  assert.equal(b.calls(), 3, 'each replica has its own public-rate cache'); checks++;
+  assert.equal(b.calls(), 1, 'each replica has its own public-rate cache'); checks++;
   a.advance(61000); a.fail(true);
   assert.equal((await a.pricing.getUsdToCoinRates()).BTC, 90000, 'bounded stale fallback'); checks++;
   const outageCalls = a.calls();

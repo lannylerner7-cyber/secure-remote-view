@@ -28,7 +28,7 @@ export const Route = createFileRoute("/plans")({
       {
         name: "description",
         content:
-          "ConnectLive remote-support plans: Starter, Team, Business, and custom Enterprise. Monthly pricing, paid in BTC, USDT, or USDC.",
+          "ConnectLive remote-support plans: Starter, Team, Business, and custom Enterprise. Monthly pricing, paid in Bitcoin.",
       },
       { property: "og:title", content: "ConnectLive plans and pricing" },
       { property: "og:description", content: "Choose the surface area your team needs." },

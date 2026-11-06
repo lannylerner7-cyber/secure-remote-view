@@ -371,7 +371,7 @@ function Footer() {
               ["support@connectliveagent.com", "mailto:support@connectliveagent.com"],
             ]}
           />
-          <div>
+          <div id="newsletter-signup" className="scroll-mt-28">
             <p className="hairline-title">Field notes</p>
             <p className="mt-4 text-sm leading-6 text-cl-muted">
               Release notes, promo drops, and setup guides. One email when there is something worth

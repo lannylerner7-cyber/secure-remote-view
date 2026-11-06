@@ -12,12 +12,12 @@ export const Route = createFileRoute("/order/")({
       { title: "Order a ConnectLive license" },
       {
         name: "description",
-        content: "Buy a ConnectLive remote-support license with Bitcoin, USDT, or USDC.",
+        content: "Buy a ConnectLive remote-support license with Bitcoin on mainnet.",
       },
       { property: "og:title", content: "Order a ConnectLive license" },
       {
         property: "og:description",
-        content: "Pay in BTC, USDT, or USDC. Instant invoice, live payment tracking.",
+        content: "Pay in Bitcoin. An exact-amount invoice QR and payment confirmation tracking.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

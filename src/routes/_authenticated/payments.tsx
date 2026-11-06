@@ -46,25 +46,26 @@ function PaymentsConsole() {
   const allowed = role === "admin" || role === "super_admin";
 
   return (
-    <div className="min-h-screen bg-[#0B1220] text-white">
-      <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-white/10 px-4 py-3 sm:px-6 sm:py-4">
+    <div className="min-h-[100dvh] bg-[#f5f4f2] text-[#1c1917]">
+      <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[#e2dfdb] bg-[#fdfcfb] px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-2">
-          <CreditCard className="h-5 w-5 shrink-0 text-[#4F7CFF]" />
-          <span className="truncate text-base font-semibold sm:text-lg">Payments console</span>
+          <CreditCard className="h-5 w-5 shrink-0 text-[#44403c]" aria-hidden />
+          <span className="truncate text-base font-semibold tracking-tight sm:text-lg">Payments admin</span>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <span className="hidden max-w-[180px] truncate text-xs text-white/50 sm:inline">
+          <span className="hidden max-w-[180px] truncate text-xs text-[#57534e] sm:inline" data-testid="text-admin-email">
             {email}
           </span>
           <Link
             to="/console"
-            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/5"
+            className="rounded-md border border-[#d6d3d1] px-2.5 py-1.5 text-xs text-[#292524] hover:bg-[#f0eeeb]"
           >
             Technician console
           </Link>
           <button
             onClick={signOut}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/5"
+            data-testid="button-sign-out"
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#d6d3d1] px-2.5 py-1.5 text-xs text-[#292524] hover:bg-[#f0eeeb]"
           >
             <LogOut className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Sign out</span>
@@ -72,10 +73,10 @@ function PaymentsConsole() {
         </div>
       </header>
 
-      <main className="p-4 sm:p-6">
-        {role === "loading" && <div className="text-sm text-white/50">Loading…</div>}
+      <main className="mx-auto max-w-7xl p-4 sm:p-6">
+        {role === "loading" && <div className="space-y-3" aria-label="Loading"><div className="h-16 animate-pulse rounded-lg bg-[#ebe8e4]" /><div className="h-64 animate-pulse rounded-lg bg-[#ebe8e4]" /></div>}
         {role !== "loading" && !allowed && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="flex items-start gap-3 rounded-lg border border-[#e2cfa3] bg-[#fbf6ea] p-4 text-sm text-[#5c4210]">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
               This account is not a payments administrator. Ask a super-admin to grant the admin

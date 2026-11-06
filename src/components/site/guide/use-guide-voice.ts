@@ -8,14 +8,18 @@ export type VoiceStatus = "off" | "ready" | "loading" | "playing" | "paused" | "
 
 export function useGuideVoice() {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [enabled, setEnabled] = useState(false);
-  const [status, setStatus] = useState<VoiceStatus>("off");
+  // Voice is armed, not autoplayed on page load. Submitting a question is the
+  // gesture that starts a reply; an explicit sound-off choice always wins.
+  const [enabled, setEnabled] = useState(true);
+  const [status, setStatus] = useState<VoiceStatus>("ready");
   const [speech, setSpeech] = useState<GuideSpeech | null>(null);
   const [wordIndex, setWordIndex] = useState(-1);
   const [error, setError] = useState("");
   const [rate, setRate] = useState(1);
-  const enabledRef = useRef(false);
-  const statusRef = useRef<VoiceStatus>("off");
+  const enabledRef = useRef(true);
+  const statusRef = useRef<VoiceStatus>("ready");
+  const primingRef = useRef(false);
+  const [blocked, setBlocked] = useState(false);
   const speechRef = useRef<GuideSpeech | null>(null);
   const replyRef = useRef<GuideReply | null>(null);
   const requestRef = useRef(0);
@@ -40,6 +44,7 @@ export function useGuideVoice() {
     abortRef.current?.abort();
     abortRef.current = null;
     speechRef.current = null;
+    primingRef.current = false;
     replyRef.current = null;
     changeStatus(enabledRef.current ? "ready" : "off");
     const audio = audioRef.current;
@@ -49,7 +54,24 @@ export function useGuideVoice() {
     setSpeech(null);
     setWordIndex(-1);
     setError("");
+    setBlocked(false);
   }, [changeStatus, releaseBlob]);
+
+  const prepareForInput = useCallback(() => {
+    const audio = audioRef.current;
+    if (!enabledRef.current || !audio) return;
+    // Unlock this same element in the input gesture, before fetching the
+    // answer/voice. A valid silent PCM sample works without an external request.
+    const generation = requestRef.current;
+    primingRef.current = true;
+    audio.src = "data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQIAAAAAAA==";
+    void audio.play().catch(() => {
+      // Some browsers still require their own sound permission. Handle that
+      // explicitly on the real reply, never claim it has started.
+    }).finally(() => {
+      if (generation === requestRef.current) primingRef.current = false;
+    });
+  }, []);
 
   const pause = useCallback((reason: GuideEventData["reason"] = "visitor") => {
     if (!["playing", "loading"].includes(statusRef.current)) return;
@@ -66,25 +88,29 @@ export function useGuideVoice() {
 
   const playAudio = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio || !speechRef.current) return;
+    if (!enabledRef.current || !audio || !speechRef.current) return;
+    const generation = requestRef.current;
     setError("");
     try {
       audio.playbackRate = rateRef.current;
       audio.preservesPitch = true;
       await audio.play();
     } catch (cause) {
+      if (generation !== requestRef.current) return;
       if ((cause as DOMException).name === "NotAllowedError") {
         changeStatus("ready");
-        setError("Your voice is ready. Tap Play to start listening.");
+        setBlocked(true);
+        setError("Your browser needs permission for sound. Enable sound below; future questions will speak automatically.");
       } else if ((cause as DOMException).name !== "AbortError") {
         changeStatus("error");
-        setError("Audio couldn't play. Tap Replay to try again, or read the transcript.");
+        setError("Audio couldn't play. Submit your question again, or read the transcript.");
         trackGuide("voice_failed", { topic: replyRef.current?.id, reason: "playback" });
       }
     }
   }, [changeStatus]);
 
   const speak = useCallback(async (reply: GuideReply) => {
+    if (!enabledRef.current) return;
     cancel();
     const requestId = requestRef.current;
     replyRef.current = reply;
@@ -132,9 +158,10 @@ export function useGuideVoice() {
   const enable = useCallback((reply: GuideReply) => {
     enabledRef.current = true;
     setEnabled(true);
+    prepareForInput();
     trackGuide("voice_enabled");
     void speak(reply);
-  }, [speak]);
+  }, [prepareForInput, speak]);
 
   const disable = useCallback(() => {
     enabledRef.current = false;
@@ -178,14 +205,17 @@ export function useGuideVoice() {
       if (!audio.paused && !audio.ended) frameRef.current = requestAnimationFrame(tick);
     };
     const onPlaying = () => {
+      if (primingRef.current) return;
       if (!enabledRef.current || !speechRef.current) { audio.pause(); return; }
       changeStatus("playing");
       setError("");
+      setBlocked(false);
       cancelAnimationFrame(frameRef.current);
       frameRef.current = requestAnimationFrame(tick);
       trackGuide("voice_started", { topic: replyRef.current?.id });
     };
     const onEnded = () => {
+      if (!speechRef.current) return;
       changeStatus("ended");
       cancelAnimationFrame(frameRef.current);
       update();
@@ -204,7 +234,7 @@ export function useGuideVoice() {
     const onError = () => {
       if (!speechRef.current) return;
       changeStatus("error");
-      setError("Audio couldn't load. Tap Replay to retry; the written answer is still available.");
+      setError("Audio couldn't load. Submit your question again; the written answer is still available.");
       trackGuide("voice_failed", { topic: replyRef.current?.id, reason: "playback" });
     };
     const onVisibility = () => { if (document.visibilityState === "hidden") pause("hidden"); };
@@ -234,5 +264,5 @@ export function useGuideVoice() {
     };
   }, [changeStatus, pause, releaseBlob]);
 
-  return { audioRef, enabled, status, speech, wordIndex, error, rate, enable, disable, speak, pause, cancel, resume, replay, updateRate };
+  return { audioRef, enabled, status, speech, wordIndex, error, blocked, rate, enable, disable, speak, pause, cancel, prepareForInput, resume, replay, updateRate };
 }

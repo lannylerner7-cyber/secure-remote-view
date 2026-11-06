@@ -11,6 +11,9 @@ it never invents prices, features, device states, or payment statuses.
   answer against these lists.
 - `topics/*.json` — one file per subject. Each entry has:
   - `keywords` — words/phrases the local matcher scores against visitor input
+  - `aliases` (optional) — exact short topic commands, matched before stopword
+    removal (for example `about`, `support`, `news letter`). Keep these unique
+    across entries; a broad keyword must not override an explicit command.
   - `question` — an example of what the entry answers
   - `answer` — the complete visible reply (plain text, `\n` for line breaks)
   - `board` (optional) — a heading plus legacy short-summary metadata. The
@@ -38,11 +41,18 @@ it never invents prices, features, device states, or payment statuses.
 6. The visible answer and the spoken answer must be identical. After editing
    approved content or live pricing, refresh the voice cache before publishing
    to a host without a configured speech provider.
+7. One-time Admin means a one-time purchase enquiry, not a monthly-plan change.
+   Until an approved price and license terms are supplied, direct visitors to
+   Contact; do not invent a lifetime entitlement or a checkout offer.
 
 ## Voice and verification
 
-- Speech starts only after a visitor opts in. It uses ElevenLabs Bella with a
-  slower base pace, original-text word timestamps, and pause/replay controls.
+- Speech starts after a visitor submits input or selects a topic, not on page
+  load. There are no manual Play/Pause/Replay controls. Sound off cancels audio
+  and keeps replies readable; browser sound restrictions get an explicit
+  permission recovery action. New input replaces the previous reply.
+- Speech uses ElevenLabs Bella with a slower base pace and original-text word
+  timestamps. The board follows audio automatically while speech is playing.
 - The server resolves an approved answer again before generating speech. It
   does not accept arbitrary speech text or send visitor questions to the voice
   provider. A text hash prevents an old price from being spoken as a new price.
@@ -77,7 +87,17 @@ it never invents prices, features, device states, or payment statuses.
   If durable storage fails after generation, real audio can play for that
   visit with a visible warning, but is never reported as a persistent clip.
 - Run isolated checks without provider charges or database changes:
-  `node --test scripts/guide-content-check.cjs scripts/guide-speech-check.cjs scripts/warm-guide-voice-check.cjs`.
+  `node --test scripts/guide-topic-check.cjs scripts/guide-content-check.cjs scripts/guide-speech-check.cjs scripts/warm-guide-voice-check.cjs`.
+- To check seating with the current public GLBs saved as `character.glb`,
+  `couch.glb` and `board.glb`, run
+  `node scripts/guide-seat-geometry-check.mjs <model-directory>`. This checks
+  both knees/shins against the cushion, floor contact, board clearance and
+  return-to-seat across animation samples. It is not a rendered WebGL test;
+  inspect the actual scene as well, not the still-image fallback.
+- The homepage's collapsible **Browse quick answers** renders the same approved
+  public wording in server HTML. Keep it useful to visitors, not hidden for
+  crawlers. Dynamic pricing links to the live Plans page; private order state,
+  console and sign-in routes must not be added to the public sitemap.
 - For an explicitly authorized **real provider** check, run
   `node scripts/verify-guide-voice-live.cjs elevenlabs --confirm-charge` from
   this source checkout with dependencies and server secrets configured.
@@ -92,4 +112,7 @@ it never invents prices, features, device states, or payment statuses.
   persistent visitor identifiers are logged by guide tracking. DNT/GPC opt out.
 - The on-page Experience status panel reports rendering, movement, voice,
   board page and source. Reduced-motion/no-WebGL visitors keep readable
-  captions and the full text/voice controls with a still-image fallback.
+  captions and sound/pace controls with a still-image fallback.
+- New checkout accepts Bitcoin mainnet only. Retain historical invoice facts,
+  but do not advertise USDT/USDC for new purchases. The invoice QR contains the
+  exact BTC amount; the admin wallet preview contains only the saved address.

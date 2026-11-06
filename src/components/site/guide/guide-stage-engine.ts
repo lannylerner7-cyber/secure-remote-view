@@ -246,9 +246,16 @@ export function buildStage(opts: {
   const walkSpeed = (2 * stepLen) / walkDur;
 
   // ------------------------------------------------------------- couch
+  // Measure the cushion in its own forward-facing frame, then rotate the
+  // furniture and the seated host together. A world-axis cushion edge with
+  // an angled host leaves the rear knee/shin inside the front of the seat.
+  const seatFacing = Math.atan2(-0.45, 1);
+  const seatYaw = yawFor(-0.45, 1);
+  const couchPivot = new THREE.Group();
+  lounge.add(couchPivot);
   const couchSize = measure(couch).getSize(V());
   couch.scale.multiplyScalar(2.05 / (couchSize.x || 1));
-  lounge.add(couch);
+  couchPivot.add(couch);
   const placeAt = (o: T.Object3D, x: number, z: number) => {
     const b = measure(o);
     const c = b.getCenter(V());
@@ -306,9 +313,12 @@ export function buildStage(opts: {
   const f = Math.min(1.35, Math.max(0.8, (kneeH - 0.03) / (cu.top || 1)));
   couch.scale.multiplyScalar(f);
   const COUCH_X = 0.55;
-  placeAt(couch, COUCH_X, -0.15);
+  placeAt(couch, 0, 0);
   cu = cushion();
-  const couchBox = cu.b;
+  couchPivot.position.set(COUCH_X, 0, -0.15);
+  couchPivot.rotation.y = seatFacing;
+  couchPivot.updateMatrixWorld(true);
+  const couchBox = measure(couchPivot);
 
   // ------------------------------------------------------------- board
   const boardPivot = new THREE.Group();
@@ -382,19 +392,29 @@ export function buildStage(opts: {
   repaint();
 
   // ------------------------------------------------------------- spots
-  const seatYaw = yawFor(-0.45, 1);
   character.rotation.set(0, seatYaw, 0);
   poseOnly("sit", "sit", 0, 1);
   const hipW = hips.getWorldPosition(V());
   const rad = 0.14;
   const contact = vertexMin((p) => (p.x - hipW.x) ** 2 + (p.z - hipW.z) ** 2 < rad * rad);
-  const sink = 0.035;
+  const sink = 0.02;
   const seatY = cu.top - (Number.isFinite(contact) ? contact : hipW.y - 0.1) - sink;
-  const hipTargetZ = cu.back + Math.min(0.24, (cu.front - cu.back) * 0.42);
-  const seatSpot: Spot = { x: COUCH_X - hipW.x, z: hipTargetZ - hipW.z, yaw: seatYaw };
+  const unseatRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -seatFacing);
+  // Both knees must clear the actual cushion lip, with room for trouser/shin
+  // thickness. Calibrate from the posed rig, not its standing bounding box.
+  const kneeReach = Math.min(...legs.map((leg) =>
+    leg.shin.getWorldPosition(V()).sub(hipW).applyQuaternion(unseatRotation).z,
+  ));
+  const hipTargetZ = Math.max(
+    cu.back + Math.min(0.24, (cu.front - cu.back) * 0.42),
+    cu.front + 0.075 - kneeReach,
+  );
+  const hipTarget = couchPivot.localToWorld(new THREE.Vector3(0, 0, hipTargetZ));
+  const seatSpot: Spot = { x: hipTarget.x - hipW.x, z: hipTarget.z - hipW.z, yaw: seatYaw };
+  const standTarget = couchPivot.localToWorld(new THREE.Vector3(0, 0, cu.b.max.z + 0.28));
   const camGuess = new THREE.Vector3(0, 1, 9);
   const spots: Record<Exclude<Loc, "seat">, Spot> = {
-    stand: { x: COUCH_X, z: couchBox.max.z + 0.28, yaw: faceCam },
+    stand: { x: standTarget.x, z: standTarget.z, yaw: seatYaw },
     front: { x: COUCH_X - 0.1, z: couchBox.max.z + 0.85, yaw: yawFor(camGuess.x - (COUCH_X - 0.1), camGuess.z) },
     board: { x: boardBox.max.x + 0.42, z: couchBox.max.z + 0.12, yaw: yawFor(-0.42, 1) },
   };

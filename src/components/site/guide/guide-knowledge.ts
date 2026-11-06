@@ -1,5 +1,6 @@
 import manifestJson from "../../../../knowledge/manifest.json";
 import { plans as displayPlans } from "../data";
+import { matchGuideEntry } from "./guide-matcher";
 
 export type GuideEmotion =
   | "neutral"
@@ -19,6 +20,7 @@ export type KnowledgeBoard = { heading: string; lines: string[] };
 export type KnowledgeEntry = {
   id: string;
   keywords: string[];
+  aliases?: string[];
   question: string;
   answer: string;
   board?: KnowledgeBoard;
@@ -54,62 +56,10 @@ export const knowledgeEntries: KnowledgeEntry[] = Object.values(topicModules).fl
   (mod) => asTopic(mod).entries ?? [],
 );
 
-const STOPWORDS = new Set([
-  "a", "an", "the", "is", "it", "to", "of", "and", "or", "in", "on", "for",
-  "do", "does", "i", "we", "you", "my", "our", "me", "us", "can", "could",
-  "would", "should", "what", "how", "why", "when", "where", "which", "there",
-  "this", "that", "with", "about", "tell", "please", "hi", "hello", "hey",
-  "work", "works", "offer", "offers", "explain",
-]);
-
-function stem(word: string): string {
-  return word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word;
-}
-
-function words(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((word) => word && !STOPWORDS.has(word))
-      .map(stem),
-  );
-}
-
-/**
- * Local, deterministic matcher over the knowledge folder. A phrase keyword
- * hit scores higher than single words; two single-word hits or one phrase is
- * required before an entry is considered verified enough to answer with.
- */
+/** Match only approved knowledge; never turn a public prompt into a live
+ * account lookup, checkout action, or arbitrary generated answer. */
 export function findAnswer(input: string): KnowledgeEntry | null {
-  const haystack = ` ${input.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ")} `;
-  const normalized = haystack.trim();
-  const exact = knowledgeEntries.find((entry) =>
-    entry.question.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim() === normalized,
-  );
-  if (exact) return exact;
-  const tokens = words(input);
-  let best: KnowledgeEntry | null = null;
-  let bestScore = 0;
-  for (const entry of knowledgeEntries) {
-    let score = 0;
-    for (const keyword of entry.keywords) {
-      const needle = keyword.toLowerCase();
-      if (needle.includes(" ")) {
-        if (haystack.includes(` ${needle} `)) score += 4 + needle.split(" ").length;
-      } else if (tokens.has(stem(needle))) {
-        score += 2;
-      }
-    }
-    if (score > bestScore) {
-      best = entry;
-      bestScore = score;
-    }
-  }
-  // A short, exact topic keyword is useful ("pricing", "enrollment"). Do not
-  // answer an unrelated sentence just because it happens to contain one word.
-  return bestScore >= 4 || (tokens.size === 1 && bestScore >= 2) ? best : null;
+  return matchGuideEntry(input, knowledgeEntries);
 }
 
 export type ResolvedAnswer = {
@@ -153,7 +103,7 @@ async function resolvePlansAnswer(entry: KnowledgeEntry): Promise<ResolvedAnswer
   });
   return {
     ...base,
-    text: `Current monthly plans, straight from the live catalog:\n${parts.join("\n")}\nEnterprise is unlimited and priced by conversation. Payments are crypto only (BTC, USDT or USDC ERC-20), and a price change never rewrites an invoice that was already issued.`,
+    text: `Current monthly plans:\n${parts.join("\n")}\nEnterprise has custom pricing. See Plans to compare what's included.`,
   };
 }
 

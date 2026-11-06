@@ -21,11 +21,12 @@ function load(path, dependencies = {}) {
 const { selectSessionMediaMode, replaceWithJpegDiagnostic } =
   load("src/lib/jpeg-diagnostic.ts");
 
-test("normal browser video remains video-only; JPEG is an explicit choice", () => {
-  assert.equal(selectSessionMediaMode("windows", { browser_video: 1 }), "video");
+test("new sessions permit automatic JPEG fallback while still attempting video", () => {
+  assert.equal(selectSessionMediaMode("windows", { browser_video: 1 }), "legacy");
   assert.equal(selectSessionMediaMode("windows", { browser_video: 1 }, true), "legacy");
   assert.equal(selectSessionMediaMode("windows", {}), "legacy");
   assert.equal(selectSessionMediaMode("android", {}), "legacy");
+  assert.equal(selectSessionMediaMode(undefined, null), "legacy");
   assert.throws(() => selectSessionMediaMode("android", {}, true));
   assert.throws(() => selectSessionMediaMode("windows", {}, true));
 });
@@ -111,6 +112,10 @@ test("UI keeps role, confirmation, busy guard and view-only invitation", () => {
   assert.match(source, /if \(lookupError\)/);
   assert.match(source, /data-testid="button-jpeg-diagnostic"/);
   assert.match(source, /data-testid="jpeg-diagnostic-status"/);
+  assert.match(source, /Enable JPEG fallback/);
+  assert.match(source, /data-testid="video-only-session-notice"/);
+  assert.match(source, /observeVideoFrames\(viewerVideo/);
+  assert.match(source, /\[liveId, rtcVideoLive, viewerVideo\]/);
 });
 
 test("idle JPEG freshness stays permission-gated and video-only capture stays off", () => {

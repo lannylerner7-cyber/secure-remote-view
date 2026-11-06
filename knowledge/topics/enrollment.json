@@ -4,12 +4,13 @@
   "entries": [
     {
       "id": "enroll-how",
+      "aliases": ["agent", "agent setup", "setup agent", "windows agent", "enrollment", "pairing", "pair device"],
       "keywords": ["enroll", "enrollment", "device", "meeting id", "pair", "pairing", "add device", "connect device", "agent", "authorize", "authorization", "install agent"],
       "question": "How does device enrollment work?",
-      "answer": "A device is authorized when the ConnectLive Agent on it enrolls against a valid Meeting ID from your delivery pack, with seats available on your plan. Install the Agent on the Windows device, enter your Meeting ID, and the device appears in your admin console. Only enrolled devices can ever receive sessions.",
+      "answer": "Install the Windows Agent. In the admin console, choose Pair device, set the access permissions, and generate a one-time code. Enter that code in the Agent, review the organization and permissions, and authorize the device.",
       "board": {
         "heading": "Enrolling a device",
-        "lines": ["Install the Windows Agent", "Enter your Meeting ID", "Device joins your workspace", "Connect from the console"]
+        "lines": ["Install the Windows Agent", "Generate a pairing code in Admin", "Review permissions in the Agent", "Authorize the device"]
       },
       "emotion": "attentive",
       "animation": "talk_open",

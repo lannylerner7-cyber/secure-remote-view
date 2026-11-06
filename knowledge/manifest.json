@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-04",
+  "updatedAt": "2026-11-05",
   "assistantName": "ConnectLive virtual guide",
   "greeting": "Hi, I'm ConnectLive's virtual guide — an AI assistant. Ask me about plans, device enrollment, payments, the admin console, or troubleshooting. How can I help?",
   "unknownAnswer": "I don't have a verified answer for that yet. I can explain plans, enrollment, payments, or the admin console — or you can reach the team directly on the Contact page. Which part are you working on?",
@@ -15,6 +15,7 @@
     "orders-payments",
     "audit-admin",
     "troubleshooting",
-    "support"
+    "support",
+    "website-help"
   ]
 }

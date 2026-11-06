@@ -4,6 +4,7 @@
   "entries": [
     {
       "id": "plans-list",
+      "aliases": ["price", "prices", "pricing", "agent pricing", "plans", "cost", "monthly plans"],
       "keywords": ["price", "prices", "pricing", "cost", "how much", "plans", "offer", "offerings", "subscription", "monthly", "starter", "team", "business", "enterprise", "tier"],
       "question": "What plans do you offer and what do they cost?",
       "answer": "Prices are composed at runtime from the live plan catalog.",
@@ -15,6 +16,16 @@
       "emotion": "friendly",
       "animation": "talk_open",
       "links": [{ "label": "Plans page", "to": "/plans" }, { "label": "Start an order", "to": "/order" }]
+    },
+    {
+      "id": "plans-one-time-admin",
+      "aliases": ["one time admin", "one time purchase", "one time admin purchase", "buy admin", "admin purchase", "admin pricing"],
+      "keywords": ["one time admin", "one time purchase", "admin purchase", "buy admin", "one off admin", "lifetime admin"],
+      "question": "Can I make a one-time Admin purchase?",
+      "answer": "For a one-time Admin purchase, contact our team to confirm the price, what's included, and the license terms. The plans currently listed on the website are monthly.",
+      "emotion": "attentive",
+      "animation": "talk_open",
+      "links": [{ "label": "Ask about a one-time Admin purchase", "to": "/contact" }]
     },
     {
       "id": "plans-change",

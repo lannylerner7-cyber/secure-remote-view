@@ -7,7 +7,7 @@
  * authorization and device state must never use this cache.
  */
 
-type CoinKey = "BTC" | "USDT_ERC20" | "USDC_ERC20";
+type CoinKey = "BTC";
 
 let cache: { ts: number; rates: Record<CoinKey, number> } | null = null;
 let inFlight: Promise<Record<CoinKey, number>> | null = null;
@@ -41,8 +41,6 @@ async function timedFetch(url: string, init?: RequestInit): Promise<Response> {
 async function fromCoinbase(): Promise<Partial<Record<CoinKey, number>>> {
   const pairs: Array<[CoinKey, string]> = [
     ["BTC", "BTC-USD"],
-    ["USDT_ERC20", "USDT-USD"],
-    ["USDC_ERC20", "USDC-USD"],
   ];
   const out: Partial<Record<CoinKey, number>> = {};
   await Promise.all(
@@ -65,7 +63,7 @@ async function fromCoinbase(): Promise<Partial<Record<CoinKey, number>>> {
 async function fromKraken(): Promise<Partial<Record<CoinKey, number>>> {
   try {
     const r = await timedFetch(
-      "https://api.kraken.com/0/public/Ticker?pair=XBTUSD,USDTZUSD,USDCUSD",
+      "https://api.kraken.com/0/public/Ticker?pair=XBTUSD",
     );
     if (!r.ok) return {};
     const j = (await r.json()) as { result?: Record<string, { c?: string[] }> };
@@ -77,11 +75,7 @@ async function fromKraken(): Promise<Partial<Record<CoinKey, number>>> {
     };
     const out: Partial<Record<CoinKey, number>> = {};
     const btc = pick("XBT") ?? pick("BTC");
-    const usdt = pick("USDT");
-    const usdc = pick("USDC");
     if (btc) out.BTC = btc;
-    if (usdt) out.USDT_ERC20 = usdt;
-    if (usdc) out.USDC_ERC20 = usdc;
     return out;
   } catch {
     return {};
@@ -92,14 +86,12 @@ async function fromKraken(): Promise<Partial<Record<CoinKey, number>>> {
 async function fromCoinGecko(): Promise<Partial<Record<CoinKey, number>>> {
   try {
     const r = await timedFetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether,usd-coin&vs_currencies=usd",
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
     );
     if (!r.ok) return {};
     const j = (await r.json()) as Record<string, { usd?: number }>;
     const out: Partial<Record<CoinKey, number>> = {};
     if (j.bitcoin?.usd) out.BTC = j.bitcoin.usd;
-    if (j.tether?.usd) out.USDT_ERC20 = j.tether.usd;
-    if (j["usd-coin"]?.usd) out.USDC_ERC20 = j["usd-coin"].usd;
     return out;
   } catch {
     return {};
@@ -122,7 +114,7 @@ export async function getUsdToCoinRates(): Promise<Record<CoinKey, number>> {
 async function refreshRates(): Promise<Record<CoinKey, number>> {
   const merged: Partial<Record<CoinKey, number>> = {};
   for (const provider of [fromCoinbase, fromKraken, fromCoinGecko]) {
-    if (merged.BTC && merged.USDT_ERC20 && merged.USDC_ERC20) break;
+    if (merged.BTC) break;
     try {
       const part = await provider();
       for (const k of Object.keys(part) as CoinKey[]) {
@@ -134,7 +126,7 @@ async function refreshRates(): Promise<Record<CoinKey, number>> {
     }
   }
 
-  // BTC is the only rate we can't safely default. Stablecoins peg to $1.
+  // No invented exchange rate when providers fail.
   if (!merged.BTC) {
     retryAfter = Date.now() + FAILURE_RETRY_MS;
     if (cache && Date.now() - cache.ts <= MAX_STALE_MS) {
@@ -146,8 +138,6 @@ async function refreshRates(): Promise<Record<CoinKey, number>> {
 
   const rates: Record<CoinKey, number> = {
     BTC: merged.BTC,
-    USDT_ERC20: merged.USDT_ERC20 ?? 1,
-    USDC_ERC20: merged.USDC_ERC20 ?? 1,
   };
   retryAfter = 0;
   Object.freeze(rates);
@@ -160,7 +150,6 @@ export function usdToCoin(usd: number, coin: CoinKey, rates: Record<CoinKey, num
   const rate = rates[coin];
   if (!rate) throw new Error(`No rate for ${coin}`);
   const amount = usd / rate;
-  // BTC: 8 decimals, USDT/USDC: 6 decimals on-chain, we round to their native precision.
-  const decimals = coin === "BTC" ? 8 : 6;
+  const decimals = 8;
   return Math.ceil(amount * 10 ** decimals) / 10 ** decimals;
 }

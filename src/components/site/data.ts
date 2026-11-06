@@ -95,7 +95,7 @@ export const faqs = [
   {
     question: "How do I pay?",
     answer:
-      "Checkout issues a live invoice payable in Bitcoin, USDT (ERC-20), or USDC (ERC-20). The price is locked for 15 minutes and the invoice page tracks network confirmations in real time. No card details are ever requested.",
+      "New invoices are payable in Bitcoin on the Bitcoin mainnet only. The price is locked for 15 minutes. Scan the invoice QR or copy its exact amount and address, then follow confirmation updates. No card details or wallet keys are requested.",
   },
 ];
 
@@ -115,8 +115,6 @@ export const securityFeatures: [string, string][] = [
 
 export const PAYMENT_NETWORKS = [
   { id: "BTC", name: "Bitcoin", network: "BTC" },
-  { id: "USDT_ERC20", name: "Tether", network: "USDT · ERC-20" },
-  { id: "USDC_ERC20", name: "USD Coin", network: "USDC · ERC-20" },
 ] as const;
 
 export type CoinId = (typeof PAYMENT_NETWORKS)[number]["id"];

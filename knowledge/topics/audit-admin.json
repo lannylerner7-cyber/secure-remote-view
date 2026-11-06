@@ -16,9 +16,10 @@
     },
     {
       "id": "admin-console",
+      "aliases": ["admin", "admin console", "technician console", "admin sign in", "admin login"],
       "keywords": ["admin console", "console", "dashboard", "technician", "sign in", "log in", "login", "session", "start session", "view screen"],
       "question": "How do technicians use the admin console?",
-      "answer": "Technicians sign in to the web admin console, pick an enrolled device, and start an authorized session — screen viewing with responsive control, session quality visible at a glance, and the privacy curtain one click away. Session recording is available per plan, and everything lands in the audit log.",
+      "answer": "Sign in to the admin console to manage enrolled devices and start authorized support sessions. What you can do depends on your role and the device's access permissions.",
       "emotion": "neutral",
       "animation": "talk_open",
       "links": [{ "label": "Technician sign-in", "to": "/connectlive/admin" }]

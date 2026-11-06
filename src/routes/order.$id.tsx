@@ -6,6 +6,9 @@ import { Check, Copy } from "lucide-react";
 import { SiteShell } from "@/components/site/layout";
 import { ActionButton, Badge, Button, Notice } from "@/components/site/ui";
 import { orderReference } from "@/shared/payment-identity";
+import { bitcoinPaymentUri, formatBitcoinAmount } from "@/shared/bitcoin";
+import { BitcoinQr } from "@/components/payments/BitcoinQr";
+import { QRCodeSVG } from "qrcode.react";
 
 type Invoice = {
   id: string;
@@ -58,26 +61,30 @@ function InvoicePage() {
   const [inv, setInv] = useState<Invoice | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     let alive = true;
     const load = async () => {
       try {
         const row = await loadOrder({ data: { id } });
-        if (alive) setInv(row as Invoice);
+        if (alive) { setInv(row as Invoice); setErr(null); }
       } catch (e) {
         if (alive) setErr(e instanceof Error ? e.message : "Not found");
       }
     };
     load();
     const t = setInterval(load, 10_000);
+    const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       alive = false;
       clearInterval(t);
+      clearInterval(clock);
     };
   }, [id, loadOrder]);
 
-  if (err)
+  if (err && !inv)
     return (
       <Shell>
         <Notice
@@ -108,30 +115,42 @@ function InvoicePage() {
   const target = CONF_TARGET[inv.coin];
   const confPct = Math.min(100, Math.round(((inv.confirmations || 0) / target) * 100));
   const expiresAt = new Date(inv.price_expires_at);
-  const expired = Date.now() > expiresAt.getTime() && !paid && !detected;
+  const expired = inv.status === "expired" || (now >= expiresAt.getTime() && inv.status === "pending");
+  let amountText = String(inv.amount_coin);
+  let paymentUri: string | null = null;
+  let paymentError = "";
+  if (inv.coin === "BTC" && inv.receive_address) {
+    try {
+      amountText = formatBitcoinAmount(inv.amount_coin);
+      paymentUri = bitcoinPaymentUri(inv.receive_address, inv.amount_coin, orderReference(inv.id));
+    } catch {
+      paymentError = "This invoice has an invalid Bitcoin address or amount. Do not send funds; contact support with your order reference.";
+    }
+  }
+  const canPay = inv.status === "pending" && !expired && !err && !paymentError;
 
   const copyAddr = async () => {
     if (!inv.receive_address) return;
     try {
       await navigator.clipboard.writeText(inv.receive_address);
       setCopied(true);
+      setCopyError("");
       setTimeout(() => setCopied(false), 1500);
-    } catch {}
+    } catch { setCopyError("Copy is unavailable. Select the address text to copy it manually."); }
   };
 
-  const qrSrc = inv.receive_address
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(inv.receive_address)}`
-    : null;
-
-  const stage = paid ? 4 : detected ? 3 : 2;
+  const delivered = paid && !!inv.access_link;
 
   return (
     <Shell>
+      {err && <div className="mb-6"><Notice tone="warning" title="Status refresh failed">{err} Payment controls are unavailable until the connection recovers.</Notice></div>}
+      {paymentError && <div className="mb-6"><Notice tone="error">{paymentError}</Notice></div>}
+      {inv.coin !== "BTC" && <div className="mb-6"><Notice tone="warning">This is a legacy invoice. It retains its original asset and network. New orders accept Bitcoin only; never send BTC to this invoice's address.</Notice></div>}
       <ol className="mx-auto mb-10 grid max-w-3xl grid-cols-3 gap-3" aria-label="Payment progress">
         {[
           ["Invoice created", true],
-          ["Payment detected", stage >= 3],
-          ["Access delivered", stage >= 4],
+          ["Payment confirmed", paid],
+          ["Access available", delivered],
         ].map(([label, done]) => (
           <li
             key={label as string}
@@ -149,7 +168,7 @@ function InvoicePage() {
         <section className="surface p-6 md:p-8">
           <p className="hairline-title">Amount due</p>
           <div className="tabular mt-3 break-all font-mono text-3xl font-semibold">
-            {inv.amount_coin}{" "}
+            {amountText}{" "}
             <span className="text-base text-cl-muted">{inv.coin.split("_")[0]}</span>
           </div>
           <div className="mt-2 text-sm text-cl-muted">
@@ -162,7 +181,7 @@ function InvoicePage() {
           </p>
 
           <div className="mt-7">
-            <p className="field-label">Send to this address</p>
+            <p className="field-label">{canPay ? "Send to this address" : "Invoice receiving address"}</p>
             {inv.receive_address ? (
               <div className="mt-3 flex items-center gap-2 rounded-xl bg-black/30 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
                 <code className="min-w-0 flex-1 break-all font-mono text-xs text-cl-muted">
@@ -173,6 +192,7 @@ function InvoicePage() {
                   variant="secondary"
                   aria-label={copied ? "Address copied" : "Copy receiving address"}
                   onClick={copyAddr}
+                  disabled={!canPay}
                   data-testid="button-copy-address"
                 >
                   {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -185,18 +205,32 @@ function InvoicePage() {
                 </Notice>
               </div>
             )}
-            {qrSrc && (
-              <img src={qrSrc} alt="Payment QR" className="mx-auto mt-5 rounded-lg bg-white p-2" />
+            {canPay && inv.receive_address && (
+              <div className="mt-5 flex flex-col items-center gap-4" data-testid="invoice-payment-controls">
+                <div className="rounded-lg bg-white p-2">
+                  {inv.coin === "BTC"
+                    ? <BitcoinQr address={inv.receive_address} amount={inv.amount_coin} reference={orderReference(inv.id)} />
+                    : <QRCodeSVG value={inv.receive_address} size={208} marginSize={4} title="Legacy invoice address QR" />}
+                </div>
+                {paymentUri && <a className="button button-secondary" href={paymentUri} data-testid="button-open-bitcoin-wallet">Open Bitcoin wallet</a>}
+                <p className="text-center text-xs leading-5 text-cl-muted">
+                  {inv.coin === "BTC" ? "Bitcoin mainnet only—not Lightning or wrapped BTC. The QR includes the exact BTC amount and order reference. Check both the address and amount in your wallet." : "Use the original asset and network shown above, and enter the exact invoice amount."}
+                </p>
+              </div>
             )}
+            {copyError && <p className="mt-3 text-xs text-cl-warning" role="status">{copyError}</p>}
           </div>
 
           {!paid && !detected && (
             <div className={`mt-5 text-xs ${expired ? "text-cl-warning" : "text-cl-faint"}`}>
               {expired
-                ? "Price lock expired — refresh to recalculate the amount."
+                ? "Price lock expired. Do not pay this invoice. Create a new invoice for a current quote, or contact support if you already sent funds."
                 : `Price locked until ${expiresAt.toLocaleTimeString()}.`}
             </div>
           )}
+          {expired && <div className="mt-4"><Button to="/order" variant="secondary">Create a new invoice</Button></div>}
+          {detected && <p className="mt-5 text-sm text-cl-muted">Payment detected. Waiting for confirmations—do not send another payment.</p>}
+          {["cancelled", "refunded"].includes(inv.status) && <p className="mt-5 text-sm text-cl-warning">This invoice is {inv.status}. Do not send payment.</p>}
         </section>
 
         <section className="surface p-6 md:p-8">
@@ -214,7 +248,7 @@ function InvoicePage() {
               }`}
             />
             <span className="font-display text-2xl capitalize" data-testid="status-invoice">
-              {inv.status}
+              {expired ? "expired" : inv.status}
             </span>
           </div>
 

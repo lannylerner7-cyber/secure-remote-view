@@ -17,7 +17,7 @@
     },
     {
       "id": "start-requirements",
-      "keywords": ["requirements", "support", "windows", "mac", "linux", "operating system", "os", "supported", "compatibility", "browser"],
+      "keywords": ["requirements", "windows", "mac", "linux", "operating system", "os", "supported", "compatibility", "browser"],
       "question": "What platforms are supported?",
       "answer": "The ConnectLive Agent runs on Windows devices. Technicians use the web admin console from a modern browser — no technician installation required to view a session. If you have a mixed fleet, mention it when you order and the team will advise.",
       "emotion": "neutral",

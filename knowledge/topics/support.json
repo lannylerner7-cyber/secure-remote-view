@@ -4,9 +4,10 @@
   "entries": [
     {
       "id": "support-contact",
-      "keywords": ["contact", "support", "email", "human", "person", "team", "talk to someone", "ticket", "reach"],
+      "aliases": ["support", "help", "contact", "contact us", "customer support", "customer service"],
+      "keywords": ["contact", "support", "email", "human", "person", "talk to someone", "ticket", "reach"],
       "question": "How do I reach a human?",
-      "answer": "The Contact page reaches the team directly. Include your order reference if your question is about an order, or the device name and what the console shows for technical issues. Never include passwords, Meeting IDs, or wallet keys.",
+      "answer": "Contact our team for help with orders or technical issues. Include your order reference or a short description of the problem. Never share passwords, pairing codes, or wallet keys here.",
       "emotion": "friendly",
       "animation": "talk_open",
       "links": [{ "label": "Contact the team", "to": "/contact" }]

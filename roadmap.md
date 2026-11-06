@@ -1,5 +1,35 @@
 # ConnectLive Android Agent — Head-to-Head Roadmap
 
+## Browser admin recovery update — 2026-11-06
+
+- [x] New sessions prefer video with automatic JPEG fallback; frozen decoded
+  video expires after five seconds even if ICE remains connected.
+- [x] Existing video-only sessions have a confirmed **Enable JPEG fallback**
+  replacement flow, retaining viewing permission and attended approval.
+- [x] Isolated recovery/permission tests, frozen-dependency production build
+  and built-server health/sign-in checks.
+- [ ] Designated Windows capture/Agent-answer/direct-TURN runtime evidence.
+- [Verification and remaining boundaries](docs/admin-jpeg-fallback-verification.md).
+- [Agent feature breakdown](docs/agent-feature-breakdown.md).
+
+## Current web and payment update — 2026-11-05
+
+This file also indexes current web work; the Android sections below retain their
+historical scope and are not evidence that external Android work has not started.
+
+- Guide replies now start after input, without Play/Pause/Replay buttons, with a
+  sound-off option and full timed captions.
+- Initial media loading is deferred; seating/model geometry is unchanged.
+- New checkout is Bitcoin-mainnet-only. Prices are unchanged. Super-admin wallet
+  configuration and exact-amount invoice QRs use the same validated address;
+  existing invoices and history remain unchanged.
+- Payment admin has a neutral presentation, explicit loading/errors, stale-edit
+  protection and deliberate manual-paid confirmation.
+- [Head-to-head verification and limits](docs/btc-guide-verification.md).
+- [Every guide topic, product feature and proposed addition](docs/feature-roadmap.md).
+- Production publication, real BTC receipt/scheduler verification, native-device
+  evidence and one-time Admin commercial terms are **not** marked complete.
+
 Status legend: `[x]` implemented and verified in this repository/backend · `[~]` partial or code-only, not end-to-end verified · `[ ]` not built.
 
 ## Connection reliability update — 2026-10-22

@@ -57,3 +57,43 @@ Cached speech works on the external host with existing Supabase configuration.
 New/changed content has a new hash: warm it from Replit before publishing, or
 configure a server-side ElevenLabs provider on the external host. Details and
 maintenance commands are in `knowledge/README.md`.
+
+## Seating and short-topic update — 2026-11-05
+
+- Rotated the chair in the same coordinate frame as the seated guide, rather
+  than aiming the guide diagonally across an unrotated cushion. Calibrated both
+  knees beyond the cushion lip and preserved the board/chair gap.
+- Real-model geometry checks passed for initial seating, six idle samples,
+  the seated greeting, return from the board, and phone framing. In these
+  samples knee clearance was 7.2–8.9 cm; the lowest shoe vertex stayed within
+  0.15 cm of the floor. This is sampled geometry, not a universal collision
+  proof for all animations.
+- A real Chromium SwiftShader browser rendered the actual scene and captured
+  initial seating, walking, presenting and return-to-seat. The 390px scene was
+  ready with no document overflow. Captures are in the workspace's ignored
+  `generated-artifacts/guide-seating/` directory. Software rendering is not
+  a physical-phone performance benchmark.
+- Common topic commands now resolve deliberately, including `about`,
+  `support`, `order status`, `news letter`, YouTube, experience, one-time Admin
+  purchases and refunds. Static short answers are at most 55 words; the
+  current catalog reply was 52 words. One-time Admin has no invented price
+  or lifetime entitlement: it directs purchase enquiries to Contact.
+- Browser checks covered chips and typed prompts, answer links, full board
+  pagination, real Bella playback with advancing word captions, and paused
+  audio time. Turning voice off cancels playback and removes its source; it
+  does not depend on the HTML audio element's `muted` property.
+- 56 isolated topic, caption, provider and durable-voice checks passed, along
+  with TypeScript. All 35 approved replies had both public audio and caption
+  metadata read back from persistent storage.
+- **Browse quick answers** is real server-rendered text for visitors and
+  crawlers. Static answers share the chat's approved content; pricing links
+  to the live Plans page instead of embedding potentially stale amounts.
+  Direct HTTP comparisons confirmed all ten static quick answers, including
+  Support, exactly match the live answer endpoint after normalizing whitespace.
+  Public help, plans, setup and refund information are discoverable without
+  submitting chat requests. The license lookup remains `noindex`, and the
+  sitemap contains public pages only, with no fabricated daily `lastmod`.
+- These checks apply to the development preview. No GitHub push, Coolify
+  publication, Search Console submission, or Google re-indexing was performed
+  for this update. Existing published clips do not certify uncached voice
+  generation on the external host.

@@ -40,10 +40,10 @@ export async function getGuideReply(id: string): Promise<GuideReply | null> {
       const { readPublicPlanCatalog } = await import("./public-plan-catalog.server");
       const rows = await readPublicPlanCatalog();
       if (!rows.length) throw new Error("Empty catalog");
-      answer.text = `Here are the current monthly plans from our live catalog. ${rows.map((row) => {
+      answer.text = rows.map((row) => {
         const plan = displayPlans.find((item) => item.slug === row.code);
         return `${row.name} is ${Number(row.amount_usd)} US dollars per month${plan ? `, for ${plan.devices.toLowerCase()}` : ""}.`;
-      }).join(" ")} Enterprise is unlimited, with pricing agreed with our team. Payments are crypto only: Bitcoin, USDT, or USDC on the Ethereum network. An existing invoice keeps its quoted price.`;
+      }).join(" ") + " Enterprise has custom pricing. See Plans to compare what's included.";
       return reply(id, answer, "catalog");
     } catch {
       return getGuideReply("catalog-unavailable");

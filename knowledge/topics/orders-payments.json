@@ -3,13 +3,23 @@
   "title": "Orders and payments",
   "entries": [
     {
+      "id": "order-start",
+      "aliases": ["order", "orders", "buy", "purchase", "start an order", "place an order", "new order"],
+      "keywords": ["order", "buy", "purchase", "place an order", "start an order", "new order"],
+      "question": "How do I place an order?",
+      "answer": "Choose a plan on the Order page, enter your details, and follow the invoice instructions. Pay the exact amount on the specified network, and keep your order reference.",
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Start an order", "to": "/order" }]
+    },
+    {
       "id": "pay-how",
       "keywords": ["pay", "payment", "how do i pay", "bitcoin", "btc", "usdt", "usdc", "crypto", "card", "checkout", "invoice"],
       "question": "How do I pay?",
-      "answer": "Checkout issues a live invoice payable in Bitcoin, USDT (ERC-20), or USDC (ERC-20) — no card details are ever requested. The price is locked for 15 minutes and the invoice page tracks network confirmations in real time.",
+      "answer": "New orders accept Bitcoin on mainnet only. Scan your invoice QR or send its exact BTC amount to the address shown before the 15-minute price lock expires. The invoice tracks confirmations. No card details, private keys, or seed phrases are needed.",
       "board": {
         "heading": "Paying an invoice",
-        "lines": ["Choose BTC, USDT or USDC", "Send the exact quoted amount", "Price locked for 15 minutes", "Confirmations tracked live"]
+        "lines": ["Bitcoin mainnet only", "Scan the exact-amount invoice QR", "Price locked for 15 minutes", "Keep your order reference"]
       },
       "emotion": "neutral",
       "animation": "talk_open",
@@ -25,12 +35,13 @@
     },
     {
       "id": "pay-status",
+      "aliases": ["order status", "track order", "track my order", "payment status", "license status", "status"],
       "keywords": ["payment status", "did my payment arrive", "where is my order", "order status", "license lookup", "check order", "paid", "not received", "pending"],
       "question": "How do I check my order or license status?",
-      "answer": "Your invoice page tracks network confirmations in real time, and you can look up a license from the License page. I can't see account or payment state from this public chat, so for anything stuck, message the team with your order reference — never share wallet keys or full transaction credentials.",
+      "answer": "Use Track an order with your order reference, or reopen your invoice link. I can't see private order or payment details here. If you're stuck, contact support with your order reference.",
       "emotion": "attentive",
       "animation": "talk_open",
-      "links": [{ "label": "License lookup", "to": "/license" }, { "label": "Contact the team", "to": "/contact" }]
+      "links": [{ "label": "Track an order", "to": "/license#track" }, { "label": "Contact the team", "to": "/contact" }]
     }
   ]
 }

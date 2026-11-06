@@ -1,0 +1,46 @@
+{
+  "id": "website-help",
+  "title": "Website, guides and policies",
+  "entries": [
+    {
+      "id": "site-newsletter",
+      "aliases": ["newsletter", "news letter", "news", "subscribe", "updates"],
+      "keywords": ["newsletter", "news letter", "subscribe", "release notes", "email updates"],
+      "question": "How do I subscribe to the newsletter?",
+      "answer": "Use the Field notes signup at the bottom of this page for release notes, offers, and setup guides. Enter your email there, not in this chat. You can unsubscribe from any newsletter.",
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Newsletter signup", "to": "/#newsletter-signup" }]
+    },
+    {
+      "id": "site-youtube",
+      "aliases": ["youtube", "you tube", "tutorial", "tutorials", "setup video", "video guide"],
+      "keywords": ["youtube", "you tube", "setup video", "video guide", "walkthrough", "tutorial"],
+      "question": "Where is your YouTube setup guide?",
+      "answer": "Watch the Agent setup walkthrough in the homepage's setup section. The YouTube player lets you pause, replay, and open the video full screen.",
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Watch the setup guide", "to": "/#setup" }]
+    },
+    {
+      "id": "site-experience",
+      "aliases": ["experience", "demo", "preview", "how it feels"],
+      "keywords": ["experience", "demo", "preview", "how it feels", "see it in action"],
+      "question": "Can I preview the ConnectLive experience?",
+      "answer": "Explore the homepage's console preview and setup walkthrough to see the workflow. These are demonstrations, not a live connection to your device. Real support sessions require an enrolled device and authorized access.",
+      "emotion": "friendly",
+      "animation": "talk_open",
+      "links": [{ "label": "Explore the platform", "to": "/#platform" }, { "label": "Watch the walkthrough", "to": "/#setup" }]
+    },
+    {
+      "id": "support-refund",
+      "aliases": ["refund", "refunds", "refund policy", "money back"],
+      "keywords": ["refund", "refunds", "money back", "cancel purchase"],
+      "question": "How do I request a refund?",
+      "answer": "Request a refund within seven days of purchase, subject to the Refund Policy. Email support from your order email with your order ID. Refunds return the same USD value in your payment coin, minus network fees.",
+      "emotion": "attentive",
+      "animation": "talk_open",
+      "links": [{ "label": "Read the refund policy", "to": "/refund" }, { "label": "Contact support", "to": "/contact" }]
+    }
+  ]
+}
