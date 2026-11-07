@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const assert = require("node:assert/strict");
 const ts = require("typescript");
+const { stubDeviceAuth } = require("../tests/helpers/device-auth.cjs");
 
 function load(file, modules) {
   const exports = {};
@@ -77,8 +78,8 @@ async function reconnect(options = {}) {
   };
   const mod = load("src/routes/api/public/agent/session.$sessionId.reconnect.ts", {
     "@tanstack/react-router": { createFileRoute: () => config => config },
-    "@/lib/agent-auth.server": { verifyDevice: async () =>
-      options.unauthorized ? null : { admin, device: { id: "device-1" } } },
+    "@/lib/agent-auth.server": stubDeviceAuth(() =>
+      options.unauthorized ? null : { admin, device: { id: "device-1" } }),
     "@/lib/authorization.server": authorization,
   });
   const response = await mod.Route.server.handlers.POST({
@@ -104,6 +105,7 @@ const serverFunctions = load("src/lib/webrtc-signal.functions.ts", {
   },
   "@/integrations/supabase/auth-middleware": { requireSupabaseAuth: {} },
   "./authorization.server": authorization,
+  "@/shared/signaling-identity": load("src/shared/signaling-identity.ts", {}),
 });
 async function binding({
   owner = "owner", actor = "other", superRole = false, roleError = null,
@@ -244,9 +246,8 @@ async function binding({
     };
     const mod = load("src/routes/api/public/agent/session.$sessionId.consent.ts", {
       "@tanstack/react-router": { createFileRoute: () => config => config },
-      "@/lib/agent-auth.server": {
-        verifyDevice: async () => scenario.unauthorized ? null : ({ admin, device: { id: "device-1" } }),
-      },
+      "@/lib/agent-auth.server": stubDeviceAuth(() =>
+        scenario.unauthorized ? null : { admin, device: { id: "device-1" } }),
       "@/lib/authorization.server": authorization,
     });
     const response = await mod.Route.server.handlers.POST({

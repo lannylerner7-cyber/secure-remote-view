@@ -44,7 +44,8 @@ export function parseAuthorization(value: unknown): Authorization | null {
 
 /** Missing migrations/RPC errors are denial, never a legacy timestamp fallback. */
 export async function currentAuthorization(admin: SupabaseClient<Database>, deviceId: string) {
-  const { data, error } = await admin.rpc("device_authorization", { _device_id: deviceId });
+  const { data, error } = await admin.rpc("device_authorization", { _device_id: deviceId })
+    .then(result => result, () => { throw new Error("authorization_unavailable"); });
   if (error) throw new Error("authorization_unavailable");
   if (data === null) return null;
   const grant = parseAuthorization(data);
@@ -54,11 +55,19 @@ export async function currentAuthorization(admin: SupabaseClient<Database>, devi
 
 export async function sessionAuthorized(
   client: SupabaseClient<Database>, sessionId: string, capability: Capability = "view",
+  onLookupError?: () => void,
 ): Promise<boolean> {
-  const { data, error } = await client.rpc("session_authorized", {
-    _session_id: sessionId, _capability: capability,
-  });
-  return !error && data === true;
+  try {
+    const { data, error } = await client.rpc("session_authorized", {
+      _session_id: sessionId, _capability: capability,
+    });
+    if (!error && typeof data === "boolean") return data;
+  } catch {
+    // Network exceptions are unavailable authority, never permission. Avoid
+    // propagating an arbitrary provider message into route/framework logs.
+  }
+  onLookupError?.();
+  return false;
 }
 
 export function inputCapability(kind: string): Capability | "safety" | null {

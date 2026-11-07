@@ -22,7 +22,7 @@ namespace ConnectLive.Admin.Api;
 ///     Authorization: Bearer <access_token>
 /// so RLS runs as the signed-in technician.
 /// </summary>
-public sealed class ApiClient
+public sealed partial class ApiClient
 {
     private readonly AppConfig _config;
     private readonly AuthStore _auth;

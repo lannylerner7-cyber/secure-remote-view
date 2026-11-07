@@ -10,7 +10,11 @@ import { getMyRole, type AppRole } from "@/lib/admins.functions";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Button } from "@/components/ui/button";
 
-import { startWebRtcLive, type WebRtcLive, type WebRtcState } from "@/lib/webrtc-live";
+import type { WebRtcState, RecordingResult } from "@/lib/webrtc-live";
+import {
+  startResilientWebRtc, type ResilientWebRtcLive, type RecoveryStatus,
+} from "@/lib/resilient-webrtc";
+import { observeVideoFrames } from "@/lib/video-frame-health";
 import type { Tables } from "@/integrations/supabase/types";
 import { isPowerKindAllowed, normalizePlatform, releaseProductFor, isUpdateAvailable, type PowerKind } from "@/shared/platform";
 import {
@@ -47,6 +51,9 @@ import { AuditPanel } from "@/components/console/AuditPanel";
 import { RemoteCursorOverlay } from "@/components/console/RemoteCursorOverlay";
 import { RemoteDisplayFrame } from "@/components/console/RemoteDisplayFrame";
 import { DevicePairingDialog } from "@/components/console/DevicePairingDialog";
+import { WindowsUnlockControls } from "@/components/console/WindowsUnlockControls";
+import { WindowsUnlockSettings } from "@/components/console/WindowsUnlockSettings";
+import { EMPTY_UNLOCK, type UnlockState } from "@/shared/windows-unlock";
 import { revokeManagedDeviceAccess } from "@/lib/device-pairing.functions";
 import { useLiveAuthorization } from "@/lib/use-live-authorization";
 import type { AgentMode } from "@/lib/browser-actions";
@@ -59,6 +66,7 @@ import { requestLegacyMonitor } from "@/lib/legacy-monitor.functions";
 import { requestAgentRelaunch } from "@/lib/agent-lifecycle.functions";
 import { devicePresence, deviceRuntime, runtimeDescription, type AgentRuntime, type RelaunchCommand } from "@/shared/agent-lifecycle";
 import type { CurtainState } from "@/lib/browser-curtain";
+import { takeControlAndCurtain, releaseControlAndCurtain, type ControlStage } from "@/lib/control-curtain";
 
 
 export const Route = createFileRoute("/_authenticated/console")({
@@ -98,13 +106,17 @@ function AdminPage() {
   const fetchRole = useServerFn(getMyRole);
   const [role, setRole] = useState<AppRole | null>(null);
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const rtcRef = useRef<WebRtcLive | null>(null);
+  const rtcRef = useRef<ResilientWebRtcLive | null>(null);
+  const [mediaRecovery, setMediaRecovery] = useState<RecoveryStatus | null>(null);
   /** S21 — true while the reliable `files` DataChannel is open. */
   const [filesReady, setFilesReady] = useState(false);
   /** S22 — true while the `clip` DataChannel is open. */
   const [clipReady, setClipReady] = useState(false);
   /** S24 — true while a local recording of the live track is running. */
   const [recording, setRecording] = useState(false);
+  const [recordingActionPending, setRecordingActionPending] = useState(false);
+  const recordingActionRef = useRef(false);
+  const downloadedRecordingsRef = useRef(new WeakSet<Blob>());
 
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   // Explicit fullscreen for the viewer panel; normal mode stays compact.
@@ -148,14 +160,44 @@ function AdminPage() {
   const activeLiveId = currentLiveSession?.state === "active" ? currentLiveSession.id : null;
   const liveVideoOnly = currentLiveSession?.media_mode === "video";
   const liveAuthorization = useLiveAuthorization(activeLiveId, currentLiveSession?.authorization_id ?? null);
+  const liveDevice = devices.find(device => device.id === liveSurfaceDeviceId);
+  const controlWithCurtain = normalizePlatform(liveDevice?.platform) !== "android";
   const legacyActions = usesLegacyActions(currentLiveSession?.media_mode,
-    devices.find(device => device.id === liveSurfaceDeviceId)?.metadata);
+    liveDevice?.metadata);
   const [agentMode, setAgentMode] = useState<AgentMode>(null);
   const [curtain, setCurtain] = useState<CurtainState>({ supported: false, active: null, pending: false, reason: null });
-  const controlGranted = currentLiveSession?.mode === "control" && (legacyActions || agentMode === "control") &&
-    liveAuthorization.grant?.capabilities.control === true;
+  const [windowsUnlock, setWindowsUnlock] = useState<UnlockState>({ ...EMPTY_UNLOCK });
+  const [unlockSettings, setUnlockSettings] = useState<Device | null>(null);
+  const unlockActive = ["starting", "ready", "submitted"].includes(windowsUnlock.phase);
+  const [controlStage, setControlStage] = useState<ControlStage>("idle");
+  const [controlNotice, setControlNotice] = useState<string | null>(null);
+  const controlOperationRef = useRef<{
+    controller: AbortController; sessionId: string; authorizationId: string | null;
+  } | null>(null);
+  const modeWriteRef = useRef(0);
+  const controlGranted = currentLiveSession?.mode === "control" && agentMode === "control" &&
+    role !== null && role !== "viewer" && liveAuthorization.grant?.capabilities.control === true;
   const [viewerAttempt, setViewerAttempt] = useState(0);
   const [viewerPaused, setViewerPaused] = useState(false);
+  const controlContextRef = useRef({
+    sessionId: activeLiveId, authorizationId: currentLiveSession?.authorization_id ?? null, allowed: false,
+  });
+  controlContextRef.current = {
+    sessionId: activeLiveId, authorizationId: currentLiveSession?.authorization_id ?? null,
+    allowed: role !== null && role !== "viewer" &&
+      liveAuthorization.grant?.capabilities.control === true && !viewerPaused,
+  };
+  useEffect(() => {
+    const operation = controlOperationRef.current, current = controlContextRef.current;
+    if (operation && (!current.allowed || operation.sessionId !== current.sessionId ||
+        operation.authorizationId !== current.authorizationId)) {
+      operation.controller.abort(new Error("The session, playback or control authorization changed."));
+    }
+  }, [activeLiveId, currentLiveSession?.authorization_id, liveAuthorization.grant?.capabilities.control, role, viewerPaused]);
+  useEffect(() => {
+    setControlStage("idle");
+    setControlNotice(null);
+  }, [activeLiveId]);
   const [viewerUnsupported, setViewerUnsupported] = useState(false);
   const [jpegDiagnosticStarting, setJpegDiagnosticStarting] = useState(false);
   const jpegDiagnosticBusyRef = useRef(false);
@@ -173,7 +215,19 @@ function AdminPage() {
   >("connecting");
   // WebRTC video is the primary surface; the JPEG frame pipe is the fallback.
   const [rtcState, setRtcState] = useState<WebRtcState>("idle");
-  const controlReady = controlGranted && rtcState === "connected";
+  const controlChannelReady = controlGranted && rtcState === "connected";
+  const controlActionPending = ["requesting-control", "waiting-agent", "applying-curtain", "releasing"].includes(controlStage);
+  // Do not inject input before the local curtain is actually confirmed.
+  const controlReady = controlChannelReady && (!controlWithCurtain || curtain.active === true) &&
+    !unlockActive && !curtain.pending && !controlActionPending && controlStage !== "error";
+  const controlBlockedReason = !activeLiveId ? "The Agent must accept an active session first." :
+    role === null || role === "viewer" ? "Your account cannot take control." :
+    !liveAuthorization.grant?.capabilities.control ? "Control was not included in this device's pairing permission." :
+    viewerPaused ? "Resume the viewer before taking control." :
+    unlockActive ? "Finish or cancel Windows unlock before requesting ordinary control." :
+    rtcState !== "connected" || !agentMode ? "Waiting for the Agent command channel. JPEG pictures alone cannot confirm control or curtain." :
+    controlWithCurtain && !curtain.supported ? "The Agent has not confirmed privacy-curtain support. Use the updated Windows Agent." :
+    controlWithCurtain && curtain.active === null ? "Clear the unconfirmed curtain before requesting control again." : null;
   const rtcVideoLive = rtcState === "connected";
   const rtcVideoLiveRef = useRef(false);
   // When the video track drops we unsubscribe/resubscribe the JPEG fallback,
@@ -184,7 +238,6 @@ function AdminPage() {
   rtcVideoLiveRef.current = rtcVideoLive;
   // Decoded-video frame rate, sampled off the real <video> element so the HUD
   // reports the stream's actual cadence rather than the JPEG fallback's.
-  const videoFpsRef = useRef({ last: 0, frames: 0, fps: 0 });
   const [videoFps, setVideoFps] = useState(0);
   // "Connected" is not the same as "showing pixels": a peer can complete ICE
   // while the sender's encoder emits nothing. Only a decoded frame proves the
@@ -256,9 +309,8 @@ function AdminPage() {
   // Live surface subscriptions.
   //   * Cursor telemetry always streams (it is tiny and drives the SVG overlay).
   //   * JPEG frames (session_frames) are the FALLBACK surface only — while the
-  //     WebRTC video track is connected we unsubscribe from them entirely and
-  //     stop the poller, so the slideshow pipe costs nothing. It resumes
-  //     automatically the moment RTC drops to failed/superseded.
+  //     WebRTC video is producing fresh decoded frames we stop downloading
+  //     JPEGs. Resume on a stalled decoder as well as a failed connection.
   useEffect(() => {
     if (!liveId) {
       setLiveFrame(null);
@@ -269,7 +321,7 @@ function AdminPage() {
     }
     let cancelled = false;
     // Only stand down the JPEG pipe once video is genuinely decoding.
-    // Unknown and migrated sessions never start a JPEG pipeline.
+    // Unknown and explicitly video-only sessions never start a JPEG pipeline.
     const wantFrames = currentLiveSession?.media_mode === "legacy" && !videoDecoding && !viewerPaused;
     if (!wantFrames) setLiveFrame(null);
 
@@ -379,6 +431,8 @@ function AdminPage() {
 
   useEffect(() => {
     setAgentMode(null);
+    setWindowsUnlock({ ...EMPTY_UNLOCK });
+    setMediaRecovery(null);
     setViewerPaused(false);
     setViewerUnsupported(false);
     if (!activeLiveId) {
@@ -395,11 +449,28 @@ function AdminPage() {
       return;
     }
     viewerStartedAtRef.current = Date.now();
-    const live = startWebRtcLive(activeLiveId, {
+    const live = startResilientWebRtc(activeLiveId, {
       videoOnly: liveVideoOnly, authorizationId: currentLiveSession?.authorization_id,
     });
     rtcRef.current = live;
     setViewerVideo(live.video);
+    setMediaRecovery(live.recovery());
+    const offVideo = live.onVideo(video => {
+      if (rtcRef.current !== live) return;
+      setVideoDecoding(false);
+      setViewerVideo(video);
+    });
+    const offRecovery = live.onRecovery(status => {
+      if (rtcRef.current === live) setMediaRecovery(status);
+    });
+    const offInterruptedRecording = live.onInterruptedRecording(result => {
+      if (rtcRef.current !== live) return;
+      setRecording(false);
+      if (result) downloadRecording(activeLiveId, result, true);
+      else toast.error("Recording interrupted", {
+        description: "No recording segment could be saved. Recording will not restart automatically.",
+      });
+    });
     live.onRecording((active) => {
       if (rtcRef.current === live) setRecording(active);
     });
@@ -412,6 +483,15 @@ function AdminPage() {
     });
     const offCurtain = live.onCurtain(state => {
       if (rtcRef.current === live) setCurtain(state);
+    });
+    const offUnlock = live.onUnlock(state => {
+      if (rtcRef.current !== live) return;
+      setWindowsUnlock(old => old.phase === state.phase && old.requestId === state.requestId &&
+        old.reason === state.reason ? old : state);
+      if (state.phase === "unlocked") {
+        setAgentMode("view");
+        setSessions(rows => rows.map(row => row.id === activeLiveId ? { ...row, mode: "view" } : row));
+      }
     });
 
     // S21 — inbound transfers must announce themselves even when the Files
@@ -464,14 +544,21 @@ function AdminPage() {
     }, 1000);
 
     return () => {
+      if (rtcRef.current === live)
+        controlOperationRef.current?.controller.abort(new Error("The viewer was closed or replaced."));
+      offVideo();
+      offRecovery();
+      offInterruptedRecording();
       offFile();
       offClip();
       offMode();
       offCurtain();
+      offUnlock();
       setCurtain({ supported: false, active: null, pending: false, reason: null });
       window.clearInterval(filesTick);
       if (rtcRef.current === live) rtcRef.current = null;
-      setViewerVideo((current) => current === live.video ? null : current);
+      setViewerVideo(null);
+      setMediaRecovery(null);
       setRtcState("idle");
       setFilesReady(false);
       setClipReady(false);
@@ -479,6 +566,8 @@ function AdminPage() {
       live.close();
     };
   }, [activeLiveId, liveVideoOnly, currentLiveSession?.authorization_id, viewerAttempt]);
+
+  useEffect(() => { rtcRef.current?.setPaused(viewerPaused); }, [viewerPaused, viewerVideo]);
 
   /** S22 — push the technician's local clipboard to the remote machine. */
   async function pushClipboard() {
@@ -508,10 +597,28 @@ function AdminPage() {
     else toast.error("Clipboard send failed");
   }
 
+  function downloadRecording(sessionId: string, result: RecordingResult, interrupted = false) {
+    if (downloadedRecordingsRef.current.has(result.blob)) return;
+    downloadedRecordingsRef.current.add(result.blob);
+    const url = URL.createObjectURL(result.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `connectlive-${sessionId.slice(0, 8)}-${Date.now()}.webm`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    toast.success(interrupted ? "Recording segment saved before reconnecting" : "Recording saved", {
+      description: `${Math.round(result.durationMs / 1000)}s · ${(result.blob.size / 1048576).toFixed(1)} MB` +
+        (interrupted ? ". Start a new recording after video returns." : ""),
+    });
+  }
+
   /** S24 — start/stop a local WEBM recording of the live video track. */
   async function toggleRecording(sessionId: string) {
     const live = rtcRef.current;
-    if (!live) return;
+    if (!live || recordingActionRef.current) return;
+    recordingActionRef.current = true;
+    setRecordingActionPending(true);
+    try {
     if (!live.recording() && !liveAuthorization.grant?.capabilities.recording) {
       toast.error("Recording is not authorized for this session.");
       return;
@@ -523,15 +630,7 @@ function AdminPage() {
         toast.error("Recording produced no footage");
         return;
       }
-      const url = URL.createObjectURL(result.blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `connectlive-${sessionId.slice(0, 8)}-${Date.now()}.webm`;
-      a.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      toast.success("Recording saved", {
-        description: `${Math.round(result.durationMs / 1000)}s · ${(result.blob.size / 1048576).toFixed(1)} MB`,
-      });
+      downloadRecording(sessionId, result);
       return;
     }
     if (!live.canRecord()) {
@@ -546,12 +645,16 @@ function AdminPage() {
     } else {
       toast.error("Recording unavailable: permission was denied, expired, or could not be verified.");
     }
+    } finally {
+      recordingActionRef.current = false;
+      setRecordingActionPending(false);
+    }
   }
 
 
   // Mount the WebRTC <video> element into the live surface. The element is
-  // owned by startWebRtcLive() and reused across re-renders; we only move it
-  // in and out of the DOM here.
+  // owned by the active peer and replaced on automatic recovery; we only
+  // move the current element in and out of the DOM here.
   useEffect(() => {
     const host = videoHostRef.current;
     const video = rtcRef.current?.video;
@@ -562,47 +665,26 @@ function AdminPage() {
     };
   }, [liveId, rtcVideoLive, liveSurfaceDeviceId, viewerVideo]);
 
-  // Measure decoded video frame rate. requestVideoFrameCallback fires once per
-  // presented frame, so this is the true stream cadence — the old HUD only ever
-  // counted JPEG arrivals and therefore read "1 fps" during healthy video.
+  // A previously decoded frame must expire even if ICE stays connected or the
+  // media element stops playing. Local pause still suppresses JPEG explicitly.
   useEffect(() => {
-    if (!rtcVideoLive) {
+    if (!rtcVideoLive || !viewerVideo) {
       setVideoFps(0);
       setVideoDecoding(false);
-      videoFpsRef.current = { last: 0, frames: 0, fps: 0 };
       return;
     }
-    const video = rtcRef.current?.video as
-      | (HTMLVideoElement & {
-          requestVideoFrameCallback?: (cb: () => void) => number;
-          cancelVideoFrameCallback?: (id: number) => void;
-        })
-      | undefined;
-    if (!video) return;
-    let stop = false;
-    let handle = 0;
-    const tick = () => {
-      if (stop) return;
-      const st = videoFpsRef.current;
-      const t = performance.now();
-      st.frames += 1;
-      setVideoDecoding(true);
-      if (!st.last) st.last = t;
-      else if (t - st.last >= 1000) {
-        st.fps = Math.round((st.frames * 1000) / (t - st.last));
-        st.frames = 0;
-        st.last = t;
-        setVideoFps(st.fps);
-      }
-      if (video.requestVideoFrameCallback) handle = video.requestVideoFrameCallback(tick);
-    };
+    const stopObserving = observeVideoFrames(viewerVideo, ({ decoding, fps }) => {
+      setVideoDecoding(decoding);
+      setVideoFps(fps);
+    });
+    const live = rtcRef.current;
     // Diagnostic: 3 s after the peer reports connected, say whether media is
     // actually arriving. No bytes = transport problem; bytes but no decoded
     // frames = codec/format problem on the sender.
     const probe = window.setTimeout(() => {
       void (async () => {
         try {
-          const stats = await (rtcRef.current?.stats?.() ?? Promise.resolve(null));
+          const stats = await (live?.stats?.() ?? Promise.resolve(null));
           if (!stats) return;
           stats.forEach((r: Record<string, unknown>) => {
             if (r["type"] === "inbound-rtp" && r["kind"] === "video") {
@@ -616,32 +698,11 @@ function AdminPage() {
         }
       })();
     }, 3000);
-    if (video.requestVideoFrameCallback) {
-      handle = video.requestVideoFrameCallback(tick);
-    } else {
-      // Safari/older engines: fall back to a decoded-frame-count poll.
-      const iv = setInterval(() => {
-        const q = (
-          video as unknown as { getVideoPlaybackQuality?: () => { totalVideoFrames: number } }
-        ).getVideoPlaybackQuality?.();
-        if (!q) return;
-        const st = videoFpsRef.current;
-        if (q.totalVideoFrames > 0) setVideoDecoding(true);
-        if (st.last) setVideoFps(Math.max(0, q.totalVideoFrames - st.frames));
-        st.frames = q.totalVideoFrames;
-        st.last = 1;
-      }, 1000);
-      return () => {
-        clearInterval(iv);
-        window.clearTimeout(probe);
-      };
-    }
     return () => {
-      stop = true;
+      stopObserving();
       window.clearTimeout(probe);
-      if (handle && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(handle);
     };
-  }, [liveId, rtcVideoLive]);
+  }, [liveId, rtcVideoLive, viewerVideo]);
 
   useEffect(() => {
     if (!liveId) return;
@@ -691,6 +752,13 @@ function AdminPage() {
     if ((!controlReady || viewerPaused) && document.pointerLockElement === liveSurfaceRef.current)
       document.exitPointerLock();
   }, [controlReady, viewerPaused]);
+  const inputWasReadyRef = useRef(false);
+  useEffect(() => {
+    const ready = role !== null && role !== "viewer" && controlReady && !viewerPaused;
+    if (inputWasReadyRef.current && !ready)
+      rtcRef.current?.sendInput({ kind: "release_inputs", payload: {} });
+    inputWasReadyRef.current = ready;
+  }, [controlReady, viewerPaused, role]);
 
   async function refresh() {
     const [d, s, a, releases, runtime, commands] = await Promise.all([
@@ -836,7 +904,7 @@ function AdminPage() {
     const existing = existingRows?.[0];
     if (existing) {
       if (jpegDiagnostic) {
-        toast.error("Another live session remains open. End it before starting JPEG diagnosis.");
+        toast.error("Another live session remains open. End it before enabling JPEG fallback.");
         return false;
       }
       setLiveId(existing.id);
@@ -886,7 +954,7 @@ function AdminPage() {
     try {
       await replaceWithJpegDiagnostic(() => endSession(s), () => connectDevice(device, true));
     } catch {
-      toast.error("JPEG diagnosis could not start. Check the session list before retrying.");
+      toast.error("JPEG fallback could not start. Check the session list before retrying.");
     } finally {
       jpegDiagnosticBusyRef.current = false;
       setJpegDiagnosticStarting(false);
@@ -983,30 +1051,83 @@ function AdminPage() {
   }
 
   async function toggleControl(s: Session) {
-    const nextMode = s.mode === "control" ? "view" : "control";
-    if (nextMode === "control" && !liveAuthorization.grant?.capabilities.control) {
-      toast.error("Keyboard/mouse control is not authorized.");
+    const previous = controlOperationRef.current;
+    if (previous?.sessionId === s.id) {
+      previous.controller.abort(new Error("Control request cancelled."));
+      setControlStage("releasing");
       return;
     }
-    const { data: changed, error: modeError } = await supabase.from("sessions")
-      .update({ mode: nextMode }).eq("id", s.id).eq("state", "active").select("id").maybeSingle();
-    if (modeError || !changed) {
-      toast.error(modeError?.message ?? "Session is no longer active or access was denied.");
+    previous?.controller.abort(new Error("The selected session changed."));
+    const releasing = s.mode === "control";
+    if (!releasing && controlBlockedReason) { toast.error(controlBlockedReason); return; }
+    if (role === null || role === "viewer" || s.state !== "active") {
+      toast.error("This account cannot change the current session.");
       return;
     }
-    // Keyboard/mouse control is not a privacy curtain or a local input lock.
-    if (nextMode === "view") {
-      await sendInput(s.id, "release_inputs", {});
-      await sendInput(s.id, "curtain_off", {});
+    const live = rtcRef.current?.sessionId === s.id ? rtcRef.current : null;
+    const video = live?.video;
+    const operation = { controller: new AbortController(), sessionId: s.id, authorizationId: s.authorization_id };
+    controlOperationRef.current = operation;
+    setControlNotice(null);
+    const isSamePeer = () => !!live && rtcRef.current === live && live.video === video;
+    const isCurrent = () => {
+      const current = controlContextRef.current;
+      return isSamePeer() && current.allowed && current.sessionId === s.id &&
+        current.authorizationId === s.authorization_id;
+    };
+    const onStage = (stage: ControlStage) => {
+      if (controlOperationRef.current === operation && controlContextRef.current.sessionId === s.id)
+        setControlStage(stage);
+    };
+    const setMode = async (mode: "control" | "view", signal: AbortSignal) => {
+      if (mode === "control" && !isCurrent()) throw new Error("The control request is no longer current.");
+      const write = ++modeWriteRef.current;
+      const request = new AbortController();
+      const abort = () => request.abort(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      const timer = setTimeout(() => request.abort(new Error("Session-mode request timed out.")), 6000);
+      try {
+        let query = supabase.from("sessions").update({ mode }).eq("id", s.id).eq("state", "active");
+        query = s.authorization_id ? query.eq("authorization_id", s.authorization_id) : query.is("authorization_id", null);
+        const { data, error } = await query.select("id").abortSignal(request.signal).maybeSingle();
+        if (error || !data) throw new Error(error?.message ?? "Session is no longer active or access was denied.");
+        if (write === modeWriteRef.current)
+          setSessions(rows => rows.map(row => row.id === s.id ? { ...row, mode } : row));
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+      }
+    };
+    try {
+      if (releasing) {
+        const result = await releaseControlAndCurtain({ peer: live, withCurtain: controlWithCurtain, isSamePeer, setMode, onStage });
+        const message = !controlWithCurtain ? "View mode requested." : result.curtainConfirmed ? "Curtain cleared; view mode requested." :
+          "View mode requested. Curtain release is unconfirmed; a lost connection expires the Agent's five-second curtain lease.";
+        if (controlContextRef.current.sessionId === s.id) { setControlStage("idle"); setControlNotice(message); }
+        toast.info(message);
+      } else {
+        if (!live) throw new Error("The Agent command channel is unavailable.");
+        await takeControlAndCurtain({
+          peer: live, withCurtain: controlWithCurtain, initialMode: agentMode, signal: operation.controller.signal,
+          isCurrent, isSamePeer, setMode, onStage,
+        });
+        live.resumeOrdinaryInput();
+        toast.success(controlWithCurtain ? "Agent confirmed control and privacy curtain." : "Agent confirmed control.");
+      }
+      const dev = devices.find(device => device.id === s.device_id);
+      void pushNotify(releasing ? "control_released" : "control_taken",
+        `${releasing ? "View mode requested" : controlWithCurtain ? "Control and curtain confirmed" : "Control confirmed"} for <b>${dev?.display_name ?? "device"}</b>.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Control and curtain could not be confirmed.";
+      if (controlOperationRef.current === operation && controlContextRef.current.sessionId === s.id) {
+        setControlStage("error");
+        setControlNotice(message);
+      }
+      toast.error(message);
+    } finally {
+      if (controlOperationRef.current === operation) controlOperationRef.current = null;
     }
-    toast.info("Mode requested; waiting for the Agent to acknowledge it.");
-    const dev = s.device_id ? devices.find((d) => d.id === s.device_id) : null;
-    void pushNotify(
-      nextMode === "control" ? "control_taken" : "control_released",
-      nextMode === "control"
-        ? `Keyboard/mouse control requested for <b>${dev?.display_name ?? "device"}</b>; awaiting Agent acknowledgement.`
-        : `View-only mode requested for <b>${dev?.display_name ?? "device"}</b>; awaiting Agent acknowledgement.`,
-    );
   }
 
   async function requestReconnect(s: Session) {
@@ -1017,8 +1138,14 @@ function AdminPage() {
   // Coordinates are normalized (0..1) relative to the rendered surface.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
     const live = rtcRef.current;
+    const secure = live?.unlockState();
+    if (live?.sensitiveInput() || (secure && ["starting", "ready", "submitted"].includes(secure.phase))) {
+      if (live?.sessionId === sessionId && role !== null && role !== "viewer" && !viewerPaused &&
+          secure?.phase === "ready") live.sendUnlockInput(kind, payload);
+      return; // Sensitive input must NEVER enter the REST queue or be replayed.
+    }
     const cleanup = kind === "release_inputs" || kind === "curtain_off";
-    if (!cleanup && (live?.sessionId !== sessionId || !controlReady || viewerPaused || role === "viewer")) return;
+    if (!cleanup && (live?.sessionId !== sessionId || role === "viewer" || !controlReady || viewerPaused)) return;
     const target = sessions.find(session => session.id === sessionId);
     const sentRealtime = live?.sessionId === sessionId && live.sendInput({ kind, payload });
     if (sentRealtime) return;
@@ -1118,7 +1245,7 @@ function AdminPage() {
     if (printable) {
       e.preventDefault();
       void sendInput(sessionId, "unicode_text", { text: e.key });
-      if (updateEcho) setSharedNote((v) => (v + e.key).slice(-240));
+      if (updateEcho && !unlockActive) setSharedNote((v) => (v + e.key).slice(-240));
       return;
     }
 
@@ -1139,6 +1266,7 @@ function AdminPage() {
   }
 
   function pasteToRemote(sessionId: string, e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (unlockActive) { e.preventDefault(); return; }
     const text = e.clipboardData.getData("text");
     if (!text) return;
     e.preventDefault();
@@ -1224,6 +1352,14 @@ function AdminPage() {
   // Reconnect only this viewer. This is not an Agent process relaunch.
   async function restartStream(s: Session) {
     if (s.state !== "active") { toast.info("Wait for an authorized active session before reconnecting."); return; }
+    if (rtcRef.current?.sessionId === s.id) {
+      if (rtcRef.current.recovery().phase === "stopped") {
+        toast.info("Video retries stopped because viewing permission or viewer ownership changed.");
+        return;
+      }
+      rtcRef.current.retry();
+      return;
+    }
     setLiveId(s.id);
     setViewerAttempt(value => value + 1);
   }
@@ -1401,6 +1537,7 @@ function AdminPage() {
                   return n;
                 });
               }}
+              onWindowsUnlock={setUnlockSettings}
             />
           ) : (
           <>
@@ -1518,6 +1655,9 @@ function AdminPage() {
 
       {/* Live view modal */}
       <DevicePairingDialog open={pairingOpen} onOpenChange={setPairingOpen} />
+      {unlockSettings && <WindowsUnlockSettings key={unlockSettings.id}
+        deviceId={unlockSettings.id} deviceName={unlockSettings.display_name}
+        canManage={role === "admin" || role === "super_admin"} onClose={() => setUnlockSettings(null)} />}
       {liveId &&
         (() => {
           const s = sessions.find((x) => x.id === liveId);
@@ -1570,10 +1710,13 @@ function AdminPage() {
           const streamTone = liveVideoOnly ? videoStatus.tone : legacyStreamTone;
           const streamCopy = liveVideoOnly ? videoStatus.label :
             viewerPaused ? "Viewer paused — sharing continues" : legacyStreamCopy;
-          const control = controlReady && role !== "viewer" && !viewerPaused;
-          const rtSinceLastPush = lastRealtimePushAtRef.current
-            ? now - lastRealtimePushAtRef.current
+          const control = role !== null && role !== "viewer" &&
+            (controlReady || windowsUnlock.phase === "ready") && !viewerPaused;
+          const rtSinceLastFramePush = lastFramePushAtRef.current
+            ? now - lastFramePushAtRef.current
             : Infinity;
+          const freshFallback = active && !viewerPaused && !liveVideoOnly &&
+            !!liveFrame?.frame && frameAge < 8000;
           // Transport pill: only a decoded frame earns the "WebRTC video" label.
           // A peer that completed ICE but never delivers pixels reads
           // "WebRTC negotiating" so this exact failure is visible at a glance.
@@ -1585,7 +1728,9 @@ function AdminPage() {
             | "reconnecting"
             | "polling" = videoDecoding
             ? "video"
-            : rtcVideoLive
+            : freshFallback
+              ? rtSinceLastFramePush < 5000 ? "live" : "polling"
+              : rtcVideoLive
               ? "negotiating"
               : rtcState === "connecting" || handingOver
                 ? "connecting"
@@ -1593,7 +1738,7 @@ function AdminPage() {
                   ? "reconnecting"
                   : realtimeStatus === "connecting"
                     ? "connecting"
-                    : rtSinceLastPush < 5000
+                    : rtSinceLastFramePush < 5000
                       ? "live"
                       : "polling";
           const transportTone =
@@ -1655,12 +1800,13 @@ function AdminPage() {
                         {dev?.display_name ?? "Waiting for agent…"}
                       </div>
                       <div className="text-xs text-white/50">
-                        {s.mode === "control" ? (legacyActions ? "Control authorized — legacy receiver unconfirmed" : controlReady ? "Agent control ready" : "Control requested — awaiting Agent") : "View mode"} · {s.state} ·{" "}
+                        {s.mode === "control" ? (controlReady ? (controlWithCurtain ? "Control + curtain confirmed" : "Agent control ready") : "Control not ready — input paused") :
+                          agentMode === "control" ? "View requested — awaiting Agent" : "View mode"} · {s.state} ·{" "}
                         {streamCopy}
                       </div>
                     </div>
                     <span
-                      title={`WebRTC: ${rtcState}. TURN: ${relay === "relay" ? "configured (availability only, not proof of use)" : relay === "none" ? "not configured, direct paths only" : "resolving"}. Selected path: ${iceKind ? (iceKind === "relay" ? "relay (TURN in use)" : iceKind) : "not yet selected"}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastPush) ? `${Math.round(rtSinceLastPush)}ms ago` : "never"}.`}
+                      title={`WebRTC: ${rtcState}. TURN: ${relay === "relay" ? "configured (availability only, not proof of use)" : relay === "none" ? "not configured, direct paths only" : "resolving"}. Selected path: ${iceKind ? (iceKind === "relay" ? "relay (TURN in use)" : iceKind) : "not yet selected"}. Realtime socket: ${realtimeStatus}. Last frame push ${Number.isFinite(rtSinceLastFramePush) ? `${Math.round(rtSinceLastFramePush)}ms ago` : "never"}.`}
                       className="ml-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/80"
                     >
                       <span
@@ -1704,12 +1850,29 @@ function AdminPage() {
                 {s.media_mode === "legacy" && dev?.platform === "windows" &&
                   (dev.metadata as Record<string, unknown> | null)?.browser_video === 1 && (
                   <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="jpeg-diagnostic-status" role="status">
-                    <strong>JPEG fallback enabled.</strong>{" "}
+                    <strong>Automatic JPEG fallback enabled.</strong>{" "}
                     {videoDecoding ? "WebRTC video is decoding; JPEG is on standby." :
                       active && liveFrame?.frame && frameAge < 8000
-                        ? "JPEG received: screen capture and HTTPS upload are working. Check the Agent log for the separate WebRTC signaling, encoder and ICE path."
-                        : "Waiting for an authorized, fresh JPEG frame. No picture does not yet prove a capture failure—check session acceptance and the Agent log."}
-                    {" "}Video: {rtcState}. Logs: <code>%LOCALAPPDATA%\ConnectLive\logs</code>
+                        ? "Showing JPEG while video recovers automatically. Use 1:1 for pixel-for-pixel text."
+                        : "Video is preferred. Waiting for an authorized video stream or a fresh JPEG frame; viewing permission is still required."}
+                    {" "}Video: {rtcState}.
+                    {mediaRecovery && <span data-testid="media-recovery-status">
+                      {" "}{mediaRecovery.phase === "live"
+                        ? `${mediaRecovery.codec ?? "Video"} · ${mediaRecovery.path === "relay" ? "TURN relay" : mediaRecovery.path ? "direct connection" : "route not yet reported"}`
+                        : mediaRecovery.phase === "stopped"
+                          ? "Retries stopped because viewing permission or viewer ownership changed."
+                          : mediaRecovery.phase === "finishing-recording"
+                            ? "Saving the recording segment before reconnecting."
+                            : `${mediaRecovery.phase === "waiting" ? "Next automatic retry" : "Trying"}: ${mediaRecovery.profile.label} · attempt ${mediaRecovery.attempt + (mediaRecovery.phase === "waiting" ? 1 : 0)}`}
+                    </span>}
+                    {" "}Logs: <code>%LOCALAPPDATA%\ConnectLive\logs</code>
+                  </div>
+                )}
+                {s.media_mode === "video" && (
+                  <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="video-only-session-notice" role="status">
+                    This existing session is video-only. Use <strong>Enable JPEG fallback</strong> to
+                    replace it with a new view-only session. Attended access still requires local approval.
+                    {mediaRecovery?.phase === "waiting" && " Video retries continue automatically without JPEG."}
                   </div>
                 )}
                 <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -1751,24 +1914,42 @@ function AdminPage() {
                         onClick={() => void diagnoseWithJpeg(s)}
                         disabled={jpegDiagnosticStarting || !["invited", "consented", "active", "paused"].includes(s.state)}
                         className="rounded border border-amber-400/30 bg-amber-400/5 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-400/10 disabled:opacity-50"
-                        title="Ends this session and starts a new view-only session that permits JPEG fallback; no permission bypass or database migration"
+                        title="Confirm replacement with a new view-only session using video and automatic JPEG fallback; existing permissions still apply"
                       >
-                        {jpegDiagnosticStarting ? "Starting diagnosis…" : "Test JPEG fallback"}
+                        {jpegDiagnosticStarting ? "Enabling fallback…" : "Enable JPEG fallback"}
                       </button>
                     )}
                     {s.device_id && role !== "viewer" && (
                       <button
-                        onClick={() => toggleControl(s)}
-                        disabled={!active || !agentMode || !liveAuthorization.grant?.capabilities.control}
+                        type="button"
+                        data-testid="button-control-curtain"
+                        onClick={() => void toggleControl(s)}
+                        disabled={controlStage === "releasing" || !active ||
+                          (!controlActionPending && s.mode !== "control" && !!controlBlockedReason)}
                         className={`rounded px-3 py-1.5 text-xs font-medium ${s.mode === "control" ? "bg-red-500/90 hover:bg-red-500 text-white" : "bg-white/10 hover:bg-white/15"}`}
                         title={
-                          s.mode === "control"
-                            ? "Existing action: switch this session back to view mode"
-                            : "Existing action: request control mode for this session"
+                          controlActionPending ? "Cancel this request and release control safely" :
+                          s.mode === "control" ? "Request view mode and clear the remote curtain, even if the command channel is lost" :
+                            controlBlockedReason ?? "Request control, then apply the remote privacy curtain after Agent acknowledgement"
                         }
                       >
-                        {s.mode === "control" ? "Release control mode" : "Request control mode"}
+                        {controlStage === "releasing" ? "Releasing control…" : controlActionPending ? "Cancel control request" :
+                          s.mode === "control" ? (controlWithCurtain ? "Release control + curtain" : "Release control mode") :
+                            controlWithCurtain ? "Take control + curtain" : "Request control mode"}
                       </button>
+                    )}
+                    {s.device_id && role !== "viewer" && (
+                      <p role="status" aria-live="polite" data-testid="control-curtain-status"
+                        className="max-w-xs px-1 py-1 text-[10px] leading-relaxed text-white/60">
+                        {controlStage === "requesting-control" ? "Requesting session control permission…" :
+                          controlStage === "waiting-agent" ? "Waiting for the Agent to acknowledge control…" :
+                          controlStage === "applying-curtain" ? "Applying the remote curtain. Input stays paused until confirmed." :
+                          controlStage === "releasing" ? "Releasing input and curtain; requesting view mode…" :
+                          controlNotice ?? controlBlockedReason ??
+                          (controlReady ? (controlWithCurtain ? "Agent confirmed the curtain. Keyboard and mouse control are ready." : "Agent confirmed keyboard and mouse control.") :
+                            controlWithCurtain ? "The curtain is applied only after the Agent confirms control. This does not run a Windows scheduled task." :
+                              "Control is enabled only after the Agent acknowledges it. Windows curtain actions do not apply to Android.")}
+                      </p>
                     )}
                     {s.device_id && control && (
                       <button
@@ -1815,10 +1996,10 @@ function AdminPage() {
                       size="sm"
                       variant={recording ? "destructive" : "outline"}
                       className={recording ? undefined : actionButtonClass}
-                      disabled={!recording && (!videoDecoding || !liveAuthorization.grant?.capabilities.recording)}
+                      disabled={recordingActionPending || (!recording && (!videoDecoding || !liveAuthorization.grant?.capabilities.recording))}
                       onClick={() => void toggleRecording(s.id)}
                     >
-                      {recording ? "Stop recording" : "Record session"}
+                      {recordingActionPending ? (recording ? "Saving…" : "Starting…") : recording ? "Stop recording" : "Record session"}
                     </Button>
                     <Button
                       type="button" size="sm" variant="outline"
@@ -1828,6 +2009,7 @@ function AdminPage() {
                       onClick={() => {
                         if (!viewerVideo) return;
                         if (!viewerPaused) { viewerVideo.pause(); setViewerPaused(true); }
+                        else if (!viewerVideo.srcObject) setViewerPaused(false);
                         else void viewerVideo.play().then(() => setViewerPaused(false))
                           .catch(() => toast.error("Playback could not resume. Reconnect the viewer."));
                       }}
@@ -1836,11 +2018,20 @@ function AdminPage() {
                     </Button>
                     <Button type="button" size="sm" variant={curtain.active ? "destructive" : "outline"}
                       className={curtain.active ? undefined : actionButtonClass}
-                      disabled={!curtain.supported || curtain.pending || (curtain.active === false && !controlReady)}
+                      disabled={!curtain.supported || controlActionPending || (curtain.active === false && !controlChannelReady)}
                       aria-pressed={curtain.active === true}
                       title="Shows a local maintenance notice and pauses ordinary local input. Ctrl+Alt+Shift+Esc on the device stops remote access."
                       onClick={async () => {
-                        try { await rtcRef.current?.setCurtain(curtain.active === false); }
+                        const enabled = curtain.active === false;
+                        try {
+                          const live = rtcRef.current;
+                          if (!live) throw new Error("The Agent command channel is unavailable.");
+                          await live.setCurtain(enabled);
+                          if (rtcRef.current === live) {
+                            setControlStage(enabled ? "active" : "idle");
+                            setControlNotice(null);
+                          }
+                        }
                         catch (error) { toast.error(error instanceof Error ? error.message : "Curtain request failed."); }
                       }}>
                       {curtain.pending ? "Waiting for Agent…" : curtain.active === null ? "Clear unconfirmed curtain" :
@@ -1891,6 +2082,39 @@ function AdminPage() {
                     </nav>
                   )}
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    {dev?.platform === "windows" && s.device_id && (
+                      <WindowsUnlockControls key={`${s.id}:${s.device_id}`} deviceId={s.device_id} sessionId={s.id}
+                        live={rtcRef.current?.sessionId === s.id ? rtcRef.current : null}
+                        canUnlock={role !== null && role !== "viewer" && !viewerPaused &&
+                          liveAuthorization.grant?.mode === "unattended" &&
+                          liveAuthorization.grant?.capabilities.control === true}
+                        beforeStart={async () => {
+                          const live = rtcRef.current;
+                          if (!live || live.sessionId !== s.id) throw new Error("The live session changed.");
+                          controlOperationRef.current?.controller.abort(new Error("Windows unlock requested."));
+                          if (moveRafRef.current !== null) cancelAnimationFrame(moveRafRef.current);
+                          moveRafRef.current = null; pendingMoveRef.current = null;
+                          pointerLockRelRef.current = { dx: 0, dy: 0 };
+                          if (document.pointerLockElement) document.exitPointerLock();
+                          setFilesOpen(false); setSharedNote("");
+                          if (live.recording()) {
+                            const result = await live.stopRecording();
+                            if (result) downloadRecording(s.id, result);
+                          }
+                          if (rtcRef.current !== live || live.sessionId !== s.id)
+                            throw new Error("The live session changed.");
+                          if (live.recording()) throw new Error("Recording has not stopped. Unlock is blocked.");
+                          const { data, error } = await supabase.from("sessions").update({ mode: "view" })
+                            .eq("id", s.id).eq("state", "active").select("id").maybeSingle();
+                          if (error || !data) throw new Error("View-only mode could not be confirmed.");
+                          setSessions(rows => rows.map(row => row.id === s.id ? { ...row, mode: "view" } : row));
+                          setAgentMode("view");
+                          setControlStage("idle");
+                          // The Agent releases this peer's curtain before secure
+                          // capture. Neither unlock nor reconnect re-enables it.
+                        }}
+                      />
+                    )}
                     <RemoteDisplayFrame
                       source={displaySource}
                       mode={viewerScaleMode}
@@ -1911,8 +2135,8 @@ function AdminPage() {
                           ? "The device heartbeat is stale; awaiting a fresh check-in."
                           : active
                              ? liveVideoOnly
-                               ? "Waiting for decoded video. Check the Agent encoder and direct/TURN connectivity; this session never falls back to JPEG."
-                               : "Waiting for decoded video or a fresh legacy fallback frame."
+                               ? "Waiting for decoded video. This existing video-only session needs Enable JPEG fallback before it can show JPEG."
+                               : "Waiting for decoded video or a fresh JPEG fallback frame."
                              : "Wait for Agent acceptance, or start a new authorized session."}
                       </div>
                     </div>
@@ -2002,6 +2226,7 @@ function AdminPage() {
                         by startWebRtcLive(); we only host it here. */}
                       <div
                         ref={videoHostRef}
+                        data-testid="viewer-video"
                         className={`pointer-events-none absolute inset-0 ${videoDecoding || viewerPaused ? "" : "opacity-0"}`}
                       />
                       {/* Fallback layer: base64 JPEG slideshow from session_frames.
@@ -2009,6 +2234,7 @@ function AdminPage() {
                         identical apart from the source dimensions. */}
                       {!liveVideoOnly && !viewerPaused && !videoDecoding && liveFrame?.frame && (
                         <img
+                          data-testid="viewer-jpeg"
                           src={`data:image/jpeg;base64,${liveFrame.frame}`}
                           alt="Live screen"
                           className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:auto]"

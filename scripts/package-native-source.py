@@ -94,6 +94,7 @@ def main():
             APP / "supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql").read_bytes()
         if side == "agent":
             files["tests/agent-ui-regression.cjs"] = (ROOT / "tests/agent-ui-regression.cjs").read_bytes()
+            files["tests/video-native-preflight.cjs"] = (ROOT / "tests/video-native-preflight.cjs").read_bytes()
             for name in (
                 "20261103000000_disclosed_device_pairing.sql",
                 "20261103001000_browser_video_sessions.sql",
@@ -174,10 +175,12 @@ def main():
                "Open PowerShell in the extracted folder, then run:\n"
                "  cd .\\agent\n"
                "  Unblock-File .\\run.ps1\n"
-               "  .\\run.ps1 -Pair\n"
+               "  .\\run.ps1\n"
                "This builds the actual Agent, Watch and updater source on YOUR machine; no MSI is created.\n"
                "The one pairing-code window replaces both old startup windows. Access details stay inline.\n"
-               "Get a fresh code from your administrator. After pairing there is no status window or tray/control UI.\n"
+               "An existing valid pairing resumes. Add -Pair only for a new pairing or changed server origin.\n"
+               "After a confirmed support-session end, enter a new code in the Agent's pairing window.\n"
+               "After pairing there is no status window or tray/control UI.\n"
                "Local disable still works: .\\run.ps1 -Disable or ConnectLive.exe /disable.\n"
                "Source files are in agent/src, agent/update-core and agent/tools; they are not download links.\n"
                "The single admin/src/Api/AppConfig.cs file is a shared test dependency, not another client bundle.\n"

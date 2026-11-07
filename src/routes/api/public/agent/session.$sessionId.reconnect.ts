@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { sessionAuthorized } from "@/lib/authorization.server";
 
 /**
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/recon
     handlers: {
       POST: async ({ request, params }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx);
 
         const body = (await request.json().catch(() => ({}))) as { code?: string };
          if (body === null || typeof body !== "object" ||

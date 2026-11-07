@@ -64,12 +64,25 @@ export function createBrowserCurtain(
       return () => { listeners.delete(listener); };
     },
     permission(supported: boolean, active?: boolean) {
-      publish({ supported, ...(typeof active === "boolean" ? { active } : {}) });
-      if (mode() !== "control") stopRenewing();
+      if (mode() !== "control") {
+        wanted = false;
+        stopRenewing();
+        for (const [id, item] of pending) if (item.action !== "curtain_off") {
+          clearTimeout(item.timer); pending.delete(id);
+          item.reject(new Error("The Agent withdrew curtain permission."));
+        }
+      }
+      // A late status snapshot is not permission to resume a cancelled lease.
+      const confirmed = active === true && !wanted ? null : active;
+      publish({ supported, ...(typeof active === "boolean" ? { active: confirmed } : {}) });
     },
     receive(value: Record<string, unknown>) {
       if (value.session_id !== session || !authorization || value.authorization_id !== authorization) return;
       if (value.kind === "curtain_state" && typeof value.active === "boolean") {
+        if (value.active && !wanted) {
+          publish({ active: null, reason: "unconfirmed_active" });
+          return;
+        }
         if (!value.active) { wanted = false; stopRenewing(); }
         publish({ active: value.active, pending: false,
           reason: typeof value.reason === "string" ? value.reason.slice(0, 64) : null });
@@ -86,7 +99,8 @@ export function createBrowserCurtain(
       const item = pending.get(value.request_id);
       if (!item || item.action !== value.action || !["applied", "rejected"].includes(String(value.status))) return;
       clearTimeout(item.timer); pending.delete(value.request_id);
-      if (value.status !== "applied" || typeof value.active !== "boolean") {
+      const expectedActive = item.action !== "curtain_off";
+      if (value.status !== "applied" || value.active !== expectedActive) {
         wanted = false; stopRenewing();
         publish({ pending: false, active: typeof value.active === "boolean" ? value.active : null, reason: "agent_rejected" });
         item.reject(new Error("The Agent could not apply curtain mode. Check its local display and authorization."));
@@ -97,14 +111,26 @@ export function createBrowserCurtain(
       }
     },
     async set(enabled: boolean) {
-      if (state.pending) throw new Error("A curtain request is awaiting acknowledgement.");
+      if (enabled && state.pending) throw new Error("A curtain request is awaiting acknowledgement.");
       stopRenewing();
       wanted = enabled;
+      if (!enabled) {
+        // Safety release must interrupt an in-flight activation/renewal.
+        // Their late receipts cannot make the cancelled curtain appear active.
+        for (const [id, item] of pending) {
+          clearTimeout(item.timer);
+          pending.delete(id);
+          item.reject(new Error("Curtain request cancelled by release."));
+        }
+      }
       publish({ pending: true, reason: null });
       try {
         await request(enabled ? "curtain_on" : "curtain_off");
         if (enabled && state.active === true) renewLater();
-      } catch (error) { publish({ pending: false }); throw error; }
+      } catch (error) {
+        publish({ pending: [...pending.values()].some(item => item.action !== "curtain_renew") });
+        throw error;
+      }
     },
     reset,
     dispose() { reset(); listeners.clear(); },

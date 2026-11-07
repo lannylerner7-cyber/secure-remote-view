@@ -40,6 +40,7 @@ import { Route as ApiPublicAgentIceRouteImport } from './routes/api/public/agent
 import { Route as ApiPublicAgentPairingRouteImport } from './routes/api/public/agent/pairing'
 import { Route as ApiPublicAgentReleaseRouteImport } from './routes/api/public/agent/release'
 import { Route as ApiPublicAgentStreamRouteImport } from './routes/api/public/agent/stream'
+import { Route as ApiPublicAgentUnlockRouteImport } from './routes/api/public/agent/unlock'
 import { Route as ApiPublicAgentWatchRouteImport } from './routes/api/public/agent/watch'
 import { Route as ApiPublicAuthLoginRouteImport } from './routes/api/public/auth/login'
 import { Route as ApiPublicCronReconcileOrdersRouteImport } from './routes/api/public/cron/reconcile-orders'
@@ -50,6 +51,7 @@ import { Route as ApiPublicNewsletterUnsubscribeRouteImport } from './routes/api
 import { Route as ApiPublicStatsOrdersRouteImport } from './routes/api/public/stats/orders'
 import { Route as ApiPublicWebhooksCdpRouteImport } from './routes/api/public/webhooks/cdp'
 import { Route as ApiPublicAgentAuthorizationRevokeRouteImport } from './routes/api/public/agent/authorization.revoke'
+import { Route as ApiPublicAdminDeviceDeviceIdUnlockRouteImport } from './routes/api/public/admin/device.$deviceId.unlock'
 import { Route as ApiPublicAdminSessionSessionIdAuthorizationRouteImport } from './routes/api/public/admin/session.$sessionId.authorization'
 import { Route as ApiPublicAdminSessionSessionIdFilesRouteImport } from './routes/api/public/admin/session.$sessionId.files'
 import { Route as ApiPublicAgentPowerCmdIdAckRouteImport } from './routes/api/public/agent/power.$cmdId.ack'
@@ -217,6 +219,11 @@ const ApiPublicAgentStreamRoute = ApiPublicAgentStreamRouteImport.update({
   path: '/api/public/agent/stream',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAgentUnlockRoute = ApiPublicAgentUnlockRouteImport.update({
+  id: '/api/public/agent/unlock',
+  path: '/api/public/agent/unlock',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicAgentWatchRoute = ApiPublicAgentWatchRouteImport.update({
   id: '/api/public/agent/watch',
   path: '/api/public/agent/watch',
@@ -269,6 +276,12 @@ const ApiPublicAgentAuthorizationRevokeRoute =
     id: '/revoke',
     path: '/revoke',
     getParentRoute: () => ApiPublicAgentAuthorizationRoute,
+  } as any)
+const ApiPublicAdminDeviceDeviceIdUnlockRoute =
+  ApiPublicAdminDeviceDeviceIdUnlockRouteImport.update({
+    id: '/api/public/admin/device/$deviceId/unlock',
+    path: '/api/public/admin/device/$deviceId/unlock',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicAdminSessionSessionIdAuthorizationRoute =
   ApiPublicAdminSessionSessionIdAuthorizationRouteImport.update({
@@ -368,6 +381,7 @@ export interface FileRoutesByFullPath {
   '/api/public/agent/pairing': typeof ApiPublicAgentPairingRoute
   '/api/public/agent/release': typeof ApiPublicAgentReleaseRoute
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
+  '/api/public/agent/unlock': typeof ApiPublicAgentUnlockRoute
   '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
@@ -378,6 +392,7 @@ export interface FileRoutesByFullPath {
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/agent/authorization/revoke': typeof ApiPublicAgentAuthorizationRevokeRoute
+  '/api/public/admin/device/$deviceId/unlock': typeof ApiPublicAdminDeviceDeviceIdUnlockRoute
   '/api/public/admin/session/$sessionId/authorization': typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
   '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
@@ -421,6 +436,7 @@ export interface FileRoutesByTo {
   '/api/public/agent/pairing': typeof ApiPublicAgentPairingRoute
   '/api/public/agent/release': typeof ApiPublicAgentReleaseRoute
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
+  '/api/public/agent/unlock': typeof ApiPublicAgentUnlockRoute
   '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
@@ -431,6 +447,7 @@ export interface FileRoutesByTo {
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/agent/authorization/revoke': typeof ApiPublicAgentAuthorizationRevokeRoute
+  '/api/public/admin/device/$deviceId/unlock': typeof ApiPublicAdminDeviceDeviceIdUnlockRoute
   '/api/public/admin/session/$sessionId/authorization': typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
   '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
@@ -476,6 +493,7 @@ export interface FileRoutesById {
   '/api/public/agent/pairing': typeof ApiPublicAgentPairingRoute
   '/api/public/agent/release': typeof ApiPublicAgentReleaseRoute
   '/api/public/agent/stream': typeof ApiPublicAgentStreamRoute
+  '/api/public/agent/unlock': typeof ApiPublicAgentUnlockRoute
   '/api/public/agent/watch': typeof ApiPublicAgentWatchRoute
   '/api/public/auth/login': typeof ApiPublicAuthLoginRoute
   '/api/public/cron/reconcile-orders': typeof ApiPublicCronReconcileOrdersRoute
@@ -486,6 +504,7 @@ export interface FileRoutesById {
   '/api/public/stats/orders': typeof ApiPublicStatsOrdersRoute
   '/api/public/webhooks/cdp': typeof ApiPublicWebhooksCdpRoute
   '/api/public/agent/authorization/revoke': typeof ApiPublicAgentAuthorizationRevokeRoute
+  '/api/public/admin/device/$deviceId/unlock': typeof ApiPublicAdminDeviceDeviceIdUnlockRoute
   '/api/public/admin/session/$sessionId/authorization': typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
   '/api/public/admin/session/$sessionId/files': typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   '/api/public/agent/power/$cmdId/ack': typeof ApiPublicAgentPowerCmdIdAckRoute
@@ -531,6 +550,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/pairing'
     | '/api/public/agent/release'
     | '/api/public/agent/stream'
+    | '/api/public/agent/unlock'
     | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
@@ -541,6 +561,7 @@ export interface FileRouteTypes {
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
     | '/api/public/agent/authorization/revoke'
+    | '/api/public/admin/device/$deviceId/unlock'
     | '/api/public/admin/session/$sessionId/authorization'
     | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
@@ -584,6 +605,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/pairing'
     | '/api/public/agent/release'
     | '/api/public/agent/stream'
+    | '/api/public/agent/unlock'
     | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
@@ -594,6 +616,7 @@ export interface FileRouteTypes {
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
     | '/api/public/agent/authorization/revoke'
+    | '/api/public/admin/device/$deviceId/unlock'
     | '/api/public/admin/session/$sessionId/authorization'
     | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
@@ -638,6 +661,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/pairing'
     | '/api/public/agent/release'
     | '/api/public/agent/stream'
+    | '/api/public/agent/unlock'
     | '/api/public/agent/watch'
     | '/api/public/auth/login'
     | '/api/public/cron/reconcile-orders'
@@ -648,6 +672,7 @@ export interface FileRouteTypes {
     | '/api/public/stats/orders'
     | '/api/public/webhooks/cdp'
     | '/api/public/agent/authorization/revoke'
+    | '/api/public/admin/device/$deviceId/unlock'
     | '/api/public/admin/session/$sessionId/authorization'
     | '/api/public/admin/session/$sessionId/files'
     | '/api/public/agent/power/$cmdId/ack'
@@ -691,6 +716,7 @@ export interface RootRouteChildren {
   ApiPublicAgentPairingRoute: typeof ApiPublicAgentPairingRoute
   ApiPublicAgentReleaseRoute: typeof ApiPublicAgentReleaseRoute
   ApiPublicAgentStreamRoute: typeof ApiPublicAgentStreamRoute
+  ApiPublicAgentUnlockRoute: typeof ApiPublicAgentUnlockRoute
   ApiPublicAgentWatchRoute: typeof ApiPublicAgentWatchRoute
   ApiPublicAuthLoginRoute: typeof ApiPublicAuthLoginRoute
   ApiPublicCronReconcileOrdersRoute: typeof ApiPublicCronReconcileOrdersRoute
@@ -700,6 +726,7 @@ export interface RootRouteChildren {
   ApiPublicNewsletterUnsubscribeRoute: typeof ApiPublicNewsletterUnsubscribeRoute
   ApiPublicStatsOrdersRoute: typeof ApiPublicStatsOrdersRoute
   ApiPublicWebhooksCdpRoute: typeof ApiPublicWebhooksCdpRoute
+  ApiPublicAdminDeviceDeviceIdUnlockRoute: typeof ApiPublicAdminDeviceDeviceIdUnlockRoute
   ApiPublicAdminSessionSessionIdAuthorizationRoute: typeof ApiPublicAdminSessionSessionIdAuthorizationRoute
   ApiPublicAdminSessionSessionIdFilesRoute: typeof ApiPublicAdminSessionSessionIdFilesRouteWithChildren
   ApiPublicAgentPowerCmdIdAckRoute: typeof ApiPublicAgentPowerCmdIdAckRoute
@@ -931,6 +958,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAgentStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent/unlock': {
+      id: '/api/public/agent/unlock'
+      path: '/api/public/agent/unlock'
+      fullPath: '/api/public/agent/unlock'
+      preLoaderRoute: typeof ApiPublicAgentUnlockRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/agent/watch': {
       id: '/api/public/agent/watch'
       path: '/api/public/agent/watch'
@@ -1000,6 +1034,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/public/agent/authorization/revoke'
       preLoaderRoute: typeof ApiPublicAgentAuthorizationRevokeRouteImport
       parentRoute: typeof ApiPublicAgentAuthorizationRoute
+    }
+    '/api/public/admin/device/$deviceId/unlock': {
+      id: '/api/public/admin/device/$deviceId/unlock'
+      path: '/api/public/admin/device/$deviceId/unlock'
+      fullPath: '/api/public/admin/device/$deviceId/unlock'
+      preLoaderRoute: typeof ApiPublicAdminDeviceDeviceIdUnlockRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/admin/session/$sessionId/authorization': {
       id: '/api/public/admin/session/$sessionId/authorization'
@@ -1155,6 +1196,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAgentPairingRoute: ApiPublicAgentPairingRoute,
   ApiPublicAgentReleaseRoute: ApiPublicAgentReleaseRoute,
   ApiPublicAgentStreamRoute: ApiPublicAgentStreamRoute,
+  ApiPublicAgentUnlockRoute: ApiPublicAgentUnlockRoute,
   ApiPublicAgentWatchRoute: ApiPublicAgentWatchRoute,
   ApiPublicAuthLoginRoute: ApiPublicAuthLoginRoute,
   ApiPublicCronReconcileOrdersRoute: ApiPublicCronReconcileOrdersRoute,
@@ -1164,6 +1206,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicNewsletterUnsubscribeRoute: ApiPublicNewsletterUnsubscribeRoute,
   ApiPublicStatsOrdersRoute: ApiPublicStatsOrdersRoute,
   ApiPublicWebhooksCdpRoute: ApiPublicWebhooksCdpRoute,
+  ApiPublicAdminDeviceDeviceIdUnlockRoute:
+    ApiPublicAdminDeviceDeviceIdUnlockRoute,
   ApiPublicAdminSessionSessionIdAuthorizationRoute:
     ApiPublicAdminSessionSessionIdAuthorizationRoute,
   ApiPublicAdminSessionSessionIdFilesRoute:

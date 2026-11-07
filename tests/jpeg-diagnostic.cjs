@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const ts = require("typescript");
 const { test } = require("node:test");
+const { stubDeviceAuth } = require("./helpers/device-auth.cjs");
 function load(path, dependencies = {}) {
   const output = ts.transpileModule(fs.readFileSync(path, "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -21,11 +22,12 @@ function load(path, dependencies = {}) {
 const { selectSessionMediaMode, replaceWithJpegDiagnostic } =
   load("src/lib/jpeg-diagnostic.ts");
 
-test("normal browser video remains video-only; JPEG is an explicit choice", () => {
-  assert.equal(selectSessionMediaMode("windows", { browser_video: 1 }), "video");
+test("new sessions permit automatic JPEG fallback while still attempting video", () => {
+  assert.equal(selectSessionMediaMode("windows", { browser_video: 1 }), "legacy");
   assert.equal(selectSessionMediaMode("windows", { browser_video: 1 }, true), "legacy");
   assert.equal(selectSessionMediaMode("windows", {}), "legacy");
   assert.equal(selectSessionMediaMode("android", {}), "legacy");
+  assert.equal(selectSessionMediaMode(undefined, null), "legacy");
   assert.throws(() => selectSessionMediaMode("android", {}, true));
   assert.throws(() => selectSessionMediaMode("windows", {}, true));
 });
@@ -64,8 +66,13 @@ function frameEndpoint({ verified = true, owner = "fixture-device", state = "act
   };
   const { Route } = load("src/routes/api/public/agent/session.$sessionId.frame.ts", {
     "@tanstack/react-router": { createFileRoute: () => (options) => options },
-    "@/lib/agent-auth.server": { verifyDevice: async () => verified ? { device: { id: "fixture-device" }, admin } : null },
+    "@/lib/agent-auth.server": stubDeviceAuth(() => verified ? { device: { id: "fixture-device" }, admin } : null),
     "@/lib/authorization.server": { sessionAuthorized: async () => authorized },
+    "@/lib/agent-http-diagnostics.server": {
+      withAgentHttpDiagnostics: (_request, _operation, run) => run({
+        step: (_stage, work) => work(), respond: response => response,
+      }),
+    },
   });
   return {
     writes,
@@ -111,13 +118,19 @@ test("UI keeps role, confirmation, busy guard and view-only invitation", () => {
   assert.match(source, /if \(lookupError\)/);
   assert.match(source, /data-testid="button-jpeg-diagnostic"/);
   assert.match(source, /data-testid="jpeg-diagnostic-status"/);
+  assert.match(source, /Enable JPEG fallback/);
+  assert.match(source, /data-testid="video-only-session-notice"/);
+  assert.match(source, /observeVideoFrames\(viewerVideo/);
+  assert.match(source, /\[liveId, rtcVideoLive, viewerVideo\]/);
 });
 
 test("idle JPEG freshness stays permission-gated and video-only capture stays off", () => {
   const source = fs.readFileSync("agent/src/ScreenCapture.cs", "utf8");
-  assert.match(source, /if \(videoOnly \|\| !latestJpeg\.HasValue \|\| ct\.IsCancellationRequested \|\|\s*!permission\.Allows\("view"\)/);
-  assert.match(source, /Environment\.TickCount64 - lastJpegQueuedAt < 1000/);
+  const refresh = source.split("void RefreshUnchangedJpeg()")[1].split("// S17")[0];
+  assert.match(refresh, /if \(videoOnly \|\| ct\.IsCancellationRequested \|\| !permission\.Allows\("view"\)\) return/);
+  assert.match(refresh, /if \(jpegDirty \|\| !latestJpeg\.HasValue/);
+  assert.match(refresh, /Math\.Max\(1000, Interlocked\.Read\(ref jpegIntervalMs\)\)/);
   assert.match(source, /else if \(dxgi\.IsInitialized && !dxgi\.LastFrameHadContentChange && lastFrame != null\)/);
   assert.match(source, /await using var uploads = videoOnly \? null/);
-  assert.match(source, /latestJpeg = null;\s*ResetWebRtcTee/);
+  assert.match(source, /latestJpeg = null;\s*jpegDirty = true;\s*ResetWebRtcTee/);
 });

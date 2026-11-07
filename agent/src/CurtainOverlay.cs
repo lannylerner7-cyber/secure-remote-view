@@ -22,7 +22,7 @@ namespace ConnectLive.Agent;
 /// </summary>
 public sealed class CurtainOverlay
 {
-    [DllImport("user32.dll")] private static extern uint SetWindowDisplayAffinity(IntPtr hwnd, uint dwAffinity);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SetWindowDisplayAffinity(IntPtr hwnd, uint dwAffinity);
     [DllImport("user32.dll")] private static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint affinity);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll", SetLastError = true)] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
@@ -89,6 +89,20 @@ public sealed class CurtainOverlay
         try
         {
             await Task.WhenAll(_rendered.Select(signal => signal.Task)).WaitAsync(TimeSpan.FromSeconds(2));
+            // WPF may update native window state during Show/first render.
+            // Never acknowledge a curtain based only on the hidden HWND check.
+            foreach (var window in _windows)
+            {
+                var hwnd = new WindowInteropHelper(window).Handle;
+                if (hwnd == IntPtr.Zero ||
+                    SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) == 0 ||
+                    !GetWindowDisplayAffinity(hwnd, out var affinity) || affinity != WDA_EXCLUDEFROMCAPTURE)
+                {
+                    Log.Warn("curtain render rejected: capture exclusion was not retained");
+                    Hide();
+                    return false;
+                }
+            }
             return _active;
         }
         catch { Hide(); return false; }
@@ -113,7 +127,7 @@ public sealed class CurtainOverlay
             WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize,
             AllowsTransparency = true,
-            Background = new SolidColorBrush(Color.FromArgb(140, 8, 12, 24)),
+            Background = new SolidColorBrush(Color.FromRgb(8, 12, 24)),
             Topmost = true,
             ShowActivated = false,
             ShowInTaskbar = false,

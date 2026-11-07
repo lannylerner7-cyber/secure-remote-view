@@ -129,7 +129,8 @@ async function main() {
   assert(live.includes('await remoteMedia.answer('));
   assert(live.includes('await remoteMedia.ice('));
   assert(!live.includes('row.id <= lastSeen'), 'newer ICE must not discard a reordered answer');
-  assert(live.includes('isCurrentPeerSignal(peerId, !!options.videoOnly, row.payload)'));
+  assert(live.includes('isCurrentPeerSignal(peerId, !!(options.videoOnly || options.strictPeerIdentity), row.payload)'),
+    'automatic recovery must reject signals from older peers, including legacy-media sessions');
   console.log('Remote media signaling: early/concurrent ICE, errors, lifetime, bounds and peer guards passed.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

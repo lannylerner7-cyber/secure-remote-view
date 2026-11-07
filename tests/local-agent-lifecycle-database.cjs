@@ -62,6 +62,16 @@ async function main() {
   }
   // Real runner, rollback-only: assert its DDL and history also roll back.
   const { apply } = require('../scripts/apply-agent-lifecycle.cjs');
+  if (process.argv.includes('--windows-unlock')) {
+    // This client only points at the disposable Unix-socket instance above.
+    await apply(client, '--apply');
+    await require('../scripts/apply-windows-unlock.cjs').apply(client, '--check',
+      require('./windows-unlock-database.cjs').verify);
+    const absent = (await client.query("SELECT to_regclass('public.device_unlock_permissions') IS NULL AS absent")).rows[0].absent;
+    if (!absent) throw new Error('Windows unlock verification did not roll back.');
+    console.log('Windows unlock DDL, synthetic records and migration history rolled back. No remote database accessed.');
+    return;
+  }
   await apply(client, '--check', async connection => {
     await require('./browser-first-database.cjs').verify(connection);
     await require('./agent-lifecycle-database.cjs').verify(connection);

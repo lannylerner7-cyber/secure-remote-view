@@ -5,35 +5,11 @@ using System.Runtime.InteropServices;
 namespace ConnectLive.Agent;
 
 /// <summary>
-/// SCOPE:CAPTURE — hardware H.264 encoder discovery (turn 4, stage 1).
-///
-/// Every Windows box since ~2013 ships an H.264 encoder Media Foundation
-/// Transform, and on machines with a discrete GPU or a modern iGPU that MFT
-/// is a thin shim over the vendor's silicon encoder: NVENC on NVIDIA,
-/// Quick Sync (QSV) on Intel, AMF/VCE on AMD. Encoding there instead of in
-/// libvpx on the CPU is the single largest sharpness-per-bit and
-/// latency win available to this pipeline — a 1080p30 NVENC encode costs the
-/// CPU essentially nothing, where software VP8 at the same settings is the
-/// agent's dominant load and the reason the ladder has to give up resolution
-/// on busy machines.
-///
-/// This class does the *discovery* half of that work and nothing else. It
-/// answers one question honestly — "does this machine have a hardware H.264
-/// encoder, and whose is it?" — and publishes the answer for logging,
-/// heartbeat telemetry and the encoder-selection step that follows.
-///
-/// Deliberately NOT done here:
-///   • wrapping the winning MFT in a SIPSorcery <c>IVideoEncoder</c>;
-///   • changing the negotiated wire codec.
-/// Both sides of the wire are still VP8-pinned (see the codec-pinning
-/// guardrail comments in <see cref="WebRtcSession"/> and
-/// <c>admin/src/Media/WebRtcClient.cs</c>). Flipping the wire codec before
-/// the MFT wrapper exists would negotiate a stream nothing can encode.
-///
-/// Everything here is raw P/Invoke against mfplat.dll — no new package, no
-/// native payload, so the single-file publish contract is untouched. Every
-/// failure path degrades to "no hardware encoder found", which simply keeps
-/// the existing software VP8 path.
+/// Hardware H.264 Media Foundation discovery only. A registered MFT is a
+/// candidate, not proof of successful activation, encoding or negotiation.
+/// HwH264Encoder exercises the candidate later at the actual frame geometry.
+/// This uses Windows mfplat.dll independently of the package's VP8 vpxmd.dll.
+/// Failure here says nothing about whether the separate VP8 path works.
 /// </summary>
 public static class HwEncoderProbe
 {
@@ -68,13 +44,8 @@ public static class HwEncoderProbe
     public static IReadOnlyList<string> AllEncoders { get { Probe(); lock (_gate) return _all; } }
 
     /// <summary>
-    /// True when this machine could carry a hardware H.264 stream.
-    ///
-    /// Nothing consumes this to change the wire codec yet — see the class
-    /// remarks. It exists so the encoder-selection step landing next has a
-    /// single, already-field-validated signal to branch on, and so the
-    /// heartbeat can tell us what fraction of the fleet would actually
-    /// benefit before we invest in the MFT wrapper.
+    /// True when a hardware H.264 candidate was discovered. This permits an
+    /// offer when policy allows; it does not establish successful encoding.
     /// </summary>
     public static bool HardwareH264Available => Vendor != HwVendor.None;
 
@@ -101,12 +72,13 @@ public static class HwEncoderProbe
         Probe();
         if (HardwareH264Available)
         {
-            Log.Info($"encoder probe: hardware H.264 available — {VendorTag} \"{EncoderName}\" " +
-                     $"({AllEncoders.Count} hw MFT(s)); wire codec remains VP8 (software) this build");
+            Log.Info($"encoder probe: hardware H.264 candidate discovered — {VendorTag} \"{EncoderName}\" " +
+                     $"({AllEncoders.Count} hw MFT(s)); discovery only, not initialized/encoded; " +
+                     "independent of VP8 native dependencies; negotiated codec is reported per peer");
         }
         else
         {
-            Log.Info("encoder probe: no hardware H.264 MFT — software VP8 is the only encode path");
+            Log.Info("encoder probe: no hardware H.264 candidate discovered; VP8 has a separate native/encode preflight");
         }
     }
 
@@ -122,8 +94,10 @@ public static class HwEncoderProbe
             {
                 // A missing mfplat.dll (Windows N/KN without the media pack),
                 // a locked-down container, or an MF startup failure all land
-                // here. None of them are fatal: the software path is intact.
-                Log.Warn($"encoder probe failed: {ex.Message}");
+                // here. VP8 is independent, but is not assumed to work.
+                Log.Warn($"encoder probe H.264 discovery failed: {ex.GetType().Name} hresult=0x{ex.HResult:X8}; " +
+                    "check Windows Media Foundation (Media Feature Pack on N/KN editions) and the approved GPU driver; " +
+                    "do not install replacement mfplat DLLs. VP8 is checked separately.");
                 _vendor = HwVendor.None;
                 _encoderName = "";
                 _all = Array.Empty<string>();

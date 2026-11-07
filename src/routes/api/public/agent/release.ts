@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { adminClient } from "@/lib/server-supabase";
 import { normalizePlatform, releaseProductFor } from "@/shared/platform";
 
@@ -48,7 +48,14 @@ export const Route = createFileRoute("/api/public/agent/release")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const device = await verifyDevice(request);
+        const verification = await verifyDevice(request);
+        // A request presenting a device identity cannot fall back to a different
+        // principal when that identity is rejected or cannot be looked up.
+        if (verification.kind === "unavailable" ||
+            (verification.kind === "unauthorized" &&
+              (request.headers.has("x-device-id") || request.headers.has("x-device-token"))))
+          return deviceAuthFailure(verification);
+        const device = verification.kind === "verified" ? verification : null;
         if (!device && !(await verifyTechnician(request))) {
           return new Response("unauthorized", { status: 401 });
         }

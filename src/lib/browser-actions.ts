@@ -1,4 +1,5 @@
 import { createBrowserCurtain } from "./browser-curtain";
+import { createBrowserUnlock } from "./browser-unlock";
 export type AgentMode = "view" | "control" | null;
 
 /** Correlates application receipts, not just successful DataChannel.send(). */
@@ -13,6 +14,7 @@ export function createBrowserActions(
   const listeners = new Set<(mode: AgentMode) => void>();
   const pending = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   function reset(reason = "Input channel disconnected") {
+    unlock.reset();
     curtain.reset(reason);
     mode = null;
     listeners.forEach(listener => listener(null));
@@ -36,7 +38,9 @@ export function createBrowserActions(
     } catch { return false; }
   }
   const curtain = createBrowserCurtain(sessionId, authorizationId, send, () => mode);
+  const unlock = createBrowserUnlock(sessionId, authorizationId, send);
   return {
+    unlock,
     send,
     reset,
     onCurtain: curtain.onState,
@@ -52,6 +56,7 @@ export function createBrowserActions(
       try {
         const value = JSON.parse(raw);
         if (!value || value.session_id !== sessionId) return;
+        unlock.receive(value);
         if (value.kind === "permission_status" &&
             authorizationId !== null && value.authorization_id === authorizationId &&
             (value.mode === "view" || value.mode === "control")) {
@@ -89,6 +94,6 @@ export function createBrowserActions(
         }
       });
     },
-    dispose() { reset(); curtain.dispose(); listeners.clear(); },
+    dispose() { unlock.dispose(); reset(); curtain.dispose(); listeners.clear(); },
   };
 }

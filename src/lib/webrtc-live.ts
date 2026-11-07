@@ -26,9 +26,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
 import { API_ROUTES } from "@/shared/api-routes";
 import { RecordingAuthority } from "@/lib/recording-authority";
+import type { UnlockState, UnlockTicket } from "@/shared/windows-unlock";
 import { tagPeerSignal, isCurrentPeerSignal } from "@/lib/peer-signals";
 import { getWebClientId } from "@/shared/signaling-identity";
 import { createRemoteMediaSignals } from "@/lib/remote-media-signals";
+import {
+  MEDIA_PROFILES, preferredVideoCodecs, bindingDenied,
+  type MediaProfile, type MediaFailure, type MediaProgress,
+} from "./media-profiles";
 
 /** Fallback only. The live set comes from the ICE gateway (S9), which adds
  *  TURN when the deployment has a relay configured. */
@@ -95,7 +100,7 @@ async function fetchIceServers(sessionId: string, signal: AbortSignal): Promise<
 const CURSOR_KEY = (sessionId: string) => `connectlive.sig_cursor.${sessionId}`;
 const HEARTBEAT_MS = 15_000;
 /** Ceiling used only while ICE never leaves new/checking. */
-const CONNECT_TIMEOUT_MS = 10_000;
+const CONNECT_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS = 6;
 
 
@@ -118,15 +123,30 @@ export interface WebRtcLive {
   readonly sessionId: string;
   video: HTMLVideoElement;
   state: () => WebRtcState;
-  onState: (cb: (s: WebRtcState) => void) => void;
+  onState: (cb: (s: WebRtcState) => void) => () => void;
   /** "host" | "srflx" | "prflx" | "relay" once ICE settles, else null. */
   candidateType: () => string | null;
   /** Raw stats for diagnostics (inbound-rtp bytes/framesDecoded). */
   stats: () => Promise<RTCStatsReport | null>;
   /** S16 — "pending" until the ICE gateway answers, then whether a TURN relay is in play. */
   relay: () => "pending" | "relay" | "none";
+  codec: () => string | null;
+  failure: () => MediaFailure | null;
+  onMedia: (callback: (progress: MediaProgress) => void) => () => void;
+  setPaused: (paused: boolean) => void;
 
   sendInput: (payload: unknown) => boolean;
+  peerId: () => string | null;
+  unlockState: () => UnlockState;
+  onUnlock: (callback: (value: UnlockState) => void) => () => void;
+  beginUnlock: (ticket: UnlockTicket) => Promise<void>;
+  cancelUnlock: () => void;
+  useSavedUnlockPin: () => void;
+  sendUnlockInput: (kind: string, payload: Record<string, unknown>) => boolean;
+  sendUnlockSas: () => boolean;
+  sensitiveInput: () => boolean;
+  prepareUnlock: () => void;
+  resumeOrdinaryInput: () => void;
   onAgentMode: (callback: (mode: AgentMode) => void) => () => void;
   selectMonitor: (deviceName: string) => Promise<void>;
   onCurtain: (callback: (state: CurtainState) => void) => () => void;
@@ -183,9 +203,13 @@ type QueueItem = {
   attempts: number;
 };
 
-export function startWebRtcLive(sessionId: string, options: {
+export interface WebRtcOptions {
   videoOnly?: boolean; authorizationId?: string | null;
-} = {}): WebRtcLive {
+  strictPeerIdentity?: boolean;
+  profile?: MediaProfile;
+}
+
+export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}): WebRtcLive {
   const webClientId = getWebClientId();
   const peerId = crypto.randomUUID();
 
@@ -203,6 +227,12 @@ export function startWebRtcLive(sessionId: string, options: {
   let iceRefreshTimer: number | null = null;
   let fallbackRetries = 0;
   let negotiating = 0;
+  let viewerPaused = false;
+  let failure: MediaFailure | null = null;
+  let negotiatedCodec: string | null = null;
+  let disconnectTimer: number | null = null;
+  const mediaListeners = new Set<(progress: MediaProgress) => void>();
+  const profile = options.profile ?? MEDIA_PROFILES[0];
   const active = () => !closed && state !== "failed" && state !== "superseded";
   const cancelIce = () => {
     generation++;
@@ -219,6 +249,15 @@ export function startWebRtcLive(sessionId: string, options: {
     if (s === "failed" || s === "superseded") cancelIce();
     listeners.forEach((cb) => cb(s));
   };
+  const fail = (reason: MediaFailure["reason"], retryable = true, retryAfterMs?: number) => {
+    if (!active()) return;
+    failure = { reason, retryable, retryAfterMs };
+    setState("failed");
+  };
+  const clearDisconnect = () => {
+    if (disconnectTimer !== null) window.clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  };
 
   // Starts on the STUN fallback; the gateway set (STUN + TURN when deployed)
   // is applied via setConfiguration before the first offer, i.e. before ICE
@@ -228,14 +267,16 @@ export function startWebRtcLive(sessionId: string, options: {
   // rejects the set, the session silently ran STUN-only and every symmetric-NAT
   // network fell back to JPEG with no explanation; `relay()` below reports the
   // truth so the console can say "no relay" instead of "connecting" forever.
-  const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+  const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS, iceTransportPolicy: profile.route });
   const remoteMedia = createRemoteMediaSignals(pc, active);
   let relayState: "pending" | "relay" | "none" = "pending";
   let dc: RTCDataChannel | null = pc.createDataChannel("input", { ordered: true });
   const actions = createBrowserActions(sessionId, options.authorizationId ?? null, () => dc, active, () => {
-    setState("failed");
+    fail("network");
     try { dc?.close(); pc.close(); } catch {}
   });
+  let secureInputBlocked = false;
+  let secureRecordingBlocked = false;
   dc.onmessage = event => actions.receive(event.data);
   dc.onclose = () => { dc = null; actions.reset(); };
 
@@ -283,10 +324,20 @@ export function startWebRtcLive(sessionId: string, options: {
   };
 
   const fileListeners = new Set<(ev: FileTransferEvent) => void>();
+  const failIncomingFile = () => {
+    if (incoming) {
+      const name = incoming.name;
+      incoming = null;
+      fileListeners.forEach(cb => cb({
+        kind: "error", name, message: "Connection interrupted. The file was not completed; retry it from Files.",
+      }));
+    }
+  };
+  fdc.onclose = failIncomingFile;
 
   /** Push a local file to the agent, yielding to the SCTP buffer as it fills. */
   async function sendFileOverChannel(file: File): Promise<boolean> {
-    if (fdc.readyState !== "open") return false;
+    if (!active() || fdc.readyState !== "open") return false;
     try {
       fdc.send(JSON.stringify({ type: "file_begin", name: file.name, size: file.size, mime: file.type }));
       let offset = 0;
@@ -330,7 +381,7 @@ export function startWebRtcLive(sessionId: string, options: {
   };
 
   function sendClipboardText(text: string): boolean {
-    if (cdc.readyState !== "open") return false;
+    if (!active() || cdc.readyState !== "open") return false;
     const trimmed = text.slice(0, CLIP_MAX);
     if (!trimmed) return false;
     try {
@@ -356,27 +407,38 @@ export function startWebRtcLive(sessionId: string, options: {
   let recordChunks: Blob[] = [];
   let recordStartedAt = 0;
   let recordingBusy = false;
+  let finishingRecording: Promise<RecordingResult | null> | null = null;
   let recordExpiry: number | null = null;
   let recordRenew: number | null = null;
   let renewBusy = false;
   const recordingListeners = new Set<(active: boolean) => void>();
   const recordAuthority = new RecordingAuthority(async () => {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token || closed) return null;
     const abort = new AbortController();
-    const timer = window.setTimeout(() => abort.abort(), 3000);
+    let timer: number | undefined;
     try {
-      const response = await fetch(API_ROUTES.adminSessionAuthorization(sessionId), {
-        headers: { authorization: `Bearer ${token}` },
-        cache: "no-store", redirect: "error", signal: abort.signal,
-      });
-      if (!response.ok) return null;
-      const result = await response.json();
-      return result.allowed === true && result.capabilities?.recording === true
-        && typeof result.authorizationId === "string"
-        && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(result.authorizationId)
-        ? result.authorizationId : null;
+      // Bound auth lookup and body parsing too, not just the HTTP request.
+      return await Promise.race([
+        (async () => {
+          const { data } = await supabase.auth.getSession();
+          const token = data.session?.access_token;
+          if (!token || closed || abort.signal.aborted) return null;
+          const response = await fetch(API_ROUTES.adminSessionAuthorization(sessionId), {
+            headers: { authorization: `Bearer ${token}` },
+            cache: "no-store", redirect: "error", signal: abort.signal,
+          });
+          if (!response.ok || closed || abort.signal.aborted) return null;
+          const result = await response.json();
+          return !closed && !abort.signal.aborted
+            && result.allowed === true && result.capabilities?.recording === true
+            && typeof result.authorizationId === "string"
+            && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(result.authorizationId)
+            && (!options.authorizationId || result.authorizationId === options.authorizationId)
+            ? result.authorizationId as string : null;
+        })(),
+        new Promise<null>(resolve => {
+          timer = window.setTimeout(() => { abort.abort(); resolve(null); }, 3000);
+        }),
+      ]);
     } catch { return null; }
     finally { window.clearTimeout(timer); }
   });
@@ -422,7 +484,10 @@ export function startWebRtcLive(sessionId: string, options: {
     if (!stream || !mimeType) return false;
     recordingBusy = true;
     try {
-      if (!(await recordAuthority.authorize()) || closed) return false;
+      if (!(await recordAuthority.authorize()) || closed) {
+        console.warn("[webrtc] recording not started: authorization was denied, expired, or timed out");
+        return false;
+      }
       const rec = new MediaRecorder(stream, { mimeType });
       recordChunks = [];
       rec.ondataavailable = (ev) => {
@@ -452,7 +517,16 @@ export function startWebRtcLive(sessionId: string, options: {
     } finally { recordingBusy = false; }
   }
 
-  async function stopRecordingInternal(): Promise<RecordingResult | null> {
+  function stopRecordingInternal(): Promise<RecordingResult | null> {
+    // Manual Stop and automatic recovery may overlap. Join the same finalizer
+    // instead of closing the peer while its last MediaRecorder chunk is pending.
+    if (finishingRecording) return finishingRecording;
+    if (recordingBusy || !recorder) return Promise.resolve(null);
+    finishingRecording = finalizeRecording().finally(() => { finishingRecording = null; });
+    return finishingRecording;
+  }
+
+  async function finalizeRecording(): Promise<RecordingResult | null> {
     if (recordingBusy) return null;
     const rec = recorder;
     if (!rec) return null;
@@ -487,7 +561,6 @@ export function startWebRtcLive(sessionId: string, options: {
   let connectedAt = 0;
   let lastDecodedFrames = 0;
   let lastMediaProgressAt = 0;
-  let mediaRecoveryAttempted = false;
 
   const clearWatchdog = () => {
     if (watchdog !== null) { window.clearTimeout(watchdog); watchdog = null; }
@@ -495,8 +568,8 @@ export function startWebRtcLive(sessionId: string, options: {
 
   /**
    * The watchdog only guards the "ICE never even started checking" case.
-   * Reaching `checking` is real progress (relay allocation can be slow), so
-   * we disarm it there and let ICE's own `failed` be authoritative.
+   * Reaching `checking` renews the bounded grace period for relay allocation.
+   * The outer recovery controller also bounds binding/first-frame startup.
    */
   const armWatchdog = () => {
     if (!active()) return;
@@ -505,7 +578,7 @@ export function startWebRtcLive(sessionId: string, options: {
       const s = pc.iceConnectionState;
       if (state === "connecting" && (s === "new" || s === "checking")) {
         console.warn(`[webrtc] no ICE progress in ${connectTimeoutMs}ms (iceState=${s})`);
-        setState("failed");
+        fail("network");
       }
     }, connectTimeoutMs);
   };
@@ -548,6 +621,9 @@ export function startWebRtcLive(sessionId: string, options: {
     if (!active()) return;
     const stream = ev.streams[0] ?? new MediaStream([ev.track]);
     video.srcObject = stream;
+    // Muted remote desktop playback is normally permitted. If it is blocked,
+    // the explicit Pause/Resume UI remains available; never claim pixels arrived.
+    if (!viewerPaused) void video.play().catch(() => undefined);
   };
   pc.oniceconnectionstatechange = () => {
     if (!active()) return;
@@ -559,6 +635,7 @@ export function startWebRtcLive(sessionId: string, options: {
       return;
     }
     if (s === "connected" || s === "completed") {
+      clearDisconnect();
       clearWatchdog();
       connectedAt = Date.now();
       lastMediaProgressAt = connectedAt;
@@ -567,9 +644,20 @@ export function startWebRtcLive(sessionId: string, options: {
       return;
     }
     if (state === "superseded") return;
-    if (s === "failed" || s === "closed" || s === "disconnected") {
+    if (s === "disconnected") {
+      // A transient network change is not a terminal peer failure.
       clearWatchdog();
-      setState("failed");
+      setState("connecting");
+      if (disconnectTimer === null) disconnectTimer = window.setTimeout(() => {
+        disconnectTimer = null;
+        if (active() && pc.iceConnectionState === "disconnected") fail("network");
+      }, 6000);
+      return;
+    }
+    if (s === "failed" || s === "closed") {
+      clearDisconnect();
+      clearWatchdog();
+      fail("network");
     }
   };
 
@@ -602,10 +690,11 @@ export function startWebRtcLive(sessionId: string, options: {
             setState("superseded");
             return;
           }
-          if (res.error === "forbidden" || res.error === "not_found") {
+          if (res.error === "forbidden" || res.error === "not_found" || res.error === "not_active") {
             console.warn("[webrtc] server rejected signal:", res.error);
-            queue.shift();
-            continue;
+            queue.length = 0;
+            fail("authorization", false);
+            return;
           }
           // "not_active" / "insert_failed" — retry with backoff.
           throw new Error(res.error);
@@ -613,8 +702,9 @@ export function startWebRtcLive(sessionId: string, options: {
           if (!active()) return;
           item.attempts++;
           if (item.attempts >= MAX_ATTEMPTS) {
-            console.warn("[webrtc] giving up on", item.kind, "after", item.attempts, "tries", err);
+            console.warn("[webrtc] giving up on", item.kind, "after", item.attempts, "tries");
             queue.shift();
+            if (item.kind === "offer") { fail("signaling"); return; }
             continue;
           }
           const backoff = Math.min(4000, 250 * 2 ** (item.attempts - 1));
@@ -658,7 +748,7 @@ export function startWebRtcLive(sessionId: string, options: {
         if (error.denied) {
           relayState = "none";
           console.warn("[webrtc] ICE session authorization rejected");
-          setState("failed");
+          fail("authorization", false);
           return false;
         }
         retryAfterMs = error.retryAfterMs;
@@ -667,15 +757,21 @@ export function startWebRtcLive(sessionId: string, options: {
     }
     if (!active() || revision !== iceRevision) return false;
     iceRequest = null;
+    if (profile.route === "relay" && !config?.hasTurn) {
+      relayState = "none";
+      fail("relay-unavailable", true, retryAfterMs);
+      return false;
+    }
     try {
-      pc.setConfiguration({ iceServers: config?.iceServers ?? STUN_SERVERS });
+      pc.setConfiguration({ iceServers: config?.iceServers ?? STUN_SERVERS, iceTransportPolicy: profile.route });
       relayState = config?.hasTurn ? "relay" : "none";
     } catch {
       relayState = "none";
       config = null;
       // Do not leave previously-applied, possibly-expired relay credentials.
-      try { pc.setConfiguration({ iceServers: STUN_SERVERS }); } catch {
-        setState("failed");
+      if (profile.route === "relay") { fail("relay-unavailable"); return false; }
+      try { pc.setConfiguration({ iceServers: STUN_SERVERS, iceTransportPolicy: profile.route }); } catch {
+        fail("network");
         return false;
       }
       console.warn("[webrtc] ICE configuration rejected; using direct paths only");
@@ -692,7 +788,7 @@ export function startWebRtcLive(sessionId: string, options: {
         // The offer watchdog must not cut short this request's 12s budget.
         if (state === "connecting") clearWatchdog();
         const previousGeneration = generation;
-        if (await refreshIce() && active() && previousGeneration === generation && relayState === "relay") {
+        if (await refreshIce() && active() && previousGeneration === generation && relayState === "relay" && state === "connecting") {
           // New credentials must participate in gathering, not just sit on pc.
           await negotiate(true, false);
         } else if (active() && state === "connecting" && previousGeneration === generation) {
@@ -712,7 +808,19 @@ export function startWebRtcLive(sessionId: string, options: {
     try {
       if (refresh && !(await refreshIce())) return;
       if (!valid()) return;
-      if (!restart) pc.addTransceiver("video", { direction: "recvonly" });
+      if (!restart) {
+        const receiver = pc.addTransceiver("video", { direction: "recvonly" });
+        const supported = typeof RTCRtpReceiver !== "undefined"
+          ? RTCRtpReceiver.getCapabilities?.("video")?.codecs : undefined;
+        if (supported && receiver?.setCodecPreferences) {
+          const codecs = preferredVideoCodecs(supported, profile.codec);
+          if (!codecs.length) { fail("unsupported-codec"); return; }
+          receiver.setCodecPreferences(codecs);
+        } else if (profile.codec === "vp8" && options.profile) {
+          // Do not advertise a VP8-only retry when the browser cannot enforce it.
+          fail("unsupported-codec"); return;
+        }
+      }
       const offer = await pc.createOffer(restart ? { iceRestart: true } : undefined);
       if (!valid()) return;
       remoteMedia.expectAnswer();
@@ -723,7 +831,7 @@ export function startWebRtcLive(sessionId: string, options: {
     } catch {
       if (!valid()) return;
       console.warn("[webrtc] offer failed");
-      setState("failed");
+      fail("signaling");
     } finally {
       negotiating--;
     }
@@ -731,13 +839,13 @@ export function startWebRtcLive(sessionId: string, options: {
 
   // ICE connectivity only proves packets can cross the network. Confirm that
   // the video decoder itself keeps making progress; otherwise return the UI to
-  // its JPEG fallback and attempt one clean ICE/media renegotiation.
+  // its JPEG fallback. The outer controller starts a clean codec/route attempt.
   mediaWatchdog = window.setInterval(() => {
     if (closed || state !== "connected" || negotiating) return;
     void pc.getStats().then(async (stats) => {
       if (!active() || state !== "connected") return;
       // A deliberate local viewer pause is not a failed remote video stream.
-      if (video.paused) { lastMediaProgressAt = Date.now(); return; }
+      if (viewerPaused) { lastMediaProgressAt = Date.now(); return; }
       let decoded = 0;
       let hasInboundVideo = false;
       // Step 1 diagnostics: loss/keyframe/geometry counters alongside framesDecoded.
@@ -746,6 +854,9 @@ export function startWebRtcLive(sessionId: string, options: {
         if (r["type"] === "inbound-rtp" && (r["kind"] === "video" || r["mediaType"] === "video")) {
           hasInboundVideo = true;
           decoded = Math.max(decoded, Number(r["framesDecoded"] ?? 0));
+          const codec = typeof r["codecId"] === "string" ? stats.get(r["codecId"]) : null;
+          if (typeof codec?.mimeType === "string")
+            negotiatedCodec = codec.mimeType.replace(/^video\//i, "");
           probe = {
             framesDecoded: r["framesDecoded"],
             keyFramesDecoded: r["keyFramesDecoded"],
@@ -766,26 +877,22 @@ export function startWebRtcLive(sessionId: string, options: {
       if (decoded > lastDecodedFrames) {
         lastDecodedFrames = decoded;
         lastMediaProgressAt = now;
+        mediaListeners.forEach(cb => cb({
+          framesDecoded: decoded, codec: negotiatedCodec, path: selectedCandidateType,
+        }));
         return;
       }
       if (!hasInboundVideo && now - connectedAt < 8_000) return;
       if (now - lastMediaProgressAt < 8_000) return;
 
 
-      if (!mediaRecoveryAttempted) {
-        mediaRecoveryAttempted = true;
-        lastMediaProgressAt = now;
-        console.warn("[webrtc] decoded video stalled; requesting one clean renegotiation");
-        await negotiate(true);
-        return;
-      }
-
       console.warn(options.videoOnly
-        ? "[webrtc] decoded video remained stalled; reconnect required (video-only session)"
-        : "[webrtc] decoded video remained stalled; activating legacy frame fallback");
-      setState("failed");
-      try { pc.close(); } catch {}
-    }).catch((err) => console.warn("[webrtc] media watchdog stats failed", err));
+        ? "[webrtc] decoded video stalled; retrying video without JPEG"
+        : "[webrtc] decoded video stalled; JPEG remains available during recovery");
+      fail("media");
+    }).catch(() => {
+      if (active() && !viewerPaused && Date.now() - lastMediaProgressAt > 12_000) fail("media");
+    });
   }, 3_000);
 
   // ---- Inbound signals (postgres_changes; broadcast-tier can be added later)
@@ -808,7 +915,7 @@ export function startWebRtcLive(sessionId: string, options: {
         if (!active() || !row || row.from_side !== "agent" ||
             row.id <= initialCursor || receivedSignalIds.has(row.id)) return;
         if (row.admin_client_id && row.admin_client_id !== webClientId) return;
-        if (!isCurrentPeerSignal(peerId, !!options.videoOnly, row.payload)) return;
+        if (!isCurrentPeerSignal(peerId, !!(options.videoOnly || options.strictPeerIdentity), row.payload)) return;
         receivedSignalIds.add(row.id);
         if (receivedSignalIds.size > 512)
           receivedSignalIds.delete(receivedSignalIds.values().next().value!);
@@ -826,7 +933,7 @@ export function startWebRtcLive(sessionId: string, options: {
             try { dc?.close(); } catch {}
             try { pc.close(); } catch {}
           } else if (row.kind === "bye") {
-            setState("failed");
+            fail("media");
           }
         } catch {
           // Candidate/SDP values and errors that may embed them are private.
@@ -847,8 +954,9 @@ export function startWebRtcLive(sessionId: string, options: {
         setState("superseded");
         return;
       }
-    } catch (err) {
-      console.warn("[webrtc] heartbeat failed", err);
+      if (!res.bound && bindingDenied(res.reason)) fail("authorization", false);
+    } catch {
+      console.warn("[webrtc] heartbeat unavailable");
     }
   }
 
@@ -860,7 +968,7 @@ export function startWebRtcLive(sessionId: string, options: {
     if (!first.bound) {
       if (first.reason === "superseded") { setState("superseded"); return; }
       // "not_found" / "not_active" — surface as failed, HTTPS fallback carries UI.
-      setState("failed");
+      fail(bindingDenied(first.reason) ? "authorization" : "signaling", !bindingDenied(first.reason));
       return;
     }
     heartbeatTimer = window.setInterval(() => { void heartbeat(); }, HEARTBEAT_MS);
@@ -868,38 +976,65 @@ export function startWebRtcLive(sessionId: string, options: {
   })().catch(() => {
     if (!active()) return;
     console.warn("[webrtc] startup binding failed");
-    setState("failed");
+    fail("signaling");
   });
 
   return {
     sessionId,
     video,
     state: () => state,
-    onState: (cb) => { listeners.add(cb); },
+    onState: (cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; },
     candidateType: () => selectedCandidateType,
     stats: async () => { try { return await pc.getStats(); } catch { return null; } },
     relay: () => relayState,
+    codec: () => negotiatedCodec,
+    failure: () => failure,
+    onMedia: cb => { mediaListeners.add(cb); return () => { mediaListeners.delete(cb); }; },
+    setPaused: value => {
+      viewerPaused = value; lastMediaProgressAt = Date.now();
+      if (value && actions.unlock.active()) actions.unlock.cancel();
+    },
 
-    sendInput: actions.send,
+    sendInput: payload => !secureInputBlocked && !actions.unlock.active() && actions.send(payload),
+    sensitiveInput: () => secureInputBlocked,
+    prepareUnlock: () => { secureInputBlocked = true; secureRecordingBlocked = true; },
+    resumeOrdinaryInput: () => {
+      if (!actions.unlock.active() && actions.mode() === "control") secureInputBlocked = false;
+    },
+    peerId: () => active() && dc?.readyState === "open" ? peerId : null,
+    unlockState: actions.unlock.state,
+    onUnlock: actions.unlock.onState,
+    beginUnlock: async ticket => {
+      secureInputBlocked = true; secureRecordingBlocked = true;
+      // This must complete BEFORE asking the Agent to emit secure pixels.
+      await stopRecordingInternal();
+      if (recorder || finishingRecording || recordingBusy) throw new Error("Stop recording before unlocking Windows.");
+      if (!active() || dc?.readyState !== "open") throw new Error("The unlock channel is unavailable.");
+      return actions.unlock.begin(ticket);
+    },
+    cancelUnlock: actions.unlock.cancel,
+    useSavedUnlockPin: actions.unlock.useSavedPin,
+    sendUnlockInput: actions.unlock.input,
+    sendUnlockSas: actions.unlock.sas,
     onAgentMode: actions.onMode,
     selectMonitor: actions.selectMonitor,
     onCurtain: actions.onCurtain,
     setCurtain: actions.setCurtain,
-    filesReady: () => fdc.readyState === "open",
-    sendFile: (file) => sendFileOverChannel(file),
+    filesReady: () => active() && !actions.unlock.active() && fdc.readyState === "open",
+    sendFile: (file) => actions.unlock.active() ? Promise.resolve(false) : sendFileOverChannel(file),
     onFile: (cb) => { fileListeners.add(cb); return () => { fileListeners.delete(cb); }; },
 
-    clipboardReady: () => cdc.readyState === "open",
-    sendClipboard: (text) => sendClipboardText(text),
+    clipboardReady: () => active() && !actions.unlock.active() && cdc.readyState === "open",
+    sendClipboard: (text) => !actions.unlock.active() && sendClipboardText(text),
     onClipboard: (cb) => { clipListeners.add(cb); return () => { clipListeners.delete(cb); }; },
 
-    canRecord: () => pickRecordMime() !== null && recordableStream() !== null,
-    recording: () => recorder !== null,
+    canRecord: () => !secureRecordingBlocked && !actions.unlock.active() && pickRecordMime() !== null && recordableStream() !== null,
+    recording: () => recorder !== null || finishingRecording !== null,
     onRecording: (callback) => {
       recordingListeners.add(callback);
       return () => { recordingListeners.delete(callback); };
     },
-    startRecording: () => startRecordingInternal(),
+    startRecording: () => secureRecordingBlocked || actions.unlock.active() ? Promise.resolve(false) : startRecordingInternal(),
     stopRecording: () => stopRecordingInternal(),
 
     close: () => {
@@ -910,13 +1045,18 @@ export function startWebRtcLive(sessionId: string, options: {
       cancelIce();
       queue.length = 0;
       clearWatchdog();
+      clearDisconnect();
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
       if (mediaWatchdog !== null) window.clearInterval(mediaWatchdog);
       // S24 — never strand an in-flight recording; stop it before the track dies.
       abandonRecording();
       // Local teardown must not wait for an unresponsive final-signal request.
       try { dc?.close(); } catch {}
+      // The explicit handler also covers transports which omit onclose.
+      failIncomingFile();
+      try { fdc.close(); cdc.close(); } catch {}
       try { pc.close(); } catch {}
+      try { video.pause(); video.srcObject = null; } catch {}
       try { supabase.removeChannel(channel); } catch {}
 
       // Send the final signal directly: the normal queue stops accepting work
@@ -931,6 +1071,7 @@ export function startWebRtcLive(sessionId: string, options: {
         },
       }).catch(() => undefined);
       listeners.clear();
+      mediaListeners.clear();
       // Cursor persists across a quick refresh but is discarded when the
       // session actually ends — the caller sets state to superseded/failed.
       if (state === "superseded" || state === "failed") clearCursor(sessionId);

@@ -1,6 +1,6 @@
 # Run the complete Agent source before packaging
 
-This is the **Windows Agent source**, version **1.10.4**. It includes C#,
+This is the **Windows Agent source**, version **1.10.8**. It includes C#,
 XAML, project files, branding assets, Watch, the update helper, shared update
 code, native tests and build scripts. It is not a binary-download launcher.
 No Agent executable or MSI has been built for this source delivery.
@@ -9,6 +9,11 @@ No Agent executable or MSI has been built for this source delivery.
 
 - A Windows x64 test machine with the **.NET 8 SDK**, not just the runtime.
 - Internet access for NuGet dependency restore and your ConnectLive server.
+- For software VP8: the package's **x64 `vpxmd.dll`**, the process-matching
+  **Microsoft Visual C++ v14 runtime** (`VCRUNTIME140.dll`), and **Windows
+  Universal CRT**. The .NET SDK alone is not proof these are present.
+  See [VIDEO-DEPENDENCIES.md](VIDEO-DEPENDENCIES.md) for exact official-package
+  evidence, safe repair guidance and the local-only diagnostic command.
 - A current, unused device-pairing code from your administrator's web console.
   No administrator password, Supabase service key or device token belongs in
   the source or launch command.
@@ -166,24 +171,161 @@ webrtc video pipe: pushed=... encoded=... dropped=...   (every ~5 s)
 
 The first line that is missing, or the first `[warn]` before it, locates the
 fault. In particular `webrtc signal poll failing: HTTP ...`,
-`webrtc ... rejected: identity check failed`, `webrtc VP8 encoder unavailable`
+`webrtc ... rejected: identity check failed`, `webrtc no usable video encoder`
 and `webrtc sig apply: ...` each mean the Agent never answered the viewer's
 offer, which the viewer shows as "Connecting video" followed by
 "Video disconnected — reconnect viewer".
 
-## Diagnose missing video with JPEG fallback
+## Native VP8 loading failures
 
-In the updated **web console**, open the affected video session, expand
-**Show actions** if needed, and select **Test JPEG fallback**. Confirm ending
-that session and inviting a new **view-only** diagnostic session. Existing
-authorization still applies; attended sessions still need local acceptance.
-No pairing, restart, new permission or database migration is performed.
+Startup now checks the expected native locations, PE/process architecture and
+restricted Windows loader results before a session arrives. It then tries an
+actual 16×16 synthetic VP8 encode, independently of H.264 discovery. No
+dependency is downloaded or installed; no permission or session policy changes.
+
+To check locally without pairing, enrollment or a remote session, run from
+`agent` on your Windows test machine:
+
+```powershell
+dotnet run --project .\src\ConnectLiveAgent.csproj -- --video-preflight
+```
+
+This builds the source **on your machine**, writes the normal Agent log and
+exits. A zero exit code means diagnostics completed, not that video works.
+Read [VIDEO-DEPENDENCIES.md](VIDEO-DEPENDENCIES.md) for each logged state, the
+official Microsoft runtime links, single-file limitations and remaining Windows
+verification steps.
+
+Agent 1.10.7 contains the 1.10.6 curtain changes and guards cleanup after a
+failed VP8 probe. Previously, disposing a partially initialized encoder could
+throw another `vpxmd` loading error, aborting peer setup before the independent
+hardware H.264 candidate was offered.
+
+This does **not** supply a missing native DLL or its Windows dependencies.
+VP8-only viewers still require a working VP8 runtime. H.264 requires both a
+compatible viewer offer and a working hardware encoder; detecting an Intel MFT
+alone does not prove encoding works. Startup diagnostics no longer claim that
+the wire codec is always VP8.
+
+The expected next evidence is a codec-negotiation message and an opened input
+channel, followed by actual frames and curtain acknowledgements. A JPEG upload
+alone is not that evidence. HTTP heartbeat timeouts are a separate problem;
+the timeout and dead-man safeguards have not been relaxed.
+
+If pairing already succeeds, keep the existing enrollment. Stop the old
+process and run from this new source folder; repeated pairing is not a remedy
+for a native codec loading error.
+
+## Control mode and privacy curtain
+
+### Live-session recovery and ending a visit (1.10.8)
+
+The asynchronous H.264 input pump now retains every `METransformNeedInput`
+credit across frames instead of discarding credits received after one frame
+was submitted. It does not spin for 120 milliseconds when no event is ready.
+Separate output frames are not combined into one RTP access unit.
+
+If submitted frames stop producing output for three seconds, the Agent can
+rebuild the H.264 encoder twice within the same authorized peer. It does not
+close input/file/clipboard channels for that in-place recovery. Persistent
+encoder failure still fails explicitly and allows bounded viewer reconnection;
+permissions, withdrawal and the curtain's five-second dead-man lease remain.
+This is not permission to keep a terminated or revoked session running.
+
+After the updated server explicitly reports that this exact accepted session
+ended, the Agent stops remote access and opens the pairing-code window once.
+The requirement survives restart and prevents Watch/updater relaunch until a
+new foreground pairing is completed. Closing that window leaves access stopped.
+An empty session list, missing row, heartbeat error or video-only disconnect
+does **not** erase pairing or display repeated code prompts.
+
+**Use matching Agent and server source.** The new pairing behavior needs the
+updated heartbeat endpoint's `session_status` receipt; a source ZIP does not
+deploy that endpoint. Startup logs now show the canonical gateway origin.
+The Windows Agent and browser must use the intended same server. Changing the
+server origin requires a new pairing with that server, not reuse of a grant
+from another origin.
+
+The curtain is an opaque local notice excluded from capture. Exclusion is
+checked again after WPF renders, before input pause is acknowledged. If DXGI
+becomes unavailable while the curtain is visible, the curtain is released
+before GDI capture is allowed. This avoids sending its banner to the viewer.
+Actual Windows display/capture exclusion still requires a Windows run.
+
+Portable tests (not Windows hardware/UI execution):
+
+```text
+dotnet run --project agent/tests/session-recovery/SessionRecovery.Tests.csproj
+```
+
+From the repository, prefix that path with `imports/connectlive/`.
+
+### Combined browser action
+
+Use **Take control + curtain** in the updated browser console. The console
+first requests control mode, waits for this Agent's permission acknowledgement,
+then requests the curtain. Keyboard/mouse input stays paused until the Agent
+confirms the local notice has rendered and local input pause is active.
+
+Agent 1.10.6 fixes acknowledged curtain commands in both video-only and
+JPEG-enabled sessions. Older JPEG-enabled Agents used a different receipt,
+which could leave the browser waiting and prevent curtain renewal. The
+Windows Admin's existing receipt and renewal format remains supported.
+
+The action does not run a Windows scheduled task or script. A working JPEG
+picture alone does not establish the live command channel. If that channel,
+control permission or curtain support is missing, the browser explains why
+the action is unavailable.
+
+**Release control + curtain** requests view mode even if the command channel
+is lost. A failed or cancelled activation does not enable remote input.
+Curtain renewals stop on failure, and the Agent retains its five-second
+fail-safe lease and local **Ctrl+Alt+Shift+Esc** withdrawal. Reconnection never
+silently re-enables the curtain. No secure-desktop access is added.
+
+This source update has not been compiled or exercised on Windows here.
+
+## Automatic video recovery and sharper JPEG fallback
+
+New sessions from the updated web console permit video and automatic JPEG
+fallback. The viewer retries H.264-preferred/VP8 with direct-or-TURN ICE,
+then VP8-only, then relay-only variants. It keeps a working peer instead of
+interrupting it to upgrade. Retries stay within the same authorized session;
+permission denial or another viewer taking ownership stops them.
+
+For an **existing video-only** session, expand **Show actions** and select
+**Enable JPEG fallback**. This explicitly asks you to confirm ending that
+session and inviting a new **view-only** session. Existing authorization still
+applies; attended sessions still need local acceptance. No pairing, restart,
+new permission or database migration is performed.
 
 Video-only sessions intentionally reject JPEG at the Agent, API and database.
-The diagnostic option creates a separate `legacy`-media session instead of
-silently weakening those restrictions. WebRTC continues trying, and a
-**JPEG fallback enabled** notice explains which path has produced a picture.
-When done, end the diagnostic session and connect normally for video-only mode.
+The replacement option creates a separate `legacy`-media session instead of
+silently weakening those restrictions. WebRTC continues trying, and the
+**Automatic JPEG fallback enabled** notice explains which path is active.
+Do not infer native video success from a visible JPEG.
+
+This source update separates JPEG detail from the video congestion ladder:
+
+- It encodes the original desktop pixels, up to a 3840-pixel edge and
+  3840×2160 total pixels, without upscaling.
+- JPEG quality is 86 during changes and 94 when static. Updates start at
+  at most two per second; slow uploads reduce cadence instead of automatically
+  shrinking text.
+- A 1,450,000-byte JPEG cap fits the existing base64 upload limit. Exceptionally
+  large images reduce quality to 80, then resolution, rather than sending
+  frames the server will reject.
+- Use the viewer's **1:1** mode to inspect text without fit-to-window scaling.
+  A 1366×768 source remains 1366×768; genuine 4K detail needs a 4K source.
+- Hardware H.264 is preferred when the hardware probe permits it. VP8 is
+  probed with an actual synthetic encode, not just a format advertisement.
+  A missing VP8 encoder no longer blocks hardware H.264. Encoder failures
+  retire the peer for a clean negotiation; they never put VP8 into H.264 SDP.
+
+`CONNECTLIVE_CODEC=vp8` remains an explicit compatibility override. The default
+is now `auto`. The sender logs the negotiated codec separately from the preference.
+The older `VP8 encoder unavailable` log does not distinguish an empty advertised
+format list from a native-library failure; this version logs the actual probe.
 
 The useful Agent log sequence is:
 
@@ -200,12 +342,38 @@ first JPEG uploaded successfully: ...; capture and HTTPS path working
   401/403 concerns authorization; 409 can mean a video-only/inactive session.
 - No capture-loop line: check Agent startup, heartbeat/session acceptance and
   viewing permission before blaming DXGI or VP8.
-- A stationary screen remains fresh via a bounded one-second JPEG keepalive.
+- A stationary screen remains fresh via a bounded JPEG keepalive (normally
+  once per second, slower on a slow upload path).
   It runs only while capture confirms unchanged pixels and viewing is authorized.
+
+### Upload stalls and heartbeat loss
+
+New `HTTP op=frame` / `HTTP op=heartbeat` lines report a random request ID,
+numeric status, elapsed time, deadline, safe failure category and bounded
+failure/recovery counts. JPEG retains its **3-second** deadline and heartbeat
+its **20-second** HTTP timeout. `outcome=deadline` is different from ordinary
+session cancellation (`cancelled`) and from an HTTP 401/403/409 response.
+The first failed heartbeat still stops local session channels; the third
+consecutive failure also reports the dead-man safeguard.
+
+An updated server returns matching request IDs and safe stage/timing headers.
+Missing headers can mean older server code; they do not establish a network
+failure. A 503 lookup/authorization result means the dependency was unavailable,
+not that a device credential was proven invalid. Do not extend the deadlines,
+disable the safeguard, or re-pair a device just to hide these failures.
+
+For an explicitly authorized test, share only the `HTTP op=…` lines and matching
+server `scope=agent_http` lines with the timestamp/timezone. Never share device
+stores, pairing codes, tokens, request bodies or screen contents. Diagnostic
+lines are rate-limited, so absent lines do not prove a request never arrived.
+The full source investigation and interpretation guide is
+`docs/agent-http-stalls.md` in the repository. Windows builds remain manual;
+this source change is not proof that the original infrastructure fault is fixed.
 
 The console change is part of the web source, not something the Agent ZIP
 can install on the server. Use the updated preview console or publish the web
-change separately. This source delivery does not prove Windows video works.
+change separately. The JPEG-quality and native-codec changes require rebuilding
+this Agent source on Windows. This delivery does not prove Windows video works.
 
 ## Later, after your manual verification
 

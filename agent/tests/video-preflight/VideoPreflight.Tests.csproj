@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Portable diagnostics tests only; no WPF/Agent build or native encoder. -->
+    <Compile Include="../../src/Vp8NativeDiagnostics.cs" Link="Vp8NativeDiagnostics.cs" />
+    <Compile Include="../../src/WindowsVp8NativeProbe.cs" Link="WindowsVp8NativeProbe.cs" />
+    <Compile Include="../../src/VideoPreflight.cs" Link="VideoPreflight.cs" />
+    <Compile Include="../../src/Vp8FrameEncoder.cs" Link="Vp8FrameEncoder.cs" />
+  </ItemGroup>
+</Project>

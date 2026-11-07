@@ -46,7 +46,11 @@ public sealed partial class WebRtcSession
     private bool HandleBrowserAction(JsonElement root, RTCDataChannel channel, PeerInputPermission peerPermission)
     {
         if (!root.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String) return false;
-        if (_videoOnly && kind.GetString() is "curtain_on" or "curtain_off" or "curtain_renew")
+        if (HandleUnlockAction(root, channel, peerPermission, kind.GetString()!)) return true;
+        // Media fallback does not change the acknowledged command protocol.
+        // Routing legacy-media browser requests through InputRelay lost their
+        // action_status receipt and did not handle curtain_renew.
+        if (kind.GetString() is "curtain_on" or "curtain_off" or "curtain_renew")
         {
             HandleCurtainAction(root, channel, peerPermission, kind.GetString()!);
             return true;
@@ -75,26 +79,56 @@ public sealed partial class WebRtcSession
     {
         if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object ||
             !payload.TryGetProperty("request_id", out var request) || request.ValueKind != JsonValueKind.String ||
-            !Guid.TryParse(request.GetString(), out var id)) return;
+            !Guid.TryParse(request.GetString(), out _))
+        {
+            // Older callers send a bare safety release. It must still clear
+            // this peer's curtain even though there is no correlated receipt.
+            if (action == "curtain_off") CurtainController.Release(owner, "admin_off");
+            return;
+        }
+        // Preserve the spelling: the native Admin uses Guid "N", browsers "D".
+        var requestId = request.GetString();
+        var legacyReceipt = payload.TryGetProperty("sent_at", out var sent) &&
+            sent.TryGetInt64(out _);
+        var sentAt = legacyReceipt ? sent.GetInt64() : -1;
+        var authorizationId = _api.LocalAuthorization?.Authorization.Id;
+        bool CurrentChannel() => !_closed && ReferenceEquals(_browserInput, channel) &&
+            ReferenceEquals(_peerPermission, owner) && channel.readyState == RTCDataChannelState.open;
         void Receipt(bool applied)
         {
-            if (_closed || channel.readyState != RTCDataChannelState.open) return;
+            if (!CurrentChannel()) return;
+            var active = CurtainController.ActiveFor(owner);
             try { channel.send(JsonSerializer.Serialize(new {
-                kind = "action_status", session_id = _sessionId, authorization_id = _api.LocalAuthorization?.Authorization.Id,
-                request_id = id.ToString(), action, status = applied ? "applied" : "rejected",
-                active = CurtainController.ActiveFor(owner),
+                kind = "action_status", session_id = _sessionId, authorization_id = authorizationId,
+                request_id = requestId, action, status = applied ? "applied" : "rejected",
+                active,
             })); } catch { }
+            // Retain the Windows Admin receipt, but send it after the actual
+            // rendered/apply callback, not merely behind queued dispatcher work.
+            if (legacyReceipt)
+                try { channel.send(JsonSerializer.Serialize(new {
+                    kind = "curtain_status", request_id = requestId,
+                    sent_at = sentAt, applied = applied && active,
+                })); } catch { }
+            if (!applied) Log.Warn($"curtain request rejected: {action}");
         }
         void Changed(bool active, string reason)
         {
-            if (_closed || channel.readyState != RTCDataChannelState.open) return;
+            if (!CurrentChannel()) return;
             try { channel.send(JsonSerializer.Serialize(new {
-                kind = "curtain_state", session_id = _sessionId, authorization_id = _api.LocalAuthorization?.Authorization.Id,
+                kind = "curtain_state", session_id = _sessionId, authorization_id = authorizationId,
                 active, reason,
             })); } catch { }
         }
         if (action == "curtain_off") CurtainController.Release(owner, "admin_off", Receipt);
         else if (action == "curtain_renew") Receipt(CurtainController.Renew(owner));
-        else CurtainController.Enable(owner, Receipt, Changed);
+        // Native Admin renews with curtain_on; browsers use curtain_renew.
+        // Both retain the same owner and five-second fail-safe lease.
+        else if (CurtainController.Renew(owner)) Receipt(true);
+        else
+        {
+            Log.Info($"privacy curtain requested; control permission={owner.Allows("control")}");
+            CurtainController.Enable(owner, Receipt, Changed);
+        }
     }
 }

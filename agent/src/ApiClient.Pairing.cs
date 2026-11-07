@@ -72,10 +72,7 @@ public sealed partial class ApiClient
         // disclosure are durably saved. A failed save remains an explicit error.
         SaveDeviceCreds(new EnrollResponse(deviceId!, attempt.Token));
         GrantStore.Save(local);
-        DeviceId = deviceId;
-        DeviceToken = attempt.Token;
-        LocalAuthorization = local;
-        Interlocked.Increment(ref _tokenGeneration);
+        SetPairedIdentity(deviceId!, attempt.Token, local);
     }
 
     private static async Task<JsonDocument> ReadPairingResponseAsync(

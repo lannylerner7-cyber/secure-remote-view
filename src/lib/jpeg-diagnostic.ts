@@ -1,4 +1,9 @@
-/** JPEG diagnosis uses a new legacy-media session; video sessions stay immutable. */
+/**
+ * "legacy" is the existing video + HTTPS JPEG transport contract, not JPEG-only.
+ * New viewer sessions prefer WebRTC but must be allowed to fall back without a
+ * new invitation. Existing video-only sessions stay immutable; replacing one
+ * still requires confirmation and the normal viewing authorization.
+ */
 export function selectSessionMediaMode(
   platform: string | null | undefined,
   metadata: unknown,
@@ -9,7 +14,7 @@ export function selectSessionMediaMode(
   if (jpegDiagnostic && !modernWindows) {
     throw new Error("JPEG diagnosis requires a browser-capable Windows Agent.");
   }
-  return modernWindows && !jpegDiagnostic ? "video" : "legacy";
+  return "legacy";
 }
 
 /** Never invite a replacement when ending the previous session failed. */

@@ -101,6 +101,7 @@ export function AccessWorkspace(props: {
   onConnect: (d: Device) => void;
   onPower: (d: Device, kind: PowerKind) => void;
   onDelete: (d: Device) => void;
+  onWindowsUnlock: (d: Device) => void;
   onBulkEnd: () => void;
   onBulkRestart: () => void;
   onPair: () => void;
@@ -332,6 +333,11 @@ export function AccessWorkspace(props: {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" collisionPadding={8} className={menuCls}>
+                <DropdownMenuItem className={itemCls}
+                  disabled={!props.canDelete || !single || single.platform !== "windows"}
+                  onSelect={() => single && props.onWindowsUnlock(single)}>
+                  Windows lock-screen access
+                </DropdownMenuItem>
                 <DropdownMenuItem className={itemCls} disabled={!!bulkReason} onSelect={props.onBulkEnd}>
                   End sessions on selected
                   {bulkReason && <span className="ml-auto pl-3 text-[10px] text-white/45">{bulkReason}</span>}

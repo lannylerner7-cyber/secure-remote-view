@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Portable production policies only; does not build the Windows Agent. -->
+    <Compile Include="../../src/AsyncMftPump.cs" Link="AsyncMftPump.cs" />
+    <Compile Include="../../src/EncoderProgress.cs" Link="EncoderProgress.cs" />
+    <Compile Include="../../src/SessionCompletion.cs" Link="SessionCompletion.cs" />
+    <!-- Compile the real wrapper/interop, but never call Windows COM here. -->
+    <Compile Include="../../src/HwH264Encoder.cs" Link="HwH264Encoder.cs" />
+    <Compile Include="../../src/MediaFoundationInterop.cs" Link="MediaFoundationInterop.cs" />
+  </ItemGroup>
+</Project>

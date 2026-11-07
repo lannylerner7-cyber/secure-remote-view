@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 
 /**
  * Peer/target agent ACKs execution of a queued power_command.
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/api/public/agent/power/$cmdId/ack")({
     handlers: {
       POST: async ({ request, params }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx);
 
         const body = (await request.json().catch(() => ({}))) as { state?: string; error?: string };
         const state = body.state === "failed" ? "failed" : "delivered";

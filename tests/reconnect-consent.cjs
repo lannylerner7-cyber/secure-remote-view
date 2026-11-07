@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const ts = require("typescript");
+const { stubDeviceAuth } = require("./helpers/device-auth.cjs");
 const file = path.join(__dirname, "../src/routes/api/public/agent/session.$sessionId.reconnect.ts");
 const js = ts.transpileModule(fs.readFileSync(file, "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -23,7 +24,7 @@ const admin = {
 };
 const dependencies = {
   "@tanstack/react-router": { createFileRoute: () => (config) => config },
-  "@/lib/agent-auth.server": { verifyDevice: async () => verified ? { admin, device: { id: "device-a" } } : null },
+  "@/lib/agent-auth.server": stubDeviceAuth(() => verified ? { admin, device: { id: "device-a" } } : null),
   "@/lib/authorization.server": { sessionAuthorized: async () => { authorityCalls++; return authorized; } },
 };
 const mod = { exports: {} };

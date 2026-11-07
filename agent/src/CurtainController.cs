@@ -29,6 +29,13 @@ internal static class CurtainController
             InputBlocker.IsEngaged && CurtainOverlay.IsShown;
     }
 
+    internal static void CaptureUnavailable()
+    {
+        PeerInputPermission? owner;
+        lock (Gate) owner = Lease.Owner as PeerInputPermission;
+        if (owner != null) Release(owner, "capture_exclusion_unavailable");
+    }
+
     internal static void Enable(PeerInputPermission owner, Action<bool> applied,
         Action<bool, string>? changed = null)
     {
@@ -56,6 +63,7 @@ internal static class CurtainController
             lock (Gate) valid &= Lease.Owns(owner, Environment.TickCount64);
             if (!valid) { Release(owner, "authorization_changed"); applied(false); return; }
             InputBlocker.Heartbeat();
+            Log.Info("privacy curtain applied: local notice rendered and input pause active");
             applied(true);
         }));
     }
@@ -95,6 +103,9 @@ internal static class CurtainController
             changed = _changed;
             _changed = null;
         }
+        // A curtain timeout must not leave remote-held keys/buttons pressed
+        // after ordinary local input has been restored.
+        try { InputRelay.ReleaseHeldInputs(); } catch { }
         HideWhenInactive(() => changed?.Invoke(false, reason));
     }
 

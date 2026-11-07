@@ -47,7 +47,7 @@ public sealed class Agent
     private HashSet<string> _eligibleInvites = new();
 
     private bool HasAuthority => !_locallyStopped && !_authorizationSuspended &&
-        !LocalAccessState.IsDisabled() && _authorityMatches &&
+        !LocalAccessState.IsDisabled() && !SessionPairingRequirement.Required && _authorityMatches &&
         _api.LocalAuthorization?.DeviceId == _api.DeviceId && _api.DeviceId != null;
 
     private bool CheckAuthority(string body)
@@ -85,6 +85,7 @@ public sealed class Agent
 
     /// <summary>Raised with a human-readable session state for tray/status UI.</summary>
     public event Action<string>? SessionStateChanged;
+    internal event Action? SessionEndedRemotely;
 
     private void ReportState(string s)
     {
@@ -210,19 +211,9 @@ public sealed class Agent
         _outerCt = ct;
         SubscribeNetworkChange(ct);
 
-        // Log the hardware H.264 encoder capability once per process. The
-        // probe is cheap and idempotent; running it at startup means every
-        // field log carries the machine's encode ceiling whether or not a
-        // session ever opens, which is what tells us how much of the fleet
-        // would benefit from the wire-codec flip landing after this turn.
-        try { HwEncoderProbe.LogCapability(); } catch { }
-        // S17 step 3 kill switch, logged next to the probe so a field machine's
-        // codec behaviour is readable from the startup log alone. Inert today —
-        // WebRtcSession still pins VP8 unconditionally.
-        try { CodecPolicy.LogPolicy(); } catch { }
-
-
-
+        // Discover dependency failures before a session arrives. Synthetic VP8
+        // and Media Foundation discovery have independent failure boundaries.
+        VideoPreflight.LogStartup();
 
         // Boot-proof enrollment: retry every 5s forever. Windows Startup fires
         // before Wi-Fi finishes negotiating, so a single failure here used to
@@ -250,7 +241,7 @@ public sealed class Agent
 
         if (_locallyStopped || ct.IsCancellationRequested) return;
         _splashStatus("Sending heartbeat…");
-        try { CheckAuthority(await _api.HeartbeatAsync(ct)); } catch (Exception ex) { Log.Warn($"first heartbeat: {ex.Message}"); EndSession(); }
+        try { CheckAuthority(await _api.HeartbeatAsync(ct)); } catch (Exception ex) { Log.Warn($"first heartbeat: {AgentHttpDiagnostics.SafeFailure(ex, ct.IsCancellationRequested)}"); EndSession(); }
 
         // If a session was pre-seeded (cold-boot reconnect), start its loops
         // immediately so we don't wait a whole heartbeat cycle for pixels.
@@ -306,6 +297,7 @@ public sealed class Agent
                 deadManTripped = false;
 
                 var authorityValid = CheckAuthority(body);
+                if (authorityValid && HandleConfirmedSessionEnd(body)) authorityValid = false;
                 if (authorityValid)
                 {
                     UpdateEnvironment.ReportHealthy(ApiClient.AgentVersion);
@@ -344,7 +336,7 @@ public sealed class Agent
                 fails++;
                 _authorityMatches = false;
                 EndSession();
-                Log.Warn($"heartbeat failed ({fails}): {ex.Message}");
+                Log.Warn($"heartbeat failed ({fails}): {AgentHttpDiagnostics.SafeFailure(ex, ct.IsCancellationRequested)}");
                 if (fails >= 3 && !deadManTripped)
                 {
                     // Loss of authority/presence must stop all live-session channels,
@@ -468,6 +460,20 @@ public sealed class Agent
             EndSession();
     }
 
+    private bool HandleConfirmedSessionEnd(string body)
+    {
+        if (!SessionCompletion.RequiresPairing(body, _api.LiveSessionId,
+                _api.LocalAuthorization?.Authorization.Id)) return false;
+        // Close all live paths before showing UI. Never clear enrollment or
+        // reopen a revoked peer as a side effect of this prompt.
+        SuspendForAuthorization();
+        SessionPairingRequirement.Require();
+        _api.LiveSessionId = null;
+        Log.Info("support session ended by server; remote access stopped, a new pairing code is required");
+        SessionEndedRemotely?.Invoke();
+        return true;
+    }
+
     private bool SessionLoopsHealthy(string sessionId)
     {
         return _loopSessionId == sessionId
@@ -490,7 +496,11 @@ public sealed class Agent
             try { InputBlocker.Release("control_permission_removed"); } catch { }
             try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
         }
-        if (modeChanged) _rtc?.ReportPermissionState();
+        if (modeChanged)
+        {
+            Log.Info($"session permission changed to {mode}; notifying the current Agent command channel");
+            _rtc?.ReportPermissionState();
+        }
         if (SessionLoopsHealthy(sessionId)) return;
         Log.Warn($"session {sessionId} loop health check failed; restarting loops");
         JoinActiveSession(sessionId, mode);

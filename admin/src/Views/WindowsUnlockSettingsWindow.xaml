@@ -1,0 +1,40 @@
+<Window x:Class="ConnectLive.Admin.Views.WindowsUnlockSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Windows lock-screen access" Width="530" Height="710" MinWidth="380" MinHeight="420"
+        WindowStartupLocation="CenterOwner" Background="#0F172A" Foreground="White">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="22">
+            <TextBlock Text="Windows lock-screen access" FontSize="21" FontWeight="SemiBold" />
+            <TextBlock x:Name="DeviceName" Margin="0,8,0,14" TextWrapping="Wrap" Foreground="#CBD5E1" />
+            <TextBlock x:Name="Status" Text="Loading current permission…" TextWrapping="Wrap" Margin="0,0,0,12" />
+            <TextBlock TextWrapping="Wrap" Foreground="#CBD5E1" Margin="0,0,0,14"
+                       Text="A local administrator must approve the unlock service. Run ConnectLive.exe --unlock-setup, review and run Install-ConnectLiveUnlock.ps1, then run --unlock-enable as the paired Windows user. No remote installation or implicit permission." />
+            <Border Padding="12" Background="#1E293B" CornerRadius="6">
+                <TextBlock TextWrapping="Wrap"
+                    Text="Enter this device's Windows Hello PIN explicitly. ConnectLive never extracts Windows Hello PINs, keys or biometrics. Saving a reusable PIN reduces the protection of a device-only PIN: authorized operators can use it to sign in. Only ciphertext is sent to the database; the PIN cannot be revealed or downloaded." />
+            </Border>
+            <CheckBox x:Name="Consent" Foreground="White" Margin="0,14,0,10">
+                <TextBlock TextWrapping="Wrap" Text="I understand and choose to save a reusable PIN for this device." />
+            </CheckBox>
+            <TextBlock Text="Windows Hello PIN" Margin="0,6,0,5" />
+            <PasswordBox x:Name="Pin" MaxLength="127" Padding="8" ContextMenu="{x:Null}" />
+            <TextBlock Text="Confirm PIN" Margin="0,12,0,5" />
+            <PasswordBox x:Name="ConfirmPin" MaxLength="127" Padding="8" ContextMenu="{x:Null}" />
+            <TextBlock Text="4–127 printable ASCII characters. Leading zeroes and spaces are preserved."
+                       TextWrapping="Wrap" Foreground="#94A3B8" FontSize="11" Margin="0,7,0,12" />
+            <WrapPanel>
+                <Button x:Name="Save" Content="Save PIN" Click="Save_Click" IsEnabled="False" Margin="0,4,8,4" />
+                <Button x:Name="Forget" Content="Forget saved PIN" Click="Forget_Click" IsEnabled="False" Background="#334155" Margin="0,4,8,4" />
+                <Button x:Name="Revoke" Content="Revoke lock-screen access" Click="Revoke_Click" IsEnabled="False" Background="#7F1D1D" Margin="0,4,8,4" />
+            </WrapPanel>
+            <TextBlock x:Name="Result" TextWrapping="Wrap" Margin="0,12,0,12" Foreground="#CBD5E1" />
+            <TextBlock Text="Deleting the device also removes its saved PIN, unlock permission and active requests. An offline Agent removes its local encryption identity after reconnecting. Backups follow normal retention; this is not physical erasure."
+                       TextWrapping="Wrap" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,12" />
+            <WrapPanel>
+                <Button Content="Refresh status" Click="Refresh_Click" Background="#334155" Margin="0,4,8,4" />
+                <Button Content="Close" Click="Close_Click" Background="#334155" Margin="0,4,8,4" />
+            </WrapPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

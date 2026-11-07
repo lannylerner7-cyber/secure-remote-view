@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const crypto = require("node:crypto");
 const { test } = require("node:test");
 const ts = require("typescript");
+const { stubDeviceAuth } = require("../tests/helpers/device-auth.cjs");
 
 const compiled = ts.transpileModule(
   fs.readFileSync("src/routes/api/public/agent/ice.ts", "utf8"),
@@ -51,11 +52,9 @@ function harness(options = {}) {
     crypto,
     "@/lib/server-supabase": { adminClient: () => admin },
     "@/lib/authorization.server": { sessionAuthorized: async () => options.granted !== false },
-    "@/lib/agent-auth.server": {
-      verifyDevice: async () => options.device === false ? null : {
+    "@/lib/agent-auth.server": stubDeviceAuth(() => options.device === false ? null : {
         admin, device: { id: "device-row", device_id: "synthetic-device" },
-      },
-    },
+      }),
     "@supabase/supabase-js": {
       createClient: () => ({
         auth: { getUser: async token => {

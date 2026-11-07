@@ -64,6 +64,7 @@ public partial class LiveSessionViewModel : ObservableObject
                 _cts?.IsCancellationRequested != false || TakenOver || Mode != "control") return;
             _curtainConfirmedUtc = DateTime.UtcNow;
             CurtainOn = applied;
+            if (applied) ConnectLive.Admin.Input.InputTransport.ResumeOrdinaryInput(SessionId);
             StatusMessage = applied ? null : "Agent reports curtain not applied; check its permissions and display support.";
         });
     }
@@ -116,12 +117,13 @@ public partial class LiveSessionViewModel : ObservableObject
     /// gated on this so a view-only or taken-over session can never draw a
     /// pointer the agent isn't going to honour.
     /// </summary>
-    public bool InputAuthoritative => Mode == "control" && CurtainOn && !TakenOver;
+    public bool InputAuthoritative => !TakenOver && (UnlockReady || (UnlockIdle && Mode == "control" && CurtainOn));
 
     public LiveSessionViewModel(string sessionId, DeviceItem device)
     {
         SessionId = sessionId;
         Device = device;
+        ConnectLive.Admin.Input.InputTransport.UnlockChanged += OnUnlockChanged;
     }
 
 
@@ -511,6 +513,8 @@ public partial class LiveSessionViewModel : ObservableObject
     public void Stop()
     {
         if (Interlocked.Exchange(ref _stopped, 1) != 0) return;
+        ConnectLive.Admin.Input.InputTransport.UnlockChanged -= OnUnlockChanged;
+        _unlockChannel?.Cancel();
         ConnectLive.Admin.Input.InputTransport.CurtainAcknowledged -= OnCurtainAcknowledged;
         _curtainRequestId = null;
         StopCurtainHeartbeat();
@@ -700,6 +704,7 @@ public partial class LiveSessionViewModel : ObservableObject
     [RelayCommand]
     private async Task ToggleControl()
     {
+        if (!UnlockIdle) { SurfaceError("Finish or cancel Windows unlock before requesting control."); return; }
         if (_cts == null || _cts.IsCancellationRequested || TakenOver || Volatile.Read(ref _stopped) != 0) return;
         var token = _cts.Token;
         var takeControl = Mode != "control";
@@ -966,6 +971,7 @@ public partial class LiveSessionViewModel : ObservableObject
     [RelayCommand]
     private void SendClipboard()
     {
+        if (!UnlockIdle) { SurfaceError("Clipboard is disabled during Windows unlock."); return; }
         if (!ClipboardTransport.IsOpen)
         {
             SurfaceError("Clipboard channel is not connected.");
@@ -989,13 +995,15 @@ public partial class LiveSessionViewModel : ObservableObject
     private long _recordingAllowedUntil;
     private long _recordingGeneration;
     private bool RecordingPermissionCurrent() =>
-        Environment.TickCount64 < Interlocked.Read(ref _recordingAllowedUntil)
+        !_securePixelsSeen && Environment.TickCount64 < Interlocked.Read(ref _recordingAllowedUntil)
         && _cts != null && !_cts.IsCancellationRequested;
 
     /// <summary>Start/stop teeing the decoded VP8 stream to an .ivf file.</summary>
     [RelayCommand]
     private async Task ToggleRecording()
     {
+        if (!UnlockIdle || _securePixelsSeen)
+        { SurfaceError("Close and reopen the viewer before recording again. Secure-screen buffers must not enter a recording."); return; }
         var rtc = _rtc;
         if (rtc == null)
         {

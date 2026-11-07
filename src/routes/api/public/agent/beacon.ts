@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { currentAuthorization } from "@/lib/authorization.server";
 
 /**
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/api/public/agent/beacon")({
     handlers: {
       POST: async ({ request }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx);
 
         const body = (await request.json().catch(() => ({}))) as {
           reason?: "stopped" | "starting" | "uninstalling";

@@ -20,7 +20,6 @@ public partial class App : Application
         // Initialize the file log before any policy, update or duplicate-process exit.
         // Do not log command-line arguments: they may contain private configuration.
         Log.Info("startup entered; diagnostics initialized before pairing and session startup");
-        InputBlocker.LocalStopRequested += () => Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
 
         // Local command-line withdrawal remains available without a second UI.
         // It also works during an update handoff and never clears the marker.
@@ -29,7 +28,7 @@ public partial class App : Application
         if (uninstalling || Array.Exists(e.Args, a => a.Equals("/disable", StringComparison.OrdinalIgnoreCase) ||
             a.Equals("--disable", StringComparison.OrdinalIgnoreCase)))
         {
-            try { LocalAccessState.Disable(); StartupConsent.Clear(); StartupSelfHeal.RemoveAll(); }
+            try { LocalAccessState.Disable(); UnlockEnrollment.Forget(); StartupConsent.Clear(); StartupSelfHeal.RemoveAll(); }
             catch
             {
                 MessageBox.Show("Could not persist withdrawal. Uninstall ConnectLive or contact your IT administrator.", "ConnectLive");
@@ -42,6 +41,28 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        // Explicit offline check: exits before enrollment, recovery, startup
+        // registration or any network/session work. No extra window is added.
+        if (Array.Exists(e.Args, a => a.Equals("--video-preflight", StringComparison.OrdinalIgnoreCase)))
+        {
+            VideoPreflight.LogStartup();
+            Shutdown();
+            return;
+        }
+        try
+        {
+            if (await UnlockEnrollment.HandleSetupAsync(e.Args)) { Shutdown(); return; }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Windows unlock setup", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown(1);
+            return;
+        }
+        PeerInputPermission.SensitiveDesktop = () => UnlockOperation.Sensitive;
+        PeerInputPermission.LockedDesktop = () =>
+            ConnectLive.Unlock.WindowsSession.Locked(ConnectLive.Unlock.WindowsSession.CurrentId) == true;
+        InputBlocker.LocalStopRequested += () => Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
         var backgroundLaunch = Array.Exists(e.Args, a =>
             a.Equals("/BACKGROUND", StringComparison.OrdinalIgnoreCase) ||
             a.Equals("--background", StringComparison.OrdinalIgnoreCase) ||
@@ -96,6 +117,7 @@ public partial class App : Application
         {
             // Pairing is the only normal Agent UI; no status window or tray menu.
             var api = new ApiClient(apiUrl);
+            Log.Info($"Agent gateway origin: {LocalGrant.OriginOf(api.ApiBaseUrl)}");
             if (apiUrl != null) ApiClient.SaveConfig(new ApiClient.AgentConfig(api.ApiBaseUrl));
             _api = api;
             api.LocalAuthorization = GrantStore.Load();
@@ -131,12 +153,15 @@ public partial class App : Application
             ApiClient.ClearSessionBinding();
             if (_stopping || _cts.IsCancellationRequested) return;
             _agent = new Agent(api, Log.Info, dispatcher, onWake: null);
+            _agent.SessionEndedRemotely += () =>
+                Current.Dispatcher.BeginInvoke(new Action(RequestPairingAfterSessionEnd));
             _withdrawalTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _withdrawalTimer.Tick += (_, _) =>
             {
                 if (LocalAccessState.IsDisabled() || InstallationLifecycle.RemovalRequested()) DisableRemoteAccess();
             };
             _withdrawalTimer.Start();
+            _ = UnlockEnrollment.MonitorAsync(api, _cts.Token);
 
             // Heartbeat runs for the full application lifetime.
             await _agent.RunAsync(_cts.Token);
@@ -162,8 +187,38 @@ public partial class App : Application
         }
     }
 
+    private bool _pairingAfterSession;
+    private async void RequestPairingAfterSessionEnd()
+    {
+        if (_pairingAfterSession || _stopping || _cts.IsCancellationRequested || _api == null) return;
+        _pairingAfterSession = true;
+        try
+        {
+            // This is a confirmed end of a previously accepted support visit,
+            // never a proxy error, dropped video peer or failed heartbeat.
+            if (!await PairingPrompt.ShowAsync(_api, _cts.Token, sessionEnded: true))
+            {
+                _agent?.StopLocally();
+                _cts.Cancel();
+                Shutdown();
+                return;
+            }
+            if (!_stopping && !_cts.IsCancellationRequested && HasUsablePairing(_api))
+                _agent?.ResumeAfterAuthorization();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Warn($"session-end pairing could not complete: {ex.GetType().Name}; remote access remains stopped");
+            _agent?.StopLocally();
+            _cts.Cancel();
+            Shutdown(1);
+        }
+        finally { _pairingAfterSession = false; }
+    }
+
     private static bool HasUsablePairing(ApiClient api) =>
-        !LocalAccessState.IsDisabled() && !InstallationLifecycle.RemovalRequested() &&
+        !LocalAccessState.IsDisabled() && !SessionPairingRequirement.Required && !InstallationLifecycle.RemovalRequested() &&
         !string.IsNullOrWhiteSpace(api.DeviceId) && !string.IsNullOrWhiteSpace(api.DeviceToken) &&
         api.LocalAuthorization is { Authorization: { } authorization } local &&
         local.DeviceId == api.DeviceId && local.Origin == LocalGrant.OriginOf(api.ApiBaseUrl) &&
@@ -182,6 +237,7 @@ public partial class App : Application
         try
         {
             LocalAccessState.Disable();
+            UnlockEnrollment.Forget();
             StartupConsent.Clear();
         }
         catch (Exception)

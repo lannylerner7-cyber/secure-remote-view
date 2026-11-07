@@ -19,7 +19,8 @@ internal static class StartupConsent
 
     internal static bool IsAllowed()
     {
-        if (LocalAccessState.IsDisabled() || InstallationLifecycle.RemovalRequested()) return false;
+        if (LocalAccessState.IsDisabled() || SessionPairingRequirement.RequiredOnDisk ||
+            InstallationLifecycle.RemovalRequested()) return false;
         try
         {
             var grant = GrantStore.Load();

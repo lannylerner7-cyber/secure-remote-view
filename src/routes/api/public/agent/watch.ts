@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 
 const reportSchema = z.object({
   instance: z.string().uuid(),
@@ -17,7 +17,7 @@ const reportSchema = z.object({
 export const Route = createFileRoute("/api/public/agent/watch")({
   server: { handlers: { POST: async ({ request }) => {
     const ctx = await verifyDevice(request);
-    if (!ctx) return new Response("unauthorized", { status: 401 });
+    if (ctx.kind !== "verified") return deviceAuthFailure(ctx);
     const raw = await request.text();
     if (raw.length > 4096) return new Response("report_too_large", { status: 413 });
     const parsed = reportSchema.safeParse((() => { try { return JSON.parse(raw); } catch { return null; } })());

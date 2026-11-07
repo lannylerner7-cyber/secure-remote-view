@@ -63,7 +63,10 @@ public sealed partial class ApiClient
     public event Action<LicenseState>? OnLicenseChanged;
 
     private readonly HttpClient _http;
-    private int _frameUploadFailures;
+    private readonly AgentHttpDiagnostics _httpDiagnostics = new((line, warning) =>
+    {
+        if (warning) Log.Warn(line); else Log.Info(line);
+    });
     public string ApiBaseUrl { get; }
     public string? DeviceId { get; private set; }
     public string? DeviceToken { get; private set; }
@@ -104,23 +107,6 @@ public sealed partial class ApiClient
             "/api/public/agent/authorization/revoke"), ct);
         resp.EnsureSuccessStatusCode();
     }
-
-    // Single-flight re-enroll guard. On a burst of concurrent 401s (heartbeat,
-    // frame, cursor, input, signal loops all firing at once), only one thread
-    // wipes device.dat and calls the enroll endpoint; the others park on this
-    // semaphore, notice the token generation moved, and retry with the fresh
-    // credential instead of enrolling a second time.
-    private static readonly SemaphoreSlim _enrollLock = new(1, 1);
-    private long _tokenGeneration;
-    // If a re-enroll itself 401s (device row deleted / enrollment refused),
-    // stop hammering the gateway. Set to now + 60s; SendAuthedAsync
-    // short-circuits until it passes.
-    private DateTime _revokedUntilUtc = DateTime.MinValue;
-
-    /// <summary>Fired once when this device's enrollment appears to be revoked
-    /// (its row was deleted or the server refuses to re-issue a token). The
-    /// Agent has no tray UI, so this is a log/diagnostic signal only.</summary>
-    public event Action<string>? OnEnrollmentRevoked;
 
     public ApiClient(string? overrideBaseUrl = null)
     {
@@ -185,12 +171,6 @@ public sealed partial class ApiClient
         catch { }
     }
 
-    private void AddAuth(HttpRequestMessage req)
-    {
-        req.Headers.Add("X-Device-Id", DeviceId!);
-        req.Headers.Add("X-Device-Token", DeviceToken!);
-    }
-
     // ---- Enrollment ----------------------------------------------------
 
     public async Task EnrollIfNeededAsync(CancellationToken ct)
@@ -200,74 +180,6 @@ public sealed partial class ApiClient
             throw new InvalidOperationException("Pairing required — open ConnectLive in the foreground. Background enrollment is disabled.");
         if (!await PairingProvider(ct) || string.IsNullOrEmpty(DeviceToken) || LocalAuthorization == null)
             throw new OperationCanceledException("Pairing was not completed.");
-    }
-
-
-
-    // Runs a request, and on a single 401 wipes local creds + re-enrolls (once,
-    // guarded by _enrollLock so parallel loops don't stampede), then retries.
-    // A second 401 marks the enrollment as revoked and backs off 60s.
-    // Callers must not dispose the returned response before consuming it.
-    private async Task<HttpResponseMessage> SendAuthedAsync(Func<HttpRequestMessage> build, CancellationToken ct)
-    {
-        if (DateTime.UtcNow < _revokedUntilUtc)
-            throw new HttpRequestException("Enrollment revoked; waiting for cooldown");
-
-        var beforeGen = Interlocked.Read(ref _tokenGeneration);
-        var req = build();
-        AddAuth(req);
-        var resp = await _http.SendAsync(req, ct);
-        if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
-        {
-            LivePermission?.Revoke();
-            try { LiveAuthorityRejected?.Invoke(); } catch { }
-        }
-        if (resp.StatusCode != System.Net.HttpStatusCode.Unauthorized) return resp;
-        LivePermission?.Revoke();
-        var path = req.RequestUri?.OriginalString ?? "";
-        resp.Dispose();
-        req.Dispose();
-        // Never retry sensitive data or a foreground attestation against an
-        // identity silently replaced by automatic enrollment.
-        if (path.StartsWith("/api/public/agent/session/", StringComparison.Ordinal) ||
-            path.StartsWith("/api/public/agent/ice", StringComparison.Ordinal) ||
-            path.StartsWith("/api/public/agent/authorization", StringComparison.Ordinal))
-            throw new HttpRequestException("Device identity was rejected; live authority is closed.");
-
-        // Single-flight re-enroll.
-        await _enrollLock.WaitAsync(ct);
-        try
-        {
-            if (Interlocked.Read(ref _tokenGeneration) == beforeGen)
-            {
-                // Nobody else re-enrolled yet — we do it.
-                try
-                {
-                    if (File.Exists(DevicePath)) File.Delete(DevicePath);
-                }
-                catch { /* best-effort */ }
-                DeviceId = null;
-                DeviceToken = null;
-                try { await EnrollIfNeededAsync(ct); }
-                catch (HttpRequestException) { throw; }
-                catch (Exception ex) { throw new HttpRequestException("Re-enrollment failed: " + ex.Message); }
-            }
-        }
-        finally { _enrollLock.Release(); }
-
-        // Retry once with the fresh token.
-        var req2 = build();
-        AddAuth(req2);
-        var resp2 = await _http.SendAsync(req2, ct);
-        req2.Dispose();
-        if (resp2.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-        {
-            resp2.Dispose();
-            _revokedUntilUtc = DateTime.UtcNow.AddSeconds(60);
-            try { OnEnrollmentRevoked?.Invoke("Enrollment revoked — reinstall required."); } catch { }
-            throw new HttpRequestException("Enrollment revoked after retry");
-        }
-        return resp2;
     }
 
     public async Task HelloAsync(CancellationToken ct)
@@ -329,6 +241,9 @@ public sealed partial class ApiClient
 
         var payload = new
         {
+            // Keep the last accepted session ID through a channel loss. Only
+            // an explicit matching terminal receipt can request re-pairing.
+            observed_session_id = LiveSessionId,
             lan = new { subnet_v4 = subnet, mac, ipv4 },
             monitors,
             selected_monitor = selectedMonitor,
@@ -364,7 +279,7 @@ public sealed partial class ApiClient
         using var resp = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Post, "/api/public/agent/heartbeat")
         {
             Content = JsonContent.Create(payload),
-        }, ct);
+        }, ct, AgentHttpOperation.Heartbeat);
         resp.EnsureSuccessStatusCode();
         var text = await resp.Content.ReadAsStringAsync(ct);
         // Best-effort: parse the license verdict returned on every heartbeat
@@ -457,8 +372,7 @@ public sealed partial class ApiClient
         resp.EnsureSuccessStatusCode();
     }
 
-    // Auto-enrollment + admin-initiated sessions replace the old meeting-code
-    // pairing flow end to end (see ENDPOINTS.md).
+    // Reconnect keeps the existing explicitly paired device identity.
 
     // Result type for /api/public/agent/session/{id}/reconnect.
 
@@ -501,7 +415,16 @@ public sealed partial class ApiClient
 
     public async Task<bool> PostFrameAsync(string sessionId, byte[] jpegBytes, int width, int height, CancellationToken ct)
     {
-        if (!Allows(sessionId, "view", ct)) return false;
+        if (UnlockOperation.Sensitive ||
+            ConnectLive.Unlock.WindowsSession.Locked(ConnectLive.Unlock.WindowsSession.CurrentId) == true) return false;
+        var permission = LivePermission;
+        if (!Allows(sessionId, "view", ct) || permission == null) return false;
+        // Same three-second budget as the capture pump previously applied.
+        // Keep the lifetime token separate so withdrawal/session teardown is
+        // not mislabeled as an upload deadline or network failure.
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct, permission.Token);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(3));
         var payload = new
         {
             frame = Convert.ToBase64String(jpegBytes),
@@ -514,24 +437,11 @@ public sealed partial class ApiClient
                 () => new HttpRequestMessage(HttpMethod.Post, $"/api/public/agent/session/{sessionId}/frame")
                 {
                     Content = JsonContent.Create(payload),
-                }, ct);
-            if (resp.IsSuccessStatusCode)
-            {
-                Interlocked.Exchange(ref _frameUploadFailures, 0);
-                return true;
-            }
-            return NoteFrameUploadFailure($"HTTP {(int)resp.StatusCode}");
+                }, deadline.Token, AgentHttpOperation.Frame, lifetime.Token);
+            return resp.IsSuccessStatusCode;
         }
         catch (OperationCanceledException) { return false; }
-        catch (Exception ex) { return NoteFrameUploadFailure(ex.GetType().Name); }
-    }
-
-    private bool NoteFrameUploadFailure(string category)
-    {
-        var failures = Interlocked.Increment(ref _frameUploadFailures);
-        if (failures == 1 || failures % 10 == 0)
-            Log.Warn($"JPEG upload failed: {category}; count={failures}. 401/403: device or viewing authorization; 409: inactive or video-only session. No frame payload is logged.");
-        return false;
+        catch { return false; } // HTTP failures are observed before authority handling.
     }
 
     // ---- Step 10: session file chunk upload (DataChannel fallback) -----
@@ -674,14 +584,8 @@ public sealed partial class ApiClient
                 () => new HttpRequestMessage(HttpMethod.Get, $"/api/public/agent/session/{sessionId}/signal?since={since}"), ct);
             if (!resp.IsSuccessStatusCode)
             {
-                string detail = "";
-                try
-                {
-                    var text = await resp.Content.ReadAsStringAsync(ct);
-                    detail = text.Length > 160 ? text[..160] : text;
-                }
-                catch { }
-                NoteSignalPollFailure($"HTTP {(int)resp.StatusCode} {detail}".TrimEnd());
+                // Proxy/upstream error bodies can contain credentials or URLs.
+                NoteSignalPollFailure($"HTTP {(int)resp.StatusCode}");
                 return (since, null);
             }
             var body = await resp.Content.ReadAsStringAsync(ct);
@@ -696,7 +600,7 @@ public sealed partial class ApiClient
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return (since, null); }
         catch (Exception ex)
         {
-            NoteSignalPollFailure($"{ex.GetType().Name}: {ex.Message}");
+            NoteSignalPollFailure(AgentHttpDiagnostics.SafeFailure(ex, ct.IsCancellationRequested));
             return (since, null);
         }
     }

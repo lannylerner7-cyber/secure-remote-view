@@ -36,6 +36,7 @@ public sealed class WebRtcClient : IDisposable
     private static readonly System.Diagnostics.Stopwatch MonoClock = System.Diagnostics.Stopwatch.StartNew();
 
     private readonly string _sessionId;
+    public string PeerId { get; } = Guid.NewGuid().ToString();
     private RTCPeerConnection? _pc;
     private long _sinceSignalId;
     private CancellationTokenSource? _cts;
@@ -216,7 +217,7 @@ public sealed class WebRtcClient : IDisposable
         {
             var dc = await pc.createDataChannel("input",
                 new RTCDataChannelInit { ordered = true }).ConfigureAwait(false);
-            ConnectLive.Admin.Input.InputTransport.Attach(_sessionId, dc);
+            ConnectLive.Admin.Input.InputTransport.Attach(_sessionId, dc, PeerId);
             T("input datachannel created (label=input, ordered)");
         }
         catch (Exception ex)
@@ -262,7 +263,7 @@ public sealed class WebRtcClient : IDisposable
         try
         {
             await App.Api.PushSignalReliableAsync(_sessionId, "offer",
-                new { sdp = offer.sdp, type = offer.type.ToString() }, ct);
+                new { sdp = offer.sdp, type = offer.type.ToString(), peer_id = PeerId }, ct);
             T("offer posted");
         }
         catch (Exception ex) { _onError?.Invoke("Offer post: " + ex.Message); return false; }
@@ -282,6 +283,7 @@ public sealed class WebRtcClient : IDisposable
                 await App.Api.PushSignalReliableAsync(_sessionId, "ice", new
                 {
                     candidate = c.candidate,
+                    peer_id = PeerId,
                     sdpMid = c.sdpMid,
                     sdpMLineIndex = c.sdpMLineIndex,
                 }, ct);
@@ -646,6 +648,8 @@ public sealed class WebRtcClient : IDisposable
                 _sinceSignalId = max;
                 foreach (var s in items)
                 {
+                    if (s.Payload is JsonElement tagged && tagged.TryGetProperty("peer_id", out var binding) &&
+                        binding.ValueKind == JsonValueKind.String && binding.GetString() != PeerId) continue;
                     var pc = _pc;
                     if (pc == null) return;
                     if (s.Kind == "answer" && s.Payload is JsonElement je && je.TryGetProperty("sdp", out var sdp))
@@ -705,7 +709,7 @@ public sealed class WebRtcClient : IDisposable
         try
         {
             using var byeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            _ = App.Api.PushSignalReliableAsync(_sessionId, "bye", new { }, byeCts.Token);
+            _ = App.Api.PushSignalReliableAsync(_sessionId, "bye", new { peer_id = PeerId }, byeCts.Token);
         }
         catch { }
         try { _cts?.Cancel(); } catch { }

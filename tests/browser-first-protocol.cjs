@@ -106,7 +106,8 @@ async function main() {
   const consoleSource = fs.readFileSync('src/routes/_authenticated/console.tsx', 'utf8');
   assert(consoleSource.includes('currentLiveSession?.media_mode === "legacy" && !videoDecoding'),
     'JPEG is opt-in only for known legacy sessions');
-  assert(!consoleSource.includes('"curtain_on"'), 'ordinary browser control never engages a curtain');
+  assert(consoleSource.includes('takeControlAndCurtain(') && consoleSource.includes('Take control + curtain'),
+    'combined control is explicit and uses the acknowledged curtain flow');
   assert(consoleSource.includes('if (sentRealtime) return;'), 'discrete input is not duplicated through the database');
   assert(consoleSource.includes('live?.sessionId !== sessionId'), 'stale callbacks cannot send to a different peer');
   const rtc = fs.readFileSync('src/lib/webrtc-live.ts', 'utf8');

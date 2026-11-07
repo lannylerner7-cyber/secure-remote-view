@@ -34,4 +34,16 @@ assert.ok(resume.includes("&state=eq.active"));
 assert.ok(!resume.includes('state = "active"'));
 assert.ok(resume.includes("GetArrayLength() != 1"));
 assert.ok(read("agent/packaging/gpo/install-gpo.ps1").includes("$process.ExitCode"));
-console.log("PASS: static capture, DXGI ownership, MSI version/staging and lifecycle invariants");
+const vp8 = read("agent/src/Vp8FrameEncoder.cs");
+const release = vp8.split("private void ReleaseEncoder()")[1].split("public void Dispose()")[0];
+assert.ok(release.indexOf("_encoder = null") < release.indexOf("encoder.Dispose()"),
+  "Detach partially initialized encoders before native cleanup");
+assert.ok(/try\s*\{\s*encoder\.Dispose\(\);\s*\}\s*catch\s*\(Exception ex\)/.test(release),
+  "Failed VP8 cleanup must not escape the probe and block H.264");
+assert.ok(!vp8.includes("_encoder?.Dispose()"), "All VP8 cleanup must use the guarded path");
+assert.ok(vp8.split("public void Dispose()")[1].includes("ReleaseEncoder();"));
+const rtc = read("agent/src/WebRtcSession.cs");
+assert.ok(rtc.includes("bool offerH264 = !_h264UnavailableForSession && CodecPolicy.AllowH264;"));
+assert.ok(rtc.includes('(_vp8 != null ? "VP8 fallback available" : "VP8 unavailable")'));
+assert.ok(!read("agent/src/HwEncoderProbe.cs").includes("wire codec remains VP8"));
+console.log("PASS: static capture, DXGI ownership, MSI version/staging, codec cleanup and lifecycle invariants");

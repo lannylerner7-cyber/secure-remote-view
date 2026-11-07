@@ -17,6 +17,11 @@ public partial class MainWindow : Window
 
     private void OpenOrders_Click(object sender, RoutedEventArgs e)
         => OpenBrowser($"{App.Config.BaseUrl}/order");
+    private void WindowsPin_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: DeviceItem device })
+            new WindowsUnlockSettingsWindow(device.RowId, device.DisplayName) { Owner = this }.ShowDialog();
+    }
 
     private void SignOut_Click(object sender, RoutedEventArgs e)
     {

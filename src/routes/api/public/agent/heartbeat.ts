@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { currentAuthorization, sessionAuthorized } from "@/lib/authorization.server";
 import { legacyMonitorMayBeDelivered } from "@/shared/legacy-monitor";
 import { evaluateLicense, type LicenseRow } from "@/lib/licensing.server";
+import { withAgentHttpDiagnostics } from "@/lib/agent-http-diagnostics.server";
 
 /**
  * Called by the Agent every 5-60s. Watch has a separate, authorized lifecycle
@@ -18,18 +19,20 @@ const RECONNECT_GAP_MS = 150_000;
 export const Route = createFileRoute("/api/public/agent/heartbeat")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
-        const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+      POST: async ({ request }) => withAgentHttpDiagnostics(request, "heartbeat", async (trace) => {
+        const ctx = await trace.step("device_auth", () => verifyDevice(request));
+        if (ctx.kind !== "verified") return trace.respond(deviceAuthFailure(ctx),
+          ctx.kind === "unavailable" ? "device_lookup_unavailable" : "unauthorized");
         let authorization;
         try {
-          authorization = await currentAuthorization(ctx.admin, ctx.device.id);
+          authorization = await trace.step("authorization", () => currentAuthorization(ctx.admin, ctx.device.id));
         } catch {
-          return new Response("authorization_unavailable", { status: 503 });
+          return trace.respond(new Response("authorization_unavailable", { status: 503 }), "authorization_unavailable");
         }
 
         // Optional LAN fingerprint (best-effort) used for Wake-on-LAN peer selection.
-        const body = (await request.json().catch(() => ({}))) as {
+        const body = (await trace.step("request_body", () => request.json().catch(() => ({})))) as {
+          observed_session_id?: string | null;
           lan?: { subnet_v4?: string; mac?: string; ipv4?: string };
           // SCOPE:CAPTURE — attached-display inventory for the admin monitor picker.
           monitors?: Array<{
@@ -68,6 +71,10 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           browserCurtain?: number;
           runtime?: { instance?: string; sequence?: number; heartbeat_seconds?: number };
         };
+
+        if (body.observed_session_id != null && (typeof body.observed_session_id !== "string" ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.observed_session_id)))
+          return trace.respond(new Response("invalid_observed_session", { status: 400 }), "invalid_observed_session");
 
         const nowIso = new Date().toISOString();
         const prevStatus = ctx.device.status;
@@ -178,16 +185,17 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
               !Number.isSafeInteger(runtime.sequence) || runtime.sequence! < 1 ||
               !Number.isInteger(runtime.heartbeat_seconds) ||
               runtime.heartbeat_seconds! < 5 || runtime.heartbeat_seconds! > 60)
-            return new Response("invalid_runtime_report", { status: 400 });
-          const { data: recorded, error } = await ctx.admin.rpc("record_agent_runtime", {
-            _device: ctx.device.id, _instance: runtime.instance,
+            return trace.respond(new Response("invalid_runtime_report", { status: 400 }), "invalid_runtime_report");
+          const instance = runtime.instance;
+          const { data: recorded, error } = await trace.step("runtime_write", () => ctx.admin.rpc("record_agent_runtime", {
+            _device: ctx.device.id, _instance: instance,
             _sequence: runtime.sequence!, _heartbeat_seconds: runtime.heartbeat_seconds!,
-          });
-          if (error) return new Response("runtime_reporting_unavailable", { status: 503 });
-          if (recorded !== true) return new Response("retired_or_stale_process", { status: 409 });
+          }));
+          if (error) return trace.respond(new Response("runtime_reporting_unavailable", { status: 503 }), "runtime_reporting_unavailable");
+          if (recorded !== true) return trace.respond(new Response("retired_or_stale_process", { status: 409 }), "retired_or_stale_process");
         }
 
-        const { error: presenceError } = await ctx.admin
+        const { error: presenceError } = await trace.step("presence_write", () => ctx.admin
           .from("devices")
           .update({
             // New-process presence is written atomically with its instance in
@@ -195,29 +203,31 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             ...(body.runtime ? {} : { status: "online", last_seen_at: nowIso }),
             metadata: (mergedMetadata ?? prevMeta) as never,
           })
-          .eq("id", ctx.device.id);
-        if (presenceError) return new Response("presence_write_failed", { status: 503 });
+          .eq("id", ctx.device.id));
+        if (presenceError) return trace.respond(new Response("presence_write_failed", { status: 503 }), "presence_write_failed");
 
         // ---- Licence gate -----------------------------------------------
         // A blocked/expired device keeps heartbeating (so it wakes the moment
         // a seat frees) but is handed no sessions and captures nothing.
         let license: LicenseRow | null = null;
-        if (ctx.device.license_id) {
-          const { data, error } = await ctx.admin
+        const licenseId = ctx.device.license_id;
+        if (licenseId) {
+          const { data, error } = await trace.step("license_lookup", () => ctx.admin
             .from("licenses")
             .select("id, meeting_id, seat_limit, status, starts_at, expires_at")
-            .eq("id", ctx.device.license_id)
-            .maybeSingle();
-          if (error) return new Response("license_unavailable", { status: 503 });
+            .eq("id", licenseId)
+            .maybeSingle());
+          if (error) return trace.respond(new Response("license_unavailable", { status: 503 }), "license_unavailable");
           license = (data as LicenseRow | null) ?? null;
         }
-        const verdict = await evaluateLicense(ctx.admin as never, license, ctx.device.id);
+        const verdict = await trace.step("license_evaluation", () =>
+          evaluateLicense(ctx.admin as never, license, ctx.device.id));
         if (verdict.state !== ctx.device.license_state) {
-          const { error } = await ctx.admin
+          const { error } = await trace.step("license_state_write", () => ctx.admin
             .from("devices")
             .update({ license_state: verdict.state })
-            .eq("id", ctx.device.id);
-          if (error) return new Response("license_state_write_failed", { status: 503 });
+            .eq("id", ctx.device.id));
+          if (error) return trace.respond(new Response("license_state_write_failed", { status: 503 }), "license_state_write_failed");
         }
         // Devices with no license bound at all ("unlicensed") stay fully
         // functional — that is the pre-licensing fleet and direct admin
@@ -230,45 +240,66 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // returning them all makes the agent's session loop iterator settle
         // on the OLDEST id — frames then flow to a session no admin is
         // watching and every live view goes black. Auto-end the stragglers.
-        const { data: pendingAll, error: sessionsError } = await ctx.admin
+        const { data: pendingAll, error: sessionsError } = await trace.step("sessions_lookup", () => ctx.admin
           .from("sessions")
           .select("id, mode, state, media_mode, created_at")
           .eq("device_id", ctx.device.id)
           .in("state", ["invited", "consented", "active", "paused"])
-          .order("created_at", { ascending: false });
-        if (sessionsError) return new Response("sessions_unavailable", { status: 503 });
+          .order("created_at", { ascending: false }));
+        if (sessionsError) return trace.respond(new Response("sessions_unavailable", { status: 503 }), "sessions_unavailable");
 
         const authorizedSessions: NonNullable<typeof pendingAll> = [];
+        let authorizationUnavailable = false;
         for (const session of pendingAll ?? []) {
           if (authorization && authorization.revokedAt === null && authorization.capabilities.view &&
               (session.mode === "view" || (session.mode === "control" && authorization.capabilities.control)) &&
-              (session.state === "invited" || await sessionAuthorized(ctx.admin, session.id)))
+              (session.state === "invited" || await trace.step("session_authorization", () =>
+                sessionAuthorized(ctx.admin, session.id, "view", () => { authorizationUnavailable = true; }))))
             authorizedSessions.push(session);
         }
+        // An unavailable check is not proof of revoked authority. Return no
+        // authority to the Agent, but do not end database sessions on that guess.
+        if (authorizationUnavailable) return trace.respond(
+          new Response("session_authorization_unavailable", { status: 503 }), "session_authorization_unavailable");
         const pending = authorizedSessions.slice(0, 1);
         const retainedId = pending[0]?.id;
         const staleIds = (pendingAll ?? []).filter(r => r.id !== retainedId).map((r) => r.id);
         if (staleIds.length > 0) {
-          const { error } = await ctx.admin
+          const { error } = await trace.step("session_cleanup", () => ctx.admin
             .from("sessions")
             .update({ state: "ended", ended_at: nowIso })
-            .in("id", staleIds);
-          if (error) return new Response("session_cleanup_failed", { status: 503 });
+            .in("id", staleIds));
+          if (error) return trace.respond(new Response("session_cleanup_failed", { status: 503 }), "session_cleanup_failed");
         }
 
+        // An empty live-session list is NOT an explicit termination receipt:
+        // filtering, license suspension and failed lookups have other meanings.
+        // Return only this authenticated device's exact previous grant/session.
+        let sessionStatus: { id: string; state: string; authorization_id: string | null } | null = null;
+        let sessionStatusUnavailable = false;
+        if (body.observed_session_id && authorization && licensed) {
+          const { data, error } = await trace.step("session_status_lookup", () => ctx.admin
+            .from("sessions").select("id, state, authorization_id")
+            .eq("id", body.observed_session_id!)
+            .eq("device_id", ctx.device.id)
+            .eq("authorization_id", authorization.id)
+            .maybeSingle());
+          if (error) sessionStatusUnavailable = true;
+          else sessionStatus = data;
+        }
         const isSessionActive = licensed && pending.length > 0;
 
         // Fetch queued power commands where this device is either
         //   (a) the target of a local action (device_id), OR
         //   (b) the LAN relay peer for a Wake-on-LAN broadcast (relay_device_id).
-        const { data: powerRows } = await ctx.admin
+        const { data: powerRows } = await trace.step("commands_lookup", () => ctx.admin
           .from("power_commands")
           .select("id, kind, payload, device_id, relay_device_id, expires_at")
           .in("state", ["queued", "dispatched"])
           .or(`device_id.eq.${ctx.device.id},relay_device_id.eq.${ctx.device.id}`)
           .gt("expires_at", nowIso)
           .order("created_at", { ascending: true })
-          .limit(8);
+          .limit(8));
 
         const powerCommands = (powerRows ?? [])
           .filter(r => legacyMonitorMayBeDelivered(r, authorization, authorizedSessions))
@@ -284,31 +315,35 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
 
         if (licensed && powerCommands.length > 0) {
           const ids = powerCommands.map((c) => c.id);
-          await ctx.admin
+          await trace.step("commands_dispatch", () => ctx.admin
             .from("power_commands")
             .update({ state: "dispatched", dispatched_at: nowIso })
             .in("id", ids)
-            .eq("state", "queued");
+            .eq("state", "queued"));
         }
 
         let notificationFailed = false;
         if (wasOffline) {
-          const { error } = await ctx.admin.from("notifications").insert({
+          const { error } = await trace.step("notification_write", () => ctx.admin.from("notifications").insert({
             recipient_id: null,
             title: "Device reconnected",
             body: `${ctx.device.display_name} (${ctx.device.device_id}) is back online`,
             severity: "success",
-          });
+          }));
           // Notification delivery is not session authority. Expose the error
           // without tearing down healthy media over an unrelated side effect.
           notificationFailed = !!error;
         }
 
-        return new Response(
+        return trace.respond(new Response(
           JSON.stringify({
             ok: true,
-            reporting_warnings: notificationFailed ? ["reconnection_notification_failed"] : [],
+            reporting_warnings: [
+              ...(notificationFailed ? ["reconnection_notification_failed"] : []),
+              ...(sessionStatusUnavailable ? ["session_status_unavailable"] : []),
+            ],
             authorization,
+            session_status: sessionStatus,
             is_session_active: isSessionActive,
             sessions: licensed ? (pending ?? []) : [],
             power_commands: licensed ? powerCommands : [],
@@ -322,8 +357,8 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             },
           }),
           { headers: { "content-type": "application/json" } },
-        );
-      },
+        ), notificationFailed ? "notification_failed" : "ok");
+      }),
     },
   },
 });

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -38,15 +39,29 @@ public static class InputTransport
     };
 
     private static readonly object _gate = new();
+    private static readonly ConcurrentDictionary<string, byte> SensitiveSessions = new(StringComparer.Ordinal);
+    public static bool IsSensitive(string sessionId) => SensitiveSessions.ContainsKey(sessionId);
+    public static void BlockOrdinaryInput(string sessionId) => SensitiveSessions.TryAdd(sessionId, 0);
+    public static void ResumeOrdinaryInput(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (Unlock?.SessionId == sessionId && Unlock.Active) return;
+            SensitiveSessions.TryRemove(sessionId, out _);
+            Unlock?.AllowOrdinaryInput();
+        }
+    }
     private static RTCDataChannel? _dc;
     private static string _sessionId = "";
     private static bool _open;
     private static bool _demoted;
     private static long _sent, _restFallback;
     public static event Action<string, string, bool>? CurtainAcknowledged;
+    public static WindowsUnlockChannel? Unlock { get; private set; }
+    public static event Action<string, WindowsUnlockState>? UnlockChanged;
 
     /// <summary>Called by <see cref="Media.WebRtcClient"/> after it creates the peer.</summary>
-    public static void Attach(string sessionId, RTCDataChannel dc)
+    public static void Attach(string sessionId, RTCDataChannel dc, string peerId)
     {
         lock (_gate)
         {
@@ -55,6 +70,13 @@ public static class InputTransport
             _dc = dc;
             _open = false;
             _demoted = false;
+            Unlock = new WindowsUnlockChannel(sessionId, peerId, dc);
+            Unlock.Changed += state =>
+            {
+                if (state.Phase is "starting" or "ready" or "submitted")
+                    SensitiveSessions.TryAdd(sessionId, 0);
+                UnlockChanged?.Invoke(sessionId, state);
+            };
         }
         dc.onopen += () =>
         {
@@ -93,6 +115,8 @@ public static class InputTransport
     {
         lock (_gate)
         {
+            Unlock?.Dispose();
+            Unlock = null;
             _dc = null;
             _open = false;
             _demoted = false;
@@ -124,6 +148,12 @@ public static class InputTransport
     public static Task SendAsync(string sessionId, string kind, object payload, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        var unlock = Unlock;
+        if (IsSensitive(sessionId) && !AlwaysRest.Contains(kind))
+        {
+            if (unlock?.SessionId == sessionId) unlock.Input(kind, payload);
+            return Task.CompletedTask; // Never enqueue or replay sensitive input.
+        }
         if (AlwaysRest.Contains(kind))
             return SendRestAsync(sessionId, kind, payload, ct);
 
@@ -158,6 +188,7 @@ public static class InputTransport
 
     private static Task SendRestAsync(string sessionId, string kind, object payload, CancellationToken ct)
     {
+        if (IsSensitive(sessionId) && !AlwaysRest.Contains(kind)) return Task.CompletedTask;
         Interlocked.Increment(ref _restFallback);
         return App.Api.PushInputAsync(sessionId, kind, payload, ct);
     }

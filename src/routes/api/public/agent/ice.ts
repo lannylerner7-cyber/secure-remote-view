@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHmac } from "crypto";
 import { createClient } from "@supabase/supabase-js";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { adminClient } from "@/lib/server-supabase";
 import { sessionAuthorized } from "@/lib/authorization.server";
 
@@ -90,7 +90,14 @@ async function authorizeRelay(request: Request): Promise<{ peer: string } | Resp
     status, headers: { "cache-control": "no-store" },
   });
   try {
-    const device = await verifyDevice(request);
+    const verification = await verifyDevice(request);
+    // Never switch from a supplied device identity to a bearer identity on a
+    // lookup failure or a credential rejection.
+    if (verification.kind === "unavailable" ||
+        (verification.kind === "unauthorized" &&
+          (request.headers.has("x-device-id") || request.headers.has("x-device-token"))))
+      return deviceAuthFailure(verification);
+    const device = verification.kind === "verified" ? verification : null;
     const userId = device ? null : await verifyTechnician(request);
     if (!device && !userId) return deny(401);
     const sessionId = new URL(request.url).searchParams.get("sessionId");

@@ -19,6 +19,16 @@
             <DockPanel LastChildFill="True">
                 <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal"
                            HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                    <Button Content="Windows PIN settings" Command="{Binding WindowsUnlockSettingsCommand}"
+                            Background="#334155" Margin="4,2" />
+                    <Button Content="Unlock Windows" Command="{Binding UnlockWindowsCommand}"
+                            IsEnabled="{Binding UnlockIdle}" Margin="4,2" />
+                    <Button Content="Use saved PIN" Command="{Binding UseSavedWindowsPinCommand}"
+                            IsEnabled="{Binding UnlockReady}" Background="#334155" Margin="4,2" />
+                    <Button Content="Ctrl+Alt+Delete" Command="{Binding WindowsSecureAttentionCommand}"
+                            IsEnabled="{Binding UnlockReady}" Background="#334155" Margin="4,2" />
+                    <Button Content="Cancel unlock" Command="{Binding CancelWindowsUnlockCommand}"
+                            IsEnabled="{Binding UnlockActive}" Background="#334155" Margin="4,2" />
                     <Button Content="Reconnect" Command="{Binding ReconnectAgentCommand}"
                             Background="#334155" Margin="4,2" MinWidth="88"
                             ToolTip="Wake the agent and force it to pick up this session on the next heartbeat" />
@@ -29,6 +39,7 @@
                             Background="#334155" Margin="4,2" MinWidth="104"
                             ToolTip="Soft-restart the agent in place (falls back to relaunch if the reset fails)" />
                     <Button Content="{Binding ControlButtonLabel}" Command="{Binding ToggleControlCommand}"
+                            IsEnabled="{Binding UnlockIdle}"
                             Background="#7F1D1D" Margin="4,2" MinWidth="150"
                             ToolTip="Take control: blocks the user's keyboard/mouse, shows the curtain, and routes your real mouse and keyboard to the remote machine" />
 
@@ -45,6 +56,7 @@
 
                     <!-- Step 9 — slide-out session files panel. -->
                     <ToggleButton IsChecked="{Binding FilesPanelOpen}" Content="Files" Margin="4,2" MinWidth="64"
+                                  IsEnabled="{Binding UnlockIdle}"
                                   Padding="12,6" BorderThickness="0" Foreground="White"
                                   Background="#334155" Cursor="Hand"
                                   ToolTip="Open the session file manager (upload, download and manage files)" />
@@ -53,6 +65,7 @@
                          live surface and streams relative motion, so the remote
                          pointer is unbounded and 1:1 with the hand. -->
                     <ToggleButton x:Name="CaptureToggle" Content="Capture" Margin="4,2" MinWidth="76"
+                                  IsEnabled="{Binding UnlockIdle}"
                                   Padding="12,6" BorderThickness="0" Foreground="White"
                                   Background="#334155" Cursor="Hand"
                                   Checked="Capture_Changed" Unchecked="Capture_Changed"
@@ -78,11 +91,13 @@
 
                     <!-- S22 — push this machine's clipboard to the remote desktop. -->
                     <Button Content="Send clipboard" Command="{Binding SendClipboardCommand}"
+                            IsEnabled="{Binding UnlockIdle}"
                             Background="#334155" Margin="4,2" MinWidth="110"
                             ToolTip="Copy the local clipboard text to the remote machine over the encrypted clip channel" />
 
                     <!-- S24 — tee the decoded video stream to an .ivf file. -->
                     <Button Content="{Binding RecordLabel}" Command="{Binding ToggleRecordingCommand}"
+                            IsEnabled="{Binding UnlockIdle}"
                             Margin="4,2" MinWidth="110"
                             ToolTip="Record the live stream to Videos\ConnectLive (no re-encode, no extra bandwidth)">
                         <Button.Style>
@@ -102,6 +117,8 @@
                             Background="#334155" Margin="4,2" MinWidth="96" />
 
                 </WrapPanel>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding UnlockStatus}" TextWrapping="Wrap"
+                           Foreground="#CBD5E1" Margin="4,6" />
 
                 <!-- Fill child: status readouts. Clipped, never expanding past
                      the space the actions left behind. -->

@@ -12,11 +12,12 @@ namespace ConnectLive.Agent;
 /// <summary>One local disclosure, not a series of prompts or a silent grant.</summary>
 internal static class PairingPrompt
 {
-    internal static Task<bool> ShowAsync(ApiClient api, CancellationToken applicationToken, bool startWithWindows = false)
+    internal static Task<bool> ShowAsync(ApiClient api, CancellationToken applicationToken, bool startWithWindows = false,
+        bool sessionEnded = false)
     {
         if (applicationToken.IsCancellationRequested) return Task.FromResult(false);
         if (!Application.Current.Dispatcher.CheckAccess())
-            return Application.Current.Dispatcher.InvokeAsync(() => ShowAsync(api, applicationToken, startWithWindows)).Task.Unwrap();
+            return Application.Current.Dispatcher.InvokeAsync(() => ShowAsync(api, applicationToken, startWithWindows, sessionEnded)).Task.Unwrap();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(applicationToken);
         var token = cancellation.Token;
         var window = new Window
@@ -41,8 +42,10 @@ internal static class PairingPrompt
             Foreground = (Brush)Application.Current.Resources["BrandAccent"],
             Margin = new Thickness(0, 0, 0, 20),
         });
-        Text("Pair this device", 20);
-        Text("Enter the one-time pairing code from your administrator.");
+        Text(sessionEnded || SessionPairingRequirement.Required ? "Your support session has ended" : "Pair this device", 20);
+        Text(sessionEnded || SessionPairingRequirement.Required
+            ? "Remote access is stopped. Enter a new one-time pairing code from your administrator to start another support visit."
+            : "Enter the one-time pairing code from your administrator.");
         Text($"Server: {LocalGrant.OriginOf(api.ApiBaseUrl)}", 11);
         Text("Pairing code", 12);
         var input = new TextBox
@@ -153,6 +156,7 @@ internal static class PairingPrompt
                 StartupConsent.Save(api.LocalAuthorization ?? throw new InvalidOperationException("Pairing did not record authorization"),
                     enableStartup);
                 LocalAccessState.CompleteForegroundReauthorization();
+                SessionPairingRequirement.CompleteForegroundPairing();
                 paired = true;
                 window.DialogResult = true;
             }

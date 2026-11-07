@@ -7,6 +7,14 @@ namespace ConnectLive.Agent;
 /// </summary>
 internal sealed class PeerInputPermission
 {
+    // Installed by the Windows host; isolated policy tests need no Win32 APIs.
+    internal static System.Func<bool> SensitiveDesktop = () => false;
+    internal static System.Func<bool> LockedDesktop = () => false;
+    private static bool DesktopAllows(string scope)
+    {
+        if (scope == "view") return true;
+        try { return !SensitiveDesktop() && (scope != "control" || !LockedDesktop()); } catch { return false; }
+    }
     private readonly object _gate = new();
     private bool _revoked;
     private bool _control;
@@ -30,7 +38,7 @@ internal sealed class PeerInputPermission
     {
         lock (_gate)
             return !_revoked && _stillValid() && (_parentAllows == null || _parentAllows(scope)) &&
-                _scopes.Allows(scope) && (scope != "control" || _control);
+                _scopes.Allows(scope) && (scope != "control" || _control) && DesktopAllows(scope);
     }
 
     // Child callbacks are revoked with their peer without revoking capture or
@@ -64,7 +72,7 @@ internal sealed class PeerInputPermission
     {
         lock (_gate)
         {
-            if (_revoked || !_scopes.Allows(scope) || (scope == "control" && !_control) || !_stillValid() ||
+            if (_revoked || !_scopes.Allows(scope) || !DesktopAllows(scope) || (scope == "control" && !_control) || !_stillValid() ||
                 (_parentAllows != null && !_parentAllows(scope))) return false;
         }
         // Never hold the permission lock across native/UI callbacks: local

@@ -15,6 +15,7 @@
     <ProjectReference Include="..\..\update-core\ConnectLive.UpdateCore.csproj" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <Compile Include="..\LocalAccessState.cs" Link="LocalAccessState.cs" />
+    <Compile Include="..\SessionPairingRequirement.cs" Link="SessionPairingRequirement.cs" />
     <Compile Include="..\StartupConsent.cs" Link="StartupConsent.cs" />
     <Compile Include="..\GrantStore.cs" Link="GrantStore.cs" />
     <Compile Include="..\AuthorizationGrant.cs" Link="AuthorizationGrant.cs" />

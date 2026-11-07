@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { sessionAuthorized } from "@/lib/authorization.server";
 
 /**
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
     handlers: {
       POST: async ({ request, params }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return errJson("unauthorized", 401);
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx, "json");
 
         const body = (await request.json().catch(() => ({}))) as {
           kind?: string;
@@ -116,7 +116,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
 
       GET: async ({ request, params }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return errJson("unauthorized", 401);
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx, "json");
 
         const url = new URL(request.url);
         const since = Number(url.searchParams.get("since") ?? "0") || 0;

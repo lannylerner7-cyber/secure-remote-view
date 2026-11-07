@@ -22,8 +22,8 @@ namespace ConnectLive.Agent;
 ///
 /// DESIGN RULES
 ///   • Additive only. Every failure path here returns false/null; the caller
-///     keeps the existing software VP8 route. A broken driver must never
-///     produce a connected-but-black session.
+///     retires the peer for fresh negotiation. VP8 remains conditional on its
+///     own probe; a failed H.264 encoder does not establish a working fallback.
 ///   • Supports both MFT flavours. Vendor encoders register as *asynchronous*
 ///     MFTs, which cannot simply be ProcessInput/ProcessOutput'd: they must be
 ///     unlocked and then driven by METransformNeedInput / METransformHaveOutput
@@ -55,6 +55,7 @@ public sealed class HwH264Encoder : IDisposable
     private long _frameIndex;
     private byte[]? _nv12;
     private readonly List<byte> _accessUnit = new(256 * 1024);
+    private readonly AsyncMftPump _asyncPump = new();
 
     /// <summary>Friendly name of the MFT actually driving this encoder.</summary>
     public string EncoderName { get; private set; } = "";
@@ -62,7 +63,7 @@ public sealed class HwH264Encoder : IDisposable
     /// <summary>Vendor tag from the probe, for logs and heartbeat metadata.</summary>
     public string VendorTag => HwEncoderProbe.VendorTag;
 
-    /// <summary>False once the MFT has thrown; the caller must fall back to VP8.</summary>
+    /// <summary>False once the MFT has thrown; the caller must retire/renegotiate the peer.</summary>
     public bool IsAlive => !_dead;
 
     /// <summary>Why the encoder retired, or "" while healthy.</summary>
@@ -72,14 +73,14 @@ public sealed class HwH264Encoder : IDisposable
 
     /// <summary>
     /// Build an encoder for the given geometry, or return null when this
-    /// machine cannot do it. Null is a normal, expected answer — it simply
-    /// means the session stays on software VP8.
+    /// machine cannot do it. Null requires the caller to retire/renegotiate
+    /// the peer, not to send VP8 into the existing H.264 negotiation.
     /// </summary>
     public static HwH264Encoder? TryCreate(int width, int height, int fps, int bitrateKbps)
     {
         if (!CodecPolicy.AllowH264)
         {
-            Log.Info("h264: codec policy says VP8 only — hardware encoder not attempted");
+            Log.Info("h264: no policy-eligible hardware candidate — encoder not attempted; VP8 availability is separate");
             return null;
         }
         if (width < 16 || height < 16) return null;
@@ -98,7 +99,7 @@ public sealed class HwH264Encoder : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Warn($"h264: hardware encoder init failed ({ex.Message}) — staying on VP8");
+            Log.Warn($"h264: hardware encoder init failed ({ex.Message}); peer must renegotiate, VP8 availability is separate");
             try { enc.Dispose(); } catch { }
             return null;
         }
@@ -354,7 +355,7 @@ public sealed class HwH264Encoder : IDisposable
             }
             try
             {
-                ConvertBgraToNv12(bgra, width, height);
+                ConvertRgbaToNv12(bgra, width, height);
                 IntPtr sample = BuildInputSample();
                 if (sample == IntPtr.Zero) return null;
 
@@ -374,8 +375,11 @@ public sealed class HwH264Encoder : IDisposable
     /// <summary>Ask the encoder for an IDR on the next frame (PLI/FIR handling).</summary>
     public void ForceKeyFrame()
     {
-        if (_dead) return;
-        Mf.TrySetCodecApi(_codecApi, Mf.CODECAPI_AVEncVideoForceKeyFrame, Mf.PropVariant.FromUInt32(1));
+        lock (_gate)
+        {
+            if (_dead) return;
+            Mf.TrySetCodecApi(_codecApi, Mf.CODECAPI_AVEncVideoForceKeyFrame, Mf.PropVariant.FromUInt32(1));
+        }
     }
 
     /// <summary>
@@ -385,11 +389,14 @@ public sealed class HwH264Encoder : IDisposable
     /// </summary>
     public void SetBitrateKbps(int kbps)
     {
-        if (_dead) return;
-        int bps = Math.Clamp(kbps, 200, 40000) * 1000;
-        if (bps == _bitrateBps) return;
-        _bitrateBps = bps;
-        Mf.TrySetCodecApi(_codecApi, Mf.CODECAPI_AVEncCommonMeanBitRate, Mf.PropVariant.FromUInt32((uint)bps));
+        lock (_gate)
+        {
+            if (_dead) return;
+            int bps = Math.Clamp(kbps, 200, 40000) * 1000;
+            if (bps == _bitrateBps) return;
+            _bitrateBps = bps;
+            Mf.TrySetCodecApi(_codecApi, Mf.CODECAPI_AVEncCommonMeanBitRate, Mf.PropVariant.FromUInt32((uint)bps));
+        }
     }
 
     // ---- MFT drive ----------------------------------------------------------
@@ -419,48 +426,39 @@ public sealed class HwH264Encoder : IDisposable
     {
         var mft = _mft!;
         var events = _events!;
-        bool delivered = false;
-        // Bounded pump. A hardware encoder answers in single-digit milliseconds;
-        // anything past this is a wedged driver and we would rather skip the
-        // frame than block the capture tee.
-        long deadline = Environment.TickCount64 + 120;
-
         try
         {
-            while (Environment.TickCount64 < deadline)
+            var ok = _asyncPump.Step(() =>
             {
                 int hr = events.GetEvent(Mf.MF_EVENT_FLAG_NO_WAIT, out var evt);
-                if (hr == Mf.MF_E_NO_EVENTS_AVAILABLE)
+                if (hr == Mf.MF_E_NO_EVENTS_AVAILABLE) return AsyncMftEvent.None;
+                if (hr < 0 || evt == null)
                 {
-                    if (delivered && _accessUnit.Count > 0) break;
-                    Thread.Sleep(0);
-                    continue;
+                    Fail($"GetEvent 0x{hr:X8}");
+                    return AsyncMftEvent.Error;
                 }
-                if (hr < 0 || evt == null) { Fail($"GetEvent 0x{hr:X8}"); return false; }
-
-                uint met;
-                try { if (evt.GetType(out met) < 0) continue; }
+                try
+                {
+                    if (evt.GetType(out var met) < 0) return AsyncMftEvent.Error;
+                    return met switch
+                    {
+                        Mf.METransformNeedInput => AsyncMftEvent.NeedInput,
+                        Mf.METransformHaveOutput => AsyncMftEvent.HaveOutput,
+                        _ => AsyncMftEvent.Other,
+                    };
+                }
                 finally { try { Marshal.ReleaseComObject(evt); } catch { } }
-
-                if (met == Mf.METransformNeedInput)
-                {
-                    if (delivered) continue;              // encoder wants the *next* frame
-                    int ih = mft.ProcessInput(0, sample, 0);
-                    if (ih < 0 && ih != Mf.MF_E_NOTACCEPTING) { Fail($"ProcessInput 0x{ih:X8}"); return false; }
-                    delivered = ih >= 0;
-                }
-                else if (met == Mf.METransformHaveOutput)
-                {
-                    if (!CollectOneOutput()) return false;
-                    if (delivered) break;
-                }
-            }
+            }, () =>
+            {
+                int hr = mft.ProcessInput(0, sample, 0);
+                if (hr >= 0) return true;
+                Fail($"ProcessInput with pending credit 0x{hr:X8}");
+                return false;
+            }, CollectOneOutput, () => _accessUnit.Count > 0);
+            if (!ok && !_dead) Fail("async event processing failed");
+            return ok && !_dead;
         }
         finally { Marshal.Release(sample); }
-
-        // Not delivering is not fatal — the frame is simply skipped and the next
-        // one will find the encoder ready.
-        return !_dead;
     }
 
     private void CollectOutputs()
@@ -642,17 +640,17 @@ public sealed class HwH264Encoder : IDisposable
         if (_dead) return;
         _dead = true;
         _deadReason = reason;
-        Log.Warn($"h264: encoder retired — {reason}; falling back to software VP8");
+        Log.Warn($"h264: encoder retired — {reason}; a fresh negotiation is required; VP8 fallback requires its own successful probe");
     }
 
     // ---- colour conversion --------------------------------------------------
 
     /// <summary>
-    /// BGRA32 → NV12, BT.601 limited range. The admin's <c>FrameConvert</c>
+    /// Capture RGBA32 → NV12, BT.601 limited range. The admin's <c>FrameConvert</c>
     /// decodes with the matching 298/409/516 coefficients, so these two must
     /// stay in step or every session comes back washed out.
     /// </summary>
-    private unsafe void ConvertBgraToNv12(byte[] bgra, int width, int height)
+    private unsafe void ConvertRgbaToNv12(byte[] bgra, int width, int height)
     {
         int ySize = width * height;
         int total = ySize + ySize / 2;
@@ -670,9 +668,9 @@ public sealed class HwH264Encoder : IDisposable
                 byte* yOut = yPlane + (long)y * width;
                 for (int x = 0; x < width; x++)
                 {
-                    int b = row[x * 4 + 0];
+                    int r = row[x * 4 + 0];
                     int g = row[x * 4 + 1];
-                    int r = row[x * 4 + 2];
+                    int b = row[x * 4 + 2];
                     yOut[x] = (byte)(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
                 }
             }
@@ -687,9 +685,9 @@ public sealed class HwH264Encoder : IDisposable
                 for (int x = 0; x < width; x += 2)
                 {
                     int x1 = Math.Min(x + 1, width - 1);
-                    int b = (row0[x * 4 + 0] + row0[x1 * 4 + 0] + row1[x * 4 + 0] + row1[x1 * 4 + 0]) >> 2;
+                    int r = (row0[x * 4 + 0] + row0[x1 * 4 + 0] + row1[x * 4 + 0] + row1[x1 * 4 + 0]) >> 2;
                     int g = (row0[x * 4 + 1] + row0[x1 * 4 + 1] + row1[x * 4 + 1] + row1[x1 * 4 + 1]) >> 2;
-                    int r = (row0[x * 4 + 2] + row0[x1 * 4 + 2] + row1[x * 4 + 2] + row1[x1 * 4 + 2]) >> 2;
+                    int b = (row0[x * 4 + 2] + row0[x1 * 4 + 2] + row1[x * 4 + 2] + row1[x1 * 4 + 2]) >> 2;
 
                     int u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
                     int v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 
 /**
  * "Hello admin, I'm here" — first call after a fresh session start.
@@ -10,7 +10,7 @@ export const Route = createFileRoute("/api/public/agent/hello")({
     handlers: {
       POST: async ({ request }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx);
 
         await ctx.admin
           .from("devices")

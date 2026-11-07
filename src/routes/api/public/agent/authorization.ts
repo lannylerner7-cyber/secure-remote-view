@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { verifyDevice } from "@/lib/agent-auth.server";
+import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { currentAuthorization, parseAuthorization, parseGrantRequest } from "@/lib/authorization.server";
 
 export const Route = createFileRoute("/api/public/agent/authorization")({
@@ -7,7 +7,7 @@ export const Route = createFileRoute("/api/public/agent/authorization")({
     handlers: {
       GET: async ({ request }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx);
         try {
           return Response.json({ authorization: await currentAuthorization(ctx.admin, ctx.device.id) },
             { headers: { "cache-control": "no-store" } });
@@ -17,7 +17,7 @@ export const Route = createFileRoute("/api/public/agent/authorization")({
       },
       POST: async ({ request }) => {
         const ctx = await verifyDevice(request);
-        if (!ctx) return new Response("unauthorized", { status: 401 });
+        if (ctx.kind !== "verified") return deviceAuthFailure(ctx);
         const grant = parseGrantRequest(await request.json().catch(() => null));
         if (!grant) return new Response("invalid_authorization", { status: 400 });
         const { data, error } = await ctx.admin.rpc("record_device_authorization", {

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const assert = require("node:assert/strict");
 const ts = require("typescript");
+const { stubDeviceAuth } = require("../tests/helpers/device-auth.cjs");
 const root = "src/";
 function load(file, modules = {}) {
   const exports = {};
@@ -92,10 +93,15 @@ function fixture() {
   f.call = async (route, method = "POST", body, query = "") => {
     const mod = load("routes/api/public/" + route + ".ts", {
       "@tanstack/react-router": { createFileRoute: () => config => config },
-      "@/lib/agent-auth.server": { verifyDevice: async () => f.unauthorized ? null : { admin: f.admin, device: { id: "device" } } },
+      "@/lib/agent-auth.server": stubDeviceAuth(() => f.unauthorized ? null : { admin: f.admin, device: { id: "device" } }),
       "@/lib/authorization.server": authority,
       "@/lib/server-supabase": { adminClient: () => f.admin },
       "@/lib/session-files.server": { BUCKET: "session-files" },
+      "@/lib/agent-http-diagnostics.server": {
+        withAgentHttpDiagnostics: (_request, _operation, run) => run({
+          step: (_stage, work) => work(), respond: response => response,
+        }),
+      },
     });
     return mod.Route.server.handlers[method]({
       request: new Request("https://isolated.invalid/" + route + query, {
@@ -212,7 +218,8 @@ async function test(name, fn) {
   await test("missing migration denies channels and returns explicit grant error", async () => {
     const f = fixture(); f.authorize(); f.rpcError = true;
     assert.equal((await f.call("agent/authorization", "GET")).status, 503);
-    assert.equal((await f.call(sessionRoute("frame"), "POST", { frame: "jpeg" })).status, 409);
+    assert.equal((await f.call(sessionRoute("frame"), "POST", { frame: "jpeg" })).status, 503);
+    assert.equal(f.writes.length, 0, "unavailable permission checks still deny all writes");
   });
   const adminRoute = "admin/session.$sessionId.authorization";
   await test("admin authorization endpoint returns only owner-scoped capability response", async () => {

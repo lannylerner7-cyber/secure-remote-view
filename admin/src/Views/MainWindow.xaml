@@ -57,7 +57,7 @@
                 <DataGridTextColumn Header="OS" Binding="{Binding Os}" Width="180" />
                 <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80" />
                 <DataGridTextColumn Header="Last seen" Binding="{Binding LastSeen}" Width="100" />
-                <DataGridTemplateColumn Header="" Width="280">
+                <DataGridTemplateColumn Header="" Width="390">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal">
@@ -72,6 +72,7 @@
                                 <Button Content="Delete" Background="#7F1D1D" Margin="6,0,0,0"
                                         Command="{Binding DataContext.DeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding}" />
+                                <Button Content="Windows PIN" Click="WindowsPin_Click" Background="#334155" Margin="6,0,0,0" />
                             </StackPanel>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>

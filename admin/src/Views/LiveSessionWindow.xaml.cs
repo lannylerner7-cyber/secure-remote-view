@@ -198,7 +198,7 @@ public partial class LiveSessionWindow : Window
             // S19(a) — the OS cursor only hides while we own the remote
             // pointer; a view-only session keeps its normal arrow.
             SyncLocalCursor();
-            if (!_vm.InputAuthoritative) EndCapture();
+            if (!_vm.InputAuthoritative) { _awaitingText.Clear(); EndCapture(); }
         }
         else if (e.PropertyName == nameof(LiveSessionViewModel.CurrentFrame))
         {
