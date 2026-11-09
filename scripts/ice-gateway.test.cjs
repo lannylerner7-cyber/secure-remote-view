@@ -7,6 +7,7 @@ const crypto = require("node:crypto");
 const { test } = require("node:test");
 const ts = require("typescript");
 const { stubDeviceAuth } = require("../tests/helpers/device-auth.cjs");
+const { load } = require("../tests/helpers/agent-http.cjs");
 
 const compiled = ts.transpileModule(
   fs.readFileSync("src/routes/api/public/agent/ice.ts", "utf8"),
@@ -51,7 +52,11 @@ function harness(options = {}) {
     "@tanstack/react-router": { createFileRoute: () => config => config },
     crypto,
     "@/lib/server-supabase": { adminClient: () => admin },
-    "@/lib/authorization.server": { sessionAuthorized: async () => options.granted !== false },
+    "@/lib/authorization.server": { sessionAuthorized: async (_admin, _id, _cap, unavailable) => {
+      if (options.authorizationUnavailable) { unavailable?.(); return false; }
+      return options.granted !== false;
+    } },
+    "@/lib/live-diagnostics": load("lib/live-diagnostics.ts"),
     "@/lib/agent-auth.server": stubDeviceAuth(() => options.device === false ? null : {
         admin, device: { id: "device-row", device_id: "synthetic-device" },
       }),
@@ -59,9 +64,10 @@ function harness(options = {}) {
       createClient: () => ({
         auth: { getUser: async token => {
           checkedTokens.push(token);
+          if (options.authUnavailable) return { data: { user: null }, error: { status: 503 } };
           return options.technician
             ? { data: { user: { id: "synthetic-tech" } }, error: null }
-            : { data: { user: null }, error: { message: "invalid" } };
+            : { data: { user: null }, error: { message: "invalid", status: 401 } };
         } },
       }),
     },
@@ -151,6 +157,18 @@ test("super-admin may access an authorized active session owned by another techn
     env: { SUPABASE_URL: "https://example.test", SUPABASE_PUBLISHABLE_KEY: "synthetic" },
     fetch: async () => Response.json({ iceServers: relay }) });
   assert.equal((await h.get(undefined, { authorization: "Bearer synthetic" })).status, 200);
+});
+
+test("temporary session/auth service failures return 503, not a revoked-authorization response", async () => {
+  for (const options of [
+    { authorizationUnavailable: true },
+    { device: false, authUnavailable: true },
+  ]) {
+    const h = harness({ ...options, env: { SUPABASE_URL: "https://example.test", SUPABASE_PUBLISHABLE_KEY: "synthetic" } });
+    const response = await h.get(undefined, { authorization: "Bearer synthetic" });
+    assert.equal(response.status, 503);
+    assert.equal(h.calls.length, 0, "unverified callers must not mint credentials");
+  }
 });
 
 test("per-principal mint budget rejects repeated minting before provider call", async () => {

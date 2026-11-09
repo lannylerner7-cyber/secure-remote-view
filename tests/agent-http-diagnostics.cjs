@@ -161,14 +161,16 @@ test("unexpected upstream exceptions are redacted and do not escape into framewo
   assert.equal(f.timers.size, 0);
 });
 
-test("slow and aborted requests identify the outstanding stage before completion", async () => {
+test("cancellation stops subsequent stages without claiming an in-flight write rolled back", async () => {
   const f = diagnosticsFixture();
   let resolve;
   const waiting = new Promise(done => { resolve = done; });
   const abort = new AbortController();
   const request = new Request("https://fixture.invalid", { signal: abort.signal });
+  let committed = false, continued = false;
   const pending = f.modules.withAgentHttpDiagnostics(request, "frame", async trace => {
-    await trace.step("frame_write", () => waiting);
+    await trace.step("frame_write", () => waiting.then(() => { committed = true; }));
+    await trace.step("presence_write", async () => { continued = true; });
     return new Response("ok");
   });
   f.advance(2_000);
@@ -178,8 +180,44 @@ test("slow and aborted requests identify the outstanding stage before completion
   abort.abort();
   assert.equal(f.logs[1].event, "aborted");
   resolve();
-  assert.equal((await pending).status, 200, "observations do not invent cancellation of an upstream write");
+  assert.equal((await pending).status, 499);
+  assert.equal(committed, true, "already dispatched writes can still finish");
+  assert.equal(continued, false, "no additional database work starts after cancellation");
   assert.equal(f.timers.size, 0);
+});
+
+test("parallel stages retain independent durations and expose the actual slowest stage", async () => {
+  const f = diagnosticsFixture();
+  const response = await f.modules.withAgentHttpDiagnostics(new Request("https://fixture.invalid"), "heartbeat", async trace => {
+    let finishAuth, finishRuntime;
+    const auth = trace.step("device_auth", () => new Promise(resolve => { finishAuth = resolve; }));
+    f.advance(5);
+    const runtime = trace.step("runtime_write", () => new Promise(resolve => { finishRuntime = resolve; }));
+    f.advance(7);
+    finishRuntime(); await runtime;
+    f.advance(10);
+    finishAuth(); await auth;
+    return new Response("ok");
+  });
+  assert.equal(response.headers.get("x-connectlive-stage"), "runtime_write");
+  assert.equal(response.headers.get("x-connectlive-slowest-stage"), "device_auth");
+  assert.equal(response.headers.get("x-connectlive-slowest-ms"), "22");
+  assert.equal(response.headers.get("x-connectlive-live-protocol"), "2");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(f.logs[0].stages_ms.runtime_write, 7);
+});
+
+test("a freshly authorized active heartbeat reuses its owned session read", async () => {
+  const authorizationId = "11111111-1111-4111-8111-111111111111";
+  const id = "33333333-3333-4333-8333-333333333333";
+  const f = routeFixture("heartbeat", { session: { id, authorization_id: authorizationId } });
+  const response = await f.call({ observed_session_id: id });
+  assert.equal(response.status, 200);
+  assert.equal(f.reads.includes("session_authorization"), true, "no permission-cache shortcut");
+  assert.equal(f.reads.includes("session_status_lookup"), false, "one redundant round trip removed");
+  assert.deepEqual((await response.json()).session_status, {
+    id, state: "active", authorization_id: authorizationId,
+  });
 });
 
 test("untrusted IDs, URLs, headers and response bodies cannot enter diagnostics", async () => {

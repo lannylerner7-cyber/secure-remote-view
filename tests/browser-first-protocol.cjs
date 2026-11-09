@@ -14,7 +14,9 @@ function load(file) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
     module, exports: module.exports,
-    require: name => name === './browser-curtain' ? load('src/lib/browser-curtain.ts') : require(name),
+    require: name => name.startsWith('.')
+      ? load(path.resolve(path.dirname(file), `${name}.ts`))
+      : name.startsWith('@/') ? load(`src/${name.slice(2)}.ts`) : require(name),
     crypto, TextEncoder,
     localStorage: { getItem: key => localValues.get(key) ?? null, setItem: (key, value) => localValues.set(key, value) },
     setTimeout: fn => { timers.set(++timerId, fn); return timerId; },

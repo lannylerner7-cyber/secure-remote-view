@@ -666,7 +666,7 @@ public sealed class Agent
         try { InputBlocker.Release("session_ended"); } catch { }
         try { _ui.Invoke(() => CurtainOverlay.Hide()); } catch { }
         ReportState("No active session");
-        Log.Info("session ended");
+        Log.Info("live media and input stopped; this is not an explicit server session-end receipt");
     }
 }
 

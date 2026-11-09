@@ -99,7 +99,7 @@ test("codec/route sequence uses one peer and the same authorization/session", as
   const f = fixture();
   assert.equal(f.calls[0].config.profile.codec, "h264-preferred");
   for (const [index, delay] of [1000, 2000, 4000, 30000].entries()) {
-    f.peers[index].fail();
+    f.peers[index].fail("media");
     assert.equal(f.peers[index].closed, true);
     await f.advance(delay - 1);
     assert.equal(f.peers.length, index + 1);
@@ -148,7 +148,21 @@ test("fresh video stays on its healthy path and earns one same-profile retry", a
   f.peers[0].fail(); await f.advance(1000);
   assert.equal(f.calls[1].config.profile.codec, "h264-preferred");
   f.peers[1].fail(); await f.advance(2000);
-  assert.equal(f.calls[2].config.profile.codec, "vp8");
+  assert.equal(f.calls[2].config.profile.codec, "h264-preferred");
+  assert.equal(f.calls[2].config.profile.route, "relay");
+  f.live.close();
+});
+
+test("network and signaling failure alternate routes without forcing an unavailable VP8 codec", async () => {
+  const f = fixture();
+  f.peers[0].fail("network"); await f.advance(1000);
+  assert.equal(f.calls[1].config.profile.codec, "h264-preferred");
+  assert.equal(f.calls[1].config.profile.route, "relay");
+  f.peers[1].fail("signaling"); await f.advance(2000);
+  assert.equal(f.calls[2].config.profile.codec, "h264-preferred");
+  assert.equal(f.calls[2].config.profile.route, "all");
+  f.peers[2].fail("unsupported-codec"); await f.advance(4000);
+  assert.equal(f.calls[3].config.profile.codec, "vp8");
   f.live.close();
 });
 

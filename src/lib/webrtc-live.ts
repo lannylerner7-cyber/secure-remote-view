@@ -27,7 +27,9 @@ import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
 import { API_ROUTES } from "@/shared/api-routes";
 import { RecordingAuthority } from "@/lib/recording-authority";
 import type { UnlockState, UnlockTicket } from "@/shared/windows-unlock";
-import { tagPeerSignal, isCurrentPeerSignal } from "@/lib/peer-signals";
+import { tagPeerSignal } from "@/lib/peer-signals";
+import { createRemoteSignalInbox } from "./remote-signal-inbox";
+import { LIVE_TRANSPORT_PROTOCOL, summarizeRtcStats, type LiveDiagnostics } from "./live-diagnostics";
 import { getWebClientId } from "@/shared/signaling-identity";
 import { createRemoteMediaSignals } from "@/lib/remote-media-signals";
 import {
@@ -41,7 +43,10 @@ const STUN_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
 const ICE_REQUEST_TIMEOUT_MS = 12_000;
 const ICE_FALLBACK_RETRY_MS = 3_000;
-type IceConfiguration = { iceServers: RTCIceServer[]; ttlSeconds: number; hasTurn: boolean };
+type IceConfiguration = {
+  iceServers: RTCIceServer[]; ttlSeconds: number; hasTurn: boolean;
+  provider: string; serverProtocol: number | null;
+};
 class IceGatewayError extends Error {
   constructor(readonly denied: boolean, readonly retryAfterMs = ICE_FALLBACK_RETRY_MS) {
     super("ICE gateway unavailable");
@@ -78,7 +83,9 @@ async function fetchIceServers(sessionId: string, signal: AbortSignal): Promise<
         [400, 401, 403, 404].includes(resp.status),
         resp.status === 429 ? 60_000 : ICE_FALLBACK_RETRY_MS,
       );
-      const body = await resp.json() as { iceServers?: RTCIceServer[]; ttlSeconds?: number };
+      const body = await resp.json() as {
+        iceServers?: RTCIceServer[]; ttlSeconds?: number; provider?: string; serverProtocol?: number;
+      };
       if (!Array.isArray(body.iceServers) || !body.iceServers.length) throw new Error("ICE configuration unavailable");
       const iceServers = body.iceServers;
       const hasTurn = iceServers.some((s) => {
@@ -88,6 +95,10 @@ async function fetchIceServers(sessionId: string, signal: AbortSignal): Promise<
           && typeof s.credential === "string" && !!s.credential;
       });
       return { iceServers, hasTurn,
+        provider: ["cloudflare", "coturn", "static", "stun-only"].includes(body.provider ?? "")
+          ? body.provider! : "unreported",
+        serverProtocol: Number.isSafeInteger(body.serverProtocol) && body.serverProtocol! > 0
+          ? body.serverProtocol! : null,
         ttlSeconds: typeof body.ttlSeconds === "number" && Number.isFinite(body.ttlSeconds) && body.ttlSeconds > 0
           ? Math.min(body.ttlSeconds, 86400) : 60 };
     })()]);
@@ -128,6 +139,8 @@ export interface WebRtcLive {
   candidateType: () => string | null;
   /** Raw stats for diagnostics (inbound-rtp bytes/framesDecoded). */
   stats: () => Promise<RTCStatsReport | null>;
+  /** Closed, sanitized metadata; no addresses, SDP, credentials or media. */
+  diagnostics: () => LiveDiagnostics | null;
   /** S16 — "pending" until the ICE gateway answers, then whether a TURN relay is in play. */
   relay: () => "pending" | "relay" | "none";
   codec: () => string | null;
@@ -221,6 +234,8 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
 
   let state: WebRtcState = "connecting";
   let closed = false;
+  let presentedFrames: number | null = null, lastPresentedAt: number | null = null;
+  let presentedCallback: number | null = null;
   let generation = 0;
   let iceRevision = 0;
   let iceRequest: AbortController | null = null;
@@ -234,6 +249,15 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   const mediaListeners = new Set<(progress: MediaProgress) => void>();
   const profile = options.profile ?? MEDIA_PROFILES[0];
   const active = () => !closed && state !== "failed" && state !== "superseded";
+  if (typeof video.requestVideoFrameCallback === "function") {
+    const presented: VideoFrameRequestCallback = (_now, metadata) => {
+      if (!active()) return;
+      presentedFrames = metadata.presentedFrames;
+      lastPresentedAt = Date.now();
+      presentedCallback = video.requestVideoFrameCallback(presented);
+    };
+    presentedCallback = video.requestVideoFrameCallback(presented);
+  }
   const cancelIce = () => {
     generation++;
     iceRevision++;
@@ -270,6 +294,9 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS, iceTransportPolicy: profile.route });
   const remoteMedia = createRemoteMediaSignals(pc, active);
   let relayState: "pending" | "relay" | "none" = "pending";
+  let relayProvider = "unreported", serverProtocol: number | null = null;
+  let catchupState: LiveDiagnostics["catchup"] = "idle", catchupMs: number | null = null;
+  let safeStats = summarizeRtcStats({ forEach() {} });
   let dc: RTCDataChannel | null = pc.createDataChannel("input", { ordered: true });
   const actions = createBrowserActions(sessionId, options.authorizationId ?? null, () => dc, active, () => {
     fail("network");
@@ -561,6 +588,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   let connectedAt = 0;
   let lastDecodedFrames = 0;
   let lastMediaProgressAt = 0;
+  let lastDecodedAt: number | null = null;
 
   const clearWatchdog = () => {
     if (watchdog !== null) { window.clearTimeout(watchdog); watchdog = null; }
@@ -609,11 +637,12 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
         if (r["id"] === localId) local = (r["candidateType"] as string) ?? null;
         if (r["id"] === remoteId) remote = (r["candidateType"] as string) ?? null;
       });
+      safeStats = summarizeRtcStats(stats);
       selectedCandidateType = local === "relay" || remote === "relay" ? "relay" : local ?? remote;
       console.info(`[webrtc] ice pair local=${local} remote=${remote} -> ${selectedCandidateType}`);
       listeners.forEach((cb) => cb(state));
-    } catch (err) {
-      console.warn("[webrtc] getStats failed", err);
+    } catch {
+      console.warn("[webrtc] getStats unavailable");
     }
   }
 
@@ -722,7 +751,16 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     void drainQueue();
   }
 
-  pc.onicecandidate = (ev) => { if (ev.candidate) enqueue("ice", ev.candidate.toJSON()); };
+  // Some implementations gather during setLocalDescription. Never publish a
+  // candidate before its offer: the Agent anchors a fresh inbox at that offer.
+  let offerQueued = false;
+  const earlyLocalCandidates: RTCIceCandidateInit[] = [];
+  pc.onicecandidate = (ev) => {
+    if (!active() || !ev.candidate) return;
+    if (offerQueued) enqueue("ice", ev.candidate.toJSON());
+    else if (earlyLocalCandidates.length < 128) earlyLocalCandidates.push(ev.candidate.toJSON());
+    else fail("signaling");
+  };
 
   /** Every restart obtains a new session-scoped set before allocating ICE.
    * Expiry refreshes only update configuration for future allocations; they
@@ -765,6 +803,8 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     try {
       pc.setConfiguration({ iceServers: config?.iceServers ?? STUN_SERVERS, iceTransportPolicy: profile.route });
       relayState = config?.hasTurn ? "relay" : "none";
+      relayProvider = config?.provider ?? "unavailable";
+      serverProtocol = config?.serverProtocol ?? null;
     } catch {
       relayState = "none";
       config = null;
@@ -789,9 +829,11 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
         if (state === "connecting") clearWatchdog();
         const previousGeneration = generation;
         if (await refreshIce() && active() && previousGeneration === generation && relayState === "relay" && state === "connecting") {
-          // New credentials must participate in gathering, not just sit on pc.
-          await negotiate(true, false);
-        } else if (active() && state === "connecting" && previousGeneration === generation) {
+          // A fresh generation also refreshes the native answerer's ICE config.
+          // Never reuse an identity across ICE epochs: a delayed answer must
+          // not be mistaken for an answer to a replacement offer.
+          fail("relay-unavailable");
+        } else if (active() && state === "connecting" && previousGeneration === generation && pc.remoteDescription) {
           armWatchdog();
         }
       }, retryAfterMs);
@@ -824,10 +866,16 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       const offer = await pc.createOffer(restart ? { iceRestart: true } : undefined);
       if (!valid()) return;
       remoteMedia.expectAnswer();
+      offerQueued = false;
+      earlyLocalCandidates.length = 0;
       await pc.setLocalDescription(offer);
       if (!valid()) return;
       enqueue("offer", { type: offer.type, sdp: offer.sdp });
-      if (state === "connecting") armWatchdog();
+      offerQueued = true;
+      for (const candidate of earlyLocalCandidates.splice(0)) enqueue("ice", candidate);
+      // ICE cannot progress before an answer is applied. The outer 45s startup
+      // deadline still bounds binding, delivery and the first frame; do not spend
+      // the ICE-specific budget waiting in the HTTP signaling queue.
     } catch {
       if (!valid()) return;
       console.warn("[webrtc] offer failed");
@@ -844,6 +892,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     if (closed || state !== "connected" || negotiating) return;
     void pc.getStats().then(async (stats) => {
       if (!active() || state !== "connected") return;
+      safeStats = summarizeRtcStats(stats);
       // A deliberate local viewer pause is not a failed remote video stream.
       if (viewerPaused) { lastMediaProgressAt = Date.now(); return; }
       let decoded = 0;
@@ -877,6 +926,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       if (decoded > lastDecodedFrames) {
         lastDecodedFrames = decoded;
         lastMediaProgressAt = now;
+        lastDecodedAt = now;
         mediaListeners.forEach(cb => cb({
           framesDecoded: decoded, codec: negotiatedCodec, path: selectedCandidateType,
         }));
@@ -897,51 +947,80 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
 
   // ---- Inbound signals (postgres_changes; broadcast-tier can be added later)
   let lastSeen = loadCursor(sessionId);
-  const initialCursor = lastSeen;
-  const receivedSignalIds = new Set<number>();
+  const strictIdentity = !!(options.videoOnly || options.strictPeerIdentity);
+  const inbox = createRemoteSignalInbox({
+    clientId: webClientId, peerId, strict: strictIdentity,
+    minimumId: strictIdentity ? 0 : lastSeen,
+    active,
+    applied(id) {
+      lastSeen = Math.max(lastSeen, id);
+      saveCursor(sessionId, lastSeen);
+    },
+    async apply(row) {
+      if (row.kind === "answer") {
+        await remoteMedia.answer(row.payload as RTCSessionDescriptionInit);
+        if (active() && state === "connecting") armWatchdog();
+      } else if (row.kind === "ice") {
+        await remoteMedia.ice(row.payload as RTCIceCandidateInit);
+      } else if (row.kind === "terminated") {
+        setState("superseded");
+        try { dc?.close(); pc.close(); } catch {}
+      } else if (row.kind === "bye") {
+        const reason = (row.payload as { reason?: unknown } | null)?.reason;
+        fail(reason === "unsupported-codec" ? "unsupported-codec" : "media");
+      }
+    },
+  });
+  const acceptSignal = (row: unknown) => inbox.accept(row).catch(() => {
+    console.warn("[webrtc] remote media signal could not be applied");
+  });
+  let catchupAbort: AbortController | null = null;
+  async function catchUpSignals() {
+    if (!active() || catchupAbort) return;
+    const abort = new AbortController();
+    catchupAbort = abort;
+    catchupState = "reading";
+    const started = performance.now();
+    let timeout: number | undefined;
+    try {
+      // The same authenticated SELECT/RLS policy used by Realtime. A fresh peer
+      // UUID scopes this bounded snapshot, not a high-water ID that could skip
+      // an answer committed after a higher-ID candidate. No privileged client.
+      const read = supabase.from("session_signals")
+        .select("id,from_side,kind,payload,admin_client_id")
+        .eq("session_id", sessionId).eq("from_side", "agent")
+        .eq("admin_client_id", webClientId).eq("payload->>peer_id", peerId)
+        .order("id", { ascending: true }).limit(256).abortSignal(abort.signal);
+      const result = await Promise.race([
+        Promise.resolve(read),
+        new Promise<never>((_, reject) => {
+          timeout = window.setTimeout(() => { abort.abort(); reject(new Error("Signal read deadline")); }, 6000);
+        }),
+      ]);
+      if (!active() || abort.signal.aborted) return;
+      if (result.error) throw new Error("Signal catch-up unavailable");
+      await Promise.all((result.data ?? []).map(acceptSignal));
+      if (active()) catchupState = "ok";
+    } catch {
+      if (active()) catchupState = "unavailable";
+    } finally {
+      window.clearTimeout(timeout);
+      catchupMs = Math.round(performance.now() - started);
+      if (catchupAbort === abort) catchupAbort = null;
+    }
+  }
+  const catchupTimer = window.setInterval(() => {
+    // Healthy media does not need another permanent database poll.
+    if (state === "connecting") void catchUpSignals();
+  }, 2000);
   const channel = supabase
     .channel(`signals-${sessionId}-${webClientId}-${peerId}`)
     .on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "session_signals", filter: `session_id=eq.${sessionId}` },
-      async (payload) => {
-        const row = payload.new as {
-          id: number;
-          from_side: string;
-          kind: string;
-          payload: unknown;
-          admin_client_id: string | null;
-        };
-        if (!active() || !row || row.from_side !== "agent" ||
-            row.id <= initialCursor || receivedSignalIds.has(row.id)) return;
-        if (row.admin_client_id && row.admin_client_id !== webClientId) return;
-        if (!isCurrentPeerSignal(peerId, !!(options.videoOnly || options.strictPeerIdentity), row.payload)) return;
-        receivedSignalIds.add(row.id);
-        if (receivedSignalIds.size > 512)
-          receivedSignalIds.delete(receivedSignalIds.values().next().value!);
-        // A later ICE INSERT must not make an earlier answer disappear if
-        // realtime delivery/transaction commits arrive out of ID order.
-        lastSeen = Math.max(lastSeen, row.id);
-        saveCursor(sessionId, lastSeen);
-        try {
-          if (row.kind === "answer") {
-            await remoteMedia.answer(row.payload as RTCSessionDescriptionInit);
-          } else if (row.kind === "ice") {
-            await remoteMedia.ice(row.payload as RTCIceCandidateInit);
-          } else if (row.kind === "terminated") {
-            setState("superseded");
-            try { dc?.close(); } catch {}
-            try { pc.close(); } catch {}
-          } else if (row.kind === "bye") {
-            fail("media");
-          }
-        } catch {
-          // Candidate/SDP values and errors that may embed them are private.
-          console.warn("[webrtc] remote media signal could not be applied");
-        }
-      },
+      payload => { void acceptSignal(payload.new); },
     )
-    .subscribe();
+    .subscribe(status => { if (status === "SUBSCRIBED") void catchUpSignals(); });
 
   // ---- Heartbeat + kickoff ------------------------------------------------
   let heartbeatTimer: number | null = null;
@@ -988,6 +1067,18 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     stats: async () => { try { return await pc.getStats(); } catch { return null; } },
     relay: () => relayState,
     codec: () => negotiatedCodec,
+    diagnostics: () => ({
+      viewerProtocol: LIVE_TRANSPORT_PROTOCOL, serverProtocol,
+      state, signaling: pc.signalingState, ice: pc.iceConnectionState,
+      connection: pc.connectionState, inputChannel: dc?.readyState ?? "closed",
+      filesChannel: fdc.readyState, clipboardChannel: cdc.readyState,
+      relayConfigured: relayState === "relay", provider: relayProvider,
+      ...safeStats, codec: negotiatedCodec ?? safeStats.codec,
+      lastDecodedAgeMs: lastDecodedAt === null ? null : Math.max(0, Date.now() - lastDecodedAt),
+      presentedFrames,
+      lastPresentedAgeMs: lastPresentedAt === null ? null : Math.max(0, Date.now() - lastPresentedAt),
+      signalsApplied: inbox.count(), catchup: catchupState, catchupMs,
+    }),
     failure: () => failure,
     onMedia: cb => { mediaListeners.add(cb); return () => { mediaListeners.delete(cb); }; },
     setPaused: value => {
@@ -1038,6 +1129,10 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     stopRecording: () => stopRecordingInternal(),
 
     close: () => {
+      if (presentedCallback !== null) video.cancelVideoFrameCallback?.(presentedCallback);
+      inbox.close();
+      catchupAbort?.abort();
+      window.clearInterval(catchupTimer);
       if (closed) return;
       closed = true;
       remoteMedia.close();

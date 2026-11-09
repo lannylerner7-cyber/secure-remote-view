@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { WebRtcLive, WebRtcState } from "@/lib/webrtc-live";
-import { getWindowsUnlock, requestWindowsUnlock } from "@/lib/windows-unlock-client";
+import { getWindowsUnlock, requestWindowsUnlock, WindowsUnlockRequestError } from "@/lib/windows-unlock-client";
+import { createStatusPoll, unlockStatusPollDelay } from "@/lib/status-poll";
 import { EMPTY_UNLOCK, type UnlockDevice, type UnlockState, type UnlockTicket } from "@/shared/windows-unlock";
 
 /** Members the transport adds for secure lock-screen input. */
@@ -41,6 +42,8 @@ export function WindowsUnlockControls({
   const ul = live as UnlockLive | null;
   const [status, setStatus] = useState<UnlockDevice | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const statusPoll = useRef<ReturnType<typeof createStatusPoll> | null>(null);
   const [unlock, setUnlock] = useState<UnlockState>(EMPTY_UNLOCK);
   const [channel, setChannel] = useState<WebRtcState>("idle");
   const [starting, setStarting] = useState(false);
@@ -61,26 +64,38 @@ export function WindowsUnlockControls({
   const beforeStartRef = useRef(beforeStart);
   beforeStartRef.current = beforeStart;
 
-  const refresh = useCallback(async () => {
-    const id = deviceId, owner = context;
-    try {
-      const row = await getWindowsUnlock(id);
-      if (!mounted.current || deviceRef.current !== owner || row?.deviceId !== id) return;
-      setStatus(row);
-      setStatusError(null);
-    } catch (e) {
-      if (!mounted.current || deviceRef.current !== owner) return;
-      setStatus(null);
-      setStatusError(errorText(e, "Windows unlock status is unavailable."));
-    }
-  }, [deviceId, context]);
+  const refresh = useCallback(() => statusPoll.current?.request() ?? Promise.resolve(), []);
 
   useEffect(() => {
     setStatus(null); setStatusError(null); setError(null); setConfirmPin(false); setPinUsedFor(null);
-    void refresh();
-    const iv = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(iv);
-  }, [refresh]);
+    setCheckingStatus(false);
+    if (!canUnlock) return;
+    let failures = 0;
+    const id = deviceId, owner = context;
+    const poll = createStatusPoll(async signal => {
+      const current = () => !signal.aborted && mounted.current && deviceRef.current === owner;
+      if (!current()) return null;
+      setCheckingStatus(true);
+      try {
+        const row = await getWindowsUnlock(id, signal);
+        if (!current()) return null;
+        if (row?.deviceId !== id) throw new Error("Windows unlock returned an unexpected device.");
+        failures = 0;
+        setStatus(row); setStatusError(null);
+        return unlockStatusPollDelay({ failures, enabled: row.enabled, helperReady: row.helperReady });
+      } catch (e) {
+        if (!current()) return null;
+        setStatus(null);
+        setStatusError(errorText(e, "Windows unlock status is unavailable."));
+        return unlockStatusPollDelay({
+          failures: ++failures, status: e instanceof WindowsUnlockRequestError ? e.status : 0,
+        });
+      } finally { if (current()) setCheckingStatus(false); }
+    });
+    statusPoll.current = poll;
+    void poll.request();
+    return () => { poll.stop(); if (statusPoll.current === poll) statusPoll.current = null; };
+  }, [deviceId, context, canUnlock]);
 
   useEffect(() => {
     if (!ul) { setUnlock(EMPTY_UNLOCK); setChannel("idle"); return; }
@@ -178,6 +193,11 @@ export function WindowsUnlockControls({
         <p className="text-[11px] text-white/50">Take control explicitly to resume ordinary input. Close and reopen the viewer before recording again, so secure-screen buffers cannot enter a recording.</p>
       )}
       {statusError && status && <p className="text-[11px] text-amber-200">Status refresh failed: {statusError}</p>}
+      {canUnlock && !active && <Button type="button" size="sm" variant="outline"
+        className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+        disabled={checkingStatus} onClick={() => void refresh()}>
+        {checkingStatus ? "Checking status…" : "Refresh unlock status"}
+      </Button>}
       {status && status.locked === null && !blocker && <p className="text-[11px] text-white/50">Lock state is unknown; the Agent may be offline.</p>}
 
       {phase === "ready" && (

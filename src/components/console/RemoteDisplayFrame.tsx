@@ -20,6 +20,7 @@ export function RemoteDisplayFrame({
   mode,
   onModeChange,
   fullscreen,
+  bounded = false,
   sourceLabel,
   children,
   awaiting,
@@ -28,6 +29,8 @@ export function RemoteDisplayFrame({
   mode: ViewerScaleMode;
   onModeChange: (m: ViewerScaleMode) => void;
   fullscreen: boolean;
+  /** Fit inside a parent's fixed-height flex row, including its other controls. */
+  bounded?: boolean;
   sourceLabel: string;
   children: ReactNode;
   awaiting?: ReactNode;
@@ -49,11 +52,11 @@ export function RemoteDisplayFrame({
   const scrolls = mode === "actual" && known;
 
   return (
-    <div className="flex min-h-0 min-w-0 shrink-0 flex-col">
+    <div className={`flex min-h-0 min-w-0 flex-col ${bounded ? "shrink-0 overflow-hidden md:flex-auto" : "shrink-0"}`}>
       <div
         ref={viewportRef}
         data-testid="viewer-viewport"
-        className={`relative min-h-[180px] w-full shrink-0 bg-black/40 ${scrolls ? "overflow-auto" : "overflow-hidden"}`}
+        className={`relative w-full bg-black/40 min-h-[180px] shrink-0 ${bounded ? "md:min-h-0 md:flex-auto" : ""} ${scrolls ? "overflow-auto" : "overflow-hidden"}`}
         style={{ height: fullscreen ? "calc(100dvh - 12rem)" : "min(62dvh, 720px)" }}
       >
         <div

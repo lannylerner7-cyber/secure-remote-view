@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { deviceAuthFailure, verifyDevice } from "@/lib/agent-auth.server";
 import { adminClient } from "@/lib/server-supabase";
 import { sessionAuthorized } from "@/lib/authorization.server";
+import { LIVE_TRANSPORT_PROTOCOL } from "@/lib/live-diagnostics";
 
 /**
  * S9 — ICE configuration gateway.
@@ -68,6 +69,8 @@ async function verifyTechnician(request: Request): Promise<string | null> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await client.auth.getUser(token);
+  if (error && (!error.status || error.status >= 500 || error.status === 429))
+    throw new Error("Technician authentication is temporarily unavailable");
   return !error && data.user ? data.user.id : null;
 }
 
@@ -118,7 +121,9 @@ async function authorizeRelay(request: Request): Promise<{ peer: string } | Resp
       const isSuper = (roles ?? []).some(r => r.role === "super_admin");
       if (!allowed || (session.technician_id !== userId && !isSuper)) return deny(403);
     }
-    if (!(await sessionAuthorized(admin, sessionId, "view"))) return deny(403);
+    let unavailable = false;
+    if (!(await sessionAuthorized(admin, sessionId, "view", () => { unavailable = true; })))
+      return deny(unavailable ? 503 : 403);
     return { peer: device ? `agent-${device.device.id}` : `admin-${userId}` };
   } catch {
     return deny(503);
@@ -258,15 +263,18 @@ function buildCoturnServers(peer: string): IceServer[] {
   return [];
 }
 
-async function buildTurnServers(peer: string, signal: AbortSignal): Promise<IceServer[]> {
+async function buildTurnServers(peer: string, signal: AbortSignal): Promise<{
+  servers: IceServer[]; provider: "cloudflare" | "coturn" | "static" | "stun-only";
+}> {
   const cloudflare = await buildCloudflareTurnServers(signal);
-  if (signal.aborted) return [];
-  if (cloudflare.length > 0) return cloudflare;
+  if (signal.aborted) return { servers: [], provider: "stun-only" };
+  if (cloudflare.length > 0) return { servers: cloudflare, provider: "cloudflare" };
   const coturn = buildCoturnServers(peer);
   if (coturn.length === 0) {
     console.warn("[ice] TURN unavailable; returning STUN-only configuration");
   }
-  return coturn;
+  return { servers: coturn, provider: coturn.length === 0 ? "stun-only" :
+    process.env["TURN_STATIC_SECRET"] ? "coturn" : "static" };
 }
 
 export const Route = createFileRoute("/api/public/agent/ice")({
@@ -300,8 +308,10 @@ export const Route = createFileRoute("/api/public/agent/ice")({
         }
         return Response.json(
           {
-            iceServers: [{ urls: STUN_URLS }, ...turn],
-            turn: turn.length > 0,
+            iceServers: [{ urls: STUN_URLS }, ...turn.servers],
+            turn: turn.servers.length > 0,
+            provider: turn.provider,
+            serverProtocol: LIVE_TRANSPORT_PROTOCOL,
             ttlSeconds: TTL_SECONDS,
           },
           { headers: { "cache-control": "no-store" } },

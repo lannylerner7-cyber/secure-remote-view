@@ -242,7 +242,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // watching and every live view goes black. Auto-end the stragglers.
         const { data: pendingAll, error: sessionsError } = await trace.step("sessions_lookup", () => ctx.admin
           .from("sessions")
-          .select("id, mode, state, media_mode, created_at")
+          .select("id, mode, state, media_mode, created_at, authorization_id")
           .eq("device_id", ctx.device.id)
           .in("state", ["invited", "consented", "active", "paused"])
           .order("created_at", { ascending: false }));
@@ -278,14 +278,24 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         let sessionStatus: { id: string; state: string; authorization_id: string | null } | null = null;
         let sessionStatusUnavailable = false;
         if (body.observed_session_id && authorization && licensed) {
-          const { data, error } = await trace.step("session_status_lookup", () => ctx.admin
-            .from("sessions").select("id, state, authorization_id")
-            .eq("id", body.observed_session_id!)
-            .eq("device_id", ctx.device.id)
-            .eq("authorization_id", authorization.id)
-            .maybeSingle());
-          if (error) sessionStatusUnavailable = true;
-          else sessionStatus = data;
+          // Already read and independently authorized during THIS heartbeat.
+          // Avoid a redundant round trip for its normal active-session case;
+          // an absent/ended/mismatched session still needs the exact owned read.
+          const current = pending.find(session => session.id === body.observed_session_id &&
+            session.state === "active" && session.authorization_id === authorization.id);
+          if (current) sessionStatus = {
+            id: current.id, state: current.state, authorization_id: current.authorization_id,
+          };
+          else {
+            const { data, error } = await trace.step("session_status_lookup", () => ctx.admin
+              .from("sessions").select("id, state, authorization_id")
+              .eq("id", body.observed_session_id!)
+              .eq("device_id", ctx.device.id)
+              .eq("authorization_id", authorization.id)
+              .maybeSingle());
+            if (error) sessionStatusUnavailable = true;
+            else sessionStatus = data;
+          }
         }
         const isSessionActive = licensed && pending.length > 0;
 

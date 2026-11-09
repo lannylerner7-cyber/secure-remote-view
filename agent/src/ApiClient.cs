@@ -805,6 +805,8 @@ public sealed partial class ApiClient
         [JsonPropertyName("iceServers")] public List<IceServerDto>? IceServers { get; set; }
         [JsonPropertyName("turn")] public bool Turn { get; set; }
         [JsonPropertyName("ttlSeconds")] public int TtlSeconds { get; set; }
+        [JsonPropertyName("provider")] public string? Provider { get; set; }
+        [JsonPropertyName("serverProtocol")] public int? ServerProtocol { get; set; }
     }
 
     /// S14 — release manifest row served by /api/public/agent/release.

@@ -3,7 +3,7 @@ import {
   type FileTransferEvent, type RecordingResult,
 } from "./webrtc-live";
 import {
-  MEDIA_PROFILES, recoveryDelay, type MediaFailure, type MediaProgress, type MediaProfile,
+  MEDIA_PROFILES, recoveryDelay, recoveryProfileIndex, type MediaFailure, type MediaProgress, type MediaProfile,
 } from "./media-profiles";
 import type { AgentMode } from "./browser-actions";
 import type { CurtainState } from "./browser-curtain";
@@ -144,7 +144,7 @@ export function startResilientWebRtc(
     const retryWorkingPath = wasStable || (progressSince !== null && !samePathRetryUsed);
     if (!manual && retryWorkingPath) samePathRetryUsed = true;
     else if (!manual) {
-      profileIndex = (profileIndex + 1) % MEDIA_PROFILES.length;
+      profileIndex = recoveryProfileIndex(profileIndex, failure?.reason ?? "network");
       samePathRetryUsed = false;
     }
     publish({ profile: MEDIA_PROFILES[profileIndex], reason: manual ? "manual" : failure?.reason ?? "network" });
@@ -169,7 +169,7 @@ export function startResilientWebRtc(
     } catch {
       failure = { reason: "network", retryable: true };
       failures++;
-      profileIndex = (profileIndex + 1) % MEDIA_PROFILES.length;
+      profileIndex = recoveryProfileIndex(profileIndex, "network");
       setState("failed");
       publish({ profile: MEDIA_PROFILES[profileIndex], reason: failure.reason });
       schedule(recoveryDelay(failures));
@@ -229,6 +229,7 @@ export function startResilientWebRtc(
     candidateType: () => peer?.candidateType() ?? null,
     codec: () => peer?.codec() ?? null,
     stats: () => peer?.stats() ?? Promise.resolve(null),
+    diagnostics: () => peer?.diagnostics?.() ?? null,
     relay: () => peer?.relay() ?? "pending",
     onMedia: cb => subscribe(progress, cb),
     onVideo: cb => subscribe(videos, cb),

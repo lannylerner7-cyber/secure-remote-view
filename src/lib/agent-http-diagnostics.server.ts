@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { LIVE_TRANSPORT_PROTOCOL } from "./live-diagnostics";
 
 type Operation = "frame" | "heartbeat";
 export type AgentHttpStage =
@@ -14,7 +15,9 @@ type Outcome =
   | "invalid_runtime_report" | "runtime_reporting_unavailable" | "retired_or_stale_process"
   | "presence_write_failed" | "license_unavailable" | "license_state_write_failed"
   | "sessions_unavailable" | "session_cleanup_failed" | "notification_failed"
-  | "invalid_observed_session" | "handler_exception";
+  | "invalid_observed_session" | "handler_exception" | "client_aborted";
+
+class RequestCancelled extends Error {}
 
 const REQUEST_ID = "x-connectlive-request-id";
 const WINDOW_MS = 60_000;
@@ -49,7 +52,7 @@ export class AgentHttpTrace {
   private readonly timings: Partial<Record<AgentHttpStage, number>> = {};
   private readonly id: string;
 
-  constructor(private readonly operation: Operation, request: Request) {
+  constructor(private readonly operation: Operation, private readonly request: Request) {
     const supplied = request.headers.get(REQUEST_ID);
     // IDs are random per-attempt correlation only, never device/session IDs.
     this.id = supplied && /^clh-[0-9a-f]{32}$/.test(supplied)
@@ -57,11 +60,19 @@ export class AgentHttpTrace {
   }
 
   async step<T>(stage: AgentHttpStage, work: () => PromiseLike<T>): Promise<T> {
+    // A cancelled JPEG must not continue starting additional database work
+    // behind the client's next frame. Authority checks are never bypassed.
+    if (this.request.signal.aborted) throw new RequestCancelled();
     this.stage = stage;
-    this.stageStarted = performance.now();
-    try { return await work(); }
+    const started = performance.now();
+    this.stageStarted = started;
+    try {
+      const result = await work();
+      if (this.request.signal.aborted) throw new RequestCancelled();
+      return result;
+    }
     finally {
-      this.timings[stage] = millis((this.timings[stage] ?? 0) + performance.now() - this.stageStarted);
+      this.timings[stage] = millis((this.timings[stage] ?? 0) + performance.now() - started);
     }
   }
 
@@ -75,6 +86,13 @@ export class AgentHttpTrace {
     response.headers.set("x-connectlive-server-ms", String(millis(performance.now() - this.started)));
     response.headers.set("x-connectlive-stage", this.stage);
     response.headers.set("x-connectlive-outcome", this.outcome);
+    response.headers.set("x-connectlive-live-protocol", String(LIVE_TRANSPORT_PROTOCOL));
+    response.headers.set("cache-control", "no-store");
+    const slowest = Object.entries(this.timings).sort((a, b) => b[1]! - a[1]!)[0];
+    if (slowest) {
+      response.headers.set("x-connectlive-slowest-stage", slowest[0]);
+      response.headers.set("x-connectlive-slowest-ms", String(slowest[1]));
+    }
     this.emit("complete", response.status);
     return response;
   }
@@ -123,8 +141,12 @@ export async function withAgentHttpDiagnostics(
   request.signal.addEventListener("abort", onAbort, { once: true });
   try {
     if (request.signal.aborted) onAbort();
-    return trace.finish(await run(trace));
+    const response = await run(trace);
+    return trace.finish(request.signal.aborted
+      ? trace.respond(new Response(null, { status: 499 }), "client_aborted") : response);
   } catch {
+    if (request.signal.aborted)
+      return trace.finish(trace.respond(new Response(null, { status: 499 }), "client_aborted"));
     // Suppress framework logging of raw upstream errors, URLs and SQL details.
     return trace.finish(trace.respond(
       Response.json({ error: "agent_request_failed" }, { status: 500 }), "handler_exception",

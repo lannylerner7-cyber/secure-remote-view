@@ -1,6 +1,6 @@
 # Run the complete Agent source before packaging
 
-This is the **Windows Agent source**, version **1.10.8**. It includes C#,
+This is the **Windows Agent source**, version **1.10.9**. It includes C#,
 XAML, project files, branding assets, Watch, the update helper, shared update
 code, native tests and build scripts. It is not a binary-download launcher.
 No Agent executable or MSI has been built for this source delivery.
@@ -218,7 +218,7 @@ for a native codec loading error.
 
 ## Control mode and privacy curtain
 
-### Live-session recovery and ending a visit (1.10.8)
+### Live-session recovery and ending a visit
 
 The asynchronous H.264 input pump now retains every `METransformNeedInput`
 credit across frames instead of discarding credits received after one frame
@@ -259,6 +259,44 @@ dotnet run --project agent/tests/session-recovery/SessionRecovery.Tests.csproj
 ```
 
 From the repository, prefix that path with `imports/connectlive/`.
+
+### Signaling and diagnostic update (1.10.9)
+
+Use this source with the matching updated browser and gateway. No production
+deployment is implied by receiving this ZIP. To test an approved preview gateway,
+use `.\run.ps1 -Pair -ApiUrl https://your-approved-preview-host` and obtain the
+pairing code from that **same** preview. Do not reuse credentials from another
+gateway origin.
+
+The Agent now reports an explicit, peer-scoped unsupported-codec result rather
+than leaving an incompatible offer waiting. The updated browser recovers missing
+realtime answers with bounded authenticated reads and keeps network-route retries
+on the same codec. A temporary transport stop is no longer logged as if the
+administrator explicitly ended the support session.
+
+Heartbeat/frame logs distinguish the final request stage from the **slowest**
+stage and include the gateway protocol when available. ICE logs identify the
+configuration provider and protocol, but explicitly do **not** claim that a
+relay was selected. Use the browser's **Connection diagnostics** to check actual
+selected candidate types, traffic, decoding and presentation. Protocol `2`
+identifies this diagnostic/signaling contract, not a deployed commit hash.
+
+Before approving this candidate on Windows:
+
+1. Run `--video-preflight` and resolve a failed VP8 runtime load only through the
+   approved manual procedure in `VIDEO-DEPENDENCIES.md`. Hardware discovery alone
+   does not prove encoder output.
+2. On a designated test device, verify moving video for at least 20 minutes,
+   including idle/resume and a brief network loss. Record actual decoded and
+   presented frame progress, not just a connected badge or moving cursor.
+3. Verify a separately forced relay path with actual selected-pair evidence.
+4. Physically verify curtain coverage, usable technician video, local-input
+   blocking, release, emergency escape, lease expiry and safe capture fallback.
+5. Verify explicit **End sharing** prompts for a fresh code, while temporary
+   gateway failures and **Close viewer** do not erase pairing.
+
+Portable checks and a synthetic browser peer cannot certify these Windows
+effects. This source delivery has not built an Agent EXE or MSI.
 
 ### Combined browser action
 

@@ -24,7 +24,10 @@ function load(file, dependencies = {}, globals = {}) {
 function diagnosticsFixture() {
   let now = 0;
   const logs = [], timers = new Map();
-  const modules = load("lib/agent-http-diagnostics.server.ts", { "node:crypto": crypto }, {
+  const modules = load("lib/agent-http-diagnostics.server.ts", {
+    "node:crypto": crypto,
+    "./live-diagnostics": load("lib/live-diagnostics.ts"),
+  }, {
     performance: { now: () => now },
     console: { info: line => logs.push(JSON.parse(line)), warn: line => logs.push(JSON.parse(line)) },
     setTimeout(fn, delay) {

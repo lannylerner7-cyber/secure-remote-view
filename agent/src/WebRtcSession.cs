@@ -170,7 +170,10 @@ public sealed partial class WebRtcSession : IDisposable
             if (list.Count > 0 && !_cts.IsCancellationRequested && !_closed && _inputPermission.Allows("view"))
             {
                 _iceServers = list;
-                Log.Info($"webrtc ice gateway: {list.Count} server(s), turn={cfg.Turn}");
+                var provider = cfg.Provider is "cloudflare" or "coturn" or "static" or "stun-only" ? cfg.Provider : "unreported";
+                var protocol = cfg.ServerProtocol is >= 1 and <= 1000
+                    ? cfg.ServerProtocol.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unreported";
+                Log.Info($"webrtc ice gateway: {list.Count} server(s), turn_configured={cfg.Turn}, provider={provider}, server_protocol={protocol}; configuration is not proof of a selected relay");
             }
         }
         catch (OperationCanceledException) when (!_cts.IsCancellationRequested) { Log.Warn("webrtc ICE deadline exceeded; direct-only fallback"); }
@@ -448,7 +451,7 @@ public sealed partial class WebRtcSession : IDisposable
                 };
                 await _api.PostSignalReliableAsync(_sessionId, "ice", payload, _cts.Token, boundAdminClientId);
             }
-            catch (Exception ex) { Log.Warn($"webrtc ice post: {ex.Message}"); }
+            catch (Exception ex) { Log.Warn($"webrtc ice post failed ({ex.GetType().Name})"); }
         };
 
         _pc.onconnectionstatechange += async (s) =>
@@ -839,7 +842,7 @@ public sealed partial class WebRtcSession : IDisposable
                         !string.IsNullOrEmpty(incomingAdminId) &&
                         !_signalBinding.Matches(incomingAdminId, incomingPeerId))
                     {
-                        Log.Info($"webrtc takeover: {_currentAdminClientId} -> {incomingAdminId}");
+                        Log.Info("webrtc controller handoff: retiring the previous peer");
                         try
                         {
                             await _api.PostSignalReliableAsync(
@@ -870,7 +873,27 @@ public sealed partial class WebRtcSession : IDisposable
                         sdp = sdp,
                     };
                     var setResult = _pc.setRemoteDescription(desc);
-                    if (setResult != SetDescriptionResultEnum.OK) { Log.Warn($"setRemote offer: {setResult}"); return; }
+                    if (setResult != SetDescriptionResultEnum.OK)
+                    {
+                        Log.Warn($"setRemote offer: {setResult}");
+                        var rejectedAdminId = _currentAdminClientId;
+                        // Local input/privacy teardown must not wait for a slow
+                        // network failure receipt. Preserve its intended recipient.
+                        TearDownPeer();
+                        if (setResult == SetDescriptionResultEnum.VideoIncompatible)
+                        {
+                            // An incompatible codec is not an ICE outage. Tell the
+                            // exact viewer promptly rather than leaving it to time out.
+                            try
+                            {
+                                await _api.PostSignalReliableAsync(_sessionId, "bye",
+                                    new { reason = "unsupported-codec", peer_id = incomingPeerId },
+                                    _cts.Token, rejectedAdminId);
+                            }
+                            catch { Log.Warn("webrtc codec rejection receipt unavailable"); }
+                        }
+                        return;
+                    }
                     var answer = _pc.createAnswer(null);
                     await _pc.setLocalDescription(answer);
                     await _api.PostSignalReliableAsync(_sessionId, "answer",
@@ -904,7 +927,7 @@ public sealed partial class WebRtcSession : IDisposable
                         sdpMLineIndex = sdpMLineIndex,
                     });
                 }
-                catch (Exception ex) { Log.Warn($"addIceCandidate: {ex.Message}"); }
+                catch (Exception ex) { Log.Warn($"addIceCandidate failed ({ex.GetType().Name})"); }
                 break;
             }
             case "bye":

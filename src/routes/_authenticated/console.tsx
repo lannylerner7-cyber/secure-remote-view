@@ -53,6 +53,8 @@ import { RemoteDisplayFrame } from "@/components/console/RemoteDisplayFrame";
 import { DevicePairingDialog } from "@/components/console/DevicePairingDialog";
 import { WindowsUnlockControls } from "@/components/console/WindowsUnlockControls";
 import { WindowsUnlockSettings } from "@/components/console/WindowsUnlockSettings";
+import { LiveConnectionDiagnostics } from "@/components/console/LiveConnectionDiagnostics";
+import { createCoalescedRefresh } from "@/lib/coalesced-refresh";
 import { EMPTY_UNLOCK, type UnlockState } from "@/shared/windows-unlock";
 import { revokeManagedDeviceAccess } from "@/lib/device-pairing.functions";
 import { useLiveAuthorization } from "@/lib/use-live-authorization";
@@ -141,6 +143,11 @@ function AdminPage() {
   // OS's own acceleration curve — feels native, ignores the letterbox.
   const [pointerLocked, setPointerLocked] = useState(false);
   const pointerLockRelRef = useRef({ dx: 0, dy: 0 });
+  useEffect(() => {
+    const unavailable = () => toast.error("Pointer capture is unavailable in this browser or embedded preview.", { id: "pointer-capture-error" });
+    document.addEventListener("pointerlockerror", unavailable);
+    return () => document.removeEventListener("pointerlockerror", unavailable);
+  }, []);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
@@ -175,6 +182,7 @@ function AdminPage() {
     controller: AbortController; sessionId: string; authorizationId: string | null;
   } | null>(null);
   const modeWriteRef = useRef(0);
+  const refreshCoordinator = useRef<ReturnType<typeof createCoalescedRefresh> | null>(null);
   const controlGranted = currentLiveSession?.mode === "control" && agentMode === "control" &&
     role !== null && role !== "viewer" && liveAuthorization.grant?.capabilities.control === true;
   const [viewerAttempt, setViewerAttempt] = useState(0);
@@ -280,6 +288,8 @@ function AdminPage() {
   );
 
   useEffect(() => {
+    refreshCoordinator.current = createCoalescedRefresh(refreshSnapshot, () =>
+      setDevicesError("The console could not refresh. Existing rows may be stale; reconnecting automatically."));
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? "");
       setUserId(data.user?.id ?? null);
@@ -300,6 +310,8 @@ function AdminPage() {
     const t = setInterval(refresh, 5000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
+      refreshCoordinator.current?.stop();
+      refreshCoordinator.current = null;
       supabase.removeChannel(ch);
       clearInterval(t);
       clearInterval(clock);
@@ -705,23 +717,26 @@ function AdminPage() {
   }, [liveId, rtcVideoLive, viewerVideo]);
 
   useEffect(() => {
-    if (!liveId) return;
-    const s = sessions.find((x) => x.id === liveId);
-    if (s?.mode === "control") {
-      requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
-    }
-  }, [liveId, sessions]);
+    if (!liveId || !controlReady) return;
+    const frame = requestAnimationFrame(() => {
+      // Refreshing session rows must never steal a draft/PIN field's focus.
+      if (!document.activeElement?.closest("input,textarea,select,[contenteditable='true']"))
+        liveSurfaceRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [liveId, controlReady]);
 
   // Keep the live surface focused across tab switches, notification pop-ups,
   // and OSK re-renders — otherwise Enter/keys silently route to the browser
   // after long control sessions.
   useEffect(() => {
-    if (!liveId) return;
-    const s = sessions.find((x) => x.id === liveId);
-    if (s?.mode !== "control") return;
+    if (!liveId || !controlReady) return;
     const restore = () => {
       if (document.visibilityState === "visible") {
-        requestAnimationFrame(() => liveSurfaceRef.current?.focus({ preventScroll: true }));
+        requestAnimationFrame(() => {
+          if (!document.activeElement?.closest("input,textarea,select,button,[contenteditable='true']"))
+            liveSurfaceRef.current?.focus({ preventScroll: true });
+        });
       }
     };
     window.addEventListener("focus", restore);
@@ -730,23 +745,54 @@ function AdminPage() {
       window.removeEventListener("focus", restore);
       document.removeEventListener("visibilitychange", restore);
     };
-  }, [liveId, sessions]);
+  }, [liveId, controlReady]);
 
   // Pointer-lock lifecycle: keep React state in sync with the DOM (Esc, focus
   // loss, or a stolen lock all release without firing our toggle handler). We
   // also refuse to hold the lock in view mode — mode flips must let the OS
   // cursor go immediately.
   useEffect(() => {
+    let wasLocked = false;
+    let releaseKey: string | null = null;
     const onChange = () => {
-      const locked = document.pointerLockElement === liveSurfaceRef.current;
+      const surface = liveSurfaceRef.current;
+      const locked = !!surface && document.pointerLockElement === surface;
       setPointerLocked(locked);
       if (!locked) {
         pointerLockRelRef.current.dx = 0;
         pointerLockRelRef.current.dy = 0;
+        pendingMoveRef.current = null;
+        if (moveRafRef.current !== null) cancelAnimationFrame(moveRafRef.current);
+        moveRafRef.current = null;
+        mouseButtonDownRef.current = false;
+        if (wasLocked) rtcRef.current?.sendInput({ kind: "release_inputs", payload: {} });
       }
+      wasLocked = locked;
+    };
+    // Capture before React's remote-key handler can prevent the browser's
+    // default Escape action. F8 remains available when fullscreen consumes Esc.
+    const release = (event: KeyboardEvent) => {
+      if (!["Escape", "F8"].includes(event.key) || !liveSurfaceRef.current ||
+          document.pointerLockElement !== liveSurfaceRef.current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      releaseKey = event.code || event.key;
+      document.exitPointerLock();
+    };
+    const releaseUp = (event: KeyboardEvent) => {
+      if (releaseKey !== (event.code || event.key)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      releaseKey = null;
     };
     document.addEventListener("pointerlockchange", onChange);
-    return () => document.removeEventListener("pointerlockchange", onChange);
+    document.addEventListener("keydown", release, true);
+    document.addEventListener("keyup", releaseUp, true);
+    return () => {
+      document.removeEventListener("pointerlockchange", onChange);
+      document.removeEventListener("keydown", release, true);
+      document.removeEventListener("keyup", releaseUp, true);
+    };
   }, []);
   useEffect(() => {
     if ((!controlReady || viewerPaused) && document.pointerLockElement === liveSurfaceRef.current)
@@ -760,15 +806,21 @@ function AdminPage() {
     inputWasReadyRef.current = ready;
   }, [controlReady, viewerPaused, role]);
 
-  async function refresh() {
+  function refresh() {
+    return refreshCoordinator.current?.request() ?? Promise.resolve();
+  }
+
+  async function refreshSnapshot(signal: AbortSignal) {
+    const modeVersion = modeWriteRef.current;
     const [d, s, a, releases, runtime, commands] = await Promise.all([
-      supabase.from("devices").select("*").order("last_seen_at", { ascending: false }),
-      supabase.from("sessions").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("releases").select("product, version, published_at").eq("published", true).eq("channel", "stable").in("product", ["agent", "android"]).order("published_at", { ascending: false }),
-      supabase.from("agent_runtime").select("*"),
-      supabase.from("agent_lifecycle_commands").select("*").order("requested_at", { ascending: false }).limit(100),
+      supabase.from("devices").select("*").order("last_seen_at", { ascending: false }).abortSignal(signal),
+      supabase.from("sessions").select("*").order("created_at", { ascending: false }).limit(50).abortSignal(signal),
+      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(50).abortSignal(signal),
+      supabase.from("releases").select("product, version, published_at").eq("published", true).eq("channel", "stable").in("product", ["agent", "android"]).order("published_at", { ascending: false }).abortSignal(signal),
+      supabase.from("agent_runtime").select("*").abortSignal(signal),
+      supabase.from("agent_lifecycle_commands").select("*").order("requested_at", { ascending: false }).limit(100).abortSignal(signal),
     ]);
+    if (signal.aborted) return;
     if (runtime.error || commands.error) {
       setLifecycleError("Recovery status could not be loaded. Check server connectivity and the lifecycle migration; relaunch is disabled.");
       setRuntimes({});
@@ -787,7 +839,8 @@ function AdminPage() {
       if (d.data) setDevices(d.data);
       setDevicesLoaded(true);
     }
-    if (s.data) setSessions(s.data);
+    if (s.data && modeVersion === modeWriteRef.current) setSessions(s.data);
+    else if (modeVersion !== modeWriteRef.current) void refresh();
     if (a.data) setAudit(a.data);
     if (releases.data) {
       const latest = { agent: null as string | null, android: null as string | null };
@@ -1875,7 +1928,7 @@ function AdminPage() {
                     {mediaRecovery?.phase === "waiting" && " Video retries continue automatically without JPEG."}
                   </div>
                 )}
-                <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+                <div className="flex shrink-0 flex-col md:min-h-0 md:flex-1 md:flex-row">
                   {!railCollapsed && (
                     <nav
                       id="viewer-action-rail"
@@ -1953,24 +2006,29 @@ function AdminPage() {
                     )}
                     {s.device_id && control && (
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const el = liveSurfaceRef.current;
                           if (!el) return;
                           if (pointerLocked && document.pointerLockElement) {
                             document.exitPointerLock();
                           } else {
                             focusLiveSurface();
-                            el.requestPointerLock?.();
+                            try {
+                              if (typeof el.requestPointerLock !== "function") throw new Error("Unsupported");
+                              await el.requestPointerLock();
+                            } catch {
+                              toast.error("Pointer capture is unavailable in this browser or embedded preview.", { id: "pointer-capture-error" });
+                            }
                           }
                         }}
                         className={`rounded px-3 py-1.5 text-xs font-medium ${pointerLocked ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 hover:bg-white/15"}`}
                         title={
                           pointerLocked
-                            ? "Release pointer capture (Esc)"
+                            ? "Press Esc or F8 to release pointer capture; remote control remains active"
                             : "Capture pointer — send raw mouse deltas for a native feel"
                         }
                       >
-                        {pointerLocked ? "Pointer locked" : "Capture pointer"}
+                        {pointerLocked ? "Captured · Esc / F8" : "Capture pointer"}
                       </button>
                     )}
                     <Button
@@ -2041,9 +2099,12 @@ function AdminPage() {
                       {!curtain.supported ? "This Agent has not advertised browser curtain support." :
                         curtain.active === true ? "Agent confirmed local curtain. The notice is on the remote device, not this viewer." :
                         curtain.reason ? `Curtain: ${curtain.reason.replaceAll("_", " ")}. No automatic reactivation.` : "Curtain is off until explicitly enabled."}
-                      {" "}Windows secure-desktop access is not enabled.
+                      {" "}Ordinary control does not unlock the Windows sign-in screen; use the separate unlock controls when configured.
                     </p>
                     {liveAuthorization.error && <p role="alert" className="px-1 text-xs text-amber-200">{liveAuthorization.error}</p>}
+                    <LiveConnectionDiagnostics
+                      live={rtcRef.current?.sessionId === s.id ? rtcRef.current : null}
+                      agentVersion={(dev?.metadata as Record<string, unknown> | null)?.agent_version} />
                     <details className="max-w-xs rounded border border-white/10 px-3 py-1.5 text-xs">
                       <summary className="cursor-pointer">Device details</summary>
                       <dl className="mt-2 space-y-1 break-words text-white/60">
@@ -2116,6 +2177,7 @@ function AdminPage() {
                       />
                     )}
                     <RemoteDisplayFrame
+                      bounded
                       source={displaySource}
                       mode={viewerScaleMode}
                       onModeChange={setViewerScaleMode}

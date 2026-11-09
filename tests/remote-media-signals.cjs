@@ -129,8 +129,9 @@ async function main() {
   assert(live.includes('await remoteMedia.answer('));
   assert(live.includes('await remoteMedia.ice('));
   assert(!live.includes('row.id <= lastSeen'), 'newer ICE must not discard a reordered answer');
-  assert(live.includes('isCurrentPeerSignal(peerId, !!(options.videoOnly || options.strictPeerIdentity), row.payload)'),
-    'automatic recovery must reject signals from older peers, including legacy-media sessions');
+  assert(live.includes('createRemoteSignalInbox({') && live.includes('strict: strictIdentity') &&
+    live.includes('const strictIdentity = !!(options.videoOnly || options.strictPeerIdentity)'),
+    'realtime and catch-up share the strictly scoped inbox tested in live-session-reliability.cjs');
   console.log('Remote media signaling: early/concurrent ICE, errors, lifetime, bounds and peer guards passed.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

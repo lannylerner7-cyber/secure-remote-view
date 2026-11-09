@@ -105,7 +105,7 @@ internal sealed class AgentHttpDiagnostics
         "frame_write_failed", "authorization_unavailable", "invalid_runtime_report",
         "runtime_reporting_unavailable", "retired_or_stale_process", "presence_write_failed",
         "license_unavailable", "license_state_write_failed", "sessions_unavailable",
-        "session_cleanup_failed", "notification_failed", "invalid_observed_session", "handler_exception",
+        "session_cleanup_failed", "notification_failed", "invalid_observed_session", "handler_exception", "client_aborted",
     };
 
     private static string? Header(HttpResponseMessage? response, string name)
@@ -134,6 +134,15 @@ internal sealed class AgentHttpDiagnostics
             else serverMs = ms.ToString(CultureInfo.InvariantCulture);
             var stage = AllowedHeader(response, "X-ConnectLive-Stage", Stages);
             var serverOutcome = AllowedHeader(response, "X-ConnectLive-Outcome", Outcomes);
+            var slowestStage = AllowedHeader(response, "X-ConnectLive-Slowest-Stage", Stages);
+            var slowestMs = Header(response, "X-ConnectLive-Slowest-Ms");
+            if (!long.TryParse(slowestMs, NumberStyles.None, CultureInfo.InvariantCulture, out var slowMs) ||
+                slowMs < 0 || slowMs > 86_400_000) slowestMs = "none";
+            else slowestMs = slowMs.ToString(CultureInfo.InvariantCulture);
+            var protocol = Header(response, "X-ConnectLive-Live-Protocol");
+            if (!int.TryParse(protocol, NumberStyles.None, CultureInfo.InvariantCulture, out var version) ||
+                version < 1 || version > 1000) protocol = "unreported";
+            else protocol = version.ToString(CultureInfo.InvariantCulture);
             lock (_gate)
             {
                 var state = operation == AgentHttpOperation.Frame ? _frame : _heartbeat;
@@ -169,6 +178,7 @@ internal sealed class AgentHttpDiagnostics
                     $" budget_ms={(operation == AgentHttpOperation.Frame ? 3_000 : 20_000)}" +
                     $" server_seen={serverSeen.ToString().ToLowerInvariant()} server_ms={serverMs}" +
                     $" server_stage={stage} server_outcome={serverOutcome}" +
+                    $" slowest_stage={slowestStage} slowest_ms={slowestMs} server_protocol={protocol}" +
                     $" failures={state.Failures} recovered_after={state.Recovery} suppressed={state.Suppressed}",
                     failure || (problem && state.Recovery == 0));
                 state.Suppressed = 0;

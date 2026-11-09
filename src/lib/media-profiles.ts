@@ -31,6 +31,17 @@ export function recoveryDelay(failures: number, minimum = 0): number {
   return Math.max(delay, minimum);
 }
 
+/** A failed network path is not evidence that the negotiated codec is broken. */
+export function recoveryProfileIndex(current: number, reason: MediaFailure["reason"]): number {
+  const profile = MEDIA_PROFILES[current];
+  if (profile && ["network", "signaling", "relay-unavailable"].includes(reason)) {
+    const alternative = MEDIA_PROFILES.findIndex(candidate =>
+      candidate.codec === profile.codec && candidate.route !== profile.route);
+    if (alternative >= 0) return alternative;
+  }
+  return (current + 1) % MEDIA_PROFILES.length;
+}
+
 export function bindingDenied(reason: string | undefined): boolean {
   return ["forbidden", "not_found", "not_authorized", "not_active"].includes(reason ?? "");
 }

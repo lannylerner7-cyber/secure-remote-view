@@ -24,7 +24,7 @@ const turn = (ttlSeconds = 100) => ({
 const response = body => ({ ok: true, status: 200, json: async () => body });
 function harness(options = {}) {
   let now = 1_000_000, next = 0, remote, removed = 0;
-  const timers = new Map(), requests = [], signals = [], logs = [], peers = [];
+  const timers = new Map(), requests = [], signals = [], logs = [], peers = [], signalReads = [];
   const timer = (fn, ms, interval = false) => {
     timers.set(++next, { fn, ms, at: now + ms, interval });
     return next;
@@ -35,9 +35,11 @@ function harness(options = {}) {
     clearTimeout: id => timers.delete(id), clearInterval: id => timers.delete(id),
   };
   const storage = { getItem: () => null, setItem() {}, removeItem() {} };
-  const channel = { on(_event, _filter, cb) { remote = cb; return this; }, subscribe() { return this; } };
+  const channel = { on(_event, _filter, cb) { remote = cb; return this; },
+    subscribe(callback) { callback?.("SUBSCRIBED"); return this; } };
   class Peer {
-    constructor() { peers.push(this); this.iceConnectionState = "new"; this.configs = []; this.offers = []; this.locals = []; }
+    constructor() { peers.push(this); this.iceConnectionState = "new"; this.signalingState = "stable";
+      this.configs = []; this.offers = []; this.locals = []; this.remotes = []; this.candidates = []; }
     createDataChannel() { return { readyState: "open", close() {}, send() {} }; }
     setConfiguration(config) {
       if (options.rejectConfig && config.iceServers.some(s => String(s.urls).startsWith("turn:"))) throw Error(secret);
@@ -45,8 +47,9 @@ function harness(options = {}) {
     }
     addTransceiver() { this.transceivers = (this.transceivers || 0) + 1; }
     createOffer(opts) { this.offers.push(opts); return options.offer?.() || Promise.resolve({ type: "offer", sdp: "synthetic-sdp" }); }
-    setLocalDescription(offer) { this.locals.push(offer); return options.local?.() || Promise.resolve(); }
-    setRemoteDescription() { return Promise.resolve(); }
+    setLocalDescription(offer) { this.locals.push(offer); this.localDescription = offer; this.signalingState = "have-local-offer"; return options.local?.() || Promise.resolve(); }
+    setRemoteDescription(answer) { this.remotes.push(answer); this.remoteDescription = answer; this.signalingState = "stable"; return Promise.resolve(); }
+    addIceCandidate(value) { this.candidates.push(value); return Promise.resolve(); }
     getStats() { return Promise.resolve(new Map()); }
     close() { this.closed = true; this.iceConnectionState = "closed"; this.oniceconnectionstatechange?.(); }
   }
@@ -54,6 +57,20 @@ function harness(options = {}) {
     "@/integrations/supabase/client": { supabase: {
       auth: { getSession: options.auth || (async () => ({ data: { session: { access_token: secret } } })) },
       channel: () => channel, removeChannel() { removed++; },
+      from(table) {
+        assert.equal(table, "session_signals");
+        const read = { filters: {} };
+        const q = {
+          select() { return q; }, eq(key, value) { read.filters[key] = value; return q; },
+          order() { return q; }, limit() { return q; },
+          abortSignal(signal) { read.signal = signal; return q; },
+          then(resolve, reject) {
+            signalReads.push(read);
+            return Promise.resolve(options.snapshot?.(read) ?? { data: [], error: null }).then(resolve, reject);
+          },
+        };
+        return q;
+      },
     } },
     "@/lib/webrtc-signal.functions": {
       bindAdmin: options.bind || (async () => ({ bound: true })),
@@ -88,7 +105,7 @@ function harness(options = {}) {
     },
   };
   vm.runInNewContext(compiled.outputText, { ...context, exports });
-  const live = exports.startWebRtcLive("session /?&");
+  const live = exports.startWebRtcLive("session /?&", options.live);
   const advance = async ms => {
     const end = now + ms;
     while (true) {
@@ -103,9 +120,9 @@ function harness(options = {}) {
     now = end;
     await settle();
   };
-  return { live, requests, signals, logs, timers, peers, advance,
+  return { live, requests, signals, logs, timers, peers, signalReads, advance,
     get removed() { return removed; },
-    remote: kind => remote({ new: { id: 1, from_side: "agent", kind, payload: {} } }),
+    remote: (kind, payload = {}, id = 1) => remote({ new: { id, from_side: "agent", kind, payload } }),
     noSecrets() { assert.ok(!logs.join("\n").includes(secret)); },
   };
 }
@@ -189,12 +206,12 @@ test("server 5s provider budget plus auth/fallback can complete before browser d
   assert.equal(h.live.relay(), "relay"); assert.equal(h.peers[0].offers.length, 1);
   h.live.close();
 });
-test("fallback retry is bounded and a restored TURN set triggers new gathering", async () => {
+test("restored TURN requests a fresh peer generation instead of replacing its outstanding offer", async () => {
   const h = harness({ fetch: async (_url, _init, n) => response(n === 1 ? { iceServers: [{ urls: "stun:example" }] } : turn()) });
   await settle(); await h.advance(3000);
   assert.equal(h.requests.length, 2); assert.equal(h.live.relay(), "relay");
-  assert.equal(h.peers[0].offers[1].iceRestart, true);
-  assert.equal(h.signals.filter(s => s.kind === "offer").length, 2); h.live.close();
+  assert.equal(h.live.failure().reason, "relay-unavailable");
+  assert.equal(h.signals.filter(s => s.kind === "offer").length, 1); h.live.close();
   const failed = harness({ fetch: async () => { throw Error(secret); } });
   await settle(); await failed.advance(9000);
   assert.equal(failed.requests.length, 2);
@@ -209,7 +226,8 @@ test("fallback retry receives full deadline rather than racing the offer watchdo
   assert.equal(h.live.state(), "connecting");
   assert.equal(h.requests[1].init.signal.aborted, false);
   wait.resolve(response(turn())); await settle();
-  assert.equal(h.live.relay(), "relay"); assert.equal(h.peers[0].offers.length, 2);
+  assert.equal(h.live.relay(), "relay"); assert.equal(h.peers[0].offers.length, 1);
+  assert.equal(h.live.failure().reason, "relay-unavailable");
   h.live.close();
 });
 test("refresh before expiry; failed renewal removes old TURN, no endless retries", async () => {
@@ -296,6 +314,57 @@ test("watchdog failure invalidates a pending local-description completion", asyn
   wait.resolve(); await settle();
   assert.equal(h.signals.filter(s => s.kind === "offer").length, 0);
   h.live.close();
+});
+test("local ICE emitted during setLocalDescription stays behind the offer", async () => {
+  const h = harness({ local: async () => {
+    h.peers[0].onicecandidate({ candidate: { toJSON: () => ({
+      candidate: "synthetic-candidate", sdpMid: "0", sdpMLineIndex: 0,
+    }) } });
+  } });
+  await settle();
+  assert.deepEqual(h.signals.filter(s => ["ice", "offer"].includes(s.kind)).map(s => s.kind), ["offer", "ice"]);
+  h.live.close();
+});
+test("a delayed offer does not spend the ICE deadline before an answer can arrive", async () => {
+  const sent = deferred();
+  const h = harness({ signal: value => value.kind === "offer" ? sent.promise : undefined });
+  await settle(); await h.advance(21_000);
+  assert.equal(h.live.state(), "connecting");
+  assert.equal(h.peers[0].offers.length, 1);
+  sent.resolve({ ok: true }); await settle();
+  h.remote("answer", { type: "answer", sdp: "synthetic-answer" }); await settle();
+  assert.equal(h.peers[0].remotes.length, 1);
+  await h.advance(19_999); assert.equal(h.live.state(), "connecting");
+  await h.advance(1); assert.equal(h.live.state(), "failed");
+  h.live.close();
+});
+test("actual wrapper recovers a missed realtime answer through the scoped snapshot", async () => {
+  let deliver = false, answer;
+  const h = harness({ live: { strictPeerIdentity: true }, snapshot: read => {
+    if (!deliver) return { data: [], error: null };
+    answer = { id: 101, from_side: "agent", kind: "answer", admin_client_id: read.filters.admin_client_id,
+      payload: { type: "answer", sdp: "synthetic-answer", peer_id: read.filters["payload->>peer_id"] } };
+    return { data: [answer], error: null };
+  } });
+  await settle(); deliver = true; await h.advance(2000);
+  assert.equal(h.peers[0].remotes.length, 1);
+  assert.equal(h.live.diagnostics().catchup, "ok");
+  assert.equal(h.live.diagnostics().signalsApplied, 1);
+  await h.advance(2000); assert.equal(h.peers[0].remotes.length, 1);
+  assert.ok(h.signalReads.every(r => r.filters.session_id === "session /?&" &&
+    r.filters.from_side === "agent" && r.filters.admin_client_id && r.filters["payload->>peer_id"]));
+  h.live.close(); assert.equal(h.timers.size, 0); h.noSecrets();
+});
+test("late snapshot completion cannot apply an answer to a closed peer", async () => {
+  const wait = deferred(); let read;
+  const h = harness({ snapshot: value => { read = value; return wait.promise; } });
+  await settle(); h.live.close();
+  assert.equal(read.signal.aborted, true);
+  wait.resolve({ data: [{ id: 2, from_side: "agent", kind: "answer", admin_client_id: read.filters.admin_client_id,
+    payload: { type: "answer", sdp: secret, peer_id: read.filters["payload->>peer_id"] } }], error: null });
+  await settle();
+  assert.equal(h.peers[0].remotes.length, 0);
+  assert.equal(h.timers.size, 0); h.noSecrets();
 });
 (async () => {
   for (const { name, run } of tests) { await run(); console.log(`PASS ${name}`); }

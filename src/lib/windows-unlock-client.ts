@@ -32,32 +32,59 @@ export async function sealHelloPin(pin: string, device: UnlockDevice): Promise<S
   } finally { aes.fill(0); secret.fill(0); }
 }
 
-async function request<T>(deviceId: string, method: string, body?: unknown): Promise<T> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data.session) throw new Error("Sign in again before managing Windows unlock.");
-  const response = await fetch(`/api/public/admin/device/${encodeURIComponent(deviceId)}/unlock`, {
-    method, cache: "no-store", credentials: "same-origin",
-    headers: { authorization: `Bearer ${data.session.access_token}`, "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) {
-    // Never echo arbitrary upstream/provider response bodies into the UI.
-    const code = (await response.json().catch(() => null))?.error;
-    const messages: Record<string, string> = {
-      unlock_setup_required: "Enable Windows unlock locally on this device first.",
-      unlock_forbidden: "Your account cannot manage or use this device's Windows unlock.",
-      unlock_unavailable: "Windows unlock is unavailable. Check its database migration and Agent setup.",
-      unlock_rate_limited: "Wait before another unlock attempt. ConnectLive will not retry the PIN automatically.",
-      unlock_key_changed: "The device encryption key changed. Reload before saving the PIN.",
-      unlock_session_unavailable: "Use an active, authorized session with a ready command channel.",
-      invalid_unlock_request: "The unlock request was invalid. Reload and try again.",
-    };
-    throw new Error(messages[code] ?? "Windows unlock could not complete. No automatic retry was made.");
-  }
-  return response.json() as Promise<T>;
+export class WindowsUnlockRequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
 }
-export const getWindowsUnlock = (deviceId: string) => request<UnlockDevice>(deviceId, "GET");
+
+async function request<T>(deviceId: string, method: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const abort = new AbortController();
+  const cancel = () => abort.abort();
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) cancel();
+  const timer = setTimeout(cancel, 10_000);
+  let onAbort: () => void = () => {};
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new WindowsUnlockRequestError("Windows unlock request timed out or was cancelled. No action was retried.", 0));
+    abort.signal.addEventListener("abort", onAbort, { once: true });
+    if (abort.signal.aborted) onAbort();
+  });
+  try {
+    return await Promise.race([cancelled, (async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (abort.signal.aborted) throw new WindowsUnlockRequestError("Request cancelled.", 0);
+      if (error || !data.session)
+        throw new WindowsUnlockRequestError("Sign in again before managing Windows unlock.", 401);
+      const response = await fetch(`/api/public/admin/device/${encodeURIComponent(deviceId)}/unlock`, {
+        method, cache: "no-store", credentials: "same-origin",
+        headers: { authorization: `Bearer ${data.session.access_token}`, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: abort.signal,
+      });
+      if (!response.ok) {
+        // Never echo arbitrary upstream/provider response bodies into the UI.
+        const code = (await response.json().catch(() => null))?.error;
+        const messages: Record<string, string> = {
+          unlock_setup_required: "Enable Windows unlock locally on this device first.",
+          unlock_forbidden: "Your account cannot manage or use this device's Windows unlock.",
+          unlock_unavailable: "Windows unlock is unavailable. Check its database migration and Agent setup.",
+          unlock_rate_limited: "Wait before another unlock attempt. ConnectLive will not retry the PIN automatically.",
+          unlock_key_changed: "The device encryption key changed. Reload before saving the PIN.",
+          unlock_session_unavailable: "Use an active, authorized session with a ready command channel.",
+          invalid_unlock_request: "The unlock request was invalid. Reload and try again.",
+        };
+        throw new WindowsUnlockRequestError(
+          messages[code] ?? "Windows unlock could not complete. No automatic retry was made.", response.status);
+      }
+      return response.json() as Promise<T>;
+    })()]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+    abort.signal.removeEventListener("abort", onAbort);
+  }
+}
+export const getWindowsUnlock = (deviceId: string, signal?: AbortSignal) =>
+  request<UnlockDevice>(deviceId, "GET", undefined, signal);
 export async function saveWindowsHelloPin(device: UnlockDevice, pin: string): Promise<UnlockDevice> {
   const sealedPin = await sealHelloPin(pin, device);
   return request<UnlockDevice>(device.deviceId, "PUT", {

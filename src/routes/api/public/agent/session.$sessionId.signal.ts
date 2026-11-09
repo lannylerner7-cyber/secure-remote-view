@@ -21,7 +21,7 @@ import { sessionAuthorized } from "@/lib/authorization.server";
 const SIGNAL_KINDS = ["offer", "answer", "ice", "bye", "terminated"] as const;
 const CLIENT_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 const MAX_PAYLOAD_BYTES = 32_000;
-const JSON_HEADERS = { "content-type": "application/json" };
+const JSON_HEADERS = { "content-type": "application/json", "cache-control": "no-store" };
 const errJson = (code: string, status: number, extra: Record<string, unknown> = {}) =>
   new Response(JSON.stringify({ error: code, ...extra }), { status, headers: JSON_HEADERS });
 
@@ -78,15 +78,20 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
           attemptId = body.attempt_id;
         }
 
-        const { data: session } = await ctx.admin
+        const { data: session, error: sessionError } = await ctx.admin
           .from("sessions")
           .select("id, device_id, state, admin_client_id")
           .eq("id", params.sessionId)
           .maybeSingle();
+        if (sessionError) return errJson("session_lookup_unavailable", 503);
         if (!session || session.device_id !== ctx.device.id) {
           return errJson("not_found", 404);
         }
-        if (session.state !== "active" || !(await sessionAuthorized(ctx.admin, session.id))) {
+        let authorizationUnavailable = false;
+        const allowed = session.state === "active" && await sessionAuthorized(
+          ctx.admin, session.id, "view", () => { authorizationUnavailable = true; });
+        if (authorizationUnavailable) return errJson("session_authorization_unavailable", 503);
+        if (!allowed) {
           return errJson("not_active", 409);
         }
         if (adminClientId && session.admin_client_id && adminClientId !== session.admin_client_id) {
@@ -121,29 +126,36 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/signa
         const url = new URL(request.url);
         const since = Number(url.searchParams.get("since") ?? "0") || 0;
 
-        const { data: session } = await ctx.admin
+        const { data: session, error: sessionError } = await ctx.admin
           .from("sessions")
           .select("id, device_id, state, admin_client_id")
           .eq("id", params.sessionId)
           .maybeSingle();
+        if (sessionError) return errJson("session_lookup_unavailable", 503);
         if (!session || session.device_id !== ctx.device.id) {
           return errJson("not_found", 404);
         }
 
-        // A restarted agent begins at cursor 0. Anchor its first page at the
-        if (!(await sessionAuthorized(ctx.admin, session.id))) return errJson("not_authorized", 403);
-        // newest offer so stale negotiations cannot consume the 100-row limit.
+        let authorizationUnavailable = false;
+        const allowed = await sessionAuthorized(
+          ctx.admin, session.id, "view", () => { authorizationUnavailable = true; });
+        if (authorizationUnavailable) return errJson("session_authorization_unavailable", 503);
+        if (!allowed) return errJson("not_authorized", 403);
+        // A restarted Agent anchors at the CURRENT controller's newest offer.
+        // A late offer from a superseded controller must not hide that offer.
         let effectiveSince = since;
         if (since === 0) {
-          const { data: latestOffer } = await ctx.admin
+          let latest = ctx.admin
             .from("session_signals")
             .select("id")
             .eq("session_id", session.id)
             .eq("from_side", "admin")
             .eq("kind", "offer")
             .order("id", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(1);
+          if (session.admin_client_id) latest = latest.eq("admin_client_id", session.admin_client_id);
+          const { data: latestOffer, error: anchorError } = await latest.maybeSingle();
+          if (anchorError) return errJson("signal_anchor_unavailable", 503);
           if (latestOffer) effectiveSince = Number(latestOffer.id) - 1;
         }
 

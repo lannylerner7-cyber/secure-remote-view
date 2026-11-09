@@ -27,6 +27,9 @@ Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> Reply(Htt
         response.Headers.Add("X-ConnectLive-Request-Id", request.Headers.GetValues("X-ConnectLive-Request-Id"));
         response.Headers.Add("X-ConnectLive-Server-Ms", "123");
         response.Headers.Add("X-ConnectLive-Stage", "frame_write");
+        response.Headers.Add("X-ConnectLive-Slowest-Stage", "device_auth");
+        response.Headers.Add("X-ConnectLive-Slowest-Ms", "120");
+        response.Headers.Add("X-ConnectLive-Live-Protocol", "2");
         response.Headers.Add("X-ConnectLive-Outcome", status == HttpStatusCode.OK ? "ok" : "frame_write_failed");
         return Task.FromResult(response);
     };
@@ -42,6 +45,8 @@ var observer = new AgentHttpDiagnostics((line, warning) => logs.Add((line, warni
 await Send(observer, Reply(HttpStatusCode.OK));
 Check(logs[0].Text.Contains("status=200") && logs[0].Text.Contains("server_ms=123"), "success metadata");
 Check(logs[0].Text.Contains("server_seen=true") && logs[0].Text.Contains("server_stage=frame_write"), "correlated headers");
+Check(logs[0].Text.Contains("slowest_stage=device_auth") && logs[0].Text.Contains("slowest_ms=120") &&
+    logs[0].Text.Contains("server_protocol=2"), "slowest stage and protocol, not just final stage");
 Check(!logs[0].Warning, "healthy log is not a warning");
 foreach (var status in new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Conflict,
     HttpStatusCode.RequestEntityTooLarge, HttpStatusCode.InternalServerError, HttpStatusCode.ServiceUnavailable })
@@ -63,10 +68,15 @@ await Send(observer, (_, _) =>
     response.Headers.Add("X-ConnectLive-Server-Ms", "PRIVATE_TOKEN");
     response.Headers.Add("X-ConnectLive-Stage", "PRIVATE_TOKEN");
     response.Headers.Add("X-ConnectLive-Outcome", "PRIVATE_TOKEN");
+    response.Headers.Add("X-ConnectLive-Slowest-Stage", "PRIVATE_TOKEN");
+    response.Headers.Add("X-ConnectLive-Slowest-Ms", "-999");
+    response.Headers.Add("X-ConnectLive-Live-Protocol", "1001");
     return Task.FromResult(response);
 });
 Check(!logs[^1].Text.Contains("PRIVATE"), "diagnostic header allowlists");
 Check(logs[^1].Text.Contains("server_seen=false") && logs[^1].Text.Contains("server_stage=none"), "invalid headers discarded");
+Check(logs[^1].Text.Contains("slowest_stage=none") && logs[^1].Text.Contains("slowest_ms=none") &&
+    logs[^1].Text.Contains("server_protocol=unreported"), "invalid slowest/protocol metadata discarded");
 
 Check(AgentHttpDiagnostics.FailureCategory(new OperationCanceledException(), true, true) == "cancelled",
     "lifetime cancellation takes precedence over frame deadline");
