@@ -54,6 +54,7 @@ public partial class LiveSessionViewModel : ObservableObject
     private int _stopped;
     private readonly SemaphoreSlim _reconnectGate = new(1, 1);
     private string? _curtainRequestId;
+    private CancellationTokenSource? _controlOperation;
     private DateTime _curtainConfirmedUtc = DateTime.MinValue;
 
     private void OnCurtainAcknowledged(string session, string request, bool applied)
@@ -516,6 +517,7 @@ public partial class LiveSessionViewModel : ObservableObject
         ConnectLive.Admin.Input.InputTransport.UnlockChanged -= OnUnlockChanged;
         _unlockChannel?.Cancel();
         ConnectLive.Admin.Input.InputTransport.CurtainAcknowledged -= OnCurtainAcknowledged;
+        _controlOperation?.Cancel();
         _curtainRequestId = null;
         StopCurtainHeartbeat();
         StopNetworkWatch();
@@ -562,7 +564,7 @@ public partial class LiveSessionViewModel : ObservableObject
 
     // ---- Curtain dead-man heartbeat --------------------------------------
     // The agent's InputBlocker releases the curtain after 5s without a
-    // curtain_on ping (so a crashed console never leaves a user locked out).
+    // curtain_renew ping (so a crashed console never leaves a user locked out).
     // The web console pings at 1s over the datachannel with a REST fallback;
     // the native console now does exactly the same. Pinning these pings to REST
     // was the remaining parity gap: on a slow link the HTTPS round trips are
@@ -586,9 +588,9 @@ public partial class LiveSessionViewModel : ObservableObject
                 try
                 {
                     await ConnectLive.Admin.Input.InputTransport
-                        .SendAsync(SessionId, "curtain_on", new { request_id = _curtainRequestId, sent_at = Environment.TickCount64 }, ct).ConfigureAwait(false);
+                        .SendAsync(SessionId, "curtain_renew", new { request_id = _curtainRequestId, sent_at = Environment.TickCount64 }, ct).ConfigureAwait(false);
                 }
-                catch { /* transient — the next tick retries */ }
+                catch { return; } // Never re-enable a released curtain after channel loss.
             }
         }, CancellationToken.None);
     }
@@ -701,43 +703,88 @@ public partial class LiveSessionViewModel : ObservableObject
     /// console could hold "control" with no curtain, or a curtain that the
     /// agent watchdog dropped after 5s.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task ToggleControl()
     {
+        if (_controlOperation != null) { _controlOperation.Cancel(); return; }
         if (!UnlockIdle) { SurfaceError("Finish or cancel Windows unlock before requesting control."); return; }
         if (_cts == null || _cts.IsCancellationRequested || TakenOver || Volatile.Read(ref _stopped) != 0) return;
-        var token = _cts.Token;
+        var rtc = _rtc;
+        if (rtc == null) { SurfaceError("Wait for the live Agent connection."); return; }
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        operation.CancelAfter(TimeSpan.FromSeconds(15));
+        _controlOperation = operation;
+        OnPropertyChanged(nameof(ControlButtonLabel));
+        var token = operation.Token;
         var takeControl = Mode != "control";
         _curtainRequestId = Guid.NewGuid().ToString("N");
+        var requestId = _curtainRequestId;
         CurtainOn = false;
+        StopCurtainHeartbeat();
         try
         {
-            await App.Api.SetSessionModeAsync(SessionId, takeControl ? "control" : "view", token);
+            if (!takeControl)
+                await ConnectLive.Admin.Input.InputTransport.ApplyCurtainAsync(SessionId, requestId, false, token);
+            using (var writeBudget = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                writeBudget.CancelAfter(TimeSpan.FromSeconds(6));
+                await App.Api.SetSessionModeAsync(SessionId, takeControl ? "control" : "view", writeBudget.Token);
+            }
             token.ThrowIfCancellationRequested();
-            await ConnectLive.Admin.Input.InputTransport.SendAsync(SessionId,
-                takeControl ? "curtain_on" : "curtain_off",
-                new { request_id = _curtainRequestId, sent_at = Environment.TickCount64 }, token);
-            token.ThrowIfCancellationRequested();
-            Mode = takeControl ? "control" : "view";
-            StatusMessage = takeControl
-                ? "Curtain requested — application on the remote display is not confirmed."
-                : "Curtain release requested.";
+            if (_rtc != rtc || TakenOver) throw new InvalidOperationException("The active viewer changed.");
             if (takeControl)
             {
+                StatusMessage = "Waiting for the Agent to confirm current control permission.";
+                await ConnectLive.Admin.Input.InputTransport.RefreshPermissionAsync(SessionId, "control", token);
+                token.ThrowIfCancellationRequested();
+                if (_rtc != rtc || TakenOver) throw new InvalidOperationException("The active viewer changed.");
+                StatusMessage = "Waiting for the Agent to apply the privacy curtain.";
+                await ConnectLive.Admin.Input.InputTransport.ApplyCurtainAsync(SessionId, requestId, true, token);
+                token.ThrowIfCancellationRequested();
+                if (_rtc != rtc || TakenOver || !UnlockIdle) throw new InvalidOperationException("The active viewer changed.");
+                Mode = "control";
+                CurtainOn = true;
+                _curtainConfirmedUtc = DateTime.UtcNow;
+                ConnectLive.Admin.Input.InputTransport.ResumeOrdinaryInput(SessionId);
+                StatusMessage = "Agent confirmed control and privacy curtain.";
                 StartCurtainHeartbeat();
             }
             else
             {
-                StopCurtainHeartbeat();
+                Mode = "view";
+                _curtainRequestId = null;
+                StatusMessage = "Agent confirmed curtain release; view mode requested.";
                 await App.Api.PushInputAsync(SessionId, "release_inputs", new { }, token);
             }
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (SupabaseCallException ex) { SurfaceError(ex.Message); }
-        catch (Exception ex) { SurfaceError(ex.Message); }
+        catch (Exception ex)
+        {
+            _curtainRequestId = null; CurtainOn = false; StopCurtainHeartbeat();
+            var reason = ex is OperationCanceledException ? "Control request cancelled or timed out." :
+                ex is TimeoutException ? "The Agent did not confirm the control action in time." : ex.Message;
+            // Do not roll back another viewer's takeover or replacement peer.
+            if (_rtc == rtc && !TakenOver && Volatile.Read(ref _stopped) == 0)
+            {
+                using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                try
+                {
+                    await Task.WhenAll(
+                        ConnectLive.Admin.Input.InputTransport.SendAsync(SessionId, "curtain_off", new { }, cleanup.Token),
+                        App.Api.SetSessionModeAsync(SessionId, "view", cleanup.Token));
+                    Mode = "view";
+                }
+                catch { reason += " View-mode rollback was not confirmed. The curtain expires within five seconds without renewal."; }
+                SurfaceError(reason);
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_controlOperation, operation)) _controlOperation = null;
+            OnPropertyChanged(nameof(ControlButtonLabel));
+        }
     }
 
-    public string ControlButtonLabel => Mode == "control"
+    public string ControlButtonLabel => _controlOperation != null ? "Cancel control request" : Mode == "control"
         ? (CurtainOn ? "Release curtain" : "Cancel curtain request")
         : "Request curtain (take control)";
 
@@ -998,7 +1045,7 @@ public partial class LiveSessionViewModel : ObservableObject
         !_securePixelsSeen && Environment.TickCount64 < Interlocked.Read(ref _recordingAllowedUntil)
         && _cts != null && !_cts.IsCancellationRequested;
 
-    /// <summary>Start/stop teeing the decoded VP8 stream to an .ivf file.</summary>
+    /// <summary>Record the negotiated stream, H.264/Matroska or VP8/IVF.</summary>
     [RelayCommand]
     private async Task ToggleRecording()
     {
@@ -1020,18 +1067,19 @@ public partial class LiveSessionViewModel : ObservableObject
             RecordLabel = "Record";
             FilesStatus = path != null
                 ? $"Recording saved to {path}"
-                : "Recording stopped (no footage captured).";
+                : rtc.RecordingError ?? "Recording stopped (no footage captured).";
             return;
         }
 
         var token = _cts?.Token ?? new CancellationToken(true);
+        var verificationStarted = Environment.TickCount64;
         if (!await App.Api.CanRecordSessionAsync(SessionId, token) || token.IsCancellationRequested
-            || _rtc != rtc)
+            || _rtc != rtc || Environment.TickCount64 >= verificationStarted + 5000)
         {
             SurfaceError("Recording is not authorized for this session, or authorization is unavailable.");
             return;
         }
-        Interlocked.Exchange(ref _recordingAllowedUntil, Environment.TickCount64 + 5000);
+        Interlocked.Exchange(ref _recordingAllowedUntil, verificationStarted + 5000);
         var generation = Interlocked.Increment(ref _recordingGeneration);
         var started = rtc.StartRecording(
             rtc.Pipeline?.SourceWidth ?? 0,
@@ -1039,7 +1087,8 @@ public partial class LiveSessionViewModel : ObservableObject
             () => Interlocked.Read(ref _recordingGeneration) == generation && RecordingPermissionCurrent());
         if (started == null)
         {
-            SurfaceError("Recording could not start — check disk permissions.");
+            Interlocked.Exchange(ref _recordingAllowedUntil, 0);
+            SurfaceError(rtc.RecordingError ?? "Recording could not start.");
             return;
         }
         IsRecording = true;
@@ -1055,12 +1104,17 @@ public partial class LiveSessionViewModel : ObservableObject
             while (!token.IsCancellationRequested && _rtc == rtc && rtc.IsRecording
                    && Interlocked.Read(ref _recordingGeneration) == generation)
             {
-                await Task.Delay(2000, token);
+                if (!RecordingPermissionCurrent()) break;
+                var renewDelay = Math.Clamp(
+                    Interlocked.Read(ref _recordingAllowedUntil) - Environment.TickCount64 - 3000, 0, 2000);
+                await Task.Delay(TimeSpan.FromMilliseconds(renewDelay), token);
+                var verificationStarted = Environment.TickCount64;
                 if (!await App.Api.CanRecordSessionAsync(SessionId, token)) break;
                 if (Interlocked.Read(ref _recordingGeneration) != generation) break;
                 // An expired lease cannot be revived by a slow response.
                 if (!RecordingPermissionCurrent() || !rtc.IsRecording) break;
-                Interlocked.Exchange(ref _recordingAllowedUntil, Environment.TickCount64 + 5000);
+                if (Environment.TickCount64 >= verificationStarted + 5000) break;
+                Interlocked.Exchange(ref _recordingAllowedUntil, verificationStarted + 5000);
             }
         }
         catch { }
@@ -1069,12 +1123,14 @@ public partial class LiveSessionViewModel : ObservableObject
             if (Interlocked.Read(ref _recordingGeneration) == generation)
             {
                 Interlocked.Exchange(ref _recordingAllowedUntil, 0);
-                rtc.StopRecording();
+                var saved = rtc.StopRecording() ?? rtc.LastRecordingPath;
                 Application.Current?.Dispatcher.Invoke(() =>
                 {
                     IsRecording = false;
                     RecordLabel = "Record";
-                    FilesStatus = "Recording stopped. Authorization expired, was withdrawn, or the session ended.";
+                    FilesStatus = (rtc.RecordingError ??
+                        "Recording stopped. Authorization expired, was withdrawn, or the session ended.") +
+                        (saved != null ? $" Authorized footage saved to {saved}" : " No footage was saved.");
                 });
             }
         }

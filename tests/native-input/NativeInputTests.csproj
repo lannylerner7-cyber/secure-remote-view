@@ -5,5 +5,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../admin/src/Input/InputTransport.cs" Link="InputTransport.cs" />
+    <Compile Include="../../admin/src/Input/InputTransport.Permission.cs" Link="InputTransport.Permission.cs" />
   </ItemGroup>
 </Project>

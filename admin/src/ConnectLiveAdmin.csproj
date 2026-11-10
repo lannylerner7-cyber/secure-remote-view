@@ -19,7 +19,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>1.7.3</Version>
+    <Version>1.7.4</Version>
     <Company>ConnectLive</Company>
     <Product>ConnectLive Admin</Product>
     <AssemblyTitle>ConnectLive Admin</AssemblyTitle>

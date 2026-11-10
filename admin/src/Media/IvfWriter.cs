@@ -23,13 +23,14 @@ namespace ConnectLive.Admin.Media;
 /// still plays — most decoders ignore the count — which is why the writer
 /// flushes after every frame.
 /// </summary>
-public sealed class IvfWriter : IDisposable
+public sealed class IvfWriter : IEncodedRecording
 {
     private const int FileHeaderBytes = 32;
 
     private readonly object _gate = new();
     private FileStream? _fs;
     private uint _frames;
+    private bool _writeFailed;
     private readonly DateTime _startedUtc = DateTime.UtcNow;
     private long _firstTicks = -1;
 
@@ -53,8 +54,9 @@ public sealed class IvfWriter : IDisposable
         var dir = System.IO.Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        _fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        WriteFileHeader();
+        _fs = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+        try { WriteFileHeader(); }
+        catch { _fs.Dispose(); _fs = null; throw; }
     }
 
     private void WriteFileHeader()
@@ -81,9 +83,12 @@ public sealed class IvfWriter : IDisposable
         lock (_gate)
         {
             if (_fs == null) return;
-            var nowTicks = DateTime.UtcNow.Ticks;
+            if (_frames == 0 && (frame[0] & 1) != 0) return; // Start at a decodable VP8 keyframe.
+            // Recording timestamps must not jump backwards when Windows
+            // corrects its wall clock.
+            var nowTicks = Environment.TickCount64;
             if (_firstTicks < 0) _firstTicks = nowTicks;
-            var ms = (ulong)((nowTicks - _firstTicks) / TimeSpan.TicksPerMillisecond);
+            var ms = (ulong)Math.Max(0, nowTicks - _firstTicks);
 
             var hdr = new byte[12];
             WriteU32(hdr, 0, (uint)frame.Length);
@@ -97,18 +102,22 @@ public sealed class IvfWriter : IDisposable
             }
             catch (Exception ex)
             {
+                _writeFailed = true;
                 Log.Warn("[record] frame write failed, stopping: " + ex.Message);
                 CloseLocked(patchCount: false);
+                throw;
             }
         }
     }
 
     /// <summary>Finish the file and patch the frame count. Returns the written path.</summary>
-    public string Stop()
+    public string? Stop()
     {
         lock (_gate)
         {
             CloseLocked(patchCount: true);
+            if (_writeFailed) throw new IOException("A partial recording write failed; the file is not confirmed playable.");
+            if (_frames == 0) { if (File.Exists(Path)) File.Delete(Path); return null; }
             return Path;
         }
     }
@@ -129,7 +138,7 @@ public sealed class IvfWriter : IDisposable
             }
             fs.Flush();
         }
-        catch (Exception ex) { Log.Warn("[record] finalise failed: " + ex.Message); }
+        catch (Exception ex) { _writeFailed = true; Log.Warn("[record] finalise failed: " + ex.Message); throw; }
         finally { try { fs.Dispose(); } catch { } }
     }
 

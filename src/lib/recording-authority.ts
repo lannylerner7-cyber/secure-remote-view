@@ -9,6 +9,7 @@ export class RecordingAuthority {
     private readonly duration = 5000,
   ) {}
   valid() { return this.grant !== null && this.now() < this.deadline; }
+  remainingMs() { return this.grant === null ? 0 : Math.max(0, this.deadline - this.now()); }
   invalidate() { this.generation++; this.deadline = 0; this.grant = null; }
   async authorize(renew = false): Promise<boolean> {
     if (renew && !this.valid()) { this.invalidate(); return false; }

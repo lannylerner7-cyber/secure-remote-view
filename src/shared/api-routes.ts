@@ -42,6 +42,7 @@ export const API_ROUTES = {
   agentFrame: (sessionId: string) => `/api/public/agent/session/${sessionId}/frame`,
   agentInputs: (sessionId: string) => `/api/public/agent/session/${sessionId}/inputs`,
   agentSignal: (sessionId: string) => `/api/public/agent/session/${sessionId}/signal`,
+  agentPermission: (sessionId: string) => `/api/public/agent/session/${sessionId}/permission`,
   agentCursor: (sessionId: string) => `/api/public/agent/session/${sessionId}/cursor`,
   /** Step 8 — chunked file upload fallback when the `files` DataChannel is down. */
   agentFile: (sessionId: string) => `/api/public/agent/session/${sessionId}/file`,

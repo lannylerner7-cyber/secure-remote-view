@@ -278,6 +278,8 @@ export function startResilientWebRtc(
       return off;
     },
     selectMonitor: name => peer?.selectMonitor(name) ?? Promise.reject(new Error("Video is reconnecting.")),
+    refreshAgentMode: (mode, signal) => !retiring && peer
+      ? peer.refreshAgentMode(mode, signal) : Promise.reject(new Error("Video is reconnecting.")),
     onCurtain: cb => subscribe(curtains, cb),
     setCurtain: enabled => peer?.setCurtain(enabled) ?? Promise.reject(new Error("Video is reconnecting.")),
     filesReady: () => !retiring && !!peer?.filesReady(),
@@ -288,6 +290,7 @@ export function startResilientWebRtc(
     onClipboard: cb => subscribe(clips, cb),
     canRecord: () => !secureRecording && !retiring && !!peer?.canRecord(),
     recording: () => !!peer?.recording(),
+    recordingIssue: () => peer?.recordingIssue?.() ?? null,
     startRecording: () => !secureRecording && !retiring && peer ? peer.startRecording() : Promise.resolve(false),
     onRecording: cb => subscribe(recordings, cb),
     stopRecording: () => peer?.stopRecording() ?? Promise.resolve(null),

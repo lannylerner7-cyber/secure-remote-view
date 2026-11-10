@@ -11,11 +11,18 @@ export function createBrowserActions(
   overloaded: () => void,
 ) {
   let mode: AgentMode = null;
+  let refreshSupported = false;
+  let refresh: {
+    id: string; mode: "view" | "control";
+    finish: (error?: Error) => void;
+  } | null = null;
   const listeners = new Set<(mode: AgentMode) => void>();
   const pending = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   function reset(reason = "Input channel disconnected") {
     unlock.reset();
     curtain.reset(reason);
+    refresh?.finish(new Error(reason));
+    refreshSupported = false;
     mode = null;
     listeners.forEach(listener => listener(null));
     for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error(reason)); }
@@ -46,6 +53,31 @@ export function createBrowserActions(
     onCurtain: curtain.onState,
     setCurtain: curtain.set,
     mode: () => mode,
+    refreshMode(expected: "view" | "control", signal: AbortSignal): Promise<void> {
+      // Compatibility: older/Android Agents keep their permission-status
+      // handshake. New Windows Agents use the bounded, targeted server read.
+      if (!refreshSupported) return Promise.resolve();
+      if (refresh) return Promise.reject(new Error("An Agent permission request is already pending."));
+      if (signal.aborted) return Promise.reject(signal.reason);
+      return new Promise((resolve, reject) => {
+        const id = crypto.randomUUID();
+        const finish = (error?: Error) => {
+          if (refresh?.id !== id) return;
+          refresh = null; clearTimeout(timer);
+          signal.removeEventListener("abort", abort);
+          if (error) reject(error); else resolve();
+        };
+        const abort = () => finish(new Error("Agent permission request cancelled."));
+        const timer = setTimeout(() => finish(new Error(
+          "The Agent could not refresh control permission. Check the gateway connection."
+        )), 6000);
+        refresh = { id, mode: expected, finish };
+        signal.addEventListener("abort", abort, { once: true });
+        if (!send({ kind: "permission_refresh", payload: {
+          request_id: id, mode: expected, authorization_id: authorizationId,
+        } })) finish(new Error("The Agent permission request was not sent."));
+      });
+    },
     onMode(listener: (mode: AgentMode) => void) {
       listeners.add(listener);
       listener(mode);
@@ -61,9 +93,14 @@ export function createBrowserActions(
             authorizationId !== null && value.authorization_id === authorizationId &&
             (value.mode === "view" || value.mode === "control")) {
           mode = value.mode;
+          refreshSupported = value.permission_refresh_supported === true;
           curtain.permission(value.curtain_supported === true,
             typeof value.curtain_active === "boolean" ? value.curtain_active : undefined);
           listeners.forEach(listener => listener(mode));
+          if (refresh && value.request_id === refresh.id) {
+            refresh.finish(value.status === "applied" && value.mode === refresh.mode ? undefined :
+              new Error("The Agent could not confirm current control permission. Check authorization and the gateway."));
+          }
         }
         curtain.receive(value);
         if (value.kind !== "action_status" || value.action !== "switch_monitor" ||

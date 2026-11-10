@@ -26,6 +26,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
 import { API_ROUTES } from "@/shared/api-routes";
 import { RecordingAuthority } from "@/lib/recording-authority";
+import type { RecordingIssue } from "./recording-output";
 import type { UnlockState, UnlockTicket } from "@/shared/windows-unlock";
 import { tagPeerSignal } from "@/lib/peer-signals";
 import { createRemoteSignalInbox } from "./remote-signal-inbox";
@@ -161,6 +162,7 @@ export interface WebRtcLive {
   prepareUnlock: () => void;
   resumeOrdinaryInput: () => void;
   onAgentMode: (callback: (mode: AgentMode) => void) => () => void;
+  refreshAgentMode: (mode: "view" | "control", signal: AbortSignal) => Promise<void>;
   selectMonitor: (deviceName: string) => Promise<void>;
   onCurtain: (callback: (state: CurtainState) => void) => () => void;
   setCurtain: (enabled: boolean) => Promise<void>;
@@ -183,6 +185,7 @@ export interface WebRtcLive {
   /** True when MediaRecorder can capture the current track. */
   canRecord: () => boolean;
   recording: () => boolean;
+  recordingIssue: () => RecordingIssue | null;
   /** Begin recording the live video track. Returns false when unavailable. */
   startRecording: () => Promise<boolean>;
   onRecording: (callback: (active: boolean) => void) => () => void;
@@ -425,7 +428,6 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   // no extra bandwidth and no extra agent work. The blob stays in the browser
   // — the caller decides whether to download it or upload it as evidence.
   const RECORD_MIME_CANDIDATES = [
-    "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
     "video/webm",
     "video/mp4",
@@ -433,11 +435,13 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   let recorder: MediaRecorder | null = null;
   let recordChunks: Blob[] = [];
   let recordStartedAt = 0;
+  let recordMimeType = "";
   let recordingBusy = false;
   let finishingRecording: Promise<RecordingResult | null> | null = null;
   let recordExpiry: number | null = null;
   let recordRenew: number | null = null;
   let renewBusy = false;
+  let recordingIssue: RecordingIssue | null = null;
   const recordingListeners = new Set<(active: boolean) => void>();
   const recordAuthority = new RecordingAuthority(async () => {
     const abort = new AbortController();
@@ -448,34 +452,50 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
         (async () => {
           const { data } = await supabase.auth.getSession();
           const token = data.session?.access_token;
-          if (!token || closed || abort.signal.aborted) return null;
+          if (!token || closed || abort.signal.aborted) {
+            recordingIssue = !token ? "authorization_denied" : "authorization_unavailable";
+            return null;
+          }
           const response = await fetch(API_ROUTES.adminSessionAuthorization(sessionId), {
             headers: { authorization: `Bearer ${token}` },
             cache: "no-store", redirect: "error", signal: abort.signal,
           });
-          if (!response.ok || closed || abort.signal.aborted) return null;
+          if (!response.ok || closed || abort.signal.aborted) {
+            recordingIssue = [401, 403, 404].includes(response.status)
+              ? "authorization_denied" : "authorization_unavailable";
+            return null;
+          }
           const result = await response.json();
-          return !closed && !abort.signal.aborted
-            && result.allowed === true && result.capabilities?.recording === true
-            && typeof result.authorizationId === "string"
-            && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(result.authorizationId)
-            && (!options.authorizationId || result.authorizationId === options.authorizationId)
-            ? result.authorizationId as string : null;
+          if (closed || abort.signal.aborted) return null;
+          if (result.allowed !== true || result.capabilities?.recording !== true) {
+            recordingIssue = "authorization_denied"; return null;
+          }
+          if (typeof result.authorizationId !== "string" ||
+              !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(result.authorizationId)) {
+            recordingIssue = "authorization_unavailable"; return null;
+          }
+          if (options.authorizationId && result.authorizationId !== options.authorizationId) {
+            recordingIssue = "authorization_changed"; return null;
+          }
+          return result.authorizationId as string;
         })(),
         new Promise<null>(resolve => {
-          timer = window.setTimeout(() => { abort.abort(); resolve(null); }, 3000);
+          timer = window.setTimeout(() => {
+            recordingIssue = "authorization_unavailable"; abort.abort(); resolve(null);
+          }, 3000);
         }),
       ]);
-    } catch { return null; }
+    } catch { recordingIssue = "authorization_unavailable"; return null; }
     finally { window.clearTimeout(timer); }
   });
 
   function clearRecordingTimers() {
     if (recordExpiry !== null) window.clearInterval(recordExpiry);
-    if (recordRenew !== null) window.clearInterval(recordRenew);
+    if (recordRenew !== null) window.clearTimeout(recordRenew);
     recordExpiry = recordRenew = null;
   }
-  function abandonRecording() {
+  function abandonRecording(issue?: RecordingIssue) {
+    if (issue) recordingIssue = issue;
     recordAuthority.invalidate();
     clearRecordingTimers();
     recordChunks = [];
@@ -485,8 +505,29 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     if (rec) {
       rec.ondataavailable = null;
       rec.onstop = null;
+      rec.onerror = null;
       try { rec.stop(); } catch { /* already stopped */ }
     }
+  }
+
+  function scheduleRecordingRenewal(rec: MediaRecorder) {
+    if (recorder !== rec || closed) return;
+    // The five-second lease starts BEFORE verification, not when its reply
+    // arrives. Waiting a fixed two more seconds after a slow reply can make
+    // renewal impossible. Reserve the existing three-second request budget.
+    const delay = Math.max(0, Math.min(2000, recordAuthority.remainingMs() - 3000));
+    recordRenew = window.setTimeout(async () => {
+      recordRenew = null;
+      if (renewBusy || recordingBusy || recorder !== rec) return;
+      renewBusy = true;
+      try {
+        const allowed = await recordAuthority.authorize(true);
+        if (!allowed && recorder === rec) abandonRecording(recordingIssue ?? "authorization_expired");
+      } finally {
+        renewBusy = false;
+        if (recorder === rec) scheduleRecordingRenewal(rec);
+      }
+    }, delay);
   }
 
   function pickRecordMime(): string | null {
@@ -500,15 +541,18 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   function recordableStream(): MediaStream | null {
     const src = video.srcObject;
     if (!(src instanceof MediaStream)) return null;
-    return src.getVideoTracks().length > 0 ? src : null;
+    return src.getVideoTracks().some(track => track.readyState !== "ended") ? src : null;
   }
 
   async function startRecordingInternal(): Promise<boolean> {
     if (closed || recordingBusy) return false;
     if (recorder) return true;
+    recordingIssue = null;
     const stream = recordableStream();
     const mimeType = pickRecordMime();
-    if (!stream || !mimeType) return false;
+    if (!stream || !mimeType) {
+      recordingIssue = !mimeType ? "unsupported_browser" : "no_video"; return false;
+    }
     recordingBusy = true;
     try {
       if (!(await recordAuthority.authorize()) || closed) {
@@ -518,28 +562,24 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       const rec = new MediaRecorder(stream, { mimeType });
       recordChunks = [];
       rec.ondataavailable = (ev) => {
-        if (!recordAuthority.valid() || closed) { abandonRecording(); return; }
+        if (!recordAuthority.valid() || closed) { abandonRecording(recordingIssue ?? "authorization_expired"); return; }
         if (ev.data && ev.data.size > 0) recordChunks.push(ev.data);
       };
+      rec.onerror = () => { if (recorder === rec) abandonRecording("encoder_failed"); };
+      rec.onstop = () => { if (recorder === rec) abandonRecording("encoder_failed"); };
       rec.start(1000); // flush a chunk per second so a crash still leaves footage
       recorder = rec;
+      recordMimeType = mimeType;
       recordingListeners.forEach((callback) => callback(true));
       recordStartedAt = Date.now();
       recordExpiry = window.setInterval(() => {
-        if (!recordAuthority.valid() || closed) abandonRecording();
+        if (!recordAuthority.valid() || closed) abandonRecording(recordingIssue ?? "authorization_expired");
       }, 100);
-      recordRenew = window.setInterval(async () => {
-        if (renewBusy || recordingBusy || !recorder) return;
-        renewBusy = true;
-        try {
-          const allowed = await recordAuthority.authorize(true);
-          if (!allowed && recorder === rec) abandonRecording();
-        } finally { renewBusy = false; }
-      }, 2000);
+      scheduleRecordingRenewal(rec);
       return true;
-    } catch (err) {
-      abandonRecording();
-      console.warn("[webrtc] recording failed to start", err);
+    } catch {
+      abandonRecording("encoder_failed");
+      console.warn("[webrtc] recording encoder failed to start");
       return false;
     } finally { recordingBusy = false; }
   }
@@ -559,24 +599,37 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     if (!rec) return null;
     recordingBusy = true;
     if (!(await recordAuthority.authorize(true)) || closed || recorder !== rec) {
-      abandonRecording(); recordingBusy = false; return null;
+      abandonRecording(recordingIssue ?? "authorization_expired"); recordingBusy = false; return null;
     }
     recorder = null;
-    recordingListeners.forEach((callback) => callback(false));
     clearRecordingTimers();
-    const mimeType = rec.mimeType || "video/webm";
+    const mimeType = rec.mimeType || recordMimeType;
     const durationMs = Date.now() - recordStartedAt;
     return new Promise((resolve) => {
-      rec.onstop = () => {
+      let settled = false;
+      const finish = (issue?: RecordingIssue) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        rec.ondataavailable = rec.onstop = rec.onerror = null;
         const parts = recordChunks;
         recordChunks = [];
         const permitted = recordAuthority.valid() && !closed;
         recordAuthority.invalidate();
         recordingBusy = false;
-        if (!permitted || parts.length === 0) { resolve(null); return; }
+        if (issue || !permitted || parts.length === 0) {
+          recordingIssue = issue ?? recordingIssue ?? (!permitted ? "authorization_expired" : "no_frames");
+          recordingListeners.forEach(callback => callback(false));
+          resolve(null); return;
+        }
+        recordingIssue = null;
+        recordingListeners.forEach(callback => callback(false));
         resolve({ blob: new Blob(parts, { type: mimeType }), mimeType, durationMs });
       };
-      try { rec.stop(); } catch { abandonRecording(); recordingBusy = false; resolve(null); }
+      const timer = window.setTimeout(() => finish("finalization_failed"), 2000);
+      rec.onstop = () => finish();
+      rec.onerror = () => finish("encoder_failed");
+      try { rec.stop(); } catch { finish("finalization_failed"); }
     });
   }
 
@@ -1099,6 +1152,8 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       secureInputBlocked = true; secureRecordingBlocked = true;
       // This must complete BEFORE asking the Agent to emit secure pixels.
       await stopRecordingInternal();
+      if (recordingIssue === "finalization_failed")
+        throw new Error("Close and reopen the viewer before Windows unlock: the recorder did not confirm stopping.");
       if (recorder || finishingRecording || recordingBusy) throw new Error("Stop recording before unlocking Windows.");
       if (!active() || dc?.readyState !== "open") throw new Error("The unlock channel is unavailable.");
       return actions.unlock.begin(ticket);
@@ -1108,6 +1163,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     sendUnlockInput: actions.unlock.input,
     sendUnlockSas: actions.unlock.sas,
     onAgentMode: actions.onMode,
+    refreshAgentMode: actions.refreshMode,
     selectMonitor: actions.selectMonitor,
     onCurtain: actions.onCurtain,
     setCurtain: actions.setCurtain,
@@ -1121,6 +1177,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
 
     canRecord: () => !secureRecordingBlocked && !actions.unlock.active() && pickRecordMime() !== null && recordableStream() !== null,
     recording: () => recorder !== null || finishingRecording !== null,
+    recordingIssue: () => recordingIssue,
     onRecording: (callback) => {
       recordingListeners.add(callback);
       return () => { recordingListeners.delete(callback); };

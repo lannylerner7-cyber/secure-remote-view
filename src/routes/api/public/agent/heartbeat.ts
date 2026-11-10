@@ -23,13 +23,6 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         const ctx = await trace.step("device_auth", () => verifyDevice(request));
         if (ctx.kind !== "verified") return trace.respond(deviceAuthFailure(ctx),
           ctx.kind === "unavailable" ? "device_lookup_unavailable" : "unauthorized");
-        let authorization;
-        try {
-          authorization = await trace.step("authorization", () => currentAuthorization(ctx.admin, ctx.device.id));
-        } catch {
-          return trace.respond(new Response("authorization_unavailable", { status: 503 }), "authorization_unavailable");
-        }
-
         // Optional LAN fingerprint (best-effort) used for Wake-on-LAN peer selection.
         const body = (await trace.step("request_body", () => request.json().catch(() => ({})))) as {
           observed_session_id?: string | null;
@@ -75,6 +68,24 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         if (body.observed_session_id != null && (typeof body.observed_session_id !== "string" ||
             !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.observed_session_id)))
           return trace.respond(new Response("invalid_observed_session", { status: 400 }), "invalid_observed_session");
+
+        // Independent, read-only work overlaps the process fence, rather than
+        // serializing every database round trip behind presence telemetry.
+        // Rejections are captured immediately, including on early-return paths.
+        // Fresh per-session authorization still happens AFTER these reads.
+        const authorizationRead = trace.step("authorization", () => currentAuthorization(ctx.admin, ctx.device.id))
+          .then(value => ({ value, unavailable: false }), () => ({ value: null, unavailable: true }));
+        const licenseId = ctx.device.license_id;
+        const licenseRead = licenseId
+          ? trace.step("license_lookup", () => ctx.admin.from("licenses")
+            .select("id, meeting_id, seat_limit, status, starts_at, expires_at").eq("id", licenseId).maybeSingle())
+            .then(value => value, () => ({ data: null, error: true }))
+          : Promise.resolve({ data: null, error: null });
+        const sessionsRead = trace.step("sessions_lookup", () => ctx.admin.from("sessions")
+          .select("id, mode, state, media_mode, created_at, authorization_id")
+          .eq("device_id", ctx.device.id).in("state", ["invited", "consented", "active", "paused"])
+          .order("created_at", { ascending: false }))
+          .then(value => value, () => ({ data: null, error: true }));
 
         const nowIso = new Date().toISOString();
         const prevStatus = ctx.device.status;
@@ -195,6 +206,10 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           if (recorded !== true) return trace.respond(new Response("retired_or_stale_process", { status: 409 }), "retired_or_stale_process");
         }
 
+        const authorizationResult = await authorizationRead;
+        if (authorizationResult.unavailable)
+          return trace.respond(new Response("authorization_unavailable", { status: 503 }), "authorization_unavailable");
+        const authorization = authorizationResult.value;
         const { error: presenceError } = await trace.step("presence_write", () => ctx.admin
           .from("devices")
           .update({
@@ -204,19 +219,15 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             metadata: (mergedMetadata ?? prevMeta) as never,
           })
           .eq("id", ctx.device.id));
-        if (presenceError) return trace.respond(new Response("presence_write_failed", { status: 503 }), "presence_write_failed");
+        // Runtime fencing and authorization are mandatory; metadata telemetry
+        // is not authority and must not tear down an otherwise verified peer.
 
         // ---- Licence gate -----------------------------------------------
         // A blocked/expired device keeps heartbeating (so it wakes the moment
         // a seat frees) but is handed no sessions and captures nothing.
         let license: LicenseRow | null = null;
-        const licenseId = ctx.device.license_id;
         if (licenseId) {
-          const { data, error } = await trace.step("license_lookup", () => ctx.admin
-            .from("licenses")
-            .select("id, meeting_id, seat_limit, status, starts_at, expires_at")
-            .eq("id", licenseId)
-            .maybeSingle());
+          const { data, error } = await licenseRead;
           if (error) return trace.respond(new Response("license_unavailable", { status: 503 }), "license_unavailable");
           license = (data as LicenseRow | null) ?? null;
         }
@@ -240,12 +251,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // returning them all makes the agent's session loop iterator settle
         // on the OLDEST id — frames then flow to a session no admin is
         // watching and every live view goes black. Auto-end the stragglers.
-        const { data: pendingAll, error: sessionsError } = await trace.step("sessions_lookup", () => ctx.admin
-          .from("sessions")
-          .select("id, mode, state, media_mode, created_at, authorization_id")
-          .eq("device_id", ctx.device.id)
-          .in("state", ["invited", "consented", "active", "paused"])
-          .order("created_at", { ascending: false }));
+        const { data: pendingAll, error: sessionsError } = await sessionsRead;
         if (sessionsError) return trace.respond(new Response("sessions_unavailable", { status: 503 }), "sessions_unavailable");
 
         const authorizedSessions: NonNullable<typeof pendingAll> = [];
@@ -349,6 +355,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           JSON.stringify({
             ok: true,
             reporting_warnings: [
+              ...(presenceError ? ["presence_metadata_write_failed"] : []),
               ...(notificationFailed ? ["reconnection_notification_failed"] : []),
               ...(sessionStatusUnavailable ? ["session_status_unavailable"] : []),
             ],

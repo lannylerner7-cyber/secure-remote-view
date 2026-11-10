@@ -373,24 +373,30 @@ public sealed class WebRtcClient : IDisposable
             pc.OnVideoFrameReceived += (_, __, frame, ___) =>
             {
                 if (frame == null || frame.Length == 0) return;
+                if (_wireCodecIsH264)
+                {
+                    lock (_recordingGate)
+                        H264RecordingWriter.ReadParameterSets(frame, ref _recordingSps, ref _recordingPps);
+                }
                 Pipeline.Submit(frame);
-                // S24 — tee the exact bitstream to disk when recording. Reading
-                // the field without a lock is fine: it is swapped whole, and
-                // IvfWriter is itself thread-safe.
-                //
-                // The .ivf container only carries VP8, so an H.264 session is
-                // not recorded rather than written into a file no player can
-                // open. The recording button reports this to the technician.
+                // Tee the negotiated compressed stream into its matching
+                // container. Writers are thread-safe and start at a keyframe.
                 var rec = _recorder;
-                if (rec != null && !_wireCodecIsH264)
+                if (rec != null)
                 {
                     if (_recordingAllowed?.Invoke() != true)
                     {
-                        StopRecording();
+                        StopRecordingFor(rec, "Recording authorization expired or was withdrawn.");
                         return;
                     }
                     try { rec.WriteFrame(frame); }
-                    catch (Exception ex) { T("record write failed: " + ex.Message); }
+                    catch (Exception ex)
+                    {
+                        T("record write failed: " + ex.GetType().Name);
+                        StopRecordingFor(rec, ex is System.IO.InvalidDataException
+                            ? "Video encoder settings changed or a frame was invalid. Start a new recording."
+                            : "Recording stopped because the file could not be written. Check disk space and permissions.");
+                    }
                 }
             };
         }
@@ -399,8 +405,12 @@ public sealed class WebRtcClient : IDisposable
 
     // ---- S24: session recording ------------------------------------------
 
-    private IvfWriter? _recorder;
+    private IEncodedRecording? _recorder;
+    private readonly object _recordingGate = new();
+    private byte[]? _recordingSps, _recordingPps;
     private Func<bool>? _recordingAllowed;
+    public string? RecordingError { get; private set; }
+    public string? LastRecordingPath { get; private set; }
 
     /// <summary>True once SDP negotiation settled on H.264 rather than VP8.</summary>
     private volatile bool _wireCodecIsH264;
@@ -412,57 +422,86 @@ public sealed class WebRtcClient : IDisposable
     public bool IsRecording => _recorder != null;
 
     /// <summary>
-    /// Begin teeing decoded VP8 frames to an .ivf file under Videos\ConnectLive.
-    /// Returns the path, or null when the file cannot be created — or when the
-    /// session is running on H.264, which the .ivf container cannot hold.
+    /// Store negotiated H.264 in Matroska or VP8 in IVF under Videos\ConnectLive.
+    /// No re-encoding or alternate capture path. Returns null with RecordingError
+    /// when authorization, video readiness or file creation fails.
     /// </summary>
     public string? StartRecording(int width = 0, int height = 0, Func<bool>? recordingAllowed = null)
     {
-        if (recordingAllowed?.Invoke() != true) return null;
-        _recordingAllowed = recordingAllowed;
-        if (_wireCodecIsH264)
+        lock (_recordingGate)
         {
-            Log.Warn("[record] not available on an H.264 session (.ivf carries VP8 only)");
-            return null;
+            RecordingError = null;
+            if (_recorder != null) return _recorder.Path;
+            LastRecordingPath = null;
+            if (recordingAllowed?.Invoke() != true)
+            { RecordingError = "Recording permission is not current."; return null; }
+            if (width <= 0 || height <= 0)
+            { RecordingError = "Wait for advancing live video before recording."; return null; }
+            try
+            {
+                var dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "ConnectLive");
+                var extension = _wireCodecIsH264 ? "mkv" : "ivf";
+                var file = $"session-{_sessionId.Substring(0, Math.Min(8, _sessionId.Length))}-" +
+                    $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid().ToString("N")[..6]}.{extension}";
+                var path = System.IO.Path.Combine(dir, file);
+                _recordingAllowed = recordingAllowed;
+                _recorder = _wireCodecIsH264
+                    ? new H264RecordingWriter(path, width, height, sps: _recordingSps, pps: _recordingPps)
+                    : new IvfWriter(path, width, height);
+                OnKeyFrameRequested();
+                Log.Write($"[record] started codec={WireCodec} container={extension} -> {path}");
+                return path;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[record] start failed: " + ex.GetType().Name);
+                try { _recorder?.Dispose(); } catch { }
+                _recorder = null;
+                _recordingAllowed = null;
+                RecordingError = ex is System.IO.IOException or UnauthorizedAccessException
+                    ? "The recording file could not be created. Check disk space and folder permissions."
+                    : "The live video recorder could not start.";
+                return null;
+            }
         }
-        if (_recorder != null) return _recorder.Path;
+    }
 
-        try
+    private void StopRecordingFor(IEncodedRecording expected, string reason)
+    {
+        lock (_recordingGate)
         {
-            var dir = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-                "ConnectLive");
-            var file = $"session-{_sessionId.Substring(0, Math.Min(8, _sessionId.Length))}-" +
-                       $"{DateTime.Now:yyyyMMdd-HHmmss}.ivf";
-            var path = System.IO.Path.Combine(dir, file);
-            _recorder = new IvfWriter(path, width, height);
-            Log.Write("[record] started -> " + path);
-            return path;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("[record] start failed: " + ex.Message);
-            _recorder = null;
-            return null;
+            if (!ReferenceEquals(_recorder, expected)) return;
+            RecordingError = reason;
+            StopRecording();
         }
     }
 
     /// <summary>Finish the recording and return the file path (null when idle).</summary>
     public string? StopRecording()
     {
-        var rec = _recorder;
-        _recorder = null;
-        if (rec == null) return null;
-        try
+        lock (_recordingGate)
         {
-            var path = rec.Stop();
-            Log.Write($"[record] stopped -> {path} ({rec.FrameCount} frames)");
-            return path;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("[record] stop failed: " + ex.Message);
-            return null;
+            var rec = _recorder;
+            _recorder = null;
+            _recordingAllowed = null;
+            if (rec == null) return null;
+            try
+            {
+                var path = rec.Stop();
+                LastRecordingPath = path;
+                if (path == null && RecordingError == null)
+                    RecordingError = "No decodable keyframe arrived. No empty recording was saved.";
+                Log.Write($"[record] stopped ({rec.FrameCount} frames); playable segment={path != null}");
+                return path;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[record] stop failed: " + ex.GetType().Name);
+                RecordingError = "The recording could not be finalized. The partial file is not confirmed playable.";
+                LastRecordingPath = null;
+                return null;
+            }
         }
     }
 

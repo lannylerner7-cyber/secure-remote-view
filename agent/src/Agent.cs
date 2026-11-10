@@ -284,17 +284,16 @@ public sealed class Agent
         var errDelay = TimeSpan.FromSeconds(1);
 
         int fails = 0;
-        bool deadManTripped = false;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 _api.HeartbeatSeconds = !string.IsNullOrEmpty(_currentSessionId) ? 5 : StreamListener.Healthy ? 60 : 10;
+                var modeObservation = System.Diagnostics.Stopwatch.GetTimestamp();
                 var body = await _api.HeartbeatAsync(ct);
                 fails = 0;
                 errDelay = TimeSpan.FromSeconds(1);
-                deadManTripped = false;
 
                 var authorityValid = CheckAuthority(body);
                 if (authorityValid && HandleConfirmedSessionEnd(body)) authorityValid = false;
@@ -303,7 +302,7 @@ public sealed class Agent
                     UpdateEnvironment.ReportHealthy(ApiClient.AgentVersion);
                     try { AgentProcessState.Healthy(_api.LocalAuthorization!.Authorization.Id); }
                     catch { Log.Warn("Agent health receipt could not be written for Watch"); }
-                    await DispatchPendingSessions(body, ct);
+                    await DispatchPendingSessions(body, ct, modeObservation);
                 }
                 // Presence/wake is not authority for arbitrary remote power actions.
 
@@ -337,14 +336,11 @@ public sealed class Agent
                 _authorityMatches = false;
                 EndSession();
                 Log.Warn($"heartbeat failed ({fails}): {AgentHttpDiagnostics.SafeFailure(ex, ct.IsCancellationRequested)}");
-                if (fails >= 3 && !deadManTripped)
-                {
-                    // Loss of authority/presence must stop all live-session channels,
-                    // not only release local input blocking. Presence retries remain.
-                    deadManTripped = true;
-                    EndSession();
-                    Log.Warn("dead-man: live session stopped after heartbeat loss");
-                }
+                // There is no three-failure grace for remote access. A failed
+                // authority/process-fence check suspends capture and input now;
+                // enrollment remains intact so a later fresh heartbeat can
+                // recover in view mode, never by reviving the old curtain.
+                if (fails == 1) Log.Warn("live transport suspended: heartbeat authority unavailable; pairing retained");
                 try { await Task.Delay(errDelay + TimeSpan.FromMilliseconds(Random.Shared.Next(500)), ct); } catch { }
                 errDelay = TimeSpan.FromSeconds(Math.Min(30, errDelay.TotalSeconds * 2));
             }
@@ -370,7 +366,7 @@ public sealed class Agent
     }
 
 
-    private async Task DispatchPendingSessions(string body, CancellationToken ct)
+    private async Task DispatchPendingSessions(string body, CancellationToken ct, long modeObservation)
     {
         if (!HasAuthority || ct.IsCancellationRequested) return;
         List<(string id, string state, string mode)> pending = new();
@@ -448,7 +444,7 @@ public sealed class Agent
                 {
                     // Also the resume path: a paused session cancelled its loops,
                     // so the health check fails here and they restart cleanly.
-                    EnsureSessionLoops(s.id, s.mode);
+                    EnsureSessionLoops(s.id, s.mode, modeObservation);
                 }
             }
 
@@ -485,10 +481,10 @@ public sealed class Agent
             && _rtc?.IsClosed != true;
     }
 
-    private void EnsureSessionLoops(string sessionId, string mode)
+    private void EnsureSessionLoops(string sessionId, string mode, long modeObservation)
     {
+        if (_peerInputPermission?.SetMode(mode, modeObservation) == false) return;
         var modeChanged = _loopMode != mode;
-        _peerInputPermission?.SetMode(mode);
         _loopMode = mode;
         if (mode != "control")
         {

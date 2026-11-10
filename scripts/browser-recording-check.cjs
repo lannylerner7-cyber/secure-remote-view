@@ -4,14 +4,18 @@ const ts = require("typescript");
 const assert = require("node:assert/strict");
 let now = 100, permitted = false, constructed = 0, stopped = 0, id = 0;
 let deferStop = false, finishStop;
+let mp4Only = false, emptyMime = false, latestRecorder;
+let lookupDelay = 0;
 const timers = new Map();
 const timer = (fn, ms) => { timers.set(++id, { fn, ms }); return id; };
 const storage = { getItem: () => null, setItem() {}, removeItem() {} };
 const channel = { on() { return this; }, subscribe() { return this; } };
 class Stream { getVideoTracks() { return [{}]; } }
 class Recorder {
-  static isTypeSupported() { return true; }
-  constructor() { constructed++; this.mimeType = "video/webm"; }
+  static isTypeSupported(type) { return !mp4Only || type === "video/mp4"; }
+  constructor(_stream, options) {
+    constructed++; this.mimeType = emptyMime ? "" : options.mimeType; latestRecorder = this;
+  }
   start() {}
   stop() {
     stopped++;
@@ -39,10 +43,12 @@ const common = {
   document: { createElement: () => ({ style: {}, srcObject: null, play: async () => {} }) },
   localStorage: storage, sessionStorage: storage, crypto: require("node:crypto").webcrypto,
   RTCPeerConnection: Peer, MediaStream: Stream, MediaRecorder: Recorder,
-  fetch: async url => ({ ok: true, json: async () => String(url).endsWith("/authorization")
-    ? { allowed: true, capabilities: { recording: permitted },
-        authorizationId: "12345678-1234-1234-1234-123456789012" }
-    : { iceServers: [] } }),
+  fetch: async url => ({ ok: true, json: async () => {
+    if (!String(url).endsWith("/authorization")) return { iceServers: [] };
+    now += lookupDelay;
+    return { allowed: true, capabilities: { recording: permitted },
+      authorizationId: "12345678-1234-1234-1234-123456789012" };
+  } }),
 };
 function load(path) {
   const exports = {};
@@ -106,6 +112,36 @@ dependencies["@/shared/api-routes"] = { API_ROUTES: {
   const [manualResult, recoveryResult] = await Promise.all([manualStop, recoveryStop]);
   assert.equal(manualResult.blob, recoveryResult.blob, "deliver one shared recording segment");
   assert.equal(live.recording(), false);
+  deferStop = false; mp4Only = true; emptyMime = true;
+  assert.equal(await live.startRecording(), true);
+  const mp4 = await live.stopRecording();
+  assert.equal(mp4.mimeType, "video/mp4", "an empty browser MIME must retain the selected MP4 container");
+  assert.equal(mp4.blob.type, "video/mp4");
+  mp4Only = false; emptyMime = false;
+  assert.equal(await live.startRecording(), true);
+  latestRecorder.onerror();
+  assert.equal(live.recording(), false, "asynchronous encoder failure must clear the actual recorder");
+  assert.equal(live.recordingIssue(), "encoder_failed");
+  assert.equal(await live.startRecording(), true);
+  deferStop = true;
+  const unfinished = live.stopRecording();
+  for (let n = 0; n < 20; n++) await Promise.resolve();
+  const lateStop = finishStop;
+  for (const t of [...timers.values()]) if (t.ms === 2000) await t.fn();
+  assert.equal(await unfinished, null, "a missing final stop event must not hang or save an incomplete file");
+  assert.equal(live.recordingIssue(), "finalization_failed");
+  deferStop = false;
+  assert.equal(await live.startRecording(), true);
+  lateStop();
+  assert.equal(live.recording(), true, "old final chunks cannot stop or contaminate a new recording");
+  assert.ok(await live.stopRecording());
+  lookupDelay = 2000;
+  assert.equal(await live.startRecording(), true);
+  assert.ok([...timers.values()].some(t => t.ms === 0),
+    "a two-second verification schedules immediate renewal, not an extra two-second wait");
+  for (const t of [...timers.values()]) if (t.ms === 0) await t.fn();
+  assert.equal(live.recording(), true, "slow but still fresh permission can renew without extending the five-second lease");
+  assert.ok(await live.stopRecording());
   live.close();
-  console.log("19 recording assertions passed with mocked browser/transport APIs.");
+  console.log("Browser recording authorization, MP4 MIME, encoder-error and bounded-finalization checks passed with mocked transport/media APIs.");
 })().catch(e => { console.error(e); process.exitCode = 1; });

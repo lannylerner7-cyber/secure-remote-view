@@ -30,7 +30,7 @@ namespace ConnectLive.Admin.Input;
 ///   * wire shape is identical on both paths (<c>{ kind, payload }</c>)
     ///     so the agent's switch does not need to know which pipe delivered it.
 /// </summary>
-public static class InputTransport
+public static partial class InputTransport
 {
     private static readonly HashSet<string> AlwaysRest = new(StringComparer.Ordinal)
     {
@@ -85,12 +85,12 @@ public static class InputTransport
         };
         dc.onclose += () =>
         {
-            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; _open = false; _demoted = true; }
+            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; _open = false; _demoted = true; ResetPermission(); }
             Log.Write("[input] datachannel CLOSED — REST fallback carries input");
         };
         dc.onerror += (err) =>
         {
-            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; _open = false; _demoted = true; }
+            lock (_gate) { if (!ReferenceEquals(_dc, dc)) return; _open = false; _demoted = true; ResetPermission(); }
             Log.Write("[input] datachannel error: " + err);
         };
         dc.onmessage += (_, __, data) =>
@@ -100,6 +100,8 @@ public static class InputTransport
             {
                 using var doc = JsonDocument.Parse(data);
                 var root = doc.RootElement;
+                if (ObservePermission(sessionId, dc, root)) return;
+                if (ObserveCurtainApplication(sessionId, dc, root)) return;
                 if (root.GetProperty("kind").GetString() != "curtain_status") return;
                 var age = Environment.TickCount64 - root.GetProperty("sent_at").GetInt64();
                 if (age < 0 || age > 3000) return;
@@ -116,6 +118,7 @@ public static class InputTransport
         lock (_gate)
         {
             Unlock?.Dispose();
+            ResetPermission();
             Unlock = null;
             _dc = null;
             _open = false;
@@ -155,7 +158,17 @@ public static class InputTransport
             return Task.CompletedTask; // Never enqueue or replay sensitive input.
         }
         if (AlwaysRest.Contains(kind))
+        {
+            // Release immediately through the CURRENT peer too. A REST-only
+            // curtain_off could miss the peer-owned curtain or wait behind a
+            // slow heartbeat. REST remains an independent safety fallback.
+            lock (_gate)
+            {
+                if (_sessionId == sessionId && _open && !_demoted && _dc != null)
+                    try { _dc.send(Encoding.UTF8.GetBytes(MergeEnvelope(kind, payload))); } catch { }
+            }
             return SendRestAsync(sessionId, kind, payload, ct);
+        }
 
         RTCDataChannel? dc;
         bool open;
@@ -165,7 +178,11 @@ public static class InputTransport
             open = _open && !_demoted && _sessionId == sessionId;
         }
         if (dc == null || !open)
+        {
+            if (kind == "curtain_renew")
+                throw new InvalidOperationException("The curtain command channel is disconnected.");
             return SendRestAsync(sessionId, kind, payload, ct);
+        }
 
         try
         {

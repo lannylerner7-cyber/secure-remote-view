@@ -67,6 +67,13 @@ Check(permission.Token.IsCancellationRequested, "cancels pending IO");
 foreach (var scope in new[] { "view", "control", "clipboard", "files", "recording" })
     Check(!permission.Allows(scope), "closed session cannot regain scopes");
 Check(!permission.TryApply(() => throw new Exception()), "stale callback denied");
+var observed = new PeerInputPermission("view", scopes, () => true);
+Check(observed.SetMode("control", 200) && observed.Allows("control"), "fresh targeted permission is applied");
+Check(!observed.SetMode("view", 100) && observed.Allows("control"), "older heartbeat cannot undo a newer permission read");
+Check(observed.SetMode("view", 300) && !observed.Allows("control"), "safety release narrows permission immediately");
+Check(!observed.SetMode("control", 250) && !observed.Allows("control"), "late permission response cannot undo release");
+observed.Revoke();
+Check(!observed.SetMode("control", 400), "revoked permission cannot be revived by fresh responses");
 var next = new PeerInputPermission("control", scopes, () => true);
 Check(next.Allows("control") && !permission.Allows("control"), "new epoch never revives old epoch");
 using var registration = next.Token.Register(() =>

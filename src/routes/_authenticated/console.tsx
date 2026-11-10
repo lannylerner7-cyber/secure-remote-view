@@ -59,6 +59,8 @@ import { EMPTY_UNLOCK, type UnlockState } from "@/shared/windows-unlock";
 import { revokeManagedDeviceAccess } from "@/lib/device-pairing.functions";
 import { useLiveAuthorization } from "@/lib/use-live-authorization";
 import type { AgentMode } from "@/lib/browser-actions";
+import { recordingFilename, recordingIssueMessage } from "@/lib/recording-output";
+import { getWebClientId } from "@/shared/signaling-identity";
 import { videoSessionStatus } from "@/lib/video-session-status";
 import type { ViewerScaleMode } from "@/lib/viewer-geometry";
 import { useVideoSourceSize } from "@/lib/use-video-source-size";
@@ -484,7 +486,10 @@ function AdminPage() {
       });
     });
     live.onRecording((active) => {
-      if (rtcRef.current === live) setRecording(active);
+      if (rtcRef.current !== live) return;
+      setRecording(active);
+      if (!active && !recordingActionRef.current && live.recordingIssue())
+        toast.error(recordingIssueMessage(live.recordingIssue()));
     });
     setRtcState(live.state());
     live.onState((s) => {
@@ -612,19 +617,25 @@ function AdminPage() {
   function downloadRecording(sessionId: string, result: RecordingResult, interrupted = false) {
     if (downloadedRecordingsRef.current.has(result.blob)) return;
     downloadedRecordingsRef.current.add(result.blob);
+    let filename: string;
+    try { filename = recordingFilename(sessionId, result.mimeType); }
+    catch { toast.error("The browser returned an unsupported recording container. No mislabeled file was downloaded."); return; }
     const url = URL.createObjectURL(result.blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `connectlive-${sessionId.slice(0, 8)}-${Date.now()}.webm`;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    toast.success(interrupted ? "Recording segment saved before reconnecting" : "Recording saved", {
+    toast.success(interrupted ? "Recording segment download started before reconnecting" : "Recording download started", {
       description: `${Math.round(result.durationMs / 1000)}s · ${(result.blob.size / 1048576).toFixed(1)} MB` +
         (interrupted ? ". Start a new recording after video returns." : ""),
     });
   }
 
-  /** S24 — start/stop a local WEBM recording of the live video track. */
+  /** Start/stop a local recording, preserving the actual browser container. */
   async function toggleRecording(sessionId: string) {
     const live = rtcRef.current;
     if (!live || recordingActionRef.current) return;
@@ -639,7 +650,7 @@ function AdminPage() {
       const result = await live.stopRecording();
       setRecording(false);
       if (!result) {
-        toast.error("Recording produced no footage");
+        toast.error(recordingIssueMessage(live.recordingIssue()));
         return;
       }
       downloadRecording(sessionId, result);
@@ -655,7 +666,7 @@ function AdminPage() {
       setRecording(true);
       toast.success("Recording started");
     } else {
-      toast.error("Recording unavailable: permission was denied, expired, or could not be verified.");
+      toast.error(recordingIssueMessage(live.recordingIssue()));
     }
     } finally {
       recordingActionRef.current = false;
@@ -1141,7 +1152,8 @@ function AdminPage() {
       if (signal.aborted) abort();
       const timer = setTimeout(() => request.abort(new Error("Session-mode request timed out.")), 6000);
       try {
-        let query = supabase.from("sessions").update({ mode }).eq("id", s.id).eq("state", "active");
+        let query = supabase.from("sessions").update({ mode }).eq("id", s.id).eq("state", "active")
+          .eq("admin_client_id", getWebClientId());
         query = s.authorization_id ? query.eq("authorization_id", s.authorization_id) : query.is("authorization_id", null);
         const { data, error } = await query.select("id").abortSignal(request.signal).maybeSingle();
         if (error || !data) throw new Error(error?.message ?? "Session is no longer active or access was denied.");

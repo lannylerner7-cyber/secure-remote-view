@@ -111,7 +111,7 @@ test("heartbeat rejects an invalid observed session without attempting a lookup"
   assert.ok(!f.reads.includes("session_status_lookup"));
 });
 
-for (const stage of ["device_auth", "authorization", "runtime_write", "presence_write",
+for (const stage of ["device_auth", "authorization", "runtime_write",
   "license_lookup", "license_state_write", "sessions_lookup", "session_authorization", "session_cleanup"]) {
   test(`heartbeat reports ${stage} outage without returning session authority`, async () => {
     const f = routeFixture("heartbeat", {
@@ -121,13 +121,26 @@ for (const stage of ["device_auth", "authorization", "runtime_write", "presence_
     });
     const response = await f.call();
     assert.equal(response.status, 503);
-    assert.equal(f.logs[0].stage, stage);
+    // Prefetched reads run concurrently; the last completed stage is not
+    // necessarily the failing stage. HTTP outcome still fails closed.
+    if (!["authorization", "license_lookup", "sessions_lookup"].includes(stage))
+      assert.equal(f.logs[0].stage, stage);
     assert.doesNotMatch(await response.text(), /PRIVATE|fixture-session|"authorization"/);
     assert.doesNotMatch(JSON.stringify(f.logs), /PRIVATE/);
     if (stage === "session_authorization")
       assert.ok(!f.writes.some(w => w.table === "sessions"), "RPC outage must not end database sessions");
   });
 }
+
+test("metadata write failure is a warning after fresh process and session authorization", async () => {
+  const f = routeFixture("heartbeat", { fail: "presence_write" });
+  const response = await f.call();
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.ok(body.authorization);
+  assert.ok(body.reporting_warnings.includes("presence_metadata_write_failed"));
+  assert.ok(body.sessions.length > 0);
+});
 
 test("heartbeat still denies invalid credentials, runtime reports and retired processes", async () => {
   assert.equal((await routeFixture("heartbeat", { invalidToken: true }).call()).status, 401);
@@ -267,6 +280,6 @@ test("native integration retains deadlines, bounded queue and fail-closed author
   assert.match(capture, /new LatestWorkPump</);
   assert.doesNotMatch(capture, /fallback upload failed/);
   assert.match(agent, /_authorityMatches = false;\s*EndSession\(\);\s*Log\.Warn\(\$"heartbeat failed/);
-  assert.match(agent, /if \(fails >= 3 && !deadManTripped\)/);
-  assert.match(agent, /deadManTripped = true;\s*EndSession\(\);/);
+  assert.doesNotMatch(agent, /deadManTripped/);
+  assert.match(agent, /live transport suspended: heartbeat authority unavailable; pairing retained/);
 });

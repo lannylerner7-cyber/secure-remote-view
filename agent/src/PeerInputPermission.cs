@@ -18,6 +18,7 @@ internal sealed class PeerInputPermission
     private readonly object _gate = new();
     private bool _revoked;
     private bool _control;
+    private long _modeObservation;
     private readonly GrantScopes _scopes;
     private readonly System.Func<bool> _stillValid;
     private readonly System.Func<string, bool>? _parentAllows;
@@ -54,7 +55,20 @@ internal sealed class PeerInputPermission
 
     internal void SetMode(string mode)
     {
-        lock (_gate) { if (!_revoked) _control = mode == "control"; }
+        SetMode(mode, System.Diagnostics.Stopwatch.GetTimestamp());
+    }
+
+    // A slow heartbeat begun BEFORE a targeted permission read must not undo
+    // its newer result when it eventually returns.
+    internal bool SetMode(string mode, long observationStarted)
+    {
+        lock (_gate)
+        {
+            if (_revoked || observationStarted < _modeObservation) return false;
+            _modeObservation = observationStarted;
+            _control = mode == "control";
+            return true;
+        }
     }
 
     internal void Revoke()

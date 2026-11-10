@@ -8,6 +8,7 @@ export type ControlStage =
 export interface ControlPeer {
   state(): WebRtcState;
   onAgentMode(listener: (mode: AgentMode) => void): () => void;
+  refreshAgentMode?(mode: "view" | "control", signal: AbortSignal): Promise<void>;
   onState(listener: (state: WebRtcState) => void): () => void;
   setCurtain(enabled: boolean): Promise<void>;
   sendInput(message: { kind: string; payload: Record<string, unknown> }): boolean;
@@ -96,6 +97,8 @@ export async function takeControlAndCurtain(options: ControlOptions): Promise<vo
     await abortable(options.setMode("control", controller.signal), controller.signal);
     assertCurrent();
     options.onStage("waiting-agent");
+    if (options.peer.refreshAgentMode)
+      await abortable(options.peer.refreshAgentMode("control", controller.signal), controller.signal);
     await abortable(acknowledged, controller.signal);
     assertCurrent();
     if (options.withCurtain !== false) {

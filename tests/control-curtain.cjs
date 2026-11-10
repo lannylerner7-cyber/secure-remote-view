@@ -227,7 +227,9 @@ test("native routing preserves both receipt formats and the fail-safe boundary",
   assert(actions.includes('kind = "action_status"') && actions.includes('kind = "curtain_status"'));
   assert(actions.includes('var requestId = request.GetString()'), "preserve native Guid N and browser Guid D request IDs");
   assert(actions.includes("else if (CurtainController.Renew(owner)) Receipt(true)"));
-  assert(actions.includes('if (action == "curtain_off") CurtainController.Release(owner, "admin_off");'));
+  assert(actions.includes('CurtainController.Release(owner, "admin_off");'));
+  assert(actions.includes('_inputPermission.SetMode("view")'));
+  assert(actions.includes("_curtainRequests.Add(requestId!)"), "expired activation IDs must not re-enable a curtain");
   assert(actions.includes("ReferenceEquals(_peerPermission, owner)"));
   assert(controller.indexOf("await CurtainOverlay.ShowRenderedAsync()") < controller.indexOf("InputBlocker.Engage("));
   assert(controller.includes('!owner.Allows("control")'));

@@ -1,5 +1,10 @@
 # Automatic media recovery and JPEG clarity — 2026-11-06
 
+For the newer control/curtain and negotiated-codec recording repair, see
+[the current verification and Windows handoff](control-curtain-recording-verification.md).
+The evidence below describes the earlier media-recovery work, not acceptance
+of the current Windows source.
+
 Agent source 1.10.5 and the browser source now implement one-peer-at-a-time
 codec/route recovery within the existing session. JPEG remains available only
 when the immutable media contract permits it; existing video-only sessions

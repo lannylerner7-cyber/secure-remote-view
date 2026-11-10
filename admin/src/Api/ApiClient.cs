@@ -489,10 +489,17 @@ public sealed partial class ApiClient
 
     public async Task SetSessionModeAsync(string sessionId, string mode, CancellationToken ct)
     {
-        using var req = NewSupabase(new HttpMethod("PATCH"), $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}");
+        if (mode is not ("view" or "control") || string.IsNullOrEmpty(App.ClientId))
+            throw new InvalidOperationException("An active viewer binding is required.");
+        using var req = NewSupabase(new HttpMethod("PATCH"),
+            $"/rest/v1/sessions?id=eq.{Uri.EscapeDataString(sessionId)}&state=eq.active&admin_client_id=eq.{Uri.EscapeDataString(App.ClientId)}&select=id");
+        req.Headers.TryAddWithoutValidation("Prefer", "return=representation");
         req.Content = JsonContent.Create(new { mode });
         using var res = await SendSupabaseAsync(req, ct).ConfigureAwait(false);
         await EnsureOkAsync(res, "set session mode", ct).ConfigureAwait(false);
+        using var body = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        if (body.RootElement.ValueKind != JsonValueKind.Array || body.RootElement.GetArrayLength() != 1)
+            throw new InvalidOperationException("The session ended or another viewer took control.");
     }
 
     /// <summary>

@@ -60,6 +60,7 @@ import { Route as ApiPublicAgentSessionSessionIdCursorRouteImport } from './rout
 import { Route as ApiPublicAgentSessionSessionIdFileRouteImport } from './routes/api/public/agent/session.$sessionId.file'
 import { Route as ApiPublicAgentSessionSessionIdFrameRouteImport } from './routes/api/public/agent/session.$sessionId.frame'
 import { Route as ApiPublicAgentSessionSessionIdInputsRouteImport } from './routes/api/public/agent/session.$sessionId.inputs'
+import { Route as ApiPublicAgentSessionSessionIdPermissionRouteImport } from './routes/api/public/agent/session.$sessionId.permission'
 import { Route as ApiPublicAgentSessionSessionIdReconnectRouteImport } from './routes/api/public/agent/session.$sessionId.reconnect'
 import { Route as ApiPublicAgentSessionSessionIdSignalRouteImport } from './routes/api/public/agent/session.$sessionId.signal'
 import { Route as ApiPublicAdminSessionSessionIdFilesBytesRouteImport } from './routes/api/public/admin/session.$sessionId.files.bytes'
@@ -337,6 +338,12 @@ const ApiPublicAgentSessionSessionIdReconnectRoute =
     path: '/api/public/agent/session/$sessionId/reconnect',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicAgentSessionSessionIdPermissionRoute =
+  ApiPublicAgentSessionSessionIdPermissionRouteImport.update({
+    id: '/api/public/agent/session/$sessionId/permission',
+    path: '/api/public/agent/session/$sessionId/permission',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAgentSessionSessionIdSignalRoute =
   ApiPublicAgentSessionSessionIdSignalRouteImport.update({
     id: '/api/public/agent/session/$sessionId/signal',
@@ -351,6 +358,7 @@ const ApiPublicAdminSessionSessionIdFilesBytesRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
+  '/api/public/agent/session/$sessionId/permission': typeof ApiPublicAgentSessionSessionIdPermissionRoute
   '/': typeof IndexRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
@@ -406,6 +414,7 @@ export interface FileRoutesByFullPath {
   '/api/public/admin/session/$sessionId/files/bytes': typeof ApiPublicAdminSessionSessionIdFilesBytesRoute
 }
 export interface FileRoutesByTo {
+  '/api/public/agent/session/$sessionId/permission': typeof ApiPublicAgentSessionSessionIdPermissionRoute
   '/': typeof IndexRoute
   '/contact': typeof ContactRoute
   '/health': typeof HealthRoute
@@ -461,6 +470,7 @@ export interface FileRoutesByTo {
   '/api/public/admin/session/$sessionId/files/bytes': typeof ApiPublicAdminSessionSessionIdFilesBytesRoute
 }
 export interface FileRoutesById {
+  '/api/public/agent/session/$sessionId/permission': typeof ApiPublicAgentSessionSessionIdPermissionRoute
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
@@ -520,6 +530,7 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/api/public/agent/session/$sessionId/permission'
     | '/'
     | '/contact'
     | '/health'
@@ -575,6 +586,7 @@ export interface FileRouteTypes {
     | '/api/public/admin/session/$sessionId/files/bytes'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/api/public/agent/session/$sessionId/permission'
     | '/'
     | '/contact'
     | '/health'
@@ -629,6 +641,7 @@ export interface FileRouteTypes {
     | '/api/public/agent/session/$sessionId/signal'
     | '/api/public/admin/session/$sessionId/files/bytes'
   id:
+    | '/api/public/agent/session/$sessionId/permission'
     | '__root__'
     | '/'
     | '/_authenticated'
@@ -687,6 +700,7 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  ApiPublicAgentSessionSessionIdPermissionRoute: typeof ApiPublicAgentSessionSessionIdPermissionRoute
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   ContactRoute: typeof ContactRoute
@@ -741,6 +755,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/api/public/agent/session/$sessionId/permission': {
+      id: '/api/public/agent/session/$sessionId/permission'
+      path: '/api/public/agent/session/$sessionId/permission'
+      fullPath: '/api/public/agent/session/$sessionId/permission'
+      preLoaderRoute: typeof ApiPublicAgentSessionSessionIdPermissionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -1166,6 +1187,7 @@ const ApiPublicAdminSessionSessionIdFilesRouteWithChildren =
   )
 
 const rootRouteChildren: RootRouteChildren = {
+  ApiPublicAgentSessionSessionIdPermissionRoute,
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   ContactRoute: ContactRoute,

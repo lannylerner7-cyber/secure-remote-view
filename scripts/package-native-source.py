@@ -60,8 +60,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--github-commit", help="Optional published commit; verified against remote main")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--side", choices=("agent", "admin"), help="Package only this client")
+    parser.add_argument("--side", choices=("agent", "admin", "clients"), help="Package one client or both complete source trees together")
+    parser.add_argument("--verification-report", default="docs/native-streaming-progress.md")
     args = parser.parse_args()
+    report = (ROOT / args.verification_report).resolve()
+    if not report.is_relative_to(ROOT / "docs") or report.suffix != ".md" or not report.is_file():
+        raise SystemExit("Verification report must be an existing project docs/*.md file")
     if args.github_commit:
         remote = subprocess.check_output(
             ["git", "ls-remote", "https://github.com/lannylerner7-cyber/secure-remote-view.git", "refs/heads/main"],
@@ -79,20 +83,27 @@ def main():
     baseline = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     for side in ((args.side,) if args.side else ("agent", "admin")):
-        source_version = ET.parse(APP / "agent/src/ConnectLiveAgent.csproj").findtext(".//Version") if side == "agent" else None
+        source_version = ET.parse(APP / "agent/src/ConnectLiveAgent.csproj").findtext(".//Version") if side in ("agent", "clients") else None
         if source_version and not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", source_version):
             raise RuntimeError("Invalid source version for archive filename")
         version_suffix = f"-{source_version}" if source_version else ""
+        admin_version = ET.parse(APP / "admin/src/ConnectLiveAdmin.csproj").findtext(".//Version")
+        if side == "clients":
+            if not admin_version or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", admin_version):
+                raise RuntimeError("Invalid Admin source version")
+            version_suffix = f"-Agent-{source_version}-Admin-{admin_version}"
         destination = out / f"ConnectLive-{side.title()}{version_suffix}-Source.zip"
         if destination.exists():
             raise RuntimeError(f"Refusing to replace {destination.name}")
-        files = dict(sources(side))
-        files["VERIFICATION-STATUS.md"] = (ROOT / "docs/native-streaming-progress.md").read_bytes()
+        files = dict(sources("agent" if side == "clients" else side))
+        if side == "clients":
+            files.update(sources("admin"))
+        files["VERIFICATION-STATUS.md"] = report.read_bytes()
         files["supabase/migrations/20261022001000_allow_recorded_control_transition.sql"] = (
             APP / "supabase/migrations/20261022001000_allow_recorded_control_transition.sql").read_bytes()
         files["supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql"] = (
             APP / "supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql").read_bytes()
-        if side == "agent":
+        if side in ("agent", "clients"):
             files["tests/agent-ui-regression.cjs"] = (ROOT / "tests/agent-ui-regression.cjs").read_bytes()
             files["tests/video-native-preflight.cjs"] = (ROOT / "tests/video-native-preflight.cjs").read_bytes()
             for name in (
@@ -108,7 +119,7 @@ def main():
         validate_project_references(files)
         if args.github_commit:
             for name, data in files.items():
-                tracked = "docs/native-streaming-progress.md" if name == "VERIFICATION-STATUS.md" else name
+                tracked = report.relative_to(ROOT).as_posix() if name == "VERIFICATION-STATUS.md" else name
                 published = subprocess.check_output(
                     ["git", "-C", checkout.name, "show", f"{args.github_commit}:{tracked}"])
                 if data != published:
@@ -152,6 +163,7 @@ def main():
         manifest = {
             "archiveKind": "source-only",
             "sourceVersion": source_version,
+            "clientVersions": {"agent": source_version, "admin": admin_version} if side == "clients" else None,
             "nativeBuildPerformedForArchive": False,
             "prebuiltExecutablesIncluded": False,
             "workspaceBaselineCommit": baseline,
@@ -165,6 +177,17 @@ def main():
         files["START-HERE.txt"] = (
             f"ConnectLive {side.title()} SOURCE ONLY - work in progress\n"
             "No executable or installer is included. Extract the entire archive.\n"
+            + ("BOTH COMPLETE CLIENT SOURCE TREES ARE INCLUDED: agent/ and admin/.\n"
+               "FIRST: Read VERIFICATION-STATUS.md for exact manual commands and the gateway-version boundary.\n"
+               "Packaging does not publish the gateway. Confirm its matching release or use the workspace preview.\n"
+               "Use only the authorized Windows test device, with a person at its keyboard.\n"
+               "Agent: use agent/run.ps1 with -ApiUrl set to the preview origin; a new origin needs -Pair.\n"
+               "Admin: run admin/configure.ps1 locally, set baseUrl in admin/src/admin.config.json\n"
+               "to that same preview origin, then cd admin/src and dotnet run.\n"
+               "Never use a service-role key in a native client or send keys/passwords in chat.\n"
+               "Do NOT run installer/build.ps1 packaging scripts for this source acceptance test.\n"
+               "No backend deployment, database migration or Windows acceptance was performed here.\n"
+               if side == "clients" else "")
             + ("FIRST: Open PowerShell in admin and run .\\configure.ps1.\n"
                "Enter your Supabase public sb_publishable_ key locally, never a service-role key.\n"
                "Then cd src; dotnet run (without --no-build).\n"
