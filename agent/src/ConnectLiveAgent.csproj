@@ -17,7 +17,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>1.10.10</Version>
+    <Version>1.10.11</Version>
     <Company>ConnectLive</Company>
     <Product>ConnectLive Agent</Product>
     <AssemblyTitle>ConnectLive Agent</AssemblyTitle>

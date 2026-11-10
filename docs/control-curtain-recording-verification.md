@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-- Current source: **Windows Agent 1.10.10**, **Windows Admin 1.7.4**, and the
+- Current source: **Windows Agent 1.10.11**, **Windows Admin 1.7.4**, and the
   repaired web Admin/gateway in this workspace.
 - At the original source handoff, these changes had not been pushed or deployed.
   A subsequent GitHub source push does **not** establish a successful Coolify
@@ -94,6 +94,21 @@ MP4 but always used a WebM filename. Both were direct source-level mismatches.
   native interruption; the actual saved path is shown.
 
 ## Checks completed
+
+### Agent compiler correction
+
+Agent 1.10.10 had a C# local-variable scope collision: the permission-refresh
+branch declared `request`, also declared later by the monitor-switch handler.
+Agent 1.10.11 names the permission value `permissionRequest`; wire behavior is
+unchanged.
+
+The portable `tests/agent-actions` project links the actual action-dispatch
+source file, with inert Windows/WebRTC adapters. The previous source reproduced
+**CS0136** in this harness; the corrected source compiled and passed permission,
+monitor, invalid-request and curtain-routing checks. The 24 control/recording
+contract tests also passed. This is **not** a full Windows application build or
+physical curtain test. The reported CS8602 and WFAC010 messages are separate
+non-blocking warnings, not the cause of this compiler failure.
 
 - Imported web app: `pnpm --dir imports/connectlive run typecheck`.
 - 73 Node contract/regression cases across control coordination, receipt

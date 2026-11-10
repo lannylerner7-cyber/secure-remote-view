@@ -59,13 +59,13 @@ public sealed partial class WebRtcSession
         if (kind.GetString() == "permission_refresh")
         {
             if (root.TryGetProperty("payload", out var body) && body.ValueKind == JsonValueKind.Object &&
-                body.TryGetProperty("request_id", out var request) && request.ValueKind == JsonValueKind.String &&
-                Guid.TryParse(request.GetString(), out _) &&
+                body.TryGetProperty("request_id", out var permissionRequest) && permissionRequest.ValueKind == JsonValueKind.String &&
+                Guid.TryParse(permissionRequest.GetString(), out _) &&
                 body.TryGetProperty("mode", out var mode) && mode.ValueKind == JsonValueKind.String &&
                 mode.GetString() is "view" or "control" &&
                 body.TryGetProperty("authorization_id", out var grant) && grant.ValueKind == JsonValueKind.String &&
                 grant.GetString() == _api.LocalAuthorization?.Authorization.Id)
-                _ = RefreshPermissionAsync(channel, peerPermission, request.GetString()!, mode.GetString()!);
+                _ = RefreshPermissionAsync(channel, peerPermission, permissionRequest.GetString()!, mode.GetString()!);
             return true;
         }
         // Media fallback does not change the acknowledged command protocol.
