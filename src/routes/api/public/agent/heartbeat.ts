@@ -51,6 +51,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           encode?: {
             jpeg_ms?: number | null;
             vp8_ms?: number | null;
+            h264_ms?: number | null;
             cpu_pct?: number | null;
             ws_mb?: number | null;
             peak_width?: number;
@@ -153,10 +154,9 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         }
 
         // S17 step 1 — measured encode cost. This is the fleet-wide answer to
-        // "is software VP8 the wall?", so it must survive the heartbeat rather
-        // than living only in one technician's agent log. Numbers are clamped
-        // and non-finite values dropped: a malformed payload must not poison
-        // the row. Null stays null — "not measured" is not "zero".
+        // "which encode stage is the wall?", so it must survive the heartbeat
+        // rather than living only in one technician's agent log. Numbers are
+        // clamped and non-finite values dropped; null means not measured.
         if (body.encode && typeof body.encode === "object") {
           const en = body.encode;
           const num = (v: unknown, max: number): number | null =>
@@ -166,6 +166,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             encode: {
               jpeg_ms: num(en.jpeg_ms, 100_000),
               vp8_ms: num(en.vp8_ms, 100_000),
+              h264_ms: num(en.h264_ms, 100_000),
               cpu_pct: num(en.cpu_pct, 10_000),
               ws_mb: num(en.ws_mb, 1_000_000),
               peak_width: num(en.peak_width, 32_768) ?? 0,

@@ -34,10 +34,12 @@ const PHASE_TEXT: Record<UnlockState["phase"], string> = {
  * auto-resumes after reconnect, and only reports success when Windows does.
  */
 export function WindowsUnlockControls({
-  deviceId, sessionId, live, canUnlock, beforeStart,
+  deviceId, sessionId, live, canUnlock, beforeStart, onActivityChange,
 }: {
   deviceId: string; sessionId: string; live: WebRtcLive | null; canUnlock: boolean;
   beforeStart: () => Promise<void>;
+  /** UI-only: reports local starting state plus the transport phase. */
+  onActivityChange?: (activity: { active: boolean; starting: boolean; phase: UnlockState["phase"] }) => void;
 }) {
   const ul = live as UnlockLive | null;
   const [status, setStatus] = useState<UnlockDevice | null>(null);
@@ -113,6 +115,12 @@ export function WindowsUnlockControls({
   const phase = unlock.phase;
   const active = starting || phase === "starting" || phase === "ready" || phase === "submitted";
   const connected = channel === "connected";
+  const activityRef = useRef(onActivityChange);
+  activityRef.current = onActivityChange;
+  useEffect(() => {
+    activityRef.current?.({ active, starting, phase });
+  }, [active, starting, phase]);
+  useEffect(() => () => activityRef.current?.({ active: false, starting: false, phase: "idle" }), []);
 
   let blocker: string | null = null;
   if (!canUnlock) blocker = "Your account does not have permission to unlock this device.";

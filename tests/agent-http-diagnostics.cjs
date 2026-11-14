@@ -3,6 +3,22 @@ const fs = require("node:fs");
 const { test } = require("node:test");
 const { diagnosticsFixture, routeFixture } = require("./helpers/agent-http.cjs");
 
+test("heartbeat keeps H264 measurements distinct and bounds invalid values", async () => {
+  for (const [value, expected] of [[12.5, 12.5], [200000, 100000], [-1, null], ["bad", null], [undefined, null]]) {
+    const f = routeFixture("heartbeat");
+    const response = await f.call({
+      runtime: { instance: "22222222-2222-4222-8222-222222222222", sequence: 1, heartbeat_seconds: 5 },
+      encode: { jpeg_ms: 3, vp8_ms: 7, h264_ms: value },
+    });
+    assert.equal(response.status, 200);
+    const metrics = f.writes.find(w => w.values.metadata?.encode)?.values.metadata.encode;
+    assert.ok(metrics);
+    assert.equal(metrics.h264_ms, expected);
+    assert.equal(metrics.vp8_ms, 7);
+    assert.equal(metrics.jpeg_ms, 3);
+  }
+});
+
 test("frame records bounded metadata and correlation, not payloads, identities or credentials", async () => {
   const f = routeFixture("frame");
   const response = await f.call();

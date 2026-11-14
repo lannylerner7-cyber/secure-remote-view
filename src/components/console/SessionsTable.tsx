@@ -3,8 +3,9 @@ import type { Device, Session } from "@/lib/console-types";
 export function SessionsTable({
   sessions,
   devices,
+  canMutate,
   onLive,
-  onToggleControl,
+  onControlTools,
   onReconnect,
   onEnd,
   onDelete,
@@ -12,8 +13,9 @@ export function SessionsTable({
 }: {
   sessions: Session[];
   devices: Device[];
+  canMutate: boolean;
   onLive: (s: Session) => void;
-  onToggleControl: (s: Session) => void;
+  onControlTools: (s: Session) => void;
   onReconnect: (s: Session) => void;
   onEnd: (s: Session) => void;
   onDelete: (s: Session) => void;
@@ -90,19 +92,24 @@ export function SessionsTable({
                         <button
                           onClick={() => onReconnect(s)}
                           className="rounded bg-amber-500/80 px-2 py-1 text-xs font-medium text-white hover:bg-amber-500"
+                          title="Reconnect only this viewer. Does not restart the Agent or resume control."
                         >
-                          Reconnect
+                          Reconnect viewer
                         </button>
                       )}
                       <button
-                        onClick={() => onToggleControl(s)}
-                        className="rounded bg-white/10 px-2 py-1 text-xs"
+                        onClick={() => onControlTools(s)}
+                        disabled={!canMutate}
+                        title={canMutate ? "Open the Control tool. No remote action starts automatically." : "Read-only accounts cannot operate remote controls."}
+                        className="rounded bg-white/10 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {s.mode === "control" ? "Resume" : "Pause"}
+                        Control tools
                       </button>
                       <button
                         onClick={() => onEnd(s)}
-                        className="rounded bg-red-500/70 px-2 py-1 text-xs"
+                        disabled={!canMutate}
+                        title={canMutate ? "End this remote session" : "Read-only accounts cannot end sessions."}
+                        className="rounded bg-red-500/70 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         End
                       </button>
@@ -110,7 +117,9 @@ export function SessionsTable({
                   )}
                   <button
                     onClick={() => onDelete(s)}
-                    className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-red-500/20"
+                    disabled={!canMutate}
+                    title={canMutate ? "Delete this session record" : "Read-only accounts cannot delete sessions."}
+                    className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Delete
                   </button>

@@ -71,6 +71,10 @@ import { requestAgentRelaunch } from "@/lib/agent-lifecycle.functions";
 import { devicePresence, deviceRuntime, runtimeDescription, type AgentRuntime, type RelaunchCommand } from "@/shared/agent-lifecycle";
 import type { CurtainState } from "@/lib/browser-curtain";
 import { takeControlAndCurtain, releaseControlAndCurtain, type ControlStage } from "@/lib/control-curtain";
+import { EMPTY_INPUT_PAUSE, type InputPauseState } from "@/lib/browser-input-pause";
+import { SessionToolNav } from "@/components/console/SessionToolNav";
+import { SessionStatusStrip } from "@/components/console/SessionStatusStrip";
+import { inputIndicator, type SessionToolId } from "@/components/console/session-tools";
 
 
 export const Route = createFileRoute("/_authenticated/console")({
@@ -109,11 +113,15 @@ function AdminPage() {
   const relaunchAgent = useServerFn(requestAgentRelaunch);
   const fetchRole = useServerFn(getMyRole);
   const [role, setRole] = useState<AppRole | null>(null);
+  // Fail closed: only resolved staff roles that may operate devices.
+  const canMutate = role === "super_admin" || role === "admin" || role === "technician";
   const liveSurfaceRef = useRef<HTMLDivElement | null>(null);
   const rtcRef = useRef<ResilientWebRtcLive | null>(null);
   const [mediaRecovery, setMediaRecovery] = useState<RecoveryStatus | null>(null);
   /** S21 — true while the reliable `files` DataChannel is open. */
   const [filesReady, setFilesReady] = useState(false);
+  const fileTransfersRef = useRef(new Set<string>());
+  const [fileTransferActive, setFileTransferActive] = useState(false);
   /** S22 — true while the `clip` DataChannel is open. */
   const [clipReady, setClipReady] = useState(false);
   /** S24 — true while a local recording of the live track is running. */
@@ -177,7 +185,13 @@ function AdminPage() {
   const [curtain, setCurtain] = useState<CurtainState>({ supported: false, active: null, pending: false, reason: null });
   const [windowsUnlock, setWindowsUnlock] = useState<UnlockState>({ ...EMPTY_UNLOCK });
   const [unlockSettings, setUnlockSettings] = useState<Device | null>(null);
-  const unlockActive = ["starting", "ready", "submitted"].includes(windowsUnlock.phase);
+  const [unlockUiBusy, setUnlockUiBusy] = useState(false);
+  const unlockActive = ["starting", "ready", "submitted"].includes(windowsUnlock.phase) || unlockUiBusy;
+  const [inputPause, setInputPause] = useState<InputPauseState>({ ...EMPTY_INPUT_PAUSE });
+  const [inputPauseBusy, setInputPauseBusy] = useState(false);
+  const inputPauseOpRef = useRef<AbortController | null>(null);
+  const [tool, setTool] = useState<SessionToolId>("screen");
+  const requestedSessionToolRef = useRef<{ sessionId: string; tool: SessionToolId } | null>(null);
   const [controlStage, setControlStage] = useState<ControlStage>("idle");
   const [controlNotice, setControlNotice] = useState<string | null>(null);
   const controlOperationRef = useRef<{
@@ -186,15 +200,22 @@ function AdminPage() {
   const modeWriteRef = useRef(0);
   const refreshCoordinator = useRef<ReturnType<typeof createCoalescedRefresh> | null>(null);
   const controlGranted = currentLiveSession?.mode === "control" && agentMode === "control" &&
-    role !== null && role !== "viewer" && liveAuthorization.grant?.capabilities.control === true;
+    canMutate && liveAuthorization.grant?.capabilities.control === true;
+  useEffect(() => {
+    if (!controlGranted || unlockActive) {
+      inputPauseOpRef.current?.abort(new Error("The current control permission or sign-in state changed."));
+    }
+  }, [controlGranted, unlockActive]);
   const [viewerAttempt, setViewerAttempt] = useState(0);
   const [viewerPaused, setViewerPaused] = useState(false);
   const controlContextRef = useRef({
-    sessionId: activeLiveId, authorizationId: currentLiveSession?.authorization_id ?? null, allowed: false,
+    sessionId: activeLiveId, authorizationId: currentLiveSession?.authorization_id ?? null,
+    allowed: false, canOperate: false,
   });
   controlContextRef.current = {
     sessionId: activeLiveId, authorizationId: currentLiveSession?.authorization_id ?? null,
-    allowed: role !== null && role !== "viewer" &&
+    canOperate: canMutate && !viewerPaused,
+    allowed: canMutate &&
       liveAuthorization.grant?.capabilities.control === true && !viewerPaused,
   };
   useEffect(() => {
@@ -214,7 +235,6 @@ function AdminPage() {
   const viewerStartedAtRef = useRef(0);
   const lastInputNoticeRef = useRef(0);
   const [monitorSwitching, setMonitorSwitching] = useState(false);
-  const [filesOpen, setFilesOpen] = useState(false);
   const [liveFrame, setLiveFrame] = useState<LiveFrame | null>(null);
   const fpsCounterRef = useRef({ count: 0, lastReset: Date.now(), fps: 0 });
   const lastRealtimePushAtRef = useRef<number>(0);
@@ -228,7 +248,10 @@ function AdminPage() {
   const controlChannelReady = controlGranted && rtcState === "connected";
   const controlActionPending = ["requesting-control", "waiting-agent", "applying-curtain", "releasing"].includes(controlStage);
   // Do not inject input before the local curtain is actually confirmed.
-  const controlReady = controlChannelReady && (!controlWithCurtain || curtain.active === true) &&
+  // Remote input is open only while the Agent confirms it (or the Agent has
+  // explicitly reported no pause support). Pending/unknown/paused stop senders.
+  const inputGateOpen = inputPause.phase === "active" || inputPause.phase === "unsupported";
+  const controlReady = controlChannelReady && inputGateOpen && (!controlWithCurtain || curtain.active === true) &&
     !unlockActive && !curtain.pending && !controlActionPending && controlStage !== "error";
   const controlBlockedReason = !activeLiveId ? "The Agent must accept an active session first." :
     role === null || role === "viewer" ? "Your account cannot take control." :
@@ -260,12 +283,18 @@ function AdminPage() {
   const videoSourceSize = useVideoSourceSize(viewerVideo, liveId);
   const [viewerScaleMode, setViewerScaleMode] = useState<ViewerScaleMode>("fit");
   const [railCollapsed, setRailCollapsed] = useState(false);
+  // Active secure sign-in must keep its controls visible until cancelled.
+  useEffect(() => {
+    if (unlockActive) { setRailCollapsed(false); setTool("signin"); }
+  }, [unlockActive]);
   const [pairingOpen, setPairingOpen] = useState(false);
   const revokeAccess = useServerFn(revokeManagedDeviceAccess);
   const [revokingAccess, setRevokingAccess] = useState(false);
   useEffect(() => {
     setViewerScaleMode("fit");
-    setFilesOpen(false);
+    const requested = requestedSessionToolRef.current;
+    setTool(requested?.sessionId === liveId ? requested.tool : "screen");
+    requestedSessionToolRef.current = null;
     setLiveFrame(null);
   }, [liveId]);
   const videoDecodingRef = useRef(false);
@@ -501,6 +530,10 @@ function AdminPage() {
     const offCurtain = live.onCurtain(state => {
       if (rtcRef.current === live) setCurtain(state);
     });
+    setInputPause(live.inputPause());
+    const offInputPause = live.onInputPause(state => {
+      if (rtcRef.current === live) setInputPause(state);
+    });
     const offUnlock = live.onUnlock(state => {
       if (rtcRef.current !== live) return;
       setWindowsUnlock(old => old.phase === state.phase && old.requestId === state.requestId &&
@@ -518,6 +551,9 @@ function AdminPage() {
     let toastId: string | number | undefined;
     const offFile = live.onFile((ev) => {
       if (rtcRef.current !== live) return;
+      if (ev.kind === "begin" || ev.kind === "progress") fileTransfersRef.current.add(ev.name);
+      else fileTransfersRef.current.delete(ev.name);
+      setFileTransferActive(fileTransfersRef.current.size > 0);
       if (ev.kind === "begin") {
         toastId = toast.loading(`Receiving ${ev.name}…`);
       } else if (ev.kind === "complete") {
@@ -571,6 +607,11 @@ function AdminPage() {
       offMode();
       offCurtain();
       offUnlock();
+      offInputPause();
+      inputPauseOpRef.current?.abort(new Error("The viewer was closed or replaced."));
+      inputPauseOpRef.current = null;
+      setInputPauseBusy(false);
+      setInputPause({ ...EMPTY_INPUT_PAUSE });
       setCurtain({ supported: false, active: null, pending: false, reason: null });
       window.clearInterval(filesTick);
       if (rtcRef.current === live) rtcRef.current = null;
@@ -578,6 +619,8 @@ function AdminPage() {
       setMediaRecovery(null);
       setRtcState("idle");
       setFilesReady(false);
+      fileTransfersRef.current.clear();
+      setFileTransferActive(false);
       setClipReady(false);
       setRecording(false);
       live.close();
@@ -806,9 +849,8 @@ function AdminPage() {
     };
   }, []);
   useEffect(() => {
-    if ((!controlReady || viewerPaused) && document.pointerLockElement === liveSurfaceRef.current)
-      document.exitPointerLock();
-  }, [controlReady, viewerPaused]);
+    if (!controlReady || viewerPaused) clearQueuedInput();
+  }, [controlReady, viewerPaused, inputPause.phase, inputPause.epoch]);
   const inputWasReadyRef = useRef(false);
   useEffect(() => {
     const ready = role !== null && role !== "viewer" && controlReady && !viewerPaused;
@@ -996,6 +1038,8 @@ function AdminPage() {
   }
 
   async function endSession(s: Session) {
+    if (!canMutate) { toast.error("This account cannot end sessions."); return false; }
+    if (rtcRef.current?.sessionId === s.id) rtcRef.current.cancelUnlock();
     await sendInput(s.id, "release_inputs", {});
     await sendInput(s.id, "curtain_off", {});
     const { data: ended, error } = await supabase
@@ -1026,6 +1070,7 @@ function AdminPage() {
   }
 
   async function deleteSession(s: Session) {
+    if (!canMutate) { toast.error("This account cannot delete sessions."); return; }
     if (!confirm("Delete this session permanently?")) return;
     const { error } = await supabase.from("sessions").delete().eq("id", s.id);
     if (error) alert(error.message);
@@ -1203,14 +1248,29 @@ function AdminPage() {
   // Coordinates are normalized (0..1) relative to the rendered surface.
   async function sendInput(sessionId: string, kind: string, payload: Record<string, unknown>) {
     const live = rtcRef.current;
+    const current = controlContextRef.current;
+    const sameScope = current.sessionId === sessionId &&
+      current.authorizationId === (currentLiveSession?.authorization_id ?? null);
     const secure = live?.unlockState();
     if (live?.sensitiveInput() || (secure && ["starting", "ready", "submitted"].includes(secure.phase))) {
-      if (live?.sessionId === sessionId && role !== null && role !== "viewer" && !viewerPaused &&
-          secure?.phase === "ready") live.sendUnlockInput(kind, payload);
+      if (sameScope && current.canOperate && live?.sessionId === sessionId && !viewerPaused &&
+          secure?.phase === "ready" && windowsUnlock.phase === "ready" &&
+          windowsUnlock.requestId === secure.requestId) live.sendUnlockInput(kind, payload);
       return; // Sensitive input must NEVER enter the REST queue or be replayed.
     }
     const cleanup = kind === "release_inputs" || kind === "curtain_off";
-    if (!cleanup && (live?.sessionId !== sessionId || role === "viewer" || !controlReady || viewerPaused)) return;
+    if (!cleanup && (!sameScope || !current.allowed || live?.sessionId !== sessionId ||
+        !controlReady || viewerPaused)) return;
+    if (!cleanup) {
+      // Epoch captured by this render's closure. Delayed/coalesced work from an
+      // older render must never pick up a fresh epoch after resume.
+      const capturedEpoch = inputPause.epoch;
+      if (!live || !live.inputAllowed()) return;
+      if (inputPause.supported) {
+        if (!capturedEpoch || capturedEpoch !== live.inputPause().epoch) return;
+        payload = { ...payload, input_epoch: capturedEpoch };
+      }
+    }
     const target = sessions.find(session => session.id === sessionId);
     const sentRealtime = live?.sessionId === sessionId && live.sendInput({ kind, payload });
     if (sentRealtime) return;
@@ -1225,6 +1285,49 @@ function AdminPage() {
     await supabase
       .from("session_inputs")
       .insert({ session_id: sessionId, kind, payload: payload as never });
+  }
+
+  /** Drop coalesced moves, pointer-lock deltas and RAFs; release pointer capture. */
+  function clearQueuedInput() {
+    if (moveRafRef.current !== null) cancelAnimationFrame(moveRafRef.current);
+    moveRafRef.current = null;
+    pendingMoveRef.current = null;
+    pointerLockRelRef.current = { dx: 0, dy: 0 };
+    mouseButtonDownRef.current = false;
+    if (liveSurfaceRef.current && document.pointerLockElement === liveSurfaceRef.current)
+      document.exitPointerLock();
+  }
+
+  /** Remote-input pause: a restriction of the current grant, confirmed only by
+   * the Agent. Never toggles the curtain and never grants control. */
+  async function setRemoteInputPaused(s: Session, paused: boolean) {
+    const live = rtcRef.current;
+    if (!live || live.sessionId !== s.id) { toast.error("The Agent command channel is unavailable."); return; }
+    const context = controlContextRef.current;
+    if (!context.allowed || context.sessionId !== s.id || context.authorizationId !== s.authorization_id ||
+        !controlGranted || unlockActive) {
+      toast.error("Current control permission is required. Windows sign-in must be inactive.");
+      return;
+    }
+    if (inputPauseOpRef.current) return;
+    if (paused) clearQueuedInput();
+    if (!paused && controlWithCurtain && curtain.active !== true) {
+      toast.error("The privacy curtain is not confirmed. Release control, then take control + curtain again.");
+      return;
+    }
+    const op = new AbortController();
+    inputPauseOpRef.current = op;
+    setInputPauseBusy(true);
+    try {
+      await live.setInputPaused(paused, op.signal);
+      if (rtcRef.current === live)
+        toast.success(paused ? "Agent confirmed remote input is paused. Video stays live." : "Agent confirmed remote input resumed.");
+    } catch (error) {
+      if (rtcRef.current === live)
+        toast.error(error instanceof Error ? error.message : "Input state could not be confirmed.");
+    } finally {
+      if (inputPauseOpRef.current === op) { inputPauseOpRef.current = null; setInputPauseBusy(false); }
+    }
   }
 
   // Pointer moves are coalesced to one flush per animation frame (~16ms), and
@@ -1461,8 +1564,6 @@ function AdminPage() {
   const activeSessions = sessions.filter((s) => s.state === "active" || s.state === "paused");
   const pendingSessions = sessions.filter((s) => s.state === "invited");
 
-  // Fail closed: only resolved staff roles that may operate devices.
-  const canMutate = role === "super_admin" || role === "admin" || role === "technician";
   const isAdmin = role === "super_admin" || role === "admin";
   const railItems: { id: Nav; label: string; icon: typeof MonitorIcon; badge?: number }[] = [
     { id: "devices", label: "Access", icon: MonitorIcon, badge: onlineCount },
@@ -1683,8 +1784,17 @@ function AdminPage() {
               <SessionsTable
                 sessions={sessions}
                 devices={devices}
+                canMutate={canMutate}
                 onLive={(s) => setLiveId(s.id)}
-                onToggleControl={toggleControl}
+                onControlTools={(s) => {
+                  if (!canMutate) return;
+                  requestedSessionToolRef.current = { sessionId: s.id, tool: "control" };
+                  setRailCollapsed(false);
+                  if (liveId === s.id) {
+                    setTool("control");
+                    requestedSessionToolRef.current = null;
+                  } else setLiveId(s.id);
+                }}
                 onReconnect={requestReconnect}
                 onEnd={endSession}
                 onDelete={deleteSession}
@@ -1815,6 +1925,31 @@ function AdminPage() {
           // Candidate type turns the LAN-vs-cross-network test into a direct
           // read: host = LAN, srflx = NAT-traversed direct path.
           const iceKind = rtcState === "connected" ? rtcRef.current?.candidateType?.() ?? null : null;
+          const userPausedControl = s.mode === "control" && ["pausing", "paused", "resuming"].includes(inputPause.phase);
+          const inputState = inputIndicator({ pause: inputPause, sessionMode: s.mode, controlReady,
+            secureSignIn: unlockActive, viewerPaused });
+          const pauseEligible = inputPause.supported && s.mode === "control" && agentMode === "control" &&
+            controlGranted && rtcState === "connected" && !controlActionPending && !unlockActive && !viewerPaused;
+          const pauseBlockedReason = rtcState !== "connected" ? "The command channel is disconnected. Input stays blocked; reconnect, then release and take control." :
+            controlActionPending ? "A control operation is in progress." :
+            unlockActive ? "Windows sign-in is active." :
+            inputPause.phase === "unknown" ? "Input state is unconfirmed. Release control, then take control again." :
+            inputPause.phase === "paused" && controlWithCurtain && curtain.active !== true ?
+              "The privacy curtain is not confirmed. Release control, then take control + curtain again; resume will not bypass the curtain." : null;
+          const selectTool = (next: SessionToolId) => {
+            if (tool === "signin" && next !== "signin" && unlockActive) {
+              toast.error("Cancel Windows sign-in before leaving its controls.");
+              return;
+            }
+            setTool(next);
+          };
+          const panelProps = (id: SessionToolId) => ({
+            id: `session-tool-panel-${id}`, role: "tabpanel" as const,
+            "aria-labelledby": `session-tool-tab-${id}`, hidden: tool !== id,
+            "data-testid": `panel-session-tool-${id}`,
+            className: "flex flex-col gap-1.5",
+            style: tool === id ? undefined : { display: "none" },
+          });
           const actionButtonClass = "border-white/15 bg-transparent text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-50";
           // S16 — a deployment with no TURN relay cannot traverse symmetric NAT,
           // so the session sits on JPEG frames forever. Name it in the pill
@@ -1880,16 +2015,18 @@ function AdminPage() {
                       {transportLabel}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       data-testid="button-toggle-rail"
                       aria-expanded={!railCollapsed}
                       aria-controls="viewer-action-rail"
+                      disabled={unlockActive && !railCollapsed}
+                      title={unlockActive ? "Cancel Windows sign-in before hiding its controls" : undefined}
                       onClick={() => setRailCollapsed((v) => !v)}
-                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                      className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5 disabled:opacity-50"
                     >
-                      {railCollapsed ? "Show actions" : "Hide actions"}
+                      {railCollapsed ? "Show tools" : "Hide tools"}
                     </button>
                     <button
                       onClick={() => {
@@ -1904,14 +2041,40 @@ function AdminPage() {
                     >
                       {viewerFullscreen ? "Exit fullscreen" : "Fullscreen"}
                     </button>
+                    {canMutate && (
+                      <button
+                        type="button"
+                        data-testid="button-end-session"
+                        onClick={() => void endSession(s)}
+                        title="Ends the remote session for this device. Close viewer only closes this window."
+                        className="rounded bg-red-500/85 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
+                      >
+                        End session
+                      </button>
+                    )}
                     <button
-                      onClick={() => setLiveId(null)}
+                      type="button"
+                      data-testid="button-close-viewer"
+                      onClick={() => {
+                        // Request secure-helper cancellation while its channel
+                        // is still open, before its controls leave the screen.
+                        rtcRef.current?.cancelUnlock();
+                        setLiveId(null);
+                      }}
+                      title="Close this viewer. The session keeps running until it is ended."
                       className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
                     >
-                        Close viewer
+                      Close viewer
                     </button>
                   </div>
                 </div>
+                <SessionStatusStrip
+                  input={inputState}
+                  curtain={controlWithCurtain && curtain.supported ? (curtain.pending ? "Curtain pending" : curtain.active === true ? "Curtain on" : curtain.active === null ? "Curtain unconfirmed" : null) : null}
+                  recording={recording}
+                  transfer={fileTransferActive}
+                  connection={{ ok: rtcState === "connected", label: rtcState === "connected" ? "Channel connected" : `Channel ${rtcState}` }}
+                />
                 {s.media_mode === "legacy" && dev?.platform === "windows" &&
                   (dev.metadata as Record<string, unknown> | null)?.browser_video === 1 && (
                   <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="jpeg-diagnostic-status" role="status">
@@ -1941,15 +2104,31 @@ function AdminPage() {
                   </div>
                 )}
                 <div className="flex shrink-0 flex-col md:min-h-0 md:flex-1 md:flex-row">
-                  {!railCollapsed && (
-                    <nav
-                      id="viewer-action-rail"
-                      aria-label="Session actions"
-                      className="flex shrink-0 flex-row flex-wrap gap-1.5 border-b border-white/10 bg-[#0B1220] p-2 md:w-48 md:flex-col md:flex-nowrap md:overflow-y-auto md:border-b-0 md:border-r [&_button]:text-left md:[&>button]:w-full"
-                    >
-                      <div className="hidden px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40 md:block">
-                        Session actions
-                      </div>
+                  <aside
+                    id="viewer-action-rail"
+                    aria-label="Session tools"
+                    hidden={railCollapsed}
+                    style={railCollapsed ? { display: "none" } : undefined}
+                    className="order-2 flex shrink-0 flex-col gap-2 border-t border-white/10 bg-[#0B1220] p-2 md:order-none md:w-60 md:overflow-y-auto md:border-r md:border-t-0"
+                  >
+                    <div className="hidden px-1 text-[10px] font-semibold uppercase tracking-wider text-white/40 md:block">Session tools</div>
+                    <SessionToolNav
+                      value={tool}
+                      onChange={selectTool}
+                      busy={{
+                        files: fileTransferActive ? "active" : undefined,
+                        control: inputPause.phase === "paused" && s.mode === "control" ? "paused" : s.mode === "control" ? "on" : undefined,
+                        recording: recording ? "rec" : undefined,
+                        signin: unlockActive ? "active" : undefined,
+                      }}
+                      unavailable={{
+                        files: !liveAuthorization.grant?.capabilities.files || role === "viewer" ? "File exchange is not authorized." : undefined,
+                        clipboard: !liveAuthorization.grant?.capabilities.clipboard ? "Clipboard is not authorized." : undefined,
+                        signin: dev?.platform !== "windows" ? "Windows only." : undefined,
+                      }}
+                    />
+                    <div className="border-t border-white/10 pt-2 [&_button]:text-left md:[&_button]:w-full">
+                      <section {...panelProps("screen")}>
                     {s.device_id && role !== "viewer" && (
                       <MonitorPicker
                         device={dev}
@@ -1972,18 +2151,24 @@ function AdminPage() {
                         Reconnect viewer
                       </button>
                     )}
-                    {s.media_mode === "video" && s.device_id && canMutate && (
-                      <button
-                        type="button"
-                        data-testid="button-jpeg-diagnostic"
-                        onClick={() => void diagnoseWithJpeg(s)}
-                        disabled={jpegDiagnosticStarting || !["invited", "consented", "active", "paused"].includes(s.state)}
-                        className="rounded border border-amber-400/30 bg-amber-400/5 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-400/10 disabled:opacity-50"
-                        title="Confirm replacement with a new view-only session using video and automatic JPEG fallback; existing permissions still apply"
-                      >
-                        {jpegDiagnosticStarting ? "Enabling fallback…" : "Enable JPEG fallback"}
-                      </button>
-                    )}
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      className={actionButtonClass}
+                      disabled={!viewerPaused && !videoDecoding}
+                      title="Pauses playback here only. End session to stop the remote session."
+                      onClick={() => {
+                        if (!viewerVideo) return;
+                        if (!viewerPaused) { viewerVideo.pause(); setViewerPaused(true); }
+                        else if (!viewerVideo.srcObject) setViewerPaused(false);
+                        else void viewerVideo.play().then(() => setViewerPaused(false))
+                          .catch(() => toast.error("Playback could not resume. Reconnect the viewer."));
+                      }}
+                    >
+                      {viewerPaused ? "Resume viewer" : "Pause viewer"}
+                    </Button>
+                        <p className="px-1 text-[10px] leading-relaxed text-white/50">Fit and 1:1 are under the screen. Pause viewer stops playback here only; it does not pause remote input.</p>
+                      </section>
+                      <section {...panelProps("control")}>
                     {s.device_id && role !== "viewer" && (
                       <button
                         type="button"
@@ -2016,6 +2201,37 @@ function AdminPage() {
                               "Control is enabled only after the Agent acknowledges it. Windows curtain actions do not apply to Android.")}
                       </p>
                     )}
+                        {s.device_id && role !== "viewer" && (
+                          <div data-testid="panel-input-pause" className="space-y-1.5 rounded border border-white/10 p-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/45">Remote input</div>
+                            {inputPause.phase === "unsupported" ? (
+                              <p className="text-[10px] leading-relaxed text-white/55">This Agent cannot confirm an input pause. Use Release control to stop remote input.</p>
+                            ) : s.mode !== "control" ? (
+                              <p className="text-[10px] leading-relaxed text-white/55">View-only. Pause control is available after Take control is confirmed.</p>
+                            ) : (
+                              <>
+                                {(inputPause.phase === "paused" || inputPause.phase === "resuming") ? (
+                                  <Button type="button" size="sm" variant="outline" className={actionButtonClass}
+                                    data-testid="button-resume-control"
+                                    disabled={!pauseEligible || inputPauseBusy || inputPause.phase !== "paused" || (controlWithCurtain && curtain.active !== true)}
+                                    onClick={() => void setRemoteInputPaused(s, false)}>
+                                    {inputPause.phase === "resuming" ? "Resuming control..." : "Resume control"}
+                                  </Button>
+                                ) : (
+                                  <Button type="button" size="sm" variant="outline" className={actionButtonClass}
+                                    data-testid="button-pause-control"
+                                    disabled={!pauseEligible || inputPauseBusy || inputPause.phase !== "active"}
+                                    onClick={() => void setRemoteInputPaused(s, true)}>
+                                    {inputPause.phase === "pausing" ? "Pausing control..." : "Pause control"}
+                                  </Button>
+                                )}
+                                <p aria-live="polite" data-testid="text-input-pause" className="text-[10px] leading-relaxed text-white/55">
+                                  {pauseBlockedReason ?? inputState.detail}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        )}
                     {s.device_id && control && (
                       <button
                         onClick={async () => {
@@ -2043,49 +2259,6 @@ function AdminPage() {
                         {pointerLocked ? "Captured · Esc / F8" : "Capture pointer"}
                       </button>
                     )}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={actionButtonClass}
-                      disabled={!clipReady || !liveAuthorization.grant?.capabilities.clipboard}
-                      title={!liveAuthorization.grant?.capabilities.clipboard ? "Clipboard was not included in this authorization." : "Requires the live clipboard channel."}
-                      onClick={() => void pushClipboard()}
-                    >
-                      Send clipboard
-                    </Button>
-                    <Button type="button" size="sm" variant="outline"
-                      className={actionButtonClass}
-                      disabled={!liveAuthorization.grant?.capabilities.files || role === "viewer"}
-                      title={!liveAuthorization.grant?.capabilities.files ? "File exchange was not included in this authorization." : "Open session files"}
-                      onClick={() => setFilesOpen(value => !value)}>
-                      {filesOpen ? "Hide files" : "Files"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={recording ? "destructive" : "outline"}
-                      className={recording ? undefined : actionButtonClass}
-                      disabled={recordingActionPending || (!recording && (!videoDecoding || !liveAuthorization.grant?.capabilities.recording))}
-                      onClick={() => void toggleRecording(s.id)}
-                    >
-                      {recordingActionPending ? (recording ? "Saving…" : "Starting…") : recording ? "Stop recording" : "Record session"}
-                    </Button>
-                    <Button
-                      type="button" size="sm" variant="outline"
-                      className={actionButtonClass}
-                      disabled={!viewerPaused && !videoDecoding}
-                      title="Pauses playback here only. End sharing to stop the remote session."
-                      onClick={() => {
-                        if (!viewerVideo) return;
-                        if (!viewerPaused) { viewerVideo.pause(); setViewerPaused(true); }
-                        else if (!viewerVideo.srcObject) setViewerPaused(false);
-                        else void viewerVideo.play().then(() => setViewerPaused(false))
-                          .catch(() => toast.error("Playback could not resume. Reconnect the viewer."));
-                      }}
-                    >
-                      {viewerPaused ? "Resume viewer" : "Pause viewer"}
-                    </Button>
                     <Button type="button" size="sm" variant={curtain.active ? "destructive" : "outline"}
                       className={curtain.active ? undefined : actionButtonClass}
                       disabled={!curtain.supported || controlActionPending || (curtain.active === false && !controlChannelReady)}
@@ -2113,10 +2286,118 @@ function AdminPage() {
                         curtain.reason ? `Curtain: ${curtain.reason.replaceAll("_", " ")}. No automatic reactivation.` : "Curtain is off until explicitly enabled."}
                       {" "}Ordinary control does not unlock the Windows sign-in screen; use the separate unlock controls when configured.
                     </p>
+                        {s.device_id && control && <p className="px-1 text-[10px] leading-relaxed text-white/50">Keyboard, trackpad and the typing tunnel appear under the screen while this tool is open.</p>}
+                      </section>
+                      <section {...panelProps("files")}>
+                        {liveAuthorization.grant?.capabilities.files && role !== "viewer" ? (
+                          <p className="px-1 text-[10px] leading-relaxed text-white/55">Transfers appear under the screen and continue if you switch tools. {filesReady ? "Direct files channel is open." : "Using the archive path."}</p>
+                        ) : (
+                          <p className="px-1 text-[10px] leading-relaxed text-white/55">File exchange was not included in this authorization.</p>
+                        )}
+                      </section>
+                      <section {...panelProps("clipboard")}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className={actionButtonClass}
+                      disabled={!clipReady || !liveAuthorization.grant?.capabilities.clipboard}
+                      title={!liveAuthorization.grant?.capabilities.clipboard ? "Clipboard was not included in this authorization." : "Requires the live clipboard channel."}
+                      onClick={() => void pushClipboard()}
+                    >
+                      Send clipboard
+                    </Button>
+                        <p className="px-1 text-[10px] leading-relaxed text-white/55">{clipReady ? "Clipboard channel ready. Sending queues text; remote application is not confirmed." : "Clipboard channel offline."} Remote clipboard text is copied here when it arrives.</p>
+                      </section>
+                      <section {...panelProps("recording")}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={recording ? "destructive" : "outline"}
+                      className={recording ? undefined : actionButtonClass}
+                      disabled={recordingActionPending || (!recording && (!videoDecoding || !liveAuthorization.grant?.capabilities.recording))}
+                      onClick={() => void toggleRecording(s.id)}
+                    >
+                      {recordingActionPending ? (recording ? "Saving…" : "Starting…") : recording ? "Stop recording" : "Record session"}
+                    </Button>
+                        <p className="px-1 text-[10px] leading-relaxed text-white/55">Records this browser's decoded video locally. Switching tools does not stop it. Windows sign-in stops recording first.</p>
+                      </section>
+                      <section {...panelProps("health")}>
+                        <p className="px-1 font-mono text-[10px] text-white/60">{transportLabel}</p>
+                    {s.device_id && role !== "viewer" && (
+
+                      <button
+                        onClick={() => {
+                          setLiveFrame(null);
+                          setLiveCursor(null);
+                          void restartStream(s);
+                        }}
+                        className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                        disabled={!active}
+                        title="Reconnect this browser's video peer without changing device authorization or waking a stopped Agent"
+                      >
+                        Reconnect viewer
+                      </button>
+                    )}
+                    {s.media_mode === "video" && s.device_id && canMutate && (
+                      <button
+                        type="button"
+                        data-testid="button-jpeg-diagnostic"
+                        onClick={() => void diagnoseWithJpeg(s)}
+                        disabled={jpegDiagnosticStarting || !["invited", "consented", "active", "paused"].includes(s.state)}
+                        className="rounded border border-amber-400/30 bg-amber-400/5 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-400/10 disabled:opacity-50"
+                        title="Confirm replacement with a new view-only session using video and automatic JPEG fallback; existing permissions still apply"
+                      >
+                        {jpegDiagnosticStarting ? "Enabling fallback…" : "Enable JPEG fallback"}
+                      </button>
+                    )}
                     {liveAuthorization.error && <p role="alert" className="px-1 text-xs text-amber-200">{liveAuthorization.error}</p>}
                     <LiveConnectionDiagnostics
                       live={rtcRef.current?.sessionId === s.id ? rtcRef.current : null}
                       agentVersion={(dev?.metadata as Record<string, unknown> | null)?.agent_version} />
+                      </section>
+                      <section {...panelProps("signin")}>
+                        {dev?.platform !== "windows" ? (
+                          <p className="px-1 text-[10px] leading-relaxed text-white/55">Windows sign-in is available only for Windows devices.</p>
+                        ) : userPausedControl ? (
+                          <p data-testid="text-signin-paused-interlock" className="px-1 text-[10px] leading-relaxed text-amber-100">Control is paused. Release control to view-only first, then start Windows sign-in explicitly.</p>
+                        ) : null}
+                    {dev?.platform === "windows" && s.device_id && (
+                      <WindowsUnlockControls key={`${s.id}:${s.device_id}`} deviceId={s.device_id} sessionId={s.id}
+                        live={rtcRef.current?.sessionId === s.id ? rtcRef.current : null}
+                        canUnlock={role !== null && role !== "viewer" && !viewerPaused &&
+                          liveAuthorization.grant?.mode === "unattended" &&
+                          liveAuthorization.grant?.capabilities.control === true && !userPausedControl}
+                        onActivityChange={activity => setUnlockUiBusy(activity.active)}
+                        beforeStart={async () => {
+                          const live = rtcRef.current;
+                          if (!live || live.sessionId !== s.id) throw new Error("The live session changed.");
+                          controlOperationRef.current?.controller.abort(new Error("Windows unlock requested."));
+                          if (moveRafRef.current !== null) cancelAnimationFrame(moveRafRef.current);
+                          moveRafRef.current = null; pendingMoveRef.current = null;
+                          pointerLockRelRef.current = { dx: 0, dy: 0 };
+                          if (document.pointerLockElement) document.exitPointerLock();
+                          setSharedNote("");
+                          if (live.recording()) {
+                            const result = await live.stopRecording();
+                            if (result) downloadRecording(s.id, result);
+                          }
+                          if (rtcRef.current !== live || live.sessionId !== s.id)
+                            throw new Error("The live session changed.");
+                          if (live.recording()) throw new Error("Recording has not stopped. Unlock is blocked.");
+                          const { data, error } = await supabase.from("sessions").update({ mode: "view" })
+                            .eq("id", s.id).eq("state", "active").select("id").maybeSingle();
+                          if (error || !data) throw new Error("View-only mode could not be confirmed.");
+                          setSessions(rows => rows.map(row => row.id === s.id ? { ...row, mode: "view" } : row));
+                          setAgentMode("view");
+                          setControlStage("idle");
+                          // The Agent releases this peer's curtain before secure
+                          // capture. Neither unlock nor reconnect re-enables it.
+                        }}
+                      />
+                    )}
+                      </section>
+                      <section {...panelProps("details")}>
                     <details className="max-w-xs rounded border border-white/10 px-3 py-1.5 text-xs">
                       <summary className="cursor-pointer">Device details</summary>
                       <dl className="mt-2 space-y-1 break-words text-white/60">
@@ -2125,14 +2406,6 @@ function AdminPage() {
                         <dt>Last check-in</dt><dd className="text-white">{dev?.last_seen_at ? new Date(dev.last_seen_at).toLocaleString() : "Never"}</dd>
                       </dl>
                     </details>
-                    {role !== "viewer" && (
-                      <button
-                        onClick={() => void endSession(s)}
-                        className="rounded bg-red-500/80 px-3 py-1.5 text-xs"
-                      >
-                        End sharing
-                      </button>
-                    )}
                     {s.device_id && role !== "viewer" && (
                       <button
                         disabled={revokingAccess}
@@ -2152,42 +2425,10 @@ function AdminPage() {
                         {revokingAccess ? "Revoking access…" : "Revoke device access"}
                       </button>
                     )}
-                    </nav>
-                  )}
+                      </section>
+                    </div>
+                  </aside>
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    {dev?.platform === "windows" && s.device_id && (
-                      <WindowsUnlockControls key={`${s.id}:${s.device_id}`} deviceId={s.device_id} sessionId={s.id}
-                        live={rtcRef.current?.sessionId === s.id ? rtcRef.current : null}
-                        canUnlock={role !== null && role !== "viewer" && !viewerPaused &&
-                          liveAuthorization.grant?.mode === "unattended" &&
-                          liveAuthorization.grant?.capabilities.control === true}
-                        beforeStart={async () => {
-                          const live = rtcRef.current;
-                          if (!live || live.sessionId !== s.id) throw new Error("The live session changed.");
-                          controlOperationRef.current?.controller.abort(new Error("Windows unlock requested."));
-                          if (moveRafRef.current !== null) cancelAnimationFrame(moveRafRef.current);
-                          moveRafRef.current = null; pendingMoveRef.current = null;
-                          pointerLockRelRef.current = { dx: 0, dy: 0 };
-                          if (document.pointerLockElement) document.exitPointerLock();
-                          setFilesOpen(false); setSharedNote("");
-                          if (live.recording()) {
-                            const result = await live.stopRecording();
-                            if (result) downloadRecording(s.id, result);
-                          }
-                          if (rtcRef.current !== live || live.sessionId !== s.id)
-                            throw new Error("The live session changed.");
-                          if (live.recording()) throw new Error("Recording has not stopped. Unlock is blocked.");
-                          const { data, error } = await supabase.from("sessions").update({ mode: "view" })
-                            .eq("id", s.id).eq("state", "active").select("id").maybeSingle();
-                          if (error || !data) throw new Error("View-only mode could not be confirmed.");
-                          setSessions(rows => rows.map(row => row.id === s.id ? { ...row, mode: "view" } : row));
-                          setAgentMode("view");
-                          setControlStage("idle");
-                          // The Agent releases this peer's curtain before secure
-                          // capture. Neither unlock nor reconnect re-enables it.
-                        }}
-                      />
-                    )}
                     <RemoteDisplayFrame
                       bounded
                       source={displaySource}
@@ -2380,7 +2621,7 @@ function AdminPage() {
                     )}
                   </div>
                     {control && s.device_id && (
-                      <details className="border-t border-white/10">
+                      <details className="border-t border-white/10" hidden={tool !== "control"}>
                         <summary className="cursor-pointer px-3 py-2 text-xs text-white/70">
                           Keyboard and trackpad
                         </summary>
@@ -2429,7 +2670,7 @@ function AdminPage() {
                     )}
                   </div>
                 </div>
-                {s.device_id && control && (
+                {s.device_id && control && tool === "control" && (
                   <div className="border-t border-white/10 bg-[#0B1220] px-5 py-3">
                     <label className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
                       Typing tunnel to remote PC
@@ -2468,7 +2709,7 @@ function AdminPage() {
                   </div>
                 )}
                 {s.device_id && role !== "viewer" && liveAuthorization.grant?.capabilities.files && (
-                  <div hidden={!filesOpen}>
+                  <div hidden={tool !== "files"}>
                     <SessionFilesPanel sessionId={s.id} getRtc={() => rtcRef.current?.sessionId === s.id ? rtcRef.current : null} />
                   </div>
                 )}

@@ -158,7 +158,7 @@ check('pair dialog remains real and accessible', () => {
 check('viewer and its action rail remain in the real console', () => {
   assert.match(route, /<RemoteDisplayFrame/);
   assert.match(route, /id="viewer-action-rail"/);
-  for (const label of ['Close viewer', 'Reconnect viewer', 'Send clipboard', 'Record session', 'Pause viewer', 'Privacy curtain', 'End sharing', 'Revoke device access'])
+  for (const label of ['Close viewer', 'Reconnect viewer', 'Send clipboard', 'Record session', 'Pause viewer', 'Privacy curtain', 'End session', 'Revoke device access'])
     assert(route.includes(label), label);
 });
 check('search and selection have accessible labels', () => {

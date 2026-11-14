@@ -119,6 +119,7 @@ const MAX_ATTEMPTS = 6;
 export type WebRtcState = "idle" | "connecting" | "connected" | "failed" | "superseded";
 import { createBrowserActions, type AgentMode } from "./browser-actions";
 import type { CurtainState } from "./browser-curtain";
+import type { InputPauseState } from "./browser-input-pause";
 
 /** Step 8 — progress/lifecycle events emitted by the `files` DataChannel. */
 export type FileTransferEvent =
@@ -150,6 +151,10 @@ export interface WebRtcLive {
   setPaused: (paused: boolean) => void;
 
   sendInput: (payload: unknown) => boolean;
+  inputPause: () => InputPauseState;
+  onInputPause: (callback: (value: InputPauseState) => void) => () => void;
+  setInputPaused: (paused: boolean, signal?: AbortSignal) => Promise<void>;
+  inputAllowed: () => boolean;
   peerId: () => string | null;
   unlockState: () => UnlockState;
   onUnlock: (callback: (value: UnlockState) => void) => () => void;
@@ -304,7 +309,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   const actions = createBrowserActions(sessionId, options.authorizationId ?? null, () => dc, active, () => {
     fail("network");
     try { dc?.close(); pc.close(); } catch {}
-  });
+  }, { peerId, controllerId: webClientId });
   let secureInputBlocked = false;
   let secureRecordingBlocked = false;
   dc.onmessage = event => actions.receive(event.data);
@@ -1139,7 +1144,13 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       if (value && actions.unlock.active()) actions.unlock.cancel();
     },
 
-    sendInput: payload => !secureInputBlocked && !actions.unlock.active() && actions.send(payload),
+    sendInput: payload => !secureInputBlocked && !actions.unlock.active() && actions.sendInput(payload),
+    inputPause: actions.inputPause.state,
+    onInputPause: actions.inputPause.onState,
+    inputAllowed: () => !secureInputBlocked && !actions.unlock.active() && actions.inputPause.allowed(),
+    setInputPaused: (paused, signal) => actions.unlock.active()
+      ? Promise.reject(new Error("Finish or cancel Windows sign-in before changing ordinary input."))
+      : actions.inputPause.setPaused(paused, signal),
     sensitiveInput: () => secureInputBlocked,
     prepareUnlock: () => { secureInputBlocked = true; secureRecordingBlocked = true; },
     resumeOrdinaryInput: () => {
@@ -1149,6 +1160,11 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     unlockState: actions.unlock.state,
     onUnlock: actions.unlock.onState,
     beginUnlock: async ticket => {
+      const input = actions.inputPause.state();
+      if (input.supported && (
+          ["unknown", "pausing", "resuming"].includes(input.phase) ||
+          input.phase === "paused" && actions.mode() === "control"))
+        throw new Error("Release paused control to view-only before starting Windows sign-in.");
       secureInputBlocked = true; secureRecordingBlocked = true;
       // This must complete BEFORE asking the Agent to emit secure pixels.
       await stopRecordingInternal();

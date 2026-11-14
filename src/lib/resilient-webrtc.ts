@@ -6,6 +6,7 @@ import {
   MEDIA_PROFILES, recoveryDelay, recoveryProfileIndex, type MediaFailure, type MediaProgress, type MediaProfile,
 } from "./media-profiles";
 import type { AgentMode } from "./browser-actions";
+import { EMPTY_INPUT_PAUSE, type InputPauseState } from "./browser-input-pause";
 import type { CurtainState } from "./browser-curtain";
 import { EMPTY_UNLOCK, type UnlockState } from "@/shared/windows-unlock";
 
@@ -37,6 +38,7 @@ export function startResilientWebRtc(
   const videos = new Set<(value: HTMLVideoElement) => void>();
   const recovery = new Set<(value: RecoveryStatus) => void>();
   const modes = new Set<(value: AgentMode) => void>();
+  const inputStates = new Set<(value: InputPauseState) => void>();
   const curtains = new Set<(value: CurtainState) => void>();
   const unlocks = new Set<(value: UnlockState) => void>();
   const files = new Set<(value: FileTransferEvent) => void>();
@@ -50,6 +52,7 @@ export function startResilientWebRtc(
   const emit = <T,>(set: Set<(value: T) => void>, value: T) => set.forEach(cb => cb(value));
   let peer: WebRtcLive | null = null;
   let currentAgentMode: AgentMode = null;
+  let currentInputState: InputPauseState = { ...EMPTY_INPUT_PAUSE };
   let currentUnlock: UnlockState = { ...EMPTY_UNLOCK };
   // Sticky across channel loss/replacement, so a delayed keystroke can never
   // become a legacy REST input after a secure attempt. Explicit control only.
@@ -94,6 +97,9 @@ export function startResilientWebRtc(
   async function retire(candidate: WebRtcLive, epoch: number, manual = false) {
     if (!live(candidate, epoch) || retiring) return;
     retiring = true;
+    currentInputState = { ...EMPTY_INPUT_PAUSE, supported: currentInputState.supported,
+      reason: "The viewer is reconnecting. Resume control explicitly after authorization." };
+    emit(inputStates, currentInputState);
     candidate.cancelUnlock?.();
     currentUnlock = { ...EMPTY_UNLOCK };
     emit(unlocks, currentUnlock);
@@ -199,6 +205,10 @@ export function startResilientWebRtc(
         if (!live(candidate, epoch) || retiring) return;
         currentAgentMode = value;
         emit(modes, value);
+      }), candidate.onInputPause(value => {
+        if (!live(candidate, epoch) || retiring) return;
+        currentInputState = value;
+        emit(inputStates, value);
       }), candidate.onCurtain(forward(curtains)),
       candidate.onFile(forward(files)), candidate.onClipboard(forward(clips)),
       candidate.onRecording(forward(recordings)),
@@ -251,6 +261,11 @@ export function startResilientWebRtc(
       else if (peer && status.phase !== "live") armDeadline(peer, generation);
     },
     sendInput: payload => !sensitiveInput && !retiring && !!peer?.sendInput(payload),
+    inputPause: () => currentInputState,
+    onInputPause: cb => { const off = subscribe(inputStates, cb); cb(currentInputState); return off; },
+    inputAllowed: () => !sensitiveInput && !retiring && !!peer?.inputAllowed(),
+    setInputPaused: (value, signal) => !retiring && peer
+      ? peer.setInputPaused(value, signal) : Promise.reject(new Error("The input channel is reconnecting.")),
     sensitiveInput: () => sensitiveInput,
     prepareUnlock: () => {
       sensitiveInput = true; secureRecording = true;
@@ -301,7 +316,7 @@ export function startResilientWebRtc(
       // Let the bounded finalizer resolve, but its epoch guard prevents later delivery/retry.
       peer?.close(); peer = null;
       detach.forEach(off => off()); detach = [];
-      states.clear(); videos.clear(); recovery.clear(); modes.clear(); curtains.clear(); unlocks.clear();
+      states.clear(); videos.clear(); recovery.clear(); modes.clear(); inputStates.clear(); curtains.clear(); unlocks.clear();
       files.clear(); clips.clear(); recordings.clear(); segments.clear(); progress.clear();
     },
   };

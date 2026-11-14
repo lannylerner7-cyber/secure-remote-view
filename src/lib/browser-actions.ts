@@ -1,5 +1,6 @@
 import { createBrowserCurtain } from "./browser-curtain";
 import { createBrowserUnlock } from "./browser-unlock";
+import { createBrowserInputPause } from "./browser-input-pause";
 export type AgentMode = "view" | "control" | null;
 
 /** Correlates application receipts, not just successful DataChannel.send(). */
@@ -9,6 +10,7 @@ export function createBrowserActions(
   channel: () => RTCDataChannel | null,
   active: () => boolean,
   overloaded: () => void,
+  binding?: { peerId: string; controllerId: string },
 ) {
   let mode: AgentMode = null;
   let refreshSupported = false;
@@ -19,6 +21,7 @@ export function createBrowserActions(
   const listeners = new Set<(mode: AgentMode) => void>();
   const pending = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   function reset(reason = "Input channel disconnected") {
+    inputPause.reset(reason);
     unlock.reset();
     curtain.reset(reason);
     refresh?.finish(new Error(reason));
@@ -46,9 +49,18 @@ export function createBrowserActions(
   }
   const curtain = createBrowserCurtain(sessionId, authorizationId, send, () => mode);
   const unlock = createBrowserUnlock(sessionId, authorizationId, send);
+  const inputPause = createBrowserInputPause({
+    sessionId, authorizationId, peerId: binding?.peerId, controllerId: binding?.controllerId,
+    mode: () => mode, send, uncertain: overloaded,
+  });
   return {
     unlock,
+    inputPause,
     send,
+    sendInput(message: unknown) {
+      const prepared = inputPause.prepareInput(message);
+      return prepared !== null && send(prepared);
+    },
     reset,
     onCurtain: curtain.onState,
     setCurtain: curtain.set,
@@ -102,6 +114,7 @@ export function createBrowserActions(
               new Error("The Agent could not confirm current control permission. Check authorization and the gateway."));
           }
         }
+        inputPause.receive(value);
         curtain.receive(value);
         if (value.kind !== "action_status" || value.action !== "switch_monitor" ||
             typeof value.request_id !== "string" || !["applied", "rejected"].includes(value.status)) return;
@@ -131,6 +144,6 @@ export function createBrowserActions(
         }
       });
     },
-    dispose() { unlock.dispose(); reset(); curtain.dispose(); listeners.clear(); },
+    dispose() { unlock.dispose(); reset(); curtain.dispose(); inputPause.dispose(); listeners.clear(); },
   };
 }

@@ -13,6 +13,8 @@ const profiles = {};
 vm.runInNewContext(compile("media-profiles"), { exports: profiles });
 const unlock = {};
 vm.runInNewContext(compile("../shared/windows-unlock"), { exports: unlock });
+const inputPause = {};
+vm.runInNewContext(compile("browser-input-pause"), { exports: inputPause });
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
 function fixture(options = {}) {
@@ -30,13 +32,14 @@ function fixture(options = {}) {
       if (name === "./media-profiles") return profiles;
       if (name === "./webrtc-live") return {};
       if (name === "@/shared/windows-unlock") return unlock;
+      if (name === "./browser-input-pause") return inputPause;
       throw Error(`Unexpected import: ${name}`);
     },
   });
   function createPeer(sessionId, config) {
     calls.push({ sessionId, config });
     active++; peak = Math.max(active, peak);
-    const events = Object.fromEntries(["State", "Media", "AgentMode", "Curtain", "File", "Clipboard", "Recording"]
+    const events = Object.fromEntries(["State", "Media", "AgentMode", "InputPause", "Curtain", "File", "Clipboard", "Recording"]
       .map(name => [name, new Set()]));
     const emit = (name, value) => events[name].forEach(fn => fn(value));
     const peer = {
@@ -44,6 +47,9 @@ function fixture(options = {}) {
       currentState: "connecting", currentFailure: null, stopCalls: 0, pendingFile: false,
       state() { return this.currentState; }, failure() { return this.currentFailure; },
       setPaused(value) { this.paused = value; },
+      inputPause: () => ({ ...inputPause.EMPTY_INPUT_PAUSE }),
+      inputAllowed: () => false,
+      setInputPaused: async () => { throw Error("Not authorized by this media-only fixture"); },
       recording() { return this.isRecording; },
       stopRecording() { this.stopCalls++; this.isRecording = false; return Promise.resolve(this.result ?? null); },
       close() {

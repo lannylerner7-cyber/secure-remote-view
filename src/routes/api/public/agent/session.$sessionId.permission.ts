@@ -27,7 +27,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/permi
           return reply({ error: "invalid_permission_request" }, 400);
         try {
           const [sessionResult, runtimeResult, licenseResult] = await Promise.all([
-            ctx.admin.from("sessions").select("id, device_id, state, mode, authorization_id, admin_client_id")
+            ctx.admin.from("sessions").select("id, device_id, technician_id, state, mode, authorization_id, admin_client_id")
               .eq("id", params.sessionId).eq("device_id", ctx.device.id).maybeSingle(),
             ctx.admin.from("agent_runtime").select("agent_instance, agent_state")
               .eq("device_id", ctx.device.id).maybeSingle(),
@@ -46,10 +46,21 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/permi
           const license = await evaluateLicense(ctx.admin as never, licenseResult.data as LicenseRow | null, ctx.device.id);
           if (license.state !== "active" && license.state !== "unlicensed")
             return reply({ error: "license_denied" }, 403);
+          if (mode === "control" && !session.technician_id)
+            return reply({ error: "permission_denied" }, 403);
           let unavailable = false;
-          const allowed = await sessionAuthorized(ctx.admin, session.id, mode, () => { unavailable = true; });
-          if (unavailable) return reply({ error: "permission_unavailable" }, 503);
-          if (!allowed) return reply({ error: "permission_denied" }, 403);
+          // A stored grant must not re-enable control after its session owner
+          // has been downgraded to a viewer. Read the current role, not JWT or
+          // UI state, alongside the existing bounded grant check.
+          const [allowed, roles] = await Promise.all([
+            sessionAuthorized(ctx.admin, session.id, mode, () => { unavailable = true; }),
+            mode === "control" ? ctx.admin.from("user_roles").select("role")
+              .eq("user_id", session.technician_id!) : Promise.resolve({ data: [], error: null }),
+          ]);
+          if (unavailable || roles.error) return reply({ error: "permission_unavailable" }, 503);
+          const staff = roles.data?.some(row => ["super_admin", "admin", "technician"].includes(row.role));
+          if (!allowed || (mode === "control" && !staff))
+            return reply({ error: "permission_denied" }, 403);
           return reply({ sessionId: session.id, authorizationId, adminClientId: controllerId, mode, protocol: 1 });
         } catch { return reply({ error: "permission_unavailable" }, 503); }
       },

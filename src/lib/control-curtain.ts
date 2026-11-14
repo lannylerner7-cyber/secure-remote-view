@@ -1,5 +1,6 @@
 import type { AgentMode } from "./browser-actions";
 import type { WebRtcState } from "./webrtc-live";
+import type { InputPauseState } from "./browser-input-pause";
 
 export type ControlStage =
   | "idle" | "requesting-control" | "waiting-agent" | "applying-curtain"
@@ -12,6 +13,8 @@ export interface ControlPeer {
   onState(listener: (state: WebRtcState) => void): () => void;
   setCurtain(enabled: boolean): Promise<void>;
   sendInput(message: { kind: string; payload: Record<string, unknown> }): boolean;
+  inputPause?(): InputPauseState;
+  setInputPaused?(paused: boolean, signal?: AbortSignal): Promise<void>;
 }
 
 interface ControlOptions {
@@ -104,6 +107,16 @@ export async function takeControlAndCurtain(options: ControlOptions): Promise<vo
     if (options.withCurtain !== false) {
       options.onStage("applying-curtain");
       await abortable(options.peer.setCurtain(true), controller.signal);
+      assertCurrent();
+    }
+    const inputState = options.peer.inputPause?.();
+    if (inputState?.phase === "unknown")
+      throw new Error("The Agent has not confirmed its input state. Control remains blocked.");
+    if (inputState?.supported) {
+      if (!options.peer.setInputPaused) throw new Error("The input-pause protocol is unavailable.");
+      // Only this deliberate action may open the receiving input barrier,
+      // after current server permission and the requested curtain are confirmed.
+      await abortable(options.peer.setInputPaused(false, controller.signal), controller.signal);
       assertCurrent();
     }
     options.onStage("active");

@@ -41,6 +41,13 @@ function fixture(overrides = {}) {
     from(table) {
       const query = {
         select() { return query; }, eq() { return query; },
+        then(resolve, reject) {
+          calls.push(table);
+          return Promise.resolve({
+            data: (overrides.roles ?? ["admin"]).map(role => ({ role })),
+            error: overrides.failTable === table ? { message: "synthetic failure" } : null,
+          }).then(resolve, reject);
+        },
         async maybeSingle() {
           calls.push(table);
           return { data: table === "sessions" ? session :
@@ -102,10 +109,18 @@ for (const [name, options, status] of [
   ["retired process", { runtime: { agent_instance: "other" } }, 409],
   ["stopped process", { runtime: { agent_state: "stopped" } }, 409],
   ["revoked authority", { allowed: false }, 403],
+  ["viewer session owner", { roles: ["viewer"] }, 403],
+  ["owner without a staff role", { roles: [] }, 403],
+  ["unowned session", { session: { technician_id: null } }, 403],
+  ["unavailable current role", { failTable: "user_roles" }, 503],
   ["expired license", { licenseState: "expired" }, 403],
   ["unavailable process read", { failTable: "agent_runtime" }, 503],
   ["unavailable authority", { failCapability: "control" }, 503],
 ]) test(`targeted permission rejects ${name}`, async () => assert.equal((await fixture(options).permission()).status, status));
+test("view-only permission still works after a control-role downgrade", async () => {
+  const response = await fixture({ roles: ["viewer"], session: { mode: "view" } }).permission({ mode: "view" });
+  assert.equal(response.status, 200);
+});
 test("recording capabilities reuse the immutable bound grant, not seven repeated capability RPCs", async () => {
   const f = fixture({ control: false });
   const response = await f.recording();
@@ -148,8 +163,10 @@ function actionsFixture() {
     clearTimeout(id) { timers.delete(id); },
   };
   const curtain = load("lib/browser-curtain.ts", {}, globals);
+  const inputPause = load("lib/browser-input-pause.ts", {}, globals);
   const actions = load("lib/browser-actions.ts", {
     "./browser-curtain": curtain,
+    "./browser-input-pause": inputPause,
     "./browser-unlock": { createBrowserUnlock: () => ({ reset() {}, receive() {}, dispose() {} }) },
   }, globals).createBrowserActions(ids.session, ids.grant, () => ({
     readyState: "open", bufferedAmount: 0, send: text => messages.push(JSON.parse(text)),
