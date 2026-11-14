@@ -24,21 +24,24 @@ function load(file, dependencies = {}, globals = {}) {
 function diagnosticsFixture() {
   let now = 0;
   const logs = [], timers = new Map();
-  const modules = load("lib/agent-http-diagnostics.server.ts", {
-    "node:crypto": crypto,
-    "./live-diagnostics": load("lib/live-diagnostics.ts"),
-  }, {
-    performance: { now: () => now },
-    console: { info: line => logs.push(JSON.parse(line)), warn: line => logs.push(JSON.parse(line)) },
+  const clock = {
     setTimeout(fn, delay) {
       const id = { unref() {} };
       timers.set(id, { fn, due: now + delay });
       return id;
     },
     clearTimeout: id => timers.delete(id),
+  };
+  const modules = load("lib/agent-http-diagnostics.server.ts", {
+    "node:crypto": crypto,
+    "./live-diagnostics": load("lib/live-diagnostics.ts"),
+  }, {
+    performance: { now: () => now },
+    console: { info: line => logs.push(JSON.parse(line)), warn: line => logs.push(JSON.parse(line)) },
+    ...clock,
   });
   return {
-    modules, logs, timers,
+    modules, logs, timers, clock,
     advance(ms) {
       now += ms;
       for (const [id, timer] of timers) if (timer.due <= now) {
@@ -50,7 +53,7 @@ function diagnosticsFixture() {
 
 function routeFixture(operation, options = {}) {
   const diagnostics = diagnosticsFixture();
-  const writes = [], reads = [];
+  const writes = [], reads = [], telemetrySignals = [];
   const grant = {
     id: "11111111-1111-4111-8111-111111111111",
     noticeVersion: 1, mode: "unattended",
@@ -97,6 +100,7 @@ function routeFixture(operation, options = {}) {
         reads.push(stage);
         if (action !== "select") writes.push({ table, action, values, filters });
         if (options.throwAt === stage) throw Error("PRIVATE_DATABASE_EXCEPTION");
+        if (options.stall === stage) return new Promise(() => {});
         let data = null;
         if (table === "devices" && action === "select")
           data = columns === "*" ? device : [{ id: device.id }];
@@ -118,6 +122,7 @@ function routeFixture(operation, options = {}) {
         eq(key, value) { filters.push([key, value]); return query; },
         in(key, value) { filters.push([key, value]); return query; },
         order() { return query; }, or() { return query; }, gt() { return query; }, limit() { return query; },
+        abortSignal(signal) { telemetrySignals.push(signal); return query; },
         maybeSingle: execute,
         then(resolve, reject) { return execute().then(resolve, reject); },
       };
@@ -132,13 +137,16 @@ function routeFixture(operation, options = {}) {
     "@/lib/agent-auth.server": auth,
     "@/lib/authorization.server": load("lib/authorization.server.ts"),
     "@/lib/agent-http-diagnostics.server": diagnostics.modules,
+    "@/lib/bounded-telemetry.server": load("lib/bounded-telemetry.server.ts", {}, {
+      ...diagnostics.clock, AbortController,
+    }),
     "@/lib/licensing.server": load("lib/licensing.server.ts"),
     "@/shared/legacy-monitor": { legacyMonitorMayBeDelivered: () => false },
   };
   const file = operation === "frame" ? "session.$sessionId.frame" : "heartbeat";
   const handler = load(`routes/api/public/agent/${file}.ts`, modules).Route.server.handlers.POST;
   return {
-    ...diagnostics, writes, reads,
+    ...diagnostics, writes, reads, telemetrySignals,
     call(body = operation === "frame" ? { frame: "PRIVATE_FRAME", width: 10, height: 20 } : {
       runtime: { instance: "22222222-2222-4222-8222-222222222222", sequence: 1, heartbeat_seconds: 5 },
     }) {

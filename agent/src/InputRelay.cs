@@ -18,18 +18,28 @@ namespace ConnectLive.Agent;
 public static class InputRelay
 {
     [ThreadStatic] private static PeerInputPermission? _applyingPermission;
+    [ThreadStatic] private static bool _cleanupFailed;
     private static readonly object NativeGate = new();
     private static readonly HashSet<int> HeldKeys = new();
     private static readonly HashSet<int> HeldButtons = new();
 
     internal static void ReleaseHeldInputs()
     {
+        if (!TryReleaseHeldInputs()) Log.Warn("held remote input release was not confirmed");
+    }
+
+    internal static bool TryReleaseHeldInputs()
+    {
         lock (NativeGate)
         {
-            foreach (var vk in new List<int>(HeldKeys)) Key(vk, false, cleanup: true);
-            foreach (var button in new List<int>(HeldButtons)) MouseButton(button, false, cleanup: true);
-            HeldKeys.Clear();
-            HeldButtons.Clear();
+            _cleanupFailed = false;
+            try
+            {
+                foreach (var vk in new List<int>(HeldKeys)) Key(vk, false, cleanup: true);
+                foreach (var button in new List<int>(HeldButtons)) MouseButton(button, false, cleanup: true);
+            }
+            catch { _cleanupFailed = true; }
+            return !_cleanupFailed && HeldKeys.Count == 0 && HeldButtons.Count == 0;
         }
     }
 
@@ -109,11 +119,26 @@ public static class InputRelay
     internal static void Apply(JsonElement it, PeerInputPermission permission)
     {
         if (InputBlocker.LocalStopPending || !permission.Allows("control")) return;
-        _applyingPermission = permission;
         if (it.ValueKind != JsonValueKind.Object) return;
         if (!it.TryGetProperty("kind", out var kv) || kv.ValueKind != JsonValueKind.String) return;
         var kind = kv.GetString();
         var p = it.TryGetProperty("payload", out var pv) && pv.ValueKind == JsonValueKind.Object ? pv : default;
+        // Curtain operations retain their existing grant/lease contract. The
+        // input barrier must neither clear nor renew a privacy curtain.
+        if (kind is "curtain_on" or "curtain_off" or "release_inputs")
+        {
+            permission.TryApplyCapability("control", () => ApplyCore(kind, p, permission));
+            return;
+        }
+        var epoch = p.ValueKind == JsonValueKind.Object && p.TryGetProperty("input_epoch", out var token) &&
+            token.ValueKind == JsonValueKind.String ? token.GetString() : null;
+        permission.TryApplyInput(epoch, () => ApplyCore(kind, p, permission));
+    }
+
+    private static void ApplyCore(string? kind, JsonElement p, PeerInputPermission permission)
+    {
+        var previous = _applyingPermission;
+        _applyingPermission = permission;
         try
         {
             switch (kind)
@@ -129,6 +154,7 @@ public static class InputRelay
                 case "key_sequence": KeySequence(p); break;
                 case "unicode_text":
                 case "text": InjectUnicodeString(CapText(GetString(p, "text"))); break;
+                case "release_keys": ReleaseHeldInputs(); break;
                 case "curtain_on": EngageCurtain(); break;
                 case "curtain_off": ReleaseCurtain(); break;
                 case "release_inputs": ReleaseCurtain(); break;
@@ -139,6 +165,7 @@ public static class InputRelay
         {
             Log.Warn($"input: malformed '{Truncate(kind, 32)}' payload rejected");
         }
+        finally { _applyingPermission = previous; }
     }
 
     private static bool IsValidVk(int vk) => vk is > 0 and < 0xFF;
@@ -312,8 +339,17 @@ public static class InputRelay
         lock (NativeGate)
         {
             if (!cleanup && (InputBlocker.LocalStopPending || _applyingPermission?.Allows("control") != true)) return;
-            foreach (var input in inputs)
+            var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+            if (sent != inputs.Length)
             {
+                if (cleanup) _cleanupFailed = true;
+                Log.Warn("Windows did not accept every requested remote input event");
+            }
+            // Track only events Windows accepted. Failed key-up/button-up
+            // events stay tracked and cannot produce a successful pause receipt.
+            for (var index = 0; index < Math.Min((int)sent, inputs.Length); index++)
+            {
+                var input = inputs[index];
                 if (input.type == INPUT_KEYBOARD && input.U.ki.wVk != 0)
                 {
                     if ((input.U.ki.dwFlags & KEYEVENTF_KEYUP) != 0) HeldKeys.Remove(input.U.ki.wVk);
@@ -330,7 +366,6 @@ public static class InputRelay
                     if ((f & MOUSEEVENTF_RIGHTUP) != 0) HeldButtons.Remove(2);
                 }
             }
-            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         }
     }
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);

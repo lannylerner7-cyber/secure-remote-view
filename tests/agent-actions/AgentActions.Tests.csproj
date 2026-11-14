@@ -8,5 +8,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(ActionsSource)" Link="WebRtcSession.Actions.cs" />
+    <Compile Include="../../agent/src/WebRtcSession.InputPause.cs" Link="WebRtcSession.InputPause.cs" />
+    <Compile Include="../../agent/src/PeerInputPermission.cs" Link="PeerInputPermission.cs" />
+    <Compile Include="../../agent/src/InputPauseGate.cs" Link="InputPauseGate.cs" />
+    <Compile Include="../../agent/src/CurtainApplyResult.cs" Link="CurtainApplyResult.cs" />
+    <Compile Include="../../agent/src/AuthorizationGrant.cs" Link="AuthorizationGrant.cs" />
   </ItemGroup>
 </Project>

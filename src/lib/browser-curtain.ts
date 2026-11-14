@@ -5,6 +5,39 @@ export type CurtainState = {
   reason: string | null;
 };
 
+const FAILURE_MESSAGES: Record<string, string> = {
+  unsupported_windows: "Windows 10 version 2004 or later is required.",
+  local_stop: "Remote access was stopped locally. It cannot be resumed by this request.",
+  authorization_changed: "The Agent's current control authorization changed.",
+  ui_unavailable: "The Agent's Windows display thread is unavailable.",
+  activation_busy: "A previous curtain activation is still pending.",
+  activation_cancelled: "The curtain activation was cancelled.",
+  lease_expired: "The curtain safety lease expired.",
+  lease_unavailable: "The Agent could not renew its curtain safety lease.",
+  stale_request: "This curtain request was already used or is no longer current.",
+  composition_unavailable: "Windows desktop composition is unavailable.",
+  capture_exclusion_failed: "Windows rejected hiding the curtain from capture. Update and rebuild the Windows Agent; control remains off.",
+  capture_exclusion_unverified: "Windows did not confirm that the curtain is excluded from capture. Control remains off.",
+  capture_exclusion_unavailable: "The Agent changed to a capture path that cannot safely exclude the curtain.",
+  display_unavailable: "No usable local display was available.",
+  display_changed: "The local display configuration changed.",
+  display_style_failed: "Windows rejected the curtain window configuration.",
+  display_placement_failed: "Windows could not position the curtain on the local display.",
+  display_render_timeout: "The local curtain did not render before its safety deadline.",
+  display_render_failed: "The local curtain could not be rendered.",
+  input_pause_unavailable: "Windows could not apply the local keyboard and mouse pause.",
+  curtain_inactive: "The curtain was no longer active when the Agent confirmed it.",
+};
+
+function rejection(value: Record<string, unknown>) {
+  const reason = typeof value.reason === "string" && Object.hasOwn(FAILURE_MESSAGES, value.reason)
+    ? value.reason : "agent_rejected";
+  const code = typeof value.native_error === "number" && Number.isInteger(value.native_error) &&
+    value.native_error > 0 && value.native_error <= 65535 ? ` Windows error ${value.native_error}.` : "";
+  const detail = FAILURE_MESSAGES[reason] ?? "Check its local display and authorization.";
+  return { reason, message: `The Agent could not apply curtain mode. ${detail}${code}` };
+}
+
 /** Application receipts + a bounded lease, never an optimistic on/off toggle. */
 export function createBrowserCurtain(
   session: string, authorization: string | null,
@@ -90,7 +123,8 @@ export function createBrowserCurtain(
         if (!value.active) {
           for (const [id, item] of pending) if (item.action !== "curtain_off") {
             clearTimeout(item.timer); pending.delete(id);
-            item.reject(new Error("The Agent released curtain mode."));
+            item.reject(new Error(value.reason && Object.hasOwn(FAILURE_MESSAGES, String(value.reason))
+              ? rejection(value).message : "The Agent released curtain mode."));
           }
         }
         return;
@@ -102,8 +136,9 @@ export function createBrowserCurtain(
       const expectedActive = item.action !== "curtain_off";
       if (value.status !== "applied" || value.active !== expectedActive) {
         wanted = false; stopRenewing();
-        publish({ pending: false, active: typeof value.active === "boolean" ? value.active : null, reason: "agent_rejected" });
-        item.reject(new Error("The Agent could not apply curtain mode. Check its local display and authorization."));
+        const failure = rejection(value);
+        publish({ pending: false, active: typeof value.active === "boolean" ? value.active : null, reason: failure.reason });
+        item.reject(new Error(failure.message));
       } else {
         publish({ active: value.active, pending: [...pending.values()].some(p => p.action !== "curtain_renew"), reason: null });
         if (!value.active) stopRenewing();

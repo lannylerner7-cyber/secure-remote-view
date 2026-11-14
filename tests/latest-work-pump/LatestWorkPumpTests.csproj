@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../agent/src/LatestWorkPump.cs" Link="LatestWorkPump.cs" />
+    <Compile Include="../../agent/src/FrameUploadBackoff.cs" Link="FrameUploadBackoff.cs" />
   </ItemGroup>
 </Project>

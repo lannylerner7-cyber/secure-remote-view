@@ -37,6 +37,7 @@ public sealed partial class WebRtcSession
         if (_closed || channel?.readyState != RTCDataChannelState.open || !_inputPermission.Allows("view")) return;
         try
         {
+            var input = _inputPermission.InputState;
             channel.send(JsonSerializer.Serialize(new {
                 kind = "permission_status", session_id = _sessionId,
                 authorization_id = _api.LocalAuthorization?.Authorization.Id,
@@ -44,6 +45,12 @@ public sealed partial class WebRtcSession
                 curtain_supported = CurtainController.Supported,
                 curtain_active = _peerPermission != null && CurtainController.ActiveFor(_peerPermission),
                 permission_refresh_supported = true,
+                video_keyframe_supported = true,
+                input_pause_supported = true, input_pause_protocol = 1,
+                input_paused = input.Paused, input_epoch = input.Epoch, input_revision = input.Revision,
+                input_release_confirmed = input.ReleaseConfirmed,
+                peer_id = _signalBinding.PeerId, controller_id = _currentAdminClientId,
+                process_id = AgentProcessState.Instance,
             }));
         }
         catch { Log.Warn("permission status could not be delivered"); }
@@ -55,7 +62,20 @@ public sealed partial class WebRtcSession
             !ReferenceEquals(_peerPermission, peerPermission) || channel.readyState != RTCDataChannelState.open)
             return true; // A replaced channel must not apply actions or ordinary input.
         if (!root.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String) return false;
+        if (HandleInputPause(root, channel, peerPermission, kind.GetString()!)) return true;
         if (HandleUnlockAction(root, channel, peerPermission, kind.GetString()!)) return true;
+        if (kind.GetString() == "video_keyframe")
+        {
+            if (root.TryGetProperty("payload", out var media) && media.ValueKind == JsonValueKind.Object &&
+                media.TryGetProperty("session_id", out var mediaSession) && mediaSession.ValueKind == JsonValueKind.String &&
+                mediaSession.GetString() == _sessionId &&
+                media.TryGetProperty("authorization_id", out var mediaGrant) && mediaGrant.ValueKind == JsonValueKind.String &&
+                mediaGrant.GetString() == _api.LocalAuthorization?.Authorization.Id)
+                // Uses the existing encoder cooldown. This does not resume
+                // remote input, renew a curtain, or renew global authority.
+                peerPermission.TryApplyCapability("view", () => RequestKeyFrame("viewer_decode_stall"));
+            return true;
+        }
         if (kind.GetString() == "permission_refresh")
         {
             if (root.TryGetProperty("payload", out var body) && body.ValueKind == JsonValueKind.Object &&
@@ -117,6 +137,7 @@ public sealed partial class WebRtcSession
                 CurtainController.Release(owner, "permission_refresh_not_control");
                 try { InputRelay.ReleaseHeldInputs(); } catch { }
             }
+            var input = owner.InputState;
             channel.send(JsonSerializer.Serialize(new {
                 kind = "permission_status", session_id = _sessionId,
                 authorization_id = _api.LocalAuthorization?.Authorization.Id,
@@ -125,6 +146,12 @@ public sealed partial class WebRtcSession
                 curtain_supported = CurtainController.Supported,
                 curtain_active = CurtainController.ActiveFor(owner),
                 permission_refresh_supported = true,
+                video_keyframe_supported = true,
+                input_pause_supported = true, input_pause_protocol = 1,
+                input_paused = input.Paused, input_epoch = input.Epoch, input_revision = input.Revision,
+                input_release_confirmed = input.ReleaseConfirmed,
+                peer_id = _signalBinding.PeerId, controller_id = controller,
+                process_id = AgentProcessState.Instance,
             }));
             Log.Info($"permission refresh {(applied ? "applied" : "rejected")}; requested mode={mode}");
         }
@@ -157,14 +184,18 @@ public sealed partial class WebRtcSession
         var authorizationId = _api.LocalAuthorization?.Authorization.Id;
         bool CurrentChannel() => !_closed && ReferenceEquals(_browserInput, channel) &&
             ReferenceEquals(_peerPermission, owner) && channel.readyState == RTCDataChannelState.open;
-        void Receipt(bool applied)
+        void Receipt(bool applied) => DetailedReceipt(applied ? CurtainApplyResult.Success :
+            CurtainApplyResult.Failed("lease_unavailable"));
+        void DetailedReceipt(CurtainApplyResult result)
         {
             if (!CurrentChannel()) return;
             var active = CurtainController.ActiveFor(owner);
+            var applied = result.Applied && (action == "curtain_off" ? !active : active);
+            var reason = applied ? null : result.Reason ?? "curtain_inactive";
             try { channel.send(JsonSerializer.Serialize(new {
                 kind = "action_status", session_id = _sessionId, authorization_id = authorizationId,
                 request_id = requestId, action, status = applied ? "applied" : "rejected",
-                active,
+                active, reason, native_error = applied ? null : result.NativeError,
             })); } catch { }
             // Retain the Windows Admin receipt, but send it after the actual
             // rendered/apply callback, not merely behind queued dispatcher work.
@@ -173,7 +204,7 @@ public sealed partial class WebRtcSession
                     kind = "curtain_status", request_id = requestId,
                     sent_at = sentAt, applied = applied && active,
                 })); } catch { }
-            if (!applied) Log.Warn($"curtain request rejected: {action}");
+            if (!applied) Log.Warn($"curtain request rejected: action={action} request={requestId} reason={reason} native_error={result.NativeError}");
             else if (action != "curtain_renew")
                 Log.Info($"curtain receipt: action={action} request={requestId} active={active}");
         }
@@ -200,9 +231,9 @@ public sealed partial class WebRtcSession
             // Older native Admins renewed with curtain_on and the SAME request
             // ID. That must not re-enable a curtain after escape/lease expiry.
             if (_curtainRequests.Count >= 256 || !_curtainRequests.Add(requestId!))
-            { Receipt(false); return; }
+            { DetailedReceipt(CurtainApplyResult.Failed("stale_request")); return; }
             Log.Info($"privacy curtain requested; control permission={owner.Allows("control")}");
-            CurtainController.Enable(owner, Receipt, Changed);
+            CurtainController.EnableDetailed(owner, DetailedReceipt, Changed);
         }
     }
 }

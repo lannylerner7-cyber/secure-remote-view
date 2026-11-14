@@ -536,7 +536,8 @@ public sealed class Agent
         try { _rtc?.Close(); } catch { }
         _rtc = null;
         _peerInputPermission = new PeerInputPermission(mode,
-            _api.LocalAuthorization!.Authorization.Capabilities, () => HasAuthority);
+            _api.LocalAuthorization!.Authorization.Capabilities, () => HasAuthority,
+            releaseInputs: InputRelay.TryReleaseHeldInputs);
         _api.LivePermission = _peerInputPermission;
         _api.LiveSessionId = sessionId;
         var videoOnly = _videoOnlySessions.Contains(sessionId);

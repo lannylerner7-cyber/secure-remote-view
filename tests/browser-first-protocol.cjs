@@ -67,6 +67,19 @@ async function main() {
   assert.equal(actions.mode(), null, 'no mode from another session or authorization');
   report({ kind: 'permission_status', session_id: 'session', authorization_id: 'grant', mode: 'view' });
   assert.equal(actions.mode(), 'view');
+  assert.equal(actions.requestVideoKeyFrame(), false, 'legacy Agents receive no unsupported recovery hint');
+  report({ kind: 'permission_status', session_id: 'session', authorization_id: 'wrong',
+    mode: 'view', video_keyframe_supported: true });
+  assert.equal(actions.requestVideoKeyFrame(), false, 'a foreign grant cannot enable the hint');
+  report({ kind: 'permission_status', session_id: 'session', authorization_id: 'grant',
+    mode: 'view', video_keyframe_supported: true });
+  assert.equal(actions.requestVideoKeyFrame(), true, 'view-only permission can request a media keyframe');
+  assert.equal(sent.at(-1).kind, 'video_keyframe');
+  assert.equal(sent.at(-1).payload.authorization_id, 'grant');
+  dc.bufferedAmount = 65537;
+  assert.equal(actions.requestVideoKeyFrame(), false);
+  assert.equal(overloads, 0, 'an optional hint must not cause an input-congestion teardown');
+  dc.bufferedAmount = 0;
   const first = actions.selectMonitor('DISPLAY1');
   await assert.rejects(actions.selectMonitor('DISPLAY2'), /already awaiting/);
   const id = sent.at(-1).payload.request_id;
@@ -85,6 +98,7 @@ async function main() {
   await assert.rejects(timed, /result is unknown/);
   const lost = actions.selectMonitor('DISPLAY2');
   actions.reset();
+  assert.equal(actions.requestVideoKeyFrame(), false, 'the old peer cannot request media after reset');
   await assert.rejects(lost, /disconnected/);
   assert.equal(actions.mode(), null);
   dc.bufferedAmount = 65537;

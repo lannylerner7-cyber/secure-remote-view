@@ -149,6 +149,33 @@ test("a foreign grant receipt cannot enable the curtain", async () => {
   await e.advance(3000); await rejected;
 });
 
+test("a capture-exclusion rejection reports the exact bounded Windows failure and rolls back", async () => {
+  const e = environment();
+  const result = e.flow.takeControlAndCurtain(e.options);
+  const rejected = assert.rejects(result, /Windows rejected hiding the curtain from capture.*Windows error 87/);
+  await flush(); e.agentMode("control"); await flush();
+  e.receipt(undefined, false, "rejected", { reason: "capture_exclusion_failed", native_error: 87 });
+  await flush();
+  assert.equal(e.messages.at(-1).kind, "curtain_off");
+  e.receipt(undefined, false); await rejected;
+  assert.deepEqual(e.writes, ["control", "view"]);
+  assert(!e.stages.includes("active"));
+});
+
+test("unknown Agent error strings and invalid error codes are never reflected into the UI", async () => {
+  const e = environment();
+  e.agentMode("control");
+  const result = e.curtain.set(true);
+  const rejected = assert.rejects(result, error => {
+    assert.match(error.message, /could not apply curtain mode/);
+    assert.doesNotMatch(error.message, /PRIVATE_|Windows error/);
+    return true;
+  });
+  e.receipt(undefined, false, "rejected", { reason: "PRIVATE_UNTRUSTED_DATA", native_error: "PRIVATE_CODE" });
+  await rejected;
+  assert.equal(e.curtainState.reason, "agent_rejected");
+});
+
 test("missing Agent acknowledgement is bounded and requests view mode", async () => {
   const e = environment();
   const result = e.flow.takeControlAndCurtain(e.options);
@@ -240,9 +267,14 @@ test("native routing preserves both receipt formats and the fail-safe boundary",
   assert(consoleSource.includes("JPEG pictures alone cannot confirm control or curtain"));
   const overlay = fs.readFileSync("agent/src/CurtainOverlay.cs", "utf8");
   const capture = fs.readFileSync("agent/src/ScreenCapture.cs", "utf8");
-  const renderCheck = overlay.slice(overlay.indexOf("internal static async Task<bool> ShowRenderedAsync"));
-  assert(renderCheck.indexOf("Task.WhenAll") < renderCheck.indexOf("GetWindowDisplayAffinity"),
+  const renderCheck = overlay.slice(overlay.indexOf("internal static async Task<CurtainApplyResult> ShowRenderedAsync"));
+  assert(renderCheck.indexOf("Task.WhenAll") < renderCheck.indexOf("VerifyExclusion"),
     "Verify exclusion after actual WPF rendering, not just hidden HWND creation");
+  assert(overlay.includes("AllowsTransparency = false"));
+  assert(overlay.includes("SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)"),
+    "retain click-through using opaque constant alpha, not WPF per-pixel transparency");
+  assert(overlay.includes("generation != _generation"),
+    "an obsolete render must not hide a replacement curtain");
   assert(capture.indexOf("CurtainController.CaptureUnavailable()") < capture.indexOf("g.CopyFromScreen"),
     "No GDI fallback may capture an active physical curtain");
 });

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The real controller and lease; inert display/input/dispatcher only. -->
+    <Compile Include="../../agent/src/CurtainController.cs" Link="CurtainController.cs" />
+    <Compile Include="../../agent/src/CurtainLease.cs" Link="CurtainLease.cs" />
+    <Compile Include="../../agent/src/CurtainApplyResult.cs" Link="CurtainApplyResult.cs" />
+  </ItemGroup>
+</Project>

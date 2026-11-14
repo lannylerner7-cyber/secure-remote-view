@@ -22,17 +22,20 @@ internal sealed class PeerInputPermission
     private readonly GrantScopes _scopes;
     private readonly System.Func<bool> _stillValid;
     private readonly System.Func<string, bool>? _parentAllows;
+    private readonly InputPauseGate _input;
     private System.Threading.CancellationTokenRegistration? _parentCancellation;
     private readonly System.Threading.CancellationTokenSource _lifetime = new();
     internal System.Threading.CancellationToken Token => _lifetime.Token;
 
     internal PeerInputPermission(string mode, GrantScopes? scopes = null, System.Func<bool>? stillValid = null,
-        System.Func<string, bool>? parentAllows = null)
+        System.Func<string, bool>? parentAllows = null, System.Func<bool>? releaseInputs = null,
+        InputPauseGate? inputGate = null)
     {
         _control = mode == "control";
         _scopes = scopes ?? new(false, false, false, false, false);
         _stillValid = stillValid ?? (() => false);
         _parentAllows = parentAllows;
+        _input = inputGate ?? new InputPauseGate(releaseInputs);
     }
 
     internal bool Allows(string scope)
@@ -46,7 +49,7 @@ internal sealed class PeerInputPermission
     // the signaling pump. Parent mode changes/revocation still apply immediately.
     internal PeerInputPermission Fork()
     {
-        var child = new PeerInputPermission("control", _scopes, () => true, Allows);
+        var child = new PeerInputPermission("control", _scopes, () => true, Allows, inputGate: _input);
         var registration = Token.Register(child.Revoke);
         child._parentCancellation = registration;
         if (child.Token.IsCancellationRequested) registration.Unregister();
@@ -62,18 +65,27 @@ internal sealed class PeerInputPermission
     // its newer result when it eventually returns.
     internal bool SetMode(string mode, long observationStarted)
     {
+        bool lostControl;
         lock (_gate)
         {
             if (_revoked || observationStarted < _modeObservation) return false;
             _modeObservation = observationStarted;
+            lostControl = _control && mode != "control";
             _control = mode == "control";
-            return true;
         }
+        // Do not hold the permission lock while draining native input.
+        if (lostControl) _input.Block("view_only");
+        return true;
     }
 
     internal void Revoke()
     {
-        lock (_gate) { _revoked = true; _control = false; }
+        lock (_gate)
+        {
+            if (_revoked) return;
+            _revoked = true; _control = false;
+        }
+        _input.Block("authorization_changed");
         _parentCancellation?.Unregister();
         // Cancellation callbacks may dispatch UI: never invoke under _gate.
         try { _lifetime.Cancel(); } catch { }
@@ -81,6 +93,14 @@ internal sealed class PeerInputPermission
 
     internal bool TryApply(System.Action apply)
         => TryApplyCapability("control", apply);
+
+    internal InputPauseSnapshot InputState => _input.State;
+    internal bool PauseInput(string epoch, long revision)
+        => Allows("view") && _input.Pause(epoch, revision);
+    internal bool ResumeInput(string epoch, long revision)
+        => _input.Resume(epoch, revision, () => Allows("control"));
+    internal bool TryApplyInput(string? epoch, System.Action apply)
+        => _input.Apply(epoch, () => Allows("control"), apply);
 
     internal bool TryApplyCapability(string scope, System.Action apply)
     {

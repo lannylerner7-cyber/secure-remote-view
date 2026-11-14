@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="../../agent/src/AuthorizationGrant.cs" Link="AuthorizationGrant.cs" />
     <Compile Include="../../agent/src/PeerInputPermission.cs" Link="PeerInputPermission.cs" />
+    <Compile Include="../../agent/src/InputPauseGate.cs" Link="InputPauseGate.cs" />
     <Compile Include="../../agent/src/LocalAccessState.cs" Link="LocalAccessState.cs" />
     <Compile Include="../../agent/src/EnrollmentRetry.cs" Link="EnrollmentRetry.cs" />
   </ItemGroup>

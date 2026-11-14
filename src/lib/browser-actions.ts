@@ -14,6 +14,7 @@ export function createBrowserActions(
 ) {
   let mode: AgentMode = null;
   let refreshSupported = false;
+  let keyFrameSupported = false;
   let refresh: {
     id: string; mode: "view" | "control";
     finish: (error?: Error) => void;
@@ -26,6 +27,7 @@ export function createBrowserActions(
     curtain.reset(reason);
     refresh?.finish(new Error(reason));
     refreshSupported = false;
+    keyFrameSupported = false;
     mode = null;
     listeners.forEach(listener => listener(null));
     for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error(reason)); }
@@ -62,6 +64,16 @@ export function createBrowserActions(
       return prepared !== null && send(prepared);
     },
     reset,
+    requestVideoKeyFrame(): boolean {
+      const dc = channel();
+      // This optional view-only hint must not itself trip the ordinary-input
+      // congestion teardown, and is never queued across a replacement peer.
+      if (!keyFrameSupported || !mode || !authorizationId || !active() ||
+          !dc || dc.readyState !== "open" || dc.bufferedAmount > 64 * 1024) return false;
+      return send({ kind: "video_keyframe", payload: {
+        session_id: sessionId, authorization_id: authorizationId,
+      } });
+    },
     onCurtain: curtain.onState,
     setCurtain: curtain.set,
     mode: () => mode,
@@ -106,6 +118,7 @@ export function createBrowserActions(
             (value.mode === "view" || value.mode === "control")) {
           mode = value.mode;
           refreshSupported = value.permission_refresh_supported === true;
+          keyFrameSupported = value.video_keyframe_supported === true;
           curtain.permission(value.curtain_supported === true,
             typeof value.curtain_active === "boolean" ? value.curtain_active : undefined);
           listeners.forEach(listener => listener(mode));

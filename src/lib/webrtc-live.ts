@@ -33,6 +33,7 @@ import { createRemoteSignalInbox } from "./remote-signal-inbox";
 import { LIVE_TRANSPORT_PROTOCOL, summarizeRtcStats, type LiveDiagnostics } from "./live-diagnostics";
 import { getWebClientId } from "@/shared/signaling-identity";
 import { createRemoteMediaSignals } from "@/lib/remote-media-signals";
+import { createVideoStallGuard } from "./video-stall-guard";
 import {
   MEDIA_PROFILES, preferredVideoCodecs, bindingDenied,
   type MediaProfile, type MediaFailure, type MediaProgress,
@@ -647,6 +648,24 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   let lastDecodedFrames = 0;
   let lastMediaProgressAt = 0;
   let lastDecodedAt: number | null = null;
+  const videoStall = createVideoStallGuard(() => actions.requestVideoKeyFrame());
+  let statsInFlight = false, statsStartedAt = 0;
+
+  const checkMediaStall = (silenceMs = 8_000) => {
+    if (!active() || state !== "connected" || viewerPaused || negotiating) return;
+    // Actual presentation remains evidence when getStats fails or stalls.
+    // Cursor packets, bytes received, and a sent keyframe hint are not frames.
+    const progressAt = Math.max(lastMediaProgressAt, lastPresentedAt ?? 0);
+    const decision = videoStall.check(Date.now(), progressAt, silenceMs);
+    if (decision === "keyframe") {
+      console.info("[webrtc] decoded video stalled; requested one keyframe before recovery");
+    } else if (decision === "recover") {
+      console.warn(options.videoOnly
+        ? "[webrtc] decoded video stalled; retrying video without JPEG"
+        : "[webrtc] decoded video stalled; JPEG remains available during recovery");
+      fail("media");
+    }
+  };
 
   const clearWatchdog = () => {
     if (watchdog !== null) { window.clearTimeout(watchdog); watchdog = null; }
@@ -948,11 +967,16 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   // its JPEG fallback. The outer controller starts a clean codec/route attempt.
   mediaWatchdog = window.setInterval(() => {
     if (closed || state !== "connected" || negotiating) return;
+    if (statsInFlight) {
+      if (Date.now() - statsStartedAt >= 12_000) checkMediaStall(12_000);
+      return;
+    }
+    statsInFlight = true; statsStartedAt = Date.now();
     void pc.getStats().then(async (stats) => {
       if (!active() || state !== "connected") return;
       safeStats = summarizeRtcStats(stats);
       // A deliberate local viewer pause is not a failed remote video stream.
-      if (viewerPaused) { lastMediaProgressAt = Date.now(); return; }
+      if (viewerPaused) { lastMediaProgressAt = Date.now(); videoStall.reset(); return; }
       let decoded = 0;
       let hasInboundVideo = false;
       // Step 1 diagnostics: loss/keyframe/geometry counters alongside framesDecoded.
@@ -985,22 +1009,17 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
         lastDecodedFrames = decoded;
         lastMediaProgressAt = now;
         lastDecodedAt = now;
+        videoStall.reset();
         mediaListeners.forEach(cb => cb({
           framesDecoded: decoded, codec: negotiatedCodec, path: selectedCandidateType,
         }));
         return;
       }
       if (!hasInboundVideo && now - connectedAt < 8_000) return;
-      if (now - lastMediaProgressAt < 8_000) return;
-
-
-      console.warn(options.videoOnly
-        ? "[webrtc] decoded video stalled; retrying video without JPEG"
-        : "[webrtc] decoded video stalled; JPEG remains available during recovery");
-      fail("media");
+      checkMediaStall();
     }).catch(() => {
-      if (active() && !viewerPaused && Date.now() - lastMediaProgressAt > 12_000) fail("media");
-    });
+      checkMediaStall(12_000);
+    }).finally(() => { statsInFlight = false; });
   }, 3_000);
 
   // ---- Inbound signals (postgres_changes; broadcast-tier can be added later)
@@ -1140,7 +1159,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     failure: () => failure,
     onMedia: cb => { mediaListeners.add(cb); return () => { mediaListeners.delete(cb); }; },
     setPaused: value => {
-      viewerPaused = value; lastMediaProgressAt = Date.now();
+      viewerPaused = value; lastMediaProgressAt = Date.now(); videoStall.reset();
       if (value && actions.unlock.active()) actions.unlock.cancel();
     },
 

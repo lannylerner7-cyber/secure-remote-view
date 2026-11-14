@@ -90,6 +90,7 @@ public sealed partial class WebRtcSession : IDisposable
     // the first offer arrives. Used to detect take-over and to tag outgoing
     // answer/ICE so the admin poller's `admin_client_id` filter routes them.
     private readonly PeerSignalBinding _signalBinding;
+    private string? _offerId;
     private string? _currentAdminClientId => _signalBinding.AdminId;
     private PeerInputPermission? _peerPermission;
     internal bool IsClosed => _closed;
@@ -436,6 +437,7 @@ public sealed partial class WebRtcSession : IDisposable
 
         var boundAdminClientId = _currentAdminClientId;
         var boundPeerId = _signalBinding.PeerId;
+        var boundOfferId = _offerId;
         _pc.onicecandidate += async (c) =>
         {
             if (c == null || !ReferenceEquals(_pc, boundPeer) || _closed ||
@@ -448,6 +450,7 @@ public sealed partial class WebRtcSession : IDisposable
                     sdpMid = c.sdpMid,
                     sdpMLineIndex = c.sdpMLineIndex,
                     peer_id = boundPeerId,
+                    offer_id = boundOfferId,
                 };
                 await _api.PostSignalReliableAsync(_sessionId, "ice", payload, _cts.Token, boundAdminClientId);
             }
@@ -573,18 +576,19 @@ public sealed partial class WebRtcSession : IDisposable
         {
             try
             {
-                string? adminId, peerId;
+                string? adminId, peerId, offerId;
                 await _handoffLock.WaitAsync(_cts.Token);
                 try
                 {
                     if (!ReferenceEquals(_pc, peer)) return;
                     adminId = _currentAdminClientId;
                     peerId = _signalBinding.PeerId;
+                    offerId = _offerId;
                     TearDownPeer();
                 }
                 finally { _handoffLock.Release(); }
                 await _api.PostSignalReliableAsync(_sessionId, "bye",
-                    new { peer_id = peerId, reason = "codec_unavailable" }, _cts.Token, adminId);
+                    new { peer_id = peerId, reason = "codec_unavailable", offer_id = offerId }, _cts.Token, adminId);
             }
             catch (OperationCanceledException) { }
             catch { Log.Warn("webrtc codec retirement notification unavailable; viewer timeout will recover"); }
@@ -732,7 +736,7 @@ public sealed partial class WebRtcSession : IDisposable
         }
         if (au == null || au.Length == 0) return;   // pipelined encoder, no output yet
 
-        EncodeStats.NoteVp8Encode(
+        EncodeStats.NoteH264Encode(
             sw.ElapsedTicks * 1_000_000L / System.Diagnostics.Stopwatch.Frequency, width, height);
 
         // 90 kHz clock: one frame at the current cadence.
@@ -858,6 +862,7 @@ public sealed partial class WebRtcSession : IDisposable
 
                     if (_pc != null) TearDownPeer();
                     if (!_signalBinding.TryBind(incomingAdminId, incomingPeerId)) return;
+                    _offerId = ConnectLive.Native.OfferGeneration.Read(payload);
                     await LoadIceAsync().ConfigureAwait(false);
                     if (_cts.IsCancellationRequested || _closed || !_inputPermission.Allows("view")) return;
                     // Rebuild on every offer: mutating a cached list does not
@@ -887,7 +892,7 @@ public sealed partial class WebRtcSession : IDisposable
                             try
                             {
                                 await _api.PostSignalReliableAsync(_sessionId, "bye",
-                                    new { reason = "unsupported-codec", peer_id = incomingPeerId },
+                                    new { reason = "unsupported-codec", peer_id = incomingPeerId, offer_id = ConnectLive.Native.OfferGeneration.Read(payload) },
                                     _cts.Token, rejectedAdminId);
                             }
                             catch { Log.Warn("webrtc codec rejection receipt unavailable"); }
@@ -897,7 +902,7 @@ public sealed partial class WebRtcSession : IDisposable
                     var answer = _pc.createAnswer(null);
                     await _pc.setLocalDescription(answer);
                     await _api.PostSignalReliableAsync(_sessionId, "answer",
-                        new { type = "answer", sdp = answer.sdp, peer_id = incomingPeerId }, _cts.Token, _currentAdminClientId);
+                        new { type = "answer", sdp = answer.sdp, peer_id = incomingPeerId, offer_id = _offerId }, _cts.Token, _currentAdminClientId);
                     Log.Info($"[t={MonoClock.ElapsedMilliseconds}] webrtc answer posted");
                 }
                 finally { _handoffLock.Release(); }
@@ -906,6 +911,7 @@ public sealed partial class WebRtcSession : IDisposable
             case "ice":
             {
                 if (_pc == null) return;
+                if (!ConnectLive.Native.OfferGeneration.Matches(_offerId, payload)) return;
                 if (!_signalBinding.Matches(incomingAdminId, incomingPeerId)) return;
                 // Drop stray ICE from a superseded admin — its offer no longer
                 // owns our peer, so its candidates would poison negotiation.

@@ -36,7 +36,7 @@ public sealed partial class WebRtcSession
             return true;
         }
         var local = UnlockEnrollment.Current;
-        if (!Bound() || _unlock?.Active == true || local?.Registered != true || !UnlockEnrollment.Fresh ||
+        if (!Bound() || owner.InputState.OperatorPaused || _unlock?.Active == true || local?.Registered != true || !UnlockEnrollment.Fresh ||
             !UnlockEnrollment.Matches(_api, local) || string.IsNullOrEmpty(_signalBinding.PeerId) ||
             !_formatReady || !_videoStarted || WindowsSession.Locked(WindowsSession.CurrentId) != true ||
             !payload.TryGetProperty("recording_stopped", out var recording) || recording.ValueKind != JsonValueKind.True)

@@ -4,6 +4,7 @@ import { currentAuthorization, sessionAuthorized } from "@/lib/authorization.ser
 import { legacyMonitorMayBeDelivered } from "@/shared/legacy-monitor";
 import { evaluateLicense, type LicenseRow } from "@/lib/licensing.server";
 import { withAgentHttpDiagnostics } from "@/lib/agent-http-diagnostics.server";
+import { writeBoundedTelemetry } from "@/lib/bounded-telemetry.server";
 
 /**
  * Called by the Agent every 5-60s. Watch has a separate, authorized lifecycle
@@ -211,7 +212,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         if (authorizationResult.unavailable)
           return trace.respond(new Response("authorization_unavailable", { status: 503 }), "authorization_unavailable");
         const authorization = authorizationResult.value;
-        const { error: presenceError } = await trace.step("presence_write", () => ctx.admin
+        const presenceQuery = ctx.admin
           .from("devices")
           .update({
             // New-process presence is written atomically with its instance in
@@ -219,7 +220,14 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             ...(body.runtime ? {} : { status: "online", last_seen_at: nowIso }),
             metadata: (mergedMetadata ?? prevMeta) as never,
           })
-          .eq("id", ctx.device.id));
+          .eq("id", ctx.device.id);
+        // The runtime RPC above already committed/fenced native presence.
+        // Do not spend the authority heartbeat's remaining budget on optional
+        // metadata. Older clients retain their original presence-write path.
+        const presenceError = body.runtime
+          ? !await trace.step("presence_write", () => writeBoundedTelemetry(
+              request.signal, signal => presenceQuery.abortSignal(signal)))
+          : !!(await trace.step("presence_write", () => presenceQuery)).error;
         // Runtime fencing and authorization are mandatory; metadata telemetry
         // is not authority and must not tear down an otherwise verified peer.
 

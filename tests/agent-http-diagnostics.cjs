@@ -158,6 +158,40 @@ test("metadata write failure is a warning after fresh process and session author
   assert.ok(body.sessions.length > 0);
 });
 
+test("a hung optional metadata write is aborted without skipping fresh authority checks", async () => {
+  const f = routeFixture("heartbeat", { stall: "presence_write" });
+  const pending = f.call();
+  for (let n = 0; n < 100; n++) await Promise.resolve();
+  assert.equal(f.telemetrySignals.length, 1);
+  assert.equal(f.telemetrySignals[0].aborted, false);
+  f.advance(1_000);
+  const response = await pending;
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(f.telemetrySignals[0].aborted, true);
+  assert.ok(body.reporting_warnings.includes("presence_metadata_write_failed"));
+  assert.ok(body.is_session_active);
+  for (const required of ["runtime_write", "authorization", "session_authorization", "license_lookup"])
+    assert.ok(f.reads.includes(required), `fresh ${required} remains required`);
+  assert.equal(f.timers.size, 0);
+});
+
+test("a thrown optional metadata error is a reporting warning, not a lost-authority response", async () => {
+  const f = routeFixture("heartbeat", { throwAt: "presence_write" });
+  const response = await f.call();
+  assert.equal(response.status, 200);
+  assert.ok((await response.json()).reporting_warnings.includes("presence_metadata_write_failed"));
+  assert.doesNotMatch(JSON.stringify(f.logs), /PRIVATE_DATABASE/);
+});
+
+test("legacy presence writes do not use the optional native metadata deadline", async () => {
+  const f = routeFixture("heartbeat");
+  assert.equal((await f.call({})).status, 200);
+  assert.equal(f.telemetrySignals.length, 0);
+  const presence = f.writes.find(value => value.table === "devices" && value.values.metadata);
+  assert.equal(presence.values.status, "online");
+});
+
 test("heartbeat still denies invalid credentials, runtime reports and retired processes", async () => {
   assert.equal((await routeFixture("heartbeat", { invalidToken: true }).call()).status, 401);
   assert.equal((await routeFixture("heartbeat").call({ runtime: {} })).status, 400);

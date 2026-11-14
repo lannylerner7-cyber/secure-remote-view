@@ -65,12 +65,14 @@ public static class ScreenCapture
     {
         var permission = api.LivePermission;
         if (permission?.Allows("view") != true || ct.IsCancellationRequested) return;
+        CaptureHealth.Reset();
         Log.Info($"capture loop entered; JPEG fallback={(videoOnly ? "off (video-only session)" : "on")}; viewing permission verified");
         ulong lastHash = 0;
         int idleCount = 0;
         bool firstJpegUploaded = false;
         int framesSinceKeyframe = 0;
         long jpegIntervalMs = JpegFallbackEncoder.MotionIntervalMs;
+        var uploadBackoff = new FrameUploadBackoff();
         // HTTP fallback must not pace DXGI/WebRTC. At most one upload runs and
         // one fresh frame waits; older pending JPEGs are replaced, not replayed.
         using var uploadsLifetime = videoOnly ? null : CancellationTokenSource.CreateLinkedTokenSource(ct, permission.Token);
@@ -84,8 +86,9 @@ public static class ScreenCapture
                 // reports bounded status/latency diagnostics, including timeouts.
                 // HTTP latency changes JPEG cadence, not its resolution or
                 // the independent WebRTC congestion/codec ladder.
-                Interlocked.Exchange(ref jpegIntervalMs, Math.Clamp(
-                    watch.ElapsedMilliseconds * 2, JpegFallbackEncoder.MotionIntervalMs, 2500L));
+                var retryDelay = uploadBackoff.Observe(posted);
+                Interlocked.Exchange(ref jpegIntervalMs, Math.Max((long)retryDelay.TotalMilliseconds, Math.Clamp(
+                    watch.ElapsedMilliseconds * 2, JpegFallbackEncoder.MotionIntervalMs, 2500L)));
                 if (posted)
                 {
                     if (!firstJpegUploaded)
@@ -94,9 +97,16 @@ public static class ScreenCapture
                         Log.Info($"first JPEG uploaded successfully: {pending.Width}x{pending.Height}, {pending.Bytes.Length} bytes; capture and HTTPS path working");
                     }
                 }
+                // Wait AFTER consuming the failed upload, before taking the
+                // next pending frame. The mailbox keeps replacing that frame
+                // with the latest one while capture and WebRTC continue.
+                // Withdrawal cancels this wait and discards pending work.
+                if (retryDelay > TimeSpan.Zero)
+                    await Task.Delay(retryDelay, token).ConfigureAwait(false);
             }, uploadsLifetime!.Token);
 
         bool firstDesktopCaptured = false;
+        long lastCaptureDiagnosticMs = 0;
         (byte[] Bytes, int Width, int Height)? latestJpeg = null;
         long lastJpegQueuedAt = 0;
         long lastJpegEncodedAt = 0;
@@ -162,9 +172,17 @@ public static class ScreenCapture
 
         while (!ct.IsCancellationRequested && permission.Allows("view"))
         {
+            CaptureHealth.LoopTick();
+            var diagnosticNow = Environment.TickCount64;
+            if (diagnosticNow - lastCaptureDiagnosticMs >= 10_000)
+            {
+                lastCaptureDiagnosticMs = diagnosticNow;
+                Log.Info(CaptureHealth.DiagnosticLine());
+            }
             if (UnlockOperation.Sensitive ||
                 ConnectLive.Unlock.WindowsSession.Locked(ConnectLive.Unlock.WindowsSession.CurrentId) == true)
             {
+                CaptureHealth.ProtectedDesktop();
                 // Secure-desktop pixels are produced only by the opt-in helper
                 // and go straight to WebRTC, never to the JPEG storage path.
                 latestJpeg = null;
@@ -263,6 +281,7 @@ public static class ScreenCapture
                     bool forceRefresh = framesSinceKeyframe >= PeriodicRefreshFrames;
 
                     if (!permission.Allows("view") || ct.IsCancellationRequested) break;
+                    CaptureHealth.Poll(CaptureSource.Dxgi);
                     using var dxFrame = dxgi.TryCapture(15, forceRefresh);
                     if (dxFrame != null)
                     {
@@ -306,6 +325,7 @@ public static class ScreenCapture
                     }
                     using var g = Graphics.FromImage(rawBmp);
                     if (!permission.Allows("view") || ct.IsCancellationRequested) break;
+                    CaptureHealth.Poll(CaptureSource.Gdi);
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                     framesSinceKeyframe++;
                 }
@@ -389,6 +409,8 @@ public static class ScreenCapture
                 // Fast dirty-frame detection: FNV-1a over strided pixel samples.
                 ulong hash = HashBitmap(frame);
                 bool unchanged = hash == lastHash && (videoOnly || latestJpeg.HasValue);
+                CaptureHealth.Sample(haveFreshRaw ? CaptureSource.Dxgi : CaptureSource.Gdi,
+                    frame.Width, frame.Height, contentChanged: !unchanged);
 
                 // Adaptive idle backoff: after 3+ unchanged frames, slow to 100ms.
                 // Force a keyframe every ~2s even when idle so a fresh admin

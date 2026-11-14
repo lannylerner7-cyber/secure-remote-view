@@ -1,6 +1,7 @@
 # Run the complete Agent source before packaging
 
-This is the **Windows Agent source**, version **1.10.9**. It includes C#,
+This is the **Windows Agent source**; the version is recorded in the included
+`SOURCE-MANIFEST.json` and `src/ConnectLiveAgent.csproj`. It includes C#,
 XAML, project files, branding assets, Watch, the update helper, shared update
 code, native tests and build scripts. It is not a binary-download launcher.
 No Agent executable or MSI has been built for this source delivery.

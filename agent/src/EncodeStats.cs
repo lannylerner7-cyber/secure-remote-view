@@ -36,6 +36,7 @@ public static class EncodeStats
     // ---- encode timing, per transport -------------------------------------
     private static long _jpegFrames, _jpegMicros;
     private static long _vp8Frames, _vp8Micros;
+    private static long _h264Frames, _h264Micros;
 
     // Widest geometry seen this session — the honest answer to "did we really
     // capture at native resolution?" even if the ladder stepped down later.
@@ -69,6 +70,14 @@ public static class EncodeStats
         NoteGeometry(width, height);
     }
 
+    /// <summary>Record one hardware H.264 encode call for the WebRTC transport.</summary>
+    public static void NoteH264Encode(long micros, int width, int height)
+    {
+        Interlocked.Increment(ref _h264Frames);
+        Interlocked.Add(ref _h264Micros, micros < 0 ? 0 : micros);
+        NoteGeometry(width, height);
+    }
+
     private static void NoteGeometry(int width, int height)
     {
         if (width <= 0 || height <= 0) return;
@@ -89,6 +98,9 @@ public static class EncodeStats
 
     /// <summary>Mean software VP8 encode time in ms this session, or -1 with no samples.</summary>
     public static double Vp8EncodeMs => Mean(Interlocked.Read(ref _vp8Frames), Interlocked.Read(ref _vp8Micros));
+
+    /// <summary>Mean hardware H.264 encode time in ms this session, or -1 with no samples.</summary>
+    public static double H264EncodeMs => Mean(Interlocked.Read(ref _h264Frames), Interlocked.Read(ref _h264Micros));
 
     /// <summary>Largest frame geometry handed to an encoder this session.</summary>
     public static (int Width, int Height) PeakGeometry => (_peakWidth, _peakHeight);
@@ -152,10 +164,11 @@ public static class EncodeStats
         var (lw, lh) = LastGeometry;
         string jpeg = JpegEncodeMs < 0 ? "-" : $"{JpegEncodeMs:F1}ms";
         string vp8 = Vp8EncodeMs < 0 ? "-" : $"{Vp8EncodeMs:F1}ms";
+        string h264 = H264EncodeMs < 0 ? "-" : $"{H264EncodeMs:F1}ms";
         long ws = WorkingSetMb();
         return $"[encode] wire={CodecPolicy.WireCodecTag} " +
                $"rung={BitrateController.RungIndex}/{BitrateController.Rungs - 1} " +
-               $"size={lw}x{lh} peak={pw}x{ph} jpeg={jpeg} vp8={vp8} " +
+               $"size={lw}x{lh} peak={pw}x{ph} jpeg={jpeg} vp8={vp8} h264={h264} " +
                $"cpu={(cpu < 0 ? "-" : cpu.ToString("F0") + "%")} " +
                $"ws={(ws < 0 ? "-" : ws + "MB")} hw={SafeVendorTag()}";
     }
@@ -176,12 +189,14 @@ public static class EncodeStats
         double cpu = CpuPercentOfCore();
         double jpeg = JpegEncodeMs;
         double vp8 = Vp8EncodeMs;
+        double h264 = H264EncodeMs;
         long ws = WorkingSetMb();
         var (pw, ph) = PeakGeometry;
         return new
         {
             jpeg_ms = jpeg < 0 ? (double?)null : Math.Round(jpeg, 2),
             vp8_ms = vp8 < 0 ? (double?)null : Math.Round(vp8, 2),
+            h264_ms = h264 < 0 ? (double?)null : Math.Round(h264, 2),
             cpu_pct = cpu < 0 ? (double?)null : Math.Round(cpu, 1),
             ws_mb = ws < 0 ? (long?)null : ws,
             peak_width = pw,
@@ -201,6 +216,8 @@ public static class EncodeStats
         Interlocked.Exchange(ref _jpegMicros, 0);
         Interlocked.Exchange(ref _vp8Frames, 0);
         Interlocked.Exchange(ref _vp8Micros, 0);
+        Interlocked.Exchange(ref _h264Frames, 0);
+        Interlocked.Exchange(ref _h264Micros, 0);
         _peakWidth = _peakHeight = 0;
         _lastWidth = _lastHeight = 0;
     }

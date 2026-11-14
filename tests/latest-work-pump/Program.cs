@@ -1,6 +1,13 @@
 using ConnectLive.Agent;
 using System.Collections.Concurrent;
 
+var backoff = new FrameUploadBackoff();
+var delays = Enumerable.Range(0, 8).Select(_ => backoff.Observe(false).TotalMilliseconds).ToArray();
+if (!delays.SequenceEqual(new double[] { 500, 1000, 2000, 4000, 5000, 5000, 5000, 5000 }))
+    throw new Exception("JPEG retry pressure is not bounded");
+if (backoff.Observe(true) != TimeSpan.Zero || backoff.Observe(false).TotalMilliseconds != 500)
+    throw new Exception("Successful JPEG upload did not reset the retry delay");
+
 var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 var latest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
