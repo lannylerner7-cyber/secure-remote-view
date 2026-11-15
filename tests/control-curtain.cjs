@@ -266,15 +266,32 @@ test("native routing preserves both receipt formats and the fail-safe boundary",
   assert(consoleSource.includes('normalizePlatform(liveDevice?.platform) !== "android"'));
   assert(consoleSource.includes("JPEG pictures alone cannot confirm control or curtain"));
   const overlay = fs.readFileSync("agent/src/CurtainOverlay.cs", "utf8");
+  const display = fs.readFileSync("agent/src/CurtainDisplaySession.cs", "utf8");
+  const form = fs.readFileSync("agent/src/CurtainForm.cs", "utf8");
+  const native = fs.readFileSync("agent/src/CurtainNative.cs", "utf8");
   const capture = fs.readFileSync("agent/src/ScreenCapture.cs", "utf8");
-  const renderCheck = overlay.slice(overlay.indexOf("internal static async Task<CurtainApplyResult> ShowRenderedAsync"));
-  assert(renderCheck.indexOf("Task.WhenAll") < renderCheck.indexOf("VerifyExclusion"),
-    "Verify exclusion after actual WPF rendering, not just hidden HWND creation");
-  assert(overlay.includes("AllowsTransparency = false"));
-  assert(overlay.includes("SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)"),
+  assert(overlay.includes("new CurtainForm(screen.Bounds)") && overlay.includes("await Display.ShowRenderedAsync()"),
+    "the existing public adapter uses the production multi-monitor display lifecycle");
+  assert(display.indexOf("Task.WhenAll") < display.indexOf("window.VerifyAfterRender()"),
+    "verify exclusion after every actual first paint, not just hidden HWND creation");
+  assert(form.includes("CurtainForm : Form, ICurtainSurface") && !form.includes("System.Windows.Media"));
+  assert(form.includes("parameters.ExStyle |= CurtainNative.RequiredExStyles"),
+    "native window styles exist at creation rather than patching WPF-owned styles");
+  assert(!form.includes("Opacity =") && !form.includes("TransparencyKey =") &&
+    !native.includes("SetWindowLong("), "the display does not switch back to per-pixel transparency");
+  assert(native.includes("SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)"),
     "retain click-through using opaque constant alpha, not WPF per-pixel transparency");
-  assert(overlay.includes("generation != _generation"),
+  assert(display.includes("generation != _generation"),
     "an obsolete render must not hide a replacement curtain");
-  assert(capture.indexOf("CurtainController.CaptureUnavailable()") < capture.indexOf("g.CopyFromScreen"),
-    "No GDI fallback may capture an active physical curtain");
+  assert(capture.includes("CurtainOverlay.TryCaptureWithoutCurtain(() =>") &&
+    capture.includes("CurtainController.CaptureUnavailable()") &&
+    display.includes("lock (_captureGate)"),
+    "the fallback check and copy are serialized with first-show");
+  assert(controller.includes("hidden = !CurtainOverlay.IsShown"),
+    "cleanup must actually hide the notice before an off receipt is successful");
+  for (const text of [
+    "ConnectLive · maintenance in progress",
+    "Your IT administrator is performing maintenance on this computer.",
+    "Local keyboard and mouse input is temporarily paused. Press Ctrl + Alt + Shift + Esc to stop remote access. Windows Ctrl + Alt + Del remains available.",
+  ]) assert(form.includes(text), "preserve the existing notice and recovery wording");
 });

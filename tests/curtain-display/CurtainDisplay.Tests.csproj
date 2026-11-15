@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compile the production lifecycle and native declarations, not a copy.
+         Native calls and the Windows Forms renderer are NOT executed here. -->
+    <Compile Include="../../agent/src/CurtainDisplaySession.cs" Link="CurtainDisplaySession.cs" />
+    <Compile Include="../../agent/src/CurtainApplyResult.cs" Link="CurtainApplyResult.cs" />
+    <Compile Include="../../agent/src/CurtainNative.cs" Link="CurtainNative.cs" />
+  </ItemGroup>
+</Project>

@@ -173,7 +173,11 @@ internal static class CurtainController
                 lock (Gate)
                 {
                     hidden = generation == _activation && Lease.Owner == null;
-                    if (hidden) CurtainOverlay.Hide();
+                    if (hidden)
+                    {
+                        CurtainOverlay.Hide();
+                        hidden = !CurtainOverlay.IsShown;
+                    }
                 }
                 // A queued release from an older activation must neither hide
                 // a new curtain nor publish a false inactive state for it.

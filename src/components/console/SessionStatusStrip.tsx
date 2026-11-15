@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { InputIndicatorTone } from "./session-tools";
 
 const TONE: Record<InputIndicatorTone, string> = {
@@ -11,13 +12,15 @@ const TONE: Record<InputIndicatorTone, string> = {
 
 /** Always-visible session state, independent of the selected tool. */
 export function SessionStatusStrip({
-  input, curtain, recording, transfer, connection,
+  input, curtain, recording, transfer, connection, help,
 }: {
   input: { label: string; tone: InputIndicatorTone; detail: string };
   curtain: string | null;
   recording: boolean;
   transfer: boolean;
   connection: { label: string; ok: boolean };
+  /** Optional help control shown after the connection state. */
+  help?: ReactNode;
 }) {
   return (
     <div role="status" aria-live="polite" data-testid="session-status-strip"
@@ -39,6 +42,7 @@ export function SessionStatusStrip({
         <span data-testid="status-connection" className={`rounded-full border px-2 py-0.5 ${connection.ok ? "border-emerald-400/30 text-emerald-200" : "border-amber-400/30 text-amber-100"}`}>
           {connection.label}
         </span>
+        {help}
       </span>
     </div>
   );

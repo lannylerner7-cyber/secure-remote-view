@@ -11,16 +11,20 @@ static TaskCompletionSource<CurtainApplyResult> Receipt() =>
 
 var dispatcher = System.Windows.Application.Current!.Dispatcher;
 var owner = new PeerInputPermission();
-var first = Receipt();
-CurtainOverlay.Next = Task.FromResult(CurtainApplyResult.Failed("capture_exclusion_failed", 87));
-CurtainController.EnableDetailed(owner, value => first.TrySetResult(value));
-dispatcher.Drain();
-var failure = await first.Task.WaitAsync(TimeSpan.FromSeconds(2));
-dispatcher.Drain();
-Check(!failure.Applied && failure.Reason == "capture_exclusion_failed" && failure.NativeError == 87,
-    "real controller propagates capture-exclusion failure with its Windows error");
-Check(InputBlocker.EngageCalls == 0 && !CurtainController.ActiveFor(owner),
-    "render/exclusion failure never pauses local input or confirms a curtain");
+foreach (var reason in new[] { "capture_exclusion_failed", "capture_exclusion_unverified",
+    "display_style_failed", "display_placement_failed", "display_render_timeout" })
+{
+    var first = Receipt();
+    CurtainOverlay.Next = Task.FromResult(CurtainApplyResult.Failed(reason, 87));
+    CurtainController.EnableDetailed(owner, value => first.TrySetResult(value));
+    dispatcher.Drain();
+    var failure = await first.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    dispatcher.Drain();
+    Check(!failure.Applied && failure.Reason == reason && failure.NativeError == 87,
+        $"real controller propagates {reason} with its Windows error");
+    Check(InputBlocker.EngageCalls == 0 && !CurtainController.ActiveFor(owner),
+        $"{reason} never pauses local input or confirms a curtain");
+}
 
 var render = Receipt();
 CurtainOverlay.Next = render.Task;
@@ -79,6 +83,38 @@ CurtainController.EnableDetailed(owner, value => denied.TrySetResult(value));
 Check((await denied.Task).Reason == "authorization_changed",
     "withdrawn control authorization is never bypassed");
 owner.Allowed = true;
+InputBlocker.EngageAllowed = false;
+var inputFailed = Receipt();
+CurtainOverlay.Next = Task.FromResult(CurtainApplyResult.Success);
+CurtainController.EnableDetailed(owner, value => inputFailed.TrySetResult(value));
+dispatcher.Drain();
+Check((await inputFailed.Task).Reason == "input_pause_unavailable" &&
+      !CurtainOverlay.IsShown && !InputBlocker.IsEngaged,
+    "failure to pause input cleans up a successfully rendered notice");
+InputBlocker.EngageAllowed = true;
+
+var captureActive = Receipt();
+CurtainController.EnableDetailed(owner, value => captureActive.TrySetResult(value));
+dispatcher.Drain();
+Check((await captureActive.Task).Applied, "capture-safety scenario starts with a confirmed curtain");
+CurtainController.CaptureUnavailable();
+dispatcher.Drain();
+Check(!CurtainController.ActiveFor(owner) && !InputBlocker.IsEngaged && !CurtainOverlay.IsShown,
+    "unsafe capture fallback releases both the notice and local input pause");
+
+var cleanupActive = Receipt();
+CurtainController.EnableDetailed(owner, value => cleanupActive.TrySetResult(value));
+dispatcher.Drain();
+await cleanupActive.Task;
+CurtainOverlay.HideFails = true;
+var cleanupReceipt = new TaskCompletionSource<bool>();
+CurtainController.Release(owner, "test_cleanup", value => cleanupReceipt.TrySetResult(value));
+dispatcher.Drain();
+Check(!await cleanupReceipt.Task && CurtainOverlay.IsShown && !InputBlocker.IsEngaged,
+    "unconfirmed window cleanup cannot produce a successful off receipt");
+CurtainOverlay.HideFails = false;
+CurtainOverlay.Hide();
+
 dispatcher.HasShutdownStarted = true;
 var unavailable = Receipt();
 CurtainController.EnableDetailed(owner, value => unavailable.TrySetResult(value));
@@ -105,22 +141,29 @@ namespace ConnectLive.Agent
     internal static class CurtainOverlay
     {
         internal static Task<CurtainApplyResult> Next = Task.FromResult(CurtainApplyResult.Success);
-        internal static bool IsShown;
+        internal static bool IsShown, HideFails;
         internal static async Task<CurtainApplyResult> ShowRenderedAsync()
         {
             var result = await Next;
             if (result.Applied) IsShown = true;
             return result;
         }
-        internal static void Hide() => IsShown = false;
+        internal static void Hide() { if (!HideFails) IsShown = false; }
     }
     internal static class InputBlocker
     {
         internal static bool LocalStopPending, IsEngaged;
+        internal static bool EngageAllowed = true;
         internal static int EngageCalls;
         private static Action<string>? _released;
         internal static bool Engage(Action<string> released)
-        { EngageCalls++; IsEngaged = true; _released = released; return true; }
+        {
+            EngageCalls++;
+            if (!EngageAllowed) return false;
+            IsEngaged = true;
+            _released = released;
+            return true;
+        }
         internal static void Heartbeat() { }
         internal static void Release(string reason)
         { IsEngaged = false; var released = _released; _released = null; released?.Invoke(reason); }

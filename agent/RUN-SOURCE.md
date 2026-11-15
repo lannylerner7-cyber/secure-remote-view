@@ -340,8 +340,10 @@ new permission or database migration is performed.
 
 Video-only sessions intentionally reject JPEG at the Agent, API and database.
 The replacement option creates a separate `legacy`-media session instead of
-silently weakening those restrictions. WebRTC continues trying, and the
-**Automatic JPEG fallback enabled** notice explains which path is active.
+silently weakening those restrictions. WebRTC continues trying. In the web
+console viewer, select the **?** button beside the session status line to see
+which path is active, the codec and route, any retry in progress and the Agent
+log location. The **?** turns amber while live video is not being shown.
 Do not infer native video success from a visible JPEG.
 
 This source update separates JPEG detail from the video congestion ladder:

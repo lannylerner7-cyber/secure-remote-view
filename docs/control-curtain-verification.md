@@ -1,5 +1,10 @@
 # Control and curtain correction
 
+For the **1.10.14 display-host source repair**, its portable checks, and the
+still-required physical Windows acceptance, see
+[Local-only curtain verification](curtain-display-repair.md). The earlier
+protocol work and its verification boundaries below are retained as history.
+
 ## Cause
 
 The browser's former control button updated the session mode but did not

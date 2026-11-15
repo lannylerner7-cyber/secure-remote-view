@@ -117,7 +117,15 @@ test("UI keeps role, confirmation, busy guard and view-only invitation", () => {
   assert.match(source, /mode: "view",\s*state: "invited"/);
   assert.match(source, /if \(lookupError\)/);
   assert.match(source, /data-testid="button-jpeg-diagnostic"/);
-  assert.match(source, /data-testid="jpeg-diagnostic-status"/);
+  // The fallback notice is now a "?" popup beside the status line, shown
+  // under the same media-mode, platform and Agent-capability conditions.
+  const help = fs.readFileSync("src/components/console/MediaHelpButton.tsx", "utf8");
+  assert.match(source, /help=\{s\.media_mode === "legacy" && dev\?\.platform === "windows" &&\s*\(dev\.metadata as Record<string, unknown> \| null\)\?\.browser_video === 1 \? \(\s*<MediaHelpButton/);
+  assert.match(help, /data-testid="button-media-help"/);
+  assert.match(help, /data-testid="jpeg-diagnostic-status"/);
+  assert.match(help, /data-testid="media-recovery-status"/);
+  assert.doesNotMatch(source, /Automatic JPEG fallback enabled/, "The always-visible fallback strip must stay removed");
+  assert.doesNotMatch(source, /LOCALAPPDATA/, "Log location belongs in the help popup");
   assert.match(source, /Enable JPEG fallback/);
   assert.match(source, /data-testid="video-only-session-notice"/);
   assert.match(source, /observeVideoFrames\(viewerVideo/);

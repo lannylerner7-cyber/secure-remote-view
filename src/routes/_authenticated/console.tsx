@@ -54,6 +54,7 @@ import { DevicePairingDialog } from "@/components/console/DevicePairingDialog";
 import { WindowsUnlockControls } from "@/components/console/WindowsUnlockControls";
 import { WindowsUnlockSettings } from "@/components/console/WindowsUnlockSettings";
 import { LiveConnectionDiagnostics } from "@/components/console/LiveConnectionDiagnostics";
+import { MediaHelpButton } from "@/components/console/MediaHelpButton";
 import { createCoalescedRefresh } from "@/lib/coalesced-refresh";
 import { EMPTY_UNLOCK, type UnlockState } from "@/shared/windows-unlock";
 import { revokeManagedDeviceAccess } from "@/lib/device-pairing.functions";
@@ -2074,28 +2075,18 @@ function AdminPage() {
                   recording={recording}
                   transfer={fileTransferActive}
                   connection={{ ok: rtcState === "connected", label: rtcState === "connected" ? "Channel connected" : `Channel ${rtcState}` }}
+                  help={s.media_mode === "legacy" && dev?.platform === "windows" &&
+                    (dev.metadata as Record<string, unknown> | null)?.browser_video === 1 ? (
+                    <MediaHelpButton
+                      getContainer={() => viewerPanelRef.current}
+                      videoDecoding={videoDecoding}
+                      jpegFresh={active && !!liveFrame?.frame && frameAge < 8000}
+                      viewerPaused={viewerPaused}
+                      rtcState={rtcState}
+                      recovery={mediaRecovery}
+                    />
+                  ) : null}
                 />
-                {s.media_mode === "legacy" && dev?.platform === "windows" &&
-                  (dev.metadata as Record<string, unknown> | null)?.browser_video === 1 && (
-                  <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="jpeg-diagnostic-status" role="status">
-                    <strong>Automatic JPEG fallback enabled.</strong>{" "}
-                    {videoDecoding ? "WebRTC video is decoding; JPEG is on standby." :
-                      active && liveFrame?.frame && frameAge < 8000
-                        ? "Showing JPEG while video recovers automatically. Use 1:1 for pixel-for-pixel text."
-                        : "Video is preferred. Waiting for an authorized video stream or a fresh JPEG frame; viewing permission is still required."}
-                    {" "}Video: {rtcState}.
-                    {mediaRecovery && <span data-testid="media-recovery-status">
-                      {" "}{mediaRecovery.phase === "live"
-                        ? `${mediaRecovery.codec ?? "Video"} · ${mediaRecovery.path === "relay" ? "TURN relay" : mediaRecovery.path ? "direct connection" : "route not yet reported"}`
-                        : mediaRecovery.phase === "stopped"
-                          ? "Retries stopped because viewing permission or viewer ownership changed."
-                          : mediaRecovery.phase === "finishing-recording"
-                            ? "Saving the recording segment before reconnecting."
-                            : `${mediaRecovery.phase === "waiting" ? "Next automatic retry" : "Trying"}: ${mediaRecovery.profile.label} · attempt ${mediaRecovery.attempt + (mediaRecovery.phase === "waiting" ? 1 : 0)}`}
-                    </span>}
-                    {" "}Logs: <code>%LOCALAPPDATA%\ConnectLive\logs</code>
-                  </div>
-                )}
                 {s.media_mode === "video" && (
                   <div className="border-b border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-100" data-testid="video-only-session-notice" role="status">
                     This existing session is video-only. Use <strong>Enable JPEG fallback</strong> to

@@ -317,16 +317,20 @@ public static class ScreenCapture
                     // privacy overlay stayed out of the captured desktop.
                     // Stop the curtain before resuming that fallback, rather
                     // than transmitting the banner or a blacked-out window.
-                    if (CurtainOverlay.IsShown)
+                    using var g = Graphics.FromImage(rawBmp);
+                    if (!permission.Allows("view") || ct.IsCancellationRequested) break;
+                    // Serialize the check and copy with first-show: a fallback
+                    // that already passed a bool check must not race the notice.
+                    if (!CurtainOverlay.TryCaptureWithoutCurtain(() =>
+                    {
+                        CaptureHealth.Poll(CaptureSource.Gdi);
+                        g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+                    }))
                     {
                         CurtainController.CaptureUnavailable();
                         try { await Task.Delay(100, ct); } catch { }
                         continue;
                     }
-                    using var g = Graphics.FromImage(rawBmp);
-                    if (!permission.Allows("view") || ct.IsCancellationRequested) break;
-                    CaptureHealth.Poll(CaptureSource.Gdi);
-                    g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                     framesSinceKeyframe++;
                 }
                 // Capture succeeded. Keep JPEG dirty until those pixels are encoded;
