@@ -4,6 +4,11 @@ namespace ConnectLive.Agent;
 internal sealed class LocalEscapeGesture
 {
     private int _modifiers;
+    internal bool MicrophoneStop(uint key, bool down, bool injected)
+    {
+        var held = System.Threading.Volatile.Read(ref _modifiers);
+        return !injected && down && key == 0x4D && (held & 3) != 0 && (held & 12) != 0 && (held & 48) != 0;
+    }
     internal bool Feed(uint key, bool down, bool injected)
     {
         if (injected) return false;

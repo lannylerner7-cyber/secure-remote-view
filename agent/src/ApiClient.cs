@@ -97,7 +97,7 @@ public sealed partial class ApiClient
             DeviceId == null || DeviceId != agreedDeviceId)
             throw new InvalidOperationException("Authorization response did not match your choices; remote access remains dormant.");
         var local = new LocalGrant(LocalGrant.OriginOf(ApiBaseUrl), DeviceId, grant);
-        GrantStore.Save(local);
+        local = GrantStore.Save(local);
         LocalAuthorization = local;
     }
 
@@ -452,7 +452,7 @@ public sealed partial class ApiClient
     public async Task<bool> UploadSessionFileChunkAsync(
         string sessionId, string fileId, int seq, bool eof,
         string name, string mime, string sha256, long totalSize,
-        byte[] chunk, CancellationToken ct)
+        byte[] chunk, CancellationToken ct, string? controllerId = null, string? peerId = null)
     {
         if (!Allows(sessionId, "files", ct)) return false;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct, LivePermission!.Token);
@@ -473,9 +473,22 @@ public sealed partial class ApiClient
                 req.Headers.Add("X-File-Mime", mime);
                 req.Headers.Add("X-File-Sha256", sha256);
                 req.Headers.Add("X-File-Size", totalSize.ToString());
+                req.Headers.Add("X-File-Instance", AgentProcessState.Instance);
+                if (controllerId != null) req.Headers.Add("X-File-Controller", controllerId);
+                if (peerId != null) req.Headers.Add("X-File-Peer", peerId);
                 return req;
             }, ct);
-            return resp.IsSuccessStatusCode;
+            if (!resp.IsSuccessStatusCode || !Allows(sessionId, "files", ct)) return false;
+            using var receipt = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            var value = receipt.RootElement;
+            if (value.GetProperty("ok").ValueKind != JsonValueKind.True ||
+                !Guid.TryParse(value.GetProperty("id").GetString(), out var receivedId) ||
+                receivedId != Guid.Parse(fileId)) return false;
+            return eof
+                ? value.GetProperty("state").GetString() == "complete" &&
+                  value.GetProperty("size").GetInt64() == totalSize &&
+                  value.GetProperty("sha256").GetString() == sha256
+                : value.GetProperty("state").GetString() == "part" && value.GetProperty("seq").GetInt32() == seq;
         }
         catch { return false; }
     }

@@ -1,246 +1,211 @@
-# ConnectLive Agent — Build & Install
+# ConnectLive Agent — Windows build, startup and removal
 
-One binary, standalone. The old `ConnectLiveUpdater` / watcher service was
-removed — the Agent persists itself and needs no helper.
+## What is installed
 
-| Binary | Runs as | Job |
-| --- | --- | --- |
-| `ConnectLive.exe` | Interactive user (elevated for curtain mode) | Splash → auto-session restore/invite handling → screen capture (DXGI), input relay, curtain overlay, WebRTC live transport. Self-heals its own autostart (HKCU Run key + Startup shortcut + ONLOGON scheduled task). |
+| File | Purpose |
+| --- | --- |
+| `ConnectLive.exe` | Interactive-user Agent: pairing, authorized sessions, capture and input |
+| `ConnectLiveWatch.exe` | Separately opted-in recovery and process observations |
+| `ConnectLiveUpdate.exe` | Signed update worker; never elevates itself |
 
-Because capture and input injection cannot work from Session 0, the Agent runs
-in the user's own desktop session — that is exactly why no LocalSystem service
-is required any more.
+The Agent uses `asInvoker`. Normal startup does not request administrator rights.
+There is no installer-created capture service, SYSTEM task, keyless enrollment,
+or automatic permission grant. The optional Windows-unlock service has its own
+explicit setup and is **not** included in this MSI.
 
-Production endpoint is baked in: **https://connectliveagent.com**.
+**Startup means after the paired Windows user signs in following a reboot.**
+It does not mean remote capture before sign-in, unlocking the computer,
+waking a powered-off computer, or surviving removal/revocation.
 
----
+## 1. Test the source before packaging
 
-## Silent auto-enrollment (no key required)
-
-Both the 6-digit PIN pairing flow and the earlier `X-Deployment-Key` header are gone. On first boot the Agent POSTs `/api/public/agent/enroll` with just hostname/OS metadata; the server mints a random per-device token and returns `{ deviceId, deviceToken }`. The Agent DPAPI-encrypts that pair into `%LOCALAPPDATA%\ConnectLive\device.dat` (legacy `%ProgramData%` stores are migrated on first run) and all further calls authenticate with `X-Device-Id` + `X-Device-Token`.
-
-Enrollments are throttled per source IP (backed by `login_attempts`) so a burst can't flood the devices table. A fresh device row is inert until a super-admin creates a session against it, so accidental enrollments are cheap to clean up.
-
----
-
-## Enterprise deployment (Inno / MSI / Intune / GPO / Jamf)
-
-Silent mass-deployment lives under `agent/packaging/`. The Inno Setup script is the reference channel — it consumes `agent\dist\ConnectLive.exe` produced by `build.ps1` and installs the Agent with four autostart triggers, a firewall rule, and install metadata in one step:
-
-```cmd
-iscc agent\packaging\inno\ConnectLiveSetup.iss
-ConnectLiveSetup.exe /VERYSILENT
-```
-
-The MSI / Intune / GPO / Jamf folders remain as alternate wrappers around the same single binary; none of them push a deployment key. **Signing is built into `build.ps1`** — set `CODESIGN_THUMBPRINT` (or `CODESIGN_PFX` + `CODESIGN_PFX_PASSWORD`) before building and the agent binary, the Inno installer, and the MSI are all Authenticode-signed and timestamped. Without those variables the pipeline produces an unsigned artifact and says so. See `../docs/SIGNING.md`.
-
-### Autostart triggers created at install time
-
-Both the Inno and MSI installers create the same four triggers, all launching `ConnectLive.exe /background`:
-
-| # | Trigger | Where to look |
-| --- | --- | --- |
-| 1 | HKCU Run key | `reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive` |
-| 2 | HKLM Run key | `reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive` |
-| 3 | All-users Startup shortcut | `shell:common startup` (path varies by Windows language) or `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp` |
-| 4 | ONLOGON Scheduled Task | `schtasks /Query /TN ConnectLiveAgent` |
-
-Verify commands:
-
-```cmd
-reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
-reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v ConnectLive
-reg query "HKLM\Software\ConnectLive"
-schtasks /Query /TN ConnectLiveAgent
-```
-
-`StartupSelfHeal.cs` remains as belt-and-braces: on every launch it re-asserts the HKCU Run key and Startup shortcut in case Group Policy or a cleanup tool removed them.
-
----
-
-
-## Prerequisites
-
-- Windows 10 / 11 / Server 2019+
-- **.NET 8 SDK** (only for building — end users need nothing)
-  ```cmd
-  winget install Microsoft.DotNet.SDK.8
-  ```
-
-## Build (single-file, self-contained)
-
-One command from the `agent\` directory builds the binary and both installers:
+Use an authorized Windows x64 test PC with the .NET 8 SDK:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1
+cd .\agent
+.\run.ps1 -Pair
 ```
 
-Or publish the binary alone:
+This builds the Agent and both companions on **your Windows machine**, not an
+installer. Use the administrator's pairing code in the local Agent window.
+Test the existing video, curtain and session tools before proceeding.
 
-```cmd
-dotnet publish src\ConnectLiveAgent.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
-```
+Source/development directories do not register installed startup entries.
+`run.ps1 -StartWithWindows` can record the disclosed choice, but does not make a
+temporary `bin\terminal-*` folder into an installation. Do not use that flag as
+evidence of reboot persistence.
 
-Outputs:
+## 2. Build the MSI after source acceptance
 
-```
-agent\dist\ConnectLive.exe          (raw binary — installer payload)
-agent\dist\ConnectLiveSetup.exe     (Inno installer)
-agent\dist\ConnectLiveAgent.msi     (MSI for Intune / GPO)
-```
-
-## Install (production)
-
-Run the packaged installer — there is no service to register:
-
-```cmd
-ConnectLiveSetup.exe /VERYSILENT
-```
-
-It copies `ConnectLive.exe` to `C:\Program Files\ConnectLive\`, creates four
-identical autostart triggers (HKCU Run key, HKLM Run key, all-users Startup
-folder shortcut, and an ONLOGON scheduled task), and launches the Agent with
-`/background` as the original (non-elevated) user. The Agent itself then
-re-asserts its autostart on every run via `StartupSelfHeal` — Run key, Startup
-shortcut, and scheduled task — so removing one of them does not stop it coming
-back after reboot.
-
-Per-user state (DPAPI-encrypted device token, last session id) lives in
-`%LOCALAPPDATA%\ConnectLive\`; legacy `%ProgramData%\ConnectLive` stores are
-migrated automatically on first run.
-
-After a successful active session, the Agent stores the session id in
-DPAPI-protected storage. On reboot it tries
-`POST /api/public/agent/session/{id}/reconnect` first, so the admin sees the
-same session come back online without any user interaction.
-
-Uninstall: Apps & Features → **ConnectLive Agent** (removes the binary, the
-scheduled task, and the autostart entries).
-
-## Dev / quick iteration
-
-Run the Agent directly in an **elevated** shell so the low-level hooks and
-curtain mode work.
-
-If you run `dotnet run` from a normal terminal, Windows will stop it with `Win32Exception (740): The requested operation requires elevation`. That is expected because the agent manifest asks Windows for administrator rights before Curtain Mode can block local input.
-
-Self-elevating one-liner from the `agent\src` folder:
+Run the build manually in 64-bit Windows PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process dotnet -ArgumentList 'run' -Verb RunAs -WorkingDirectory (Get-Location)"
+# MSI only; default version comes from src\ConnectLiveAgent.csproj.
+.\build.ps1 -SkipInno
+
+# Equivalent wrapper; accepts signing/update options too.
+.\packaging\msi\build-msi.ps1
+
+# Both MSI and Inno, if Inno Setup 6 is on PATH.
+.\build.ps1
 ```
 
-Or from the `agent\` folder, run the packaged helper:
+The `.NET 8 SDK` is required. WiX **4.0.6** and its pinned Util/Firewall
+extensions are restored from the included `.config\dotnet-tools.json`; do not
+substitute a global, unpinned WiX version. Versions use **three** numeric fields,
+bounded to `255.255.65535`, not a timestamp or four-field ProductVersion.
+
+`-SkipMsi` builds Inno only. `-SkipInno` **still builds an MSI**.
+`build-developer.ps1` publishes only the raw Agent; it is not a complete
+startup/recovery install because it does not package the companions.
+
+Signing uses the existing `CODESIGN_*` configuration, described in
+`../docs/SIGNING.md`. Never paste keys or signing passwords into chat.
+Missing signing configuration produces an explicitly unsigned test build;
+configured signing errors or a missing signing helper stop the build.
+`-SkipSign` is only for local testing, not public distribution.
+
+Automatic runtime updates remain disabled without a reviewed publisher public
+key. `-UpdatePublicKeyPath` and `-CreateUpdateBundle` are separate from building
+an MSI. Program Files updates remain administrator-managed.
+
+### What the build verifies
+
+- Fresh publish outputs for **all three** runtime executables.
+- Requested version and matching payload versions/sizes in the compiled MSI.
+- x64, per-machine packaging; no installer-created autorun/capture service.
+- Explicit owner startup shortcut.
+- Removal receipt and local-withdrawal actions in the correct sequence.
+- Removal actions excluded during a major upgrade.
+- Real MSI ProductCode used for Intune metadata, not its UpgradeCode.
+- MSI database handles released before signing.
+- Only this run's selected installers included in the distribution ZIP.
+
+Outputs include:
+
+```text
+dist\ConnectLiveAgent.msi
+dist\Intune-app.json
+dist\MSI-VERIFICATION.json
+dist\Verify-Startup.ps1
+dist\ConnectLiveAgent.zip
+```
+
+`MSI-VERIFICATION.json` records the signed/unsigned MSI's final SHA-256,
+signature status and table checks. It explicitly says installation and reboot
+have **not** been certified by those checks.
+
+## 3. Install and authorize startup
+
+Install the MSI with normal Windows administrator approval. For an IT-managed
+silent installation, run from an elevated terminal:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\run-elevated.ps1
+msiexec.exe /i ".\dist\ConnectLiveAgent.msi" /qn /norestart /L*v "$env:TEMP\ConnectLive-install.log"
 ```
 
-Or open **Command Prompt / PowerShell as Administrator** first:
+A silent install copies software only. The intended Windows user must sign in,
+open **ConnectLive**, and complete the local pairing.
 
-```cmd
-cd src
-dotnet run
-```
-
-The Worker will splash → restore the last still-open session if one exists → otherwise idle for admin-created invites → heartbeat with exponential backoff (1 → 2 → 4 → 8 → 16 → 30 s).
-
-## Control modes
-
-- **Co-op (default while admin has control):** admin `SendInput` events are
-  mixed natively with the local user's physical mouse/keyboard. No lag, no
-  lockout — both cursors coexist.
-- **Curtain / takeover:** installs `WH_MOUSE_LL` + `WH_KEYBOARD_LL` hooks on
-  a dedicated STA thread with a `GetMessage` pump (0% CPU when idle). The
-  callback swallows physical input in microseconds while letting admin
-  `SendInput` pass at native 60+ FPS. We identify admin input two ways:
-  the OS `LLMHF_INJECTED` / `LLKHF_INJECTED` mask (both base and LOWER_IL
-  bits) AND a `dwExtraInfo` magic signature (`0x434C4956` — "CLIV") that
-  we stamp on every SendInput. Third-party synthetic inputs (gaming mice,
-  auto-clickers) that carry the injected bit but not our signature are
-  blocked. `BlockInput` is no longer used — it was the source of the
-  "sluggish takeover" symptom.
-- **Ctrl+Alt+Del / Win+L:** the OS forwards SAS keys to a secure desktop
-  no user-mode hook can intercept — same behavior as under the old
-  `BlockInput`. This is by design and is the local user's guaranteed
-  escape hatch.
-
-## Dead-man safety
-
-- Heartbeat fails 3× in a row → hooks uninstalled, curtain hides. The local user always regains their machine on a broken admin link.
-- Curtain heartbeat ping stops for >5 s → same release path (watchdog inside the input pump).
-- Process exit / `Ctrl+Alt+Del` (`SessionSwitch`) → same release.
-
-## Multi-monitor mouse mapping
-
-Admin sends normalized `(x%, y%)` against the streamed frame. Agent maps to the **virtual desktop** (`SM_XVIRTUALSCREEN` + span) and calls `SendInput` with `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK` so clicks land correctly on secondary/tertiary monitors.
-
-## Live transport: WebRTC + HTTPS fallback (new)
-
-Every session now negotiates a WebRTC peer connection alongside the existing HTTPS frame stream:
-
-```
-[1. P2P via STUN]  ──ICE fail──►  [2. HTTPS frame-stream]
-  sub-100 ms latency               ~500 ms, 100% reliable
-```
-
-- **ICE servers**: hardcoded Google STUN (`stun:stun.l.google.com:19302`) plus
-  Cloudflare Calls TURN credentials minted per request on `GET /api/public/agent/ice`.
-  If the ICE gateway is unreachable or unconfigured, callers fall back to STUN
-  and the HTTPS frame stream carries the session.
-- **Signaling**: JSON offer/answer/ICE rows in `session_signals`. Agent polls
-  `GET /api/public/agent/session/{id}/signal` every 500 ms; admin uses
-  Supabase Realtime.
-- **Video**: SIPSorcery software VP8 (~8–15% CPU on i5 @ 720p/15 fps). Frames
-  are handed to the encoder tightly packed (no stride padding) in native BGRA
-  order — the same bytes the JPEG path reads — with alpha forced to `0xFF`.
-- **Inputs**: reliable+ordered `RTCDataChannel` when open; otherwise the
-  existing input-poll endpoint takes over — no dropped clicks.
-- **Strict NATs**: no relay is attempted; the HTTPS frame stream takes over
-  whenever ICE fails.
-
-New NuGet dependencies (bundled by `PublishSingleFile=true`, add ~5 MB to the
-exe): `SIPSorcery`, `SIPSorceryMedia.Encoders`. Pure managed, no native DLLs.
-
-**Zero-regression guarantee**: if SIPSorcery fails to initialize on the
-target machine, `WebRtcSession.Start` logs a warning and the HTTPS frame
-stream + input-poll loop keep working exactly as before.
-
-## MSI: "A newer version of ConnectLive Agent is already installed."
-
-This dialog is a Windows Installer upgrade rule, not an Agent or Updater error.
-It appeared because the MSI shipped a hardcoded `ProductVersion` of `1.0.0.0`
-and `MajorUpgrade` defaulted to rejecting same-version installs, so every
-rebuild refused to install over the previous one.
-
-Fixed in the build pipeline:
-
-- `packaging/msi/ConnectLive.wxs` now sets
-  `MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize"`.
-- `build.ps1` injects a moving 4-field version (`1.0.<yyMMdd>.<HHmm>` by
-  default, or `-Version 1.2.0.0`) via `wix build -d Version=...`.
-
-If a machine is still stuck on an older package:
+Then choose **ConnectLive - enable Windows startup** in the Start menu, or run:
 
 ```powershell
-# find the installed product
-Get-WmiObject Win32_Product | Where-Object { $_.Name -like 'ConnectLive*' } |
-    Select-Object Name, Version, IdentifyingNumber
-
-# remove it, then reinstall
-msiexec /x "{PRODUCT-CODE-FROM-ABOVE}" /qn
-msiexec /i ConnectLiveAgent.msi /qn
+& "$env:ProgramFiles\ConnectLive\ConnectLive.exe" --startup-enable
 ```
 
-Apps & Features → ConnectLive Agent → Uninstall does the same thing.
+Use the actual install path for a custom or per-user Inno installation.
+Confirm the local startup/recovery disclosure. This works while the paired
+Agent is already running and does not require another pairing code. ConnectLive
+remote input/media is paused around this local approval; the technician must
+not approve persistence on the owner's behalf. Turn off the curtain before
+local setup so the owner can use the keyboard/mouse.
 
-## Building the installers
+For a new pairing, the existing `--start-with-windows` flag can combine the
+startup disclosure with pairing. An ordinary pairing alone does not opt in.
+
+Authorized startup consists of:
+
+1. **HKCU Run / Task Manager Startup apps**: `ConnectLive.exe /background`.
+2. **Visible per-user scheduled task** `ConnectLiveWatch-<Windows SID>`:
+   a user-specific logon trigger plus one-minute recovery trigger,
+   `InteractiveToken`, `LeastPrivilege`, `IgnoreNew`, no wake-from-sleep and
+   no default three-day task timeout.
+
+Watch and Agent have singleton guards. Windows policy/registration failures are
+logged and reported rather than falling back to an elevated or hidden task.
+Custom MSI and Inno install locations are recognized; source/test copies must
+not overwrite the installed startup path.
+
+## 4. Verify locally before and after reboot
+
+Run as the **same Windows user who paired**, not SYSTEM or another administrator:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1              # Inno + MSI
-powershell -ExecutionPolicy Bypass -File build.ps1 -SkipMsi     # Inno only
-powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInno    # MSI only
+.\dist\Verify-Startup.ps1 -OutputPath ".\startup-before.json" -RequireReady
+# Reboot the test PC yourself, sign back into that Windows account, then:
+.\dist\Verify-Startup.ps1 -OutputPath ".\startup-after.json" -RequireReady
 ```
 
-A missing `iscc` or `wix` now fails the build instead of silently skipping a
-target, so a run can no longer end with only half the artifacts.
+For a custom location add `-InstallDirectory "C:\Apps\ConnectLive"`.
+For version-specific acceptance add `-ExpectedVersion "1.10.14"` (replace with
+the version you actually built).
+
+The script is read-only except for the requested report. It checks runtime
+files/versions, protected startup policy, uninstall/disable/session-end markers,
+Run entry, task configuration, process identities and recent local heartbeat
+receipt. It does **not** contact the backend, reveal tokens/PINs, change registry
+settings, start/kill processes, or claim it performed the reboot.
+
+Task Manager should show one installed Agent and one Watch in this Windows
+session. The updater is not an always-running process.
+
+## 5. Closed, offline, revoked and removed are different
+
+| Observation/action | Expected behavior |
+| --- | --- |
+| Agent crashes or is ended in Task Manager | Opted-in Watch observes the missing matching process; bounded recovery requires a fresh server authorization check. Killing the process is not revoking permission. |
+| Watch reports `stopped` | Admin can distinguish a stopped process from an unknown/offline endpoint while Watch's report is fresh. |
+| Both processes stop, no network, or PC powers off | Heartbeat ages to reconnecting/offline. This is **not** proof of uninstall or revocation. |
+| Admin **Revoke device access** succeeds | Server records `device.access_revoked` and withdraws session authority. Old local approval cannot authorize a Watch relaunch. A resident process/check-in is not evidence of remote permission. |
+| Admin revokes an unused pairing code | Only that code is revoked; an already-paired device is unaffected. |
+| Device record is deleted | Its credentials no longer authenticate. No automatic enrollment under another device identity. |
+| `ConnectLive.exe /disable` | Live access stops, a durable local withdrawal is saved, local unlock/tools consent is forgotten and per-user startup entries are removed. Network reporting is best effort. |
+| Confirmed support-session end | A new pairing code is required, including after process restart. |
+| MSI uninstall | Machine-wide removal receipt invalidates old local approvals, including signed-out profiles; active processes also observe the removal. |
+| Failed/rolled-back uninstall | Binary restoration must not restore withdrawn approval. Explicit local pairing can be required again. |
+
+Disabling just the Run entry in Task Manager is **not** the supported way to
+withdraw the separately approved Watch recovery policy. Use `/disable` or normal
+uninstall to stop both. No process is protected from Task Manager.
+
+Logs are under `%LOCALAPPDATA%\ConnectLive\`:
+`agent-YYYYMMDD.log`, `watch.log`, and a non-secret process/heartbeat snapshot.
+A force-kill/power loss cannot emit a final Agent exit event; use Watch and
+last-seen evidence, not an invented shutdown reason.
+
+## 6. Windows acceptance checklist — do not skip
+
+On an approved test device, keep a person at its keyboard:
+
+- Fresh MSI install, first pairing, explicit startup enable; no extra UI/tray.
+- Reboot and sign into the paired account; compare both startup reports and
+  verify fresh Admin check-in plus actual moving video.
+- Standard-user login, battery power, a custom install path, and delayed network.
+- End only the Agent; confirm bounded, authorized recovery with a new process
+  and fresh heartbeat. End Watch separately; confirm its task can restart it.
+- `/disable`, then reboot; neither old grant nor recovery may restore access.
+- Admin revoke/delete; old permission and stale commands must never reopen
+  video, input, files, microphone or unlock.
+- Supported upgrade and repair; no surprise consent change, duplicate process
+  or stale executable. Test installer rollback separately.
+- Uninstall while another paired user is signed out, reinstall the **same**
+  MSI, then sign into that user: old approval must not resume.
+- Inspect/remove orphaned Run/task references in signed-out profiles through
+  your normal IT process. No logged-out user's private hive is force-loaded by
+  this installer. An absent executable or invalid grant never permits relaunch.
+- Check normal Apps & Features removal. Do not use `Win32_Product` for
+  detection: it can trigger Windows Installer consistency checks.
+
+Only real Windows results establish MSI compilation/installation, ACL behavior,
+rollback, task creation, reboot recovery and hardware video. Linux parsing,
+portable C# tests, mock MSI tables and isolated database tests do not.

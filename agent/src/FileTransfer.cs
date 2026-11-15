@@ -152,7 +152,7 @@ internal static class FileTransfer
                 if (type == "file_begin")
                 {
                     var size = root.TryGetProperty("size", out var s) && s.TryGetInt64(out var sz) ? sz : 0;
-                    if (size > MaxFileBytes)
+                    if (size < 0 || size > MaxFileBytes)
                     {
                         Log.Warn($"[files] inbound rejected, {size} bytes exceeds cap");
                         lock (_gate) _incoming = null;
@@ -190,7 +190,7 @@ internal static class FileTransfer
             _incoming.Parts.Add(data);
             _incoming.Received += data.Length;
             _incoming.Hasher?.TransformBlock(data, 0, data.Length, null, 0);
-            if (_incoming.Received > MaxFileBytes)
+            if (_incoming.Received > MaxFileBytes || _incoming.Received > _incoming.Size)
             {
                 Log.Warn("[files] inbound exceeded cap mid-flight; dropping");
                 _incoming = null;
@@ -201,6 +201,12 @@ internal static class FileTransfer
     private static void Complete(Incoming done, PeerInputPermission permission)
     {
         if (!permission.Allows("files")) return;
+        if (done.Size < 0 || done.Received != done.Size)
+        {
+            done.Hasher?.Dispose(); done.Parts.Clear();
+            Log.Warn("[files] legacy transfer rejected: length incomplete");
+            return;
+        }
         try
         {
             done.Hasher?.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
@@ -261,7 +267,14 @@ internal static class FileTransfer
         lock (_gate) { sessionId = _sessionId; api = _api; }
         if (string.IsNullOrEmpty(sessionId) || api == null) return false;
 
-        if (await SendOverChannelAsync(sessionId, fi, ct, permission).ConfigureAwait(false)) return true;
+        bool channelAvailable;
+        lock (_gate) channelAvailable = _dc != null && _open && !_demoted && _sessionId == sessionId;
+        if (channelAvailable)
+        {
+            // A legacy end marker has no receiver receipt. Never replay an
+            // attempted write through HTTP after an uncertain channel result.
+            return await SendOverChannelAsync(sessionId, fi, ct, permission).ConfigureAwait(false);
+        }
         return await SendOverHttpAsync(api, sessionId, fi, ct, permission).ConfigureAwait(false);
     }
 
@@ -311,16 +324,16 @@ internal static class FileTransfer
                 dc.send(buffer.AsSpan(0, read).ToArray());
                 sent += read;
             }
-            if (!permission.Allows("files")) return false;
+            if (!permission.Allows("files") || sent != size || fs.Length != size) return false;
             dc.send(JsonSerializer.Serialize(new { type = "file_end", name, size }));
-            Log.Info($"[files] sent {name} over datachannel ({sent} bytes)");
+            Log.Info($"[files] legacy datachannel queued ({sent} bytes); receiver verification unavailable");
             return true;
         }
         catch (Exception ex)
         {
             lock (_gate) { _open = false; _demoted = true; }
-            Log.Warn("[files] datachannel send failed, demoting to HTTP: " + ex.Message);
-            try { if (permission.Allows("files")) dc?.send(JsonSerializer.Serialize(new { type = "file_error", name, message = "switching to http" })); }
+            Log.Warn("[files] legacy delivery unconfirmed; no automatic HTTP replay");
+            try { if (permission.Allows("files")) dc?.send(JsonSerializer.Serialize(new { type = "file_error", name, message = "delivery unconfirmed; not retried" })); }
             catch { }
             return false;
         }
@@ -334,9 +347,20 @@ internal static class FileTransfer
         var mime = GuessMime(name);
         try
         {
-            var sha = await Sha256FileAsync(fi.FullName, ct, permission).ConfigureAwait(false);
-            if (!permission.Allows("files")) return false;
             using var fs = new FileStream(fi.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var binding = WebRtcSession.Current?.HttpFileBinding;
+            if (binding == null || binding.sessionId != sessionId) return false;
+            long size = fs.Length;
+            using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var hashBytes = new byte[ChunkBytes];
+            for (;;)
+            {
+                if (!permission.Allows("files") || WebRtcSession.Current?.HttpFileBinding != binding) return false;
+                int n = await fs.ReadAsync(hashBytes, ct); if (n == 0) break;
+                hasher.AppendData(hashBytes, 0, n);
+            }
+            var sha = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
+            fs.Position = 0;
             var buffer = new byte[HttpChunkBytes];
             var seq = 0;
             long sent = 0;
@@ -344,19 +368,20 @@ internal static class FileTransfer
             {
                 if (!permission.Allows("files") || ct.IsCancellationRequested) return false;
                 var read = await fs.ReadAsync(buffer.AsMemory(0, HttpChunkBytes), ct).ConfigureAwait(false);
-                var eof = sent + read >= fi.Length;
+                var eof = sent + read == size;
+                if (sent + read > size || fs.Length != size || WebRtcSession.Current?.HttpFileBinding != binding) return false;
                 if (read <= 0 && sent > 0 && !eof) break;
                 var chunk = read > 0 ? buffer.AsSpan(0, read).ToArray() : Array.Empty<byte>();
                 if (!permission.Allows("files") || ct.IsCancellationRequested) return false;
                 var ok = await api.UploadSessionFileChunkAsync(
-                    sessionId, fileId, seq, eof, name, mime, sha, fi.Length, chunk, ct).ConfigureAwait(false);
+                    sessionId, fileId, seq, eof, name, mime, sha, size, chunk, ct, binding.controllerId, binding.peerId).ConfigureAwait(false);
                 if (!ok) { Log.Warn($"[files] http chunk {seq} rejected for {name}"); return false; }
                 sent += read;
                 seq++;
                 if (eof) break;
             }
             Log.Info($"[files] sent {name} over HTTP fallback ({sent} bytes, {seq} chunks)");
-            return true;
+            return sent == size;
         }
         catch (Exception ex)
         {
@@ -384,7 +409,7 @@ internal static class FileTransfer
     }
 
     /// <summary>Mirrors safeName() in src/lib/session-files.server.ts.</summary>
-    private static string SafeName(string? raw)
+    internal static string SafeName(string? raw)
     {
         var name = Path.GetFileName(raw ?? "file");
         if (string.IsNullOrWhiteSpace(name)) name = "file";

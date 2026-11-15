@@ -16,6 +16,9 @@ internal sealed record UnlockIdentity(string Origin, string DeviceId, string Aut
 {
     public override string ToString() => "ConnectLive unlock identity (redacted)";
 }
+internal sealed record UnlockSetupStatus(string localApproval, string helperInstallation, string protectedIdentity,
+    string encryptionEnrollment, string savedCredential, string connectivity, string lockScreen,
+    string appVerification = "on_device_only");
 internal static class UnlockEnrollment
 {
     private static readonly object Gate = new();
@@ -143,6 +146,72 @@ internal static class UnlockEnrollment
             return plain;
         }
         finally { CryptographicOperations.ZeroMemory(pkcs8); if (key != null) CryptographicOperations.ZeroMemory(key); }
+    }
+
+    internal static async Task<UnlockSetupStatus> SetupStatusAsync(ApiClient api, CancellationToken ct)
+    {
+        var local = Current ?? Load();
+        string trusted = "required", helper = "required", connectivity = "unconfirmed", saved = "unconfirmed";
+        try
+        {
+            trusted = string.Equals(Environment.ProcessPath, UnlockPipe.ProtectedPath("ConnectLive.exe"),
+                StringComparison.OrdinalIgnoreCase) ? "ready" : "unavailable";
+        }
+        catch { trusted = "unavailable"; }
+        bool enrolled = local?.Registered == true && Matches(api, local);
+        if (enrolled)
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(4));
+            try
+            {
+                using var remote = await api.UnlockRequestAsync(new { action = "status", keyId = local!.KeyId }, deadline.Token);
+                connectivity = "ready";
+                if (remote.RootElement.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.True &&
+                    remote.RootElement.GetProperty("keyId").GetString() == local.KeyId)
+                    saved = remote.RootElement.GetProperty("hasPin").GetBoolean() ? "ready" : "required";
+                else enrolled = false;
+            }
+            catch { connectivity = "unavailable"; }
+            try
+            {
+                using var broker = await BrokerAsync("status", local!, deadline.Token);
+                helper = broker.RootElement.TryGetProperty("ready", out var ready) && ready.ValueKind == JsonValueKind.True ? "ready" : "required";
+            }
+            catch { helper = "unavailable"; }
+        }
+        bool? locked = WindowsSession.Locked(WindowsSession.CurrentId);
+        return new(enrolled ? "ready" : "required", helper, trusted, enrolled ? "ready" : "required",
+            saved, connectivity, enrolled && trusted == "ready" && helper == "ready"
+                ? locked == true ? "available" : locked == false ? "not_locked" : "unavailable" : "unavailable");
+    }
+    internal static async Task SaveOwnerPinAsync(ApiClient api, byte[] pin)
+    {
+        var local = Current ?? Load();
+        if (local?.Registered != true || !Matches(api, local) || pin.Length is < 4 or > 127)
+            throw new InvalidOperationException("unlock_setup_required");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        using var broker = await BrokerAsync("status", local, timeout.Token);
+        if (broker.RootElement.GetProperty("ready").ValueKind != JsonValueKind.True) throw new InvalidOperationException("unlock_helper_unavailable");
+        using var report = await api.UnlockRequestAsync(new { action = "report", keyId = local.KeyId,
+            locked = WindowsSession.Locked(WindowsSession.CurrentId), helperReady = true }, timeout.Token);
+        byte[] key = RandomNumberGenerator.GetBytes(32), iv = RandomNumberGenerator.GetBytes(12);
+        byte[] cipher = new byte[pin.Length], tag = new byte[16];
+        try
+        {
+            using var aes = new AesGcm(key, 16);
+            aes.Encrypt(iv, pin, cipher, tag, Encoding.UTF8.GetBytes(
+                $"ConnectLive.WindowsHelloPin.v1\n{local.DeviceId.ToLowerInvariant()}\n{local.AuthorizationId.ToLowerInvariant()}\n{local.KeyId.ToLowerInvariant()}"));
+            using var rsa = RSA.Create();
+            rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(local.PublicKey), out _);
+            byte[] sealedBytes = new byte[cipher.Length + tag.Length]; cipher.CopyTo(sealedBytes,0); tag.CopyTo(sealedBytes,cipher.Length);
+            using var result = await api.UnlockRequestAsync(new { action = "owner_save", keyId = local.KeyId,
+                sealedPin = new { version = 1, algorithm = "RSA-OAEP-256+A256GCM", keyId = local.KeyId,
+                    wrappedKey = Convert.ToBase64String(rsa.Encrypt(key, RSAEncryptionPadding.OaepSHA256)),
+                    iv = Convert.ToBase64String(iv), ciphertext = Convert.ToBase64String(sealedBytes) } }, timeout.Token);
+            if (!result.RootElement.GetProperty("hasPin").GetBoolean()) throw new InvalidOperationException("unlock_save_unconfirmed");
+        }
+        finally { CryptographicOperations.ZeroMemory(key); }
     }
 
     internal static async Task<bool> HandleSetupAsync(string[] args)

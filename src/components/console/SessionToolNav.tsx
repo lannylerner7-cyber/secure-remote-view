@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { SESSION_TOOLS, type SessionToolId } from "./session-tools";
 
 /**
@@ -7,7 +7,7 @@ import { SESSION_TOOLS, type SessionToolId } from "./session-tools";
  * tool navigation can never reach the remote input surface.
  */
 export function SessionToolNav({
-  value, onChange, unavailable, busy,
+  value, onChange, unavailable, busy, filesMenu,
 }: {
   value: SessionToolId;
   onChange: (tool: SessionToolId) => void;
@@ -15,9 +15,11 @@ export function SessionToolNav({
   unavailable?: Partial<Record<SessionToolId, string>>;
   /** Tool id -> short badge text for background activity. */
   busy?: Partial<Record<SessionToolId, string>>;
+  filesMenu?: ReactNode;
 }) {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   function onKey(e: KeyboardEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).closest("[data-session-files-menu]")) return;
     e.stopPropagation();
     const i = SESSION_TOOLS.findIndex(t => t.id === value);
     let next = -1;
@@ -48,9 +50,12 @@ export function SessionToolNav({
           ))}
         </select>
       </label>
+      {filesMenu && <div className="md:hidden" data-session-files-menu>{filesMenu}</div>}
       <div role="tablist" aria-label="Session tools" aria-orientation="vertical"
         onKeyDown={onKey} className="hidden flex-col gap-0.5 md:flex">
         {SESSION_TOOLS.map(t => {
+          if (t.id === "files" && filesMenu) return <div key="files" data-session-files-menu
+            ref={el => { refs.current.files = el?.querySelector("button") ?? null; }}>{filesMenu}</div>;
           const selected = t.id === value;
           return (
             <button

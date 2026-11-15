@@ -14,6 +14,13 @@ BitLocker/preboot access, cold-boot sign-in, password resets, UAC approval,
 biometric extraction, Windows Hello key extraction, or an authentication bypass.
 Unknown desktop, account, permission, helper, or lock states fail closed.
 
+**App/browser distinction:** this helper is not a service for browser autofill,
+saved-password access or passkey approval. Those requests use the separate
+**App & browser verification** panel and require approval on the Windows device.
+No new saved-PIN use path is enabled for them. See
+`../../../docs/windows-session-tools-acceptance.md` for optional first-run owner
+setup, microphone/file consent, protected-media handling and the acceptance matrix.
+
 The requested credential is a **Windows Hello PIN**, explicitly entered by the
 operator, not an account password. Windows still decides whether it is valid.
 Saving a reusable PIN reduces the protection of a device-only Hello PIN; both

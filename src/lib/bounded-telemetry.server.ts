@@ -28,3 +28,20 @@ export async function writeBoundedTelemetry(
     parent.removeEventListener("abort", stop);
   }
 }
+
+/** Optional read deadline. A timeout is NOT an empty authoritative result. */
+export async function readBoundedOptional<T>(parent: AbortSignal,
+  read: (signal: AbortSignal) => PromiseLike<T>, budgetMs = 1000): Promise<T | null> {
+  if (parent.aborted) return null;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancel: () => void = () => {};
+  const deadline = new Promise<null>(resolve => {
+    cancel = () => { controller.abort(); resolve(null); };
+    parent.addEventListener("abort", cancel, { once: true });
+    timer = setTimeout(cancel, budgetMs);
+  });
+  const work = Promise.resolve().then(() => controller.signal.aborted ? null : read(controller.signal)).catch(() => null);
+  try { return await Promise.race([work, deadline]); }
+  finally { clearTimeout(timer); parent.removeEventListener("abort", cancel); }
+}

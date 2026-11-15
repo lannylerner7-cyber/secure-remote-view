@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>CA1416;CS0649;CS0067;CS0168</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SIPSorcery" Version="10.0.17" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <Compile Include="../../agent/src/AuthorizationGrant.cs" Link="AuthorizationGrant.cs" />
+    <Compile Include="../../agent/src/InputPauseGate.cs" Link="InputPauseGate.cs" />
+    <Compile Include="../../agent/src/PeerInputPermission.cs" Link="PeerInputPermission.cs" />
+    <Compile Include="../../agent/src/PeerSignalBinding.cs" Link="PeerSignalBinding.cs" />
+    <Compile Include="../../agent/src/LocalEscapeGesture.cs" Link="LocalEscapeGesture.cs" />
+    <Compile Include="../../agent/src/AppVerification.cs" Link="AppVerification.cs" />
+    <Compile Include="../../agent/src/OwnerSetupProtection.cs" Link="OwnerSetupProtection.cs" />
+    <Compile Include="../../agent/src/SessionToolsPolicy.cs" Link="SessionToolsPolicy.cs" />
+    <Compile Include="../../agent/src/RemoteFileAccess.cs" Link="RemoteFileAccess.cs" />
+    <Compile Include="../../agent/src/RemotePathPin.cs" Link="RemotePathPin.cs" />
+    <Compile Include="../../agent/src/VerifiedFile.cs" Link="VerifiedFile.cs" />
+    <Compile Include="../../agent/src/VerifiedFileChannel.cs" Link="VerifiedFileChannel.cs" />
+    <Compile Include="../../agent/src/ToolBinding.cs" Link="ToolBinding.cs" />
+    <Compile Include="../../agent/src/SessionFileBudget.cs" Link="SessionFileBudget.cs" />
+    <Compile Include="../../agent/src/SessionToolsConnection.cs" Link="SessionToolsConnection.cs" />
+    <Compile Include="../../agent/src/WebRtcSession.Tools.cs" Link="WebRtcSession.Tools.cs" />
+    <Compile Include="../../agent/src/MicrophoneLease.cs" Link="MicrophoneLease.cs" />
+    <Compile Include="../../agent/src/WindowsMicrophone.cs" Link="WindowsMicrophone.cs" />
+    <Compile Include="../../agent/src/MicrophoneEndpoint.cs" Link="MicrophoneEndpoint.cs" />
+    <Compile Include="../../agent/src/MicrophoneIndicator.cs" Link="MicrophoneIndicator.cs" />
+    <Compile Include="../../agent/src/OwnerPinSetup.cs" Link="OwnerPinSetup.cs" />
+    <Compile Include="../../agent/src/OptionalSessionSetup.cs" Link="OptionalSessionSetup.cs" />
+    <Compile Include="../../agent/src/FileTransfer.cs" Link="FileTransfer.cs" />
+    <Compile Include="../../agent/src/ApiClient.Permission.cs" Link="ApiClient.Permission.cs" />
+    <Compile Include="../../agent/src/ApiClient.FileReceipt.cs" Link="ApiClient.FileReceipt.cs" />
+    <Compile Include="../../agent/src/UnlockEnrollment.cs" Link="UnlockEnrollment.cs" />
+  </ItemGroup>
+</Project>

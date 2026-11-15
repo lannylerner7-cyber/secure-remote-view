@@ -29,6 +29,12 @@ import { keyToVirtualKey, getContainedPoint } from "@/lib/console-input";
 import { VirtualTrackpad } from "@/components/console/VirtualTrackpad";
 import { OnScreenKeyboard } from "@/components/console/OnScreenKeyboard";
 import { SessionFilesPanel } from "@/components/console/SessionFilesPanel";
+import { SessionFilesMenu } from "@/components/console/SessionFilesMenu";
+import { RemoteFilesPanel } from "@/components/console/RemoteFilesPanel";
+import { SessionToolControls } from "@/components/console/SessionToolControls";
+import { EMPTY_SESSION_TOOLS, type SessionToolsClient } from "@/shared/session-tools";
+import { downloadPresentedScreenshot } from "@/lib/session-screenshot";
+import { authorizeSessionScreenshot } from "@/lib/screenshot.functions";
 
 import { StatCard } from "@/components/console/StatCard";
 import { AccessWorkspace } from "@/components/console/AccessWorkspace";
@@ -187,7 +193,17 @@ function AdminPage() {
   const [windowsUnlock, setWindowsUnlock] = useState<UnlockState>({ ...EMPTY_UNLOCK });
   const [unlockSettings, setUnlockSettings] = useState<Device | null>(null);
   const [unlockUiBusy, setUnlockUiBusy] = useState(false);
-  const unlockActive = ["starting", "ready", "submitted"].includes(windowsUnlock.phase) || unlockUiBusy;
+  const [sessionToolsClient, setSessionToolsClient] = useState<SessionToolsClient | null>(null);
+  const [sessionToolsState, setSessionToolsState] = useState({ ...EMPTY_SESSION_TOOLS });
+  const appVerificationActive = ["approval_required", "in_progress"].includes(sessionToolsState.verification);
+  const unlockActive = ["starting", "ready", "submitted"].includes(windowsUnlock.phase) || unlockUiBusy || appVerificationActive;
+  const [filesMode, setFilesMode] = useState<"browse" | "send" | "history">("history");
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
+  const screenshotGuard = useRef(false);
+  useEffect(() => {
+    setSessionToolsState({ ...EMPTY_SESSION_TOOLS });
+    return sessionToolsClient?.onState(setSessionToolsState);
+  }, [sessionToolsClient]);
   const [inputPause, setInputPause] = useState<InputPauseState>({ ...EMPTY_INPUT_PAUSE });
   const [inputPauseBusy, setInputPauseBusy] = useState(false);
   const inputPauseOpRef = useRef<AbortController | null>(null);
@@ -209,6 +225,7 @@ function AdminPage() {
   }, [controlGranted, unlockActive]);
   const [viewerAttempt, setViewerAttempt] = useState(0);
   const [viewerPaused, setViewerPaused] = useState(false);
+  screenshotGuard.current = unlockActive || viewerPaused || !liveAuthorization.grant?.capabilities.recording;
   const controlContextRef = useRef({
     sessionId: activeLiveId, authorizationId: currentLiveSession?.authorization_id ?? null,
     allowed: false, canOperate: false,
@@ -494,15 +511,17 @@ function AdminPage() {
     }
     viewerStartedAtRef.current = Date.now();
     const live = startResilientWebRtc(activeLiveId, {
-      videoOnly: liveVideoOnly, authorizationId: currentLiveSession?.authorization_id,
+      videoOnly: liveVideoOnly, authorizationId: currentLiveSession?.authorization_id, deviceId: currentLiveSession?.device_id ?? undefined,
     });
     rtcRef.current = live;
+    setSessionToolsClient(live.sessionTools);
     setViewerVideo(live.video);
     setMediaRecovery(live.recovery());
     const offVideo = live.onVideo(video => {
       if (rtcRef.current !== live) return;
       setVideoDecoding(false);
       setViewerVideo(video);
+      setSessionToolsClient(live.sessionTools);
     });
     const offRecovery = live.onRecovery(status => {
       if (rtcRef.current === live) setMediaRecovery(status);
@@ -608,6 +627,7 @@ function AdminPage() {
       offMode();
       offCurtain();
       offUnlock();
+      setSessionToolsClient(null);
       offInputPause();
       inputPauseOpRef.current?.abort(new Error("The viewer was closed or replaced."));
       inputPauseOpRef.current = null;
@@ -2103,9 +2123,46 @@ function AdminPage() {
                     className="order-2 flex shrink-0 flex-col gap-2 border-t border-white/10 bg-[#0B1220] p-2 md:order-none md:w-60 md:overflow-y-auto md:border-r md:border-t-0"
                   >
                     <div className="hidden px-1 text-[10px] font-semibold uppercase tracking-wider text-white/40 md:block">Session tools</div>
+                    {dev?.platform === "windows" && <SessionToolControls section="microphone"
+                      tools={sessionToolsClient} allowed={role !== "viewer" && active && !!liveAuthorization.grant?.capabilities.view}
+                      protectedMedia={unlockActive} onBeginVerification={async () => {}} />}
                     <SessionToolNav
                       value={tool}
                       onChange={selectTool}
+                      filesMenu={<SessionFilesMenu
+                        disabled={!active || unlockActive}
+                        filesDisabled={!liveAuthorization.grant?.capabilities.files || role === "viewer"}
+                        screenshotDisabled={screenshotBusy || !liveAuthorization.grant?.capabilities.recording || role === "viewer" || viewerPaused}
+                        portalContainer={document.fullscreenElement as HTMLElement | null}
+                        onBrowse={() => { setFilesMode("browse"); selectTool("files"); }}
+                        onSend={() => { setFilesMode("send"); selectTool("files"); }}
+                        onHistory={() => { setFilesMode("history"); selectTool("files"); }}
+                        onScreenshot={async () => {
+                          const live = rtcRef.current, session = s, frame = liveFrame;
+                          if (screenshotBusy || screenshotGuard.current) return;
+                          setScreenshotBusy(true);
+                          const surface = () => {
+                            const presented = live?.presentedFrame();
+                            if (videoDecoding && presented) return { ...presented, identity: presented.peerId };
+                            if (videoDecoding || !frame?.frame || liveFrame !== frame || frameAge >= 3000) return null;
+                            const img = document.querySelector<HTMLImageElement>('[data-testid="viewer-jpeg"]');
+                            if (!img?.complete || !img.naturalWidth || !img.naturalHeight ||
+                                img.src !== `data:image/jpeg;base64,${frame.frame}`) return null;
+                            return { source: img, width: img.naturalWidth, height: img.naturalHeight,
+                              presentedAt: Date.parse(frame.updated_at), identity: frame.updated_at };
+                          };
+                          try {
+                            await downloadPresentedScreenshot({ sessionId: session.id, surface,
+                              current: () => !screenshotGuard.current && rtcRef.current === live && live?.sessionId === session.id,
+                              authorize: async () => { await authorizeSessionScreenshot({ data: {
+                                sessionId: session.id, deviceId: session.device_id!, authorizationId: session.authorization_id!,
+                                controllerId: getWebClientId(), peerId: videoDecoding ? live?.peerId() ?? null : null,
+                              } }); },
+                            });
+                            toast.success("PNG screenshot downloaded.");
+                          } catch (error) { toast.error(error instanceof Error ? error.message : "Screenshot unavailable."); }
+                          finally { setScreenshotBusy(false); }
+                        }} />}
                       busy={{
                         files: fileTransferActive ? "active" : undefined,
                         control: inputPause.phase === "paused" && s.mode === "control" ? "paused" : s.mode === "control" ? "on" : undefined,
@@ -2281,7 +2338,7 @@ function AdminPage() {
                       </section>
                       <section {...panelProps("files")}>
                         {liveAuthorization.grant?.capabilities.files && role !== "viewer" ? (
-                          <p className="px-1 text-[10px] leading-relaxed text-white/55">Transfers appear under the screen and continue if you switch tools. {filesReady ? "Direct files channel is open." : "Using the archive path."}</p>
+                          <p className="px-1 text-[10px] leading-relaxed text-white/55">Use the Files dropdown to browse approved remote folders, send files, download a PNG, or open history. {filesReady ? "Verified file channel is ready." : "Remote delivery needs a compatible live Agent. Archive upload is not delivery."}</p>
                         ) : (
                           <p className="px-1 text-[10px] leading-relaxed text-white/55">File exchange was not included in this authorization.</p>
                         )}
@@ -2387,6 +2444,25 @@ function AdminPage() {
                         }}
                       />
                     )}
+                    {dev?.platform === "windows" && <SessionToolControls section="verification"
+                      tools={sessionToolsClient} allowed={role !== "viewer" && active && !!liveAuthorization.grant?.capabilities.view}
+                      protectedMedia={unlockActive}
+                      onBeginVerification={async () => {
+                        const live = rtcRef.current;
+                        if (!live || live.sessionId !== s.id) throw new Error("Live session changed.");
+                        if (curtain.active !== false) throw new Error("Turn the curtain off explicitly before asking the owner to approve on the Windows device.");
+                        if (userPausedControl) throw new Error("Release paused control to view-only before verification.");
+                        controlOperationRef.current?.controller.abort();
+                        if (document.pointerLockElement) document.exitPointerLock();
+                        setSharedNote("");
+                        if (live.recording()) { const result = await live.stopRecording(); if (result) downloadRecording(s.id, result); }
+                        await live.prepareAppVerification();
+                        if (rtcRef.current !== live) throw new Error("The viewer changed.");
+                        const changed = await supabase.from("sessions").update({ mode: "view" }).eq("id",s.id).eq("state","active").select("id").maybeSingle();
+                        if (changed.error || !changed.data) throw new Error("View-only mode could not be confirmed.");
+                        setSessions(rows => rows.map(row => row.id === s.id ? { ...row, mode: "view" } : row));
+                        setAgentMode("view"); setControlStage("idle");
+                      }} />}
                       </section>
                       <section {...panelProps("details")}>
                     <details className="max-w-xs rounded border border-white/10 px-3 py-1.5 text-xs">
@@ -2701,7 +2777,12 @@ function AdminPage() {
                 )}
                 {s.device_id && role !== "viewer" && liveAuthorization.grant?.capabilities.files && (
                   <div hidden={tool !== "files"}>
-                    <SessionFilesPanel sessionId={s.id} getRtc={() => rtcRef.current?.sessionId === s.id ? rtcRef.current : null} />
+                    {tool === "files" && filesMode === "browse" && <RemoteFilesPanel tools={sessionToolsClient}
+                      live={rtcRef.current?.sessionId === s.id ? rtcRef.current : null} allowed={active && !unlockActive} />}
+                    <div hidden={filesMode === "browse"}>
+                      <SessionFilesPanel sessionId={s.id} getRtc={() => rtcRef.current?.sessionId === s.id ? rtcRef.current : null}
+                        mode={filesMode === "send" ? "send" : "history"} disabled={!active || unlockActive} />
+                    </div>
                   </div>
                 )}
               </div>

@@ -34,6 +34,11 @@ Source: "..\..\dist\ConnectLiveUpdate.exe"; DestDir: "{app}"; Flags: ignoreversi
 
 [Icons]
 Name: "{group}\ConnectLive"; Filename: "{app}\ConnectLive.exe"
+Name: "{group}\ConnectLive - enable Windows startup"; Filename: "{app}\ConnectLive.exe"; Parameters: "--startup-enable"
+
+[Registry]
+; Reset the active removal marker on install, but never delete RemovalHistory.
+Root: HKLM; Subkey: "Software\ConnectLive"; ValueType: string; ValueName: "UninstallRequested"; ValueData: "none"; Check: IsAdminInstallMode
 
 [Run]
 ; Foreground launch exposes pairing and the separate startup/recovery choice.
@@ -42,6 +47,7 @@ Filename: "{app}\ConnectLive.exe"; Flags: nowait postinstall skipifsilent shelle
 
 [UninstallRun]
 ; No process-name-wide kill: local withdrawal is handled by the user's Agent.
+Filename: "{app}\ConnectLive.exe"; Parameters: "--uninstall-machine"; Flags: runhidden; Check: IsAdminInstallMode; RunOnceId: "RecordMachineRemoval"
 Filename: "{app}\ConnectLive.exe"; Parameters: "/uninstall"; Flags: runhidden; RunOnceId: "DisableLocalAccess"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""ConnectLiveAgent"""; Flags: runhidden; RunOnceId: "RemoveLegacyLogon"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""ConnectLiveWatch"""; Flags: runhidden; RunOnceId: "RemoveLegacyWatch"

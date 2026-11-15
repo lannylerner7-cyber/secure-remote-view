@@ -71,7 +71,7 @@ public sealed partial class ApiClient
         // No capture starts until both the device credential and matching local
         // disclosure are durably saved. A failed save remains an explicit error.
         SaveDeviceCreds(new EnrollResponse(deviceId!, attempt.Token));
-        GrantStore.Save(local);
+        local = GrantStore.Save(local);
         SetPairedIdentity(deviceId!, attempt.Token, local);
     }
 

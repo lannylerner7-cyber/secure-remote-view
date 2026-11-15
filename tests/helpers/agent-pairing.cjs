@@ -28,6 +28,7 @@ const routes = [
   ["session.$sessionId.reconnect", "POST", {}],
   ["session.$sessionId.cursor", "POST", { x: 1, y: 2, w: 100, h: 100 }],
   ["session.$sessionId.inputs", "GET"],
+  ["session.$sessionId.permission", "GET"],
   ["session.$sessionId.signal", "POST", { kind: "answer", payload: { sdp: "PRIVATE_SDP" } }],
   ["session.$sessionId.signal", "GET"],
   ["session.$sessionId.file", "POST", "PRIVATE_FILE_BYTES"],
@@ -41,7 +42,8 @@ function pairingRouteFixture([file, method, body]) {
       status: "online", metadata: { token_hash: crypto.createHash("sha256").update(token).digest("hex") } },
     session: { id: sessionId, device_id: "PRIVATE_DEVICE_ROW", technician_id: "PRIVATE_TECH",
       state: file.endsWith(".consent") ? "invited" : "active", mode: "control",
-      consent_at: "2026-01-01T00:00:00Z", pairing_code: null, admin_client_id: null },
+      consent_at: "2026-01-01T00:00:00Z", pairing_code: null, admin_client_id: "fixture-admin-client",
+      authorization_id: grantId },
     grant: structuredClone(grant),
     inputs: [{ id: 1, kind: "mousemove", payload: { x: 1, y: 2 } },
       { id: 2, kind: "curtain_off", payload: {} }],
@@ -57,6 +59,10 @@ function pairingRouteFixture([file, method, body]) {
       if (name === "session_authorized")
         return result(f.permission !== "denied" && f.grant.revokedAt === null &&
           f.session.state === "active" && f.grant.capabilities[args._capability]);
+      if (name === "reserve_session_file") {
+        f.writes.push({ rpc: name });
+        return result({ state: "reserved", path: "fixture-only/receipt", id: args._id });
+      }
       assert.ok(["record_device_authorization", "revoke_device_authorization", "report_agent_watch"].includes(name));
       f.writes.push({ rpc: name });
       return result(name === "record_device_authorization" ? f.grant : { ok: true });
@@ -75,6 +81,7 @@ function pairingRouteFixture([file, method, body]) {
           return result(f.lookup === "missing" ? null : f.device);
         }
         if (table === "sessions") return result(f.session);
+        if (table === "agent_runtime") return result({ agent_instance: sessionId, agent_state: "running" });
         if (table === "power_commands") return result({
           id: "PRIVATE_COMMAND", device_id: f.device.id, relay_device_id: null, kind: "wake", state: "dispatched",
         });
@@ -109,6 +116,9 @@ function pairingRouteFixture([file, method, body]) {
     crypto, zod,
     "@/lib/agent-auth.server": auth,
     "@/lib/authorization.server": load("lib/authorization.server.ts"),
+    "@/lib/licensing.server": load("lib/licensing.server.ts"),
+    "@/shared/signaling-identity": load("shared/signaling-identity.ts"),
+    "@/lib/live-diagnostics": load("lib/live-diagnostics.ts"),
     "@/lib/server-supabase": server,
     "@/shared/platform": load("shared/platform.ts"),
     "@/lib/session-files.server": { BUCKET: "fixture-only" },
@@ -131,9 +141,24 @@ function pairingRouteFixture([file, method, body]) {
     clearTimeout: timer => timers.delete(timer), clearInterval: timer => timers.delete(timer),
     fetch() { f.providerCalls++; throw Error("Unexpected network access"); },
   };
+  // Exercise the current real file handler through its reserve action. Byte
+  // assembly has separate integrity tests; this matrix verifies auth/outages.
+  modules["@/lib/agent-file-upload.server"] = load("lib/agent-file-upload.server.ts", {
+    "./authorization.server": modules["@/lib/authorization.server"],
+    "./session-files.server": { BUCKET: "fixture-only", MAX_FILE_BYTES: 500 * 1024 * 1024, safeName: name => name },
+    "./file-spool.server": {
+      fileSpool() { assert.fail("A reserve request must not create a file spool"); },
+      storedChecksum() { assert.fail("A reserve request must not read file bytes"); },
+    },
+  }, globals);
   const handler = load(`routes/api/public/agent/${file}.ts`, modules, globals).Route.server.handlers[method];
   f.call = async (headers = { "x-device-id": f.device.device_id, "x-device-token": token }) => {
-    const query = `?sessionId=${sessionId}&since=1&fileId=fixture&seq=0&channel=stable-update`;
+    const query = `?sessionId=${sessionId}&since=1&fileId=${sessionId}&seq=0&channel=stable-update` +
+      `&mode=control&authorization_id=${grantId}&instance=${sessionId}&admin_client_id=fixture-admin-client`;
+    if (file.endsWith(".file")) headers = {
+      ...headers, "x-file-action": "reserve", "x-file-size": "0", "x-file-sha256": "0".repeat(64),
+      "x-file-instance": sessionId, "x-file-direction": "from_agent",
+    };
     f.request = new Request(`https://fixture.invalid/api/public/agent/${file}${query}`, {
       method, headers,
       ...(method === "GET" ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),

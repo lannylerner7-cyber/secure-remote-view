@@ -21,6 +21,15 @@ public partial class App : Application
         // Do not log command-line arguments: they may contain private configuration.
         Log.Info("startup entered; diagnostics initialized before pairing and session startup");
 
+        // Installer-only, explicitly elevated removal. No network, enrollment or
+        // user credential access. Offline profiles must not revive after reinstall.
+        if (Array.Exists(e.Args, a => a.Equals("--uninstall-machine", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { InstallationLifecycle.RecordMachineRemoval(); Shutdown(); }
+            catch (Exception ex) { Log.Warn($"machine removal receipt failed: {ex.GetType().Name}"); Shutdown(1); }
+            return;
+        }
+
         // Local command-line withdrawal remains available without a second UI.
         // It also works during an update handoff and never clears the marker.
         var uninstalling = Array.Exists(e.Args, a => a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase) ||
@@ -28,7 +37,7 @@ public partial class App : Application
         if (uninstalling || Array.Exists(e.Args, a => a.Equals("/disable", StringComparison.OrdinalIgnoreCase) ||
             a.Equals("--disable", StringComparison.OrdinalIgnoreCase)))
         {
-            try { LocalAccessState.Disable(); UnlockEnrollment.Forget(); StartupConsent.Clear(); StartupSelfHeal.RemoveAll(); }
+            try { LocalAccessState.Disable(); UnlockEnrollment.Forget(); SessionToolsPolicy.Forget(); StartupConsent.Clear(); StartupSelfHeal.RemoveAll(); }
             catch
             {
                 MessageBox.Show("Could not persist withdrawal. Uninstall ConnectLive or contact your IT administrator.", "ConnectLive");
@@ -51,6 +60,8 @@ public partial class App : Application
         }
         try
         {
+            if (await StartupSetup.HandleAsync(e.Args)) { Shutdown(); return; }
+            if (await OptionalSessionSetup.HandleAsync(e.Args)) { Shutdown(); return; }
             if (await UnlockEnrollment.HandleSetupAsync(e.Args)) { Shutdown(); return; }
         }
         catch (Exception ex)
@@ -59,7 +70,7 @@ public partial class App : Application
             Shutdown(1);
             return;
         }
-        PeerInputPermission.SensitiveDesktop = () => UnlockOperation.Sensitive;
+        PeerInputPermission.SensitiveDesktop = () => UnlockOperation.Sensitive || AppVerification.Active || OwnerSetupProtection.Active;
         PeerInputPermission.LockedDesktop = () =>
             ConnectLive.Unlock.WindowsSession.Locked(ConnectLive.Unlock.WindowsSession.CurrentId) == true;
         InputBlocker.LocalStopRequested += () => Dispatcher.BeginInvoke(new Action(DisableRemoteAccess));
@@ -135,6 +146,9 @@ public partial class App : Application
                     DisableRemoteAccess();
                     return;
                 }
+                // Optional, explicitly disclosed extensions after successful pairing.
+                // Skip never changes the accepted base grant.
+                await OptionalSessionSetup.ShowAsync(api);
             }
             if (_stopping || _cts.IsCancellationRequested) return;
             if (!HasUsablePairing(api))
@@ -158,7 +172,9 @@ public partial class App : Application
             _withdrawalTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _withdrawalTimer.Tick += (_, _) =>
             {
-                if (LocalAccessState.IsDisabled() || InstallationLifecycle.RemovalRequested()) DisableRemoteAccess();
+                if (LocalAccessState.IsDisabled() || InstallationLifecycle.RemovalRequested() ||
+                    _api?.LocalAuthorization is { } local && !InstallationLifecycle.GrantIsCurrent(local))
+                    DisableRemoteAccess();
             };
             _withdrawalTimer.Start();
             _ = UnlockEnrollment.MonitorAsync(api, _cts.Token);
@@ -238,6 +254,7 @@ public partial class App : Application
         {
             LocalAccessState.Disable();
             UnlockEnrollment.Forget();
+            SessionToolsPolicy.Forget();
             StartupConsent.Clear();
         }
         catch (Exception)
@@ -281,6 +298,8 @@ public partial class App : Application
         _withdrawalTimer?.Stop();
         _cts.Cancel();
         try { _agent?.StopLocally(); } catch { }
+        if (_agent != null)
+            Log.Info($"lifecycle: agent process exiting code={e.ApplicationExitCode} local_withdrawal={_stopping}; live channels stopped");
         try { _singleInstance?.ReleaseMutex(); } catch { }
         _singleInstance?.Dispose();
         base.OnExit(e);

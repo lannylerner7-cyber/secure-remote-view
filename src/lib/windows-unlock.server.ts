@@ -13,6 +13,7 @@ type UnlockDatabase = { public: Omit<Database["public"], "Tables" | "Functions">
   Functions: Database["public"]["Functions"] & {
     unlock_admin: { Args: { _actor: string; _device: string; _action: string; _body: Json }; Returns: Json };
     unlock_agent: { Args: { _device: string; _action: string; _body: Json }; Returns: Json };
+    save_owner_unlock_pin: { Args: { _device: string; _key: string; _envelope: Json }; Returns: Json };
   };
 } };
 const database = (client = adminClient()) => client as unknown as SupabaseClient<UnlockDatabase>;
@@ -35,6 +36,7 @@ const adminBody = z.discriminatedUnion("action", [
 ]);
 const binding = { keyId: uuid, requestId: uuid, sessionId: uuid, peerId: peer };
 const agentBody = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("owner_save"), keyId: uuid, sealedPin }).strict(),
   z.object({ action: z.literal("enable"), version: z.literal(1), authorizationId: uuid,
     keyId: uuid, publicKey: z.string().regex(/^[A-Za-z0-9+/]{500,1200}={0,2}$/),
     windowsAccount: z.string().min(1).max(200), consentAccepted: z.literal(true) }).strict(),
@@ -131,6 +133,13 @@ export async function handleAgentUnlock(request: Request): Promise<Response> {
     }
     if (ctx.kind !== "verified") return deviceAuthFailure(ctx, "json");
     if (body.action === "cleared") return json({ error: "unlock_forbidden" }, 403);
+    if (body.action === "owner_save") {
+      if (body.sealedPin.keyId !== body.keyId) return json({ error: "unlock_key_changed" }, 409);
+      const saved = await database(ctx.admin).rpc("save_owner_unlock_pin", {
+        _device: ctx.device.id, _key: body.keyId, _envelope: body.sealedPin,
+      });
+      return saved.error ? failure(saved.error.message) : json(saved.data);
+    }
     if (body.action === "enable") {
       // DER SPKI only. Reject private keys, other algorithms and weak RSA keys.
       let key;

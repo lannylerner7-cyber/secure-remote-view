@@ -274,6 +274,7 @@ public sealed partial class WebRtcSession : IDisposable
 
         MediaStreamTrack videoTrack = new(offered, MediaStreamStatusEnum.SendOnly);
         _pc.addTrack(videoTrack);
+        AddMicrophoneTrack(boundPeer);
 
         // WITHOUT this the encoder has no negotiated format and silently drops
         // every raw sample — the peer connects, ICE succeeds, and the admin
@@ -316,6 +317,7 @@ public sealed partial class WebRtcSession : IDisposable
         {
             if (_closed || !peerPermission.Allows("view")) { dc.close(); return; }
             Log.Info($"webrtc dc open: {dc.label}");
+            if (AttachSessionTools(dc, peerPermission, boundPeer)) return;
 
             // ---- Step 10 — file exchange channel --------------------------
             // The peer (web console or native admin) opens a second reliable
@@ -531,6 +533,7 @@ public sealed partial class WebRtcSession : IDisposable
 
     private void TearDownPeer()
     {
+        StopSessionTools();
         _unlock?.Dispose();
         _unlock = null;
         CancelDisconnectGrace();
@@ -956,6 +959,7 @@ public sealed partial class WebRtcSession : IDisposable
     public void Close()
     {
         _inputPermission.Revoke();
+        StopSessionTools();
         if (_closed) return;
         _closed = true;
         if (Current == this)

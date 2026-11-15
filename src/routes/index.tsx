@@ -8,8 +8,25 @@ import { HomeContent } from "@/components/site/home";
 export const Route = createFileRoute("/")({
   component: Home,
   loader: async () => {
+    // Preview-only availability guard. Production catalog/checkout behavior and
+    // all session authorization deadlines are deliberately unchanged.
+    const preview = import.meta.env.DEV ? new AbortController() : null;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      const plans = await getActivePlansPublic();
+      const pending = preview
+        ? getActivePlansPublic({ signal: preview.signal })
+        : getActivePlansPublic();
+      const plans = preview
+        ? await Promise.race([
+            pending,
+            new Promise<never>((_, reject) => {
+              deadline = setTimeout(() => {
+                reject(new Error("Preview catalog deadline"));
+                preview.abort();
+              }, 3_000);
+            }),
+          ])
+        : await pending;
       return { catalog: { plans: plans as CatalogPlan[], error: null } };
     } catch {
       return {
@@ -18,6 +35,8 @@ export const Route = createFileRoute("/")({
           error: "Current prices are temporarily unavailable. Please try again.",
         },
       };
+    } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
     }
   },
   staleTime: 0,

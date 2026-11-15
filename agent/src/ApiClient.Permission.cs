@@ -8,6 +8,28 @@ namespace ConnectLive.Agent;
 
 public sealed partial class ApiClient
 {
+    internal async Task<bool> ConfirmToolAuthorityAsync(ToolBinding binding, string scope, CancellationToken ct)
+    {
+        if (LocalAuthorization?.Authorization.Id != binding.authorizationId || DeviceId != binding.deviceId) return false;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(2));
+        try
+        {
+            var path = $"/api/public/agent/session/{binding.sessionId}/permission?tool_scope={Uri.EscapeDataString(scope)}" +
+                $"&authorization_id={binding.authorizationId}&admin_client_id={Uri.EscapeDataString(binding.controllerId)}" +
+                $"&peer_id={binding.peerId}&instance={AgentProcessState.Instance}";
+            using var response = await SendAuthedAsync(() => new HttpRequestMessage(HttpMethod.Get, path), budget.Token);
+            if (!response.IsSuccessStatusCode) return false;
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(budget.Token));
+            var v = body.RootElement;
+            return !budget.IsCancellationRequested && v.GetProperty("protocol").GetInt32() == 1 &&
+                v.GetProperty("sessionId").GetString() == binding.sessionId &&
+                v.GetProperty("authorizationId").GetString() == binding.authorizationId &&
+                v.GetProperty("adminClientId").GetString() == binding.controllerId &&
+                v.GetProperty("peerId").GetString() == binding.peerId && v.GetProperty("scope").GetString() == scope;
+        }
+        catch { return false; } // No retries; this never extends heartbeat authority.
+    }
     /// <summary>Read only this live session/controller/grant/process's current mode.
     /// Does not establish or extend the Agent's heartbeat authority.</summary>
     internal async Task<bool> ConfirmSessionModeAsync(

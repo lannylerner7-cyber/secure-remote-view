@@ -10,5 +10,6 @@
     <Compile Include="../../agent/src/AgentHttpDiagnostics.cs" Link="AgentHttpDiagnostics.cs" />
     <Compile Include="../../agent/src/AuthorizationGrant.cs" Link="AuthorizationGrant.cs" />
     <Compile Include="../../agent/src/PeerInputPermission.cs" Link="PeerInputPermission.cs" />
+    <Compile Include="../../agent/src/InputPauseGate.cs" Link="InputPauseGate.cs" />
   </ItemGroup>
 </Project>

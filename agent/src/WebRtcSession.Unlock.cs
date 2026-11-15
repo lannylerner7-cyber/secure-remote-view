@@ -20,6 +20,7 @@ public sealed partial class WebRtcSession
             channel.readyState == RTCDataChannelState.open && owner.Allows("view");
         void Report(string phase, string? reason)
         {
+            Log.Info($"unlock request={id} phase={phase} reason={reason ?? "none"}");
             if (!Bound()) return;
             if (phase == "unlocked")
             {
@@ -41,11 +42,19 @@ public sealed partial class WebRtcSession
             !_formatReady || !_videoStarted || WindowsSession.Locked(WindowsSession.CurrentId) != true ||
             !payload.TryGetProperty("recording_stopped", out var recording) || recording.ValueKind != JsonValueKind.True)
         {
-            Report("blocked", "unlock_setup_or_transport_unavailable");
+            var reason = !Bound() ? "request_binding_changed" : owner.InputState.OperatorPaused ? "release_paused_control_first" :
+                _unlock?.Active == true ? "unlock_request_active" : local?.Registered != true ? "encryption_enrollment_required" :
+                !UnlockEnrollment.Fresh ? "helper_readiness_or_connectivity_unconfirmed" :
+                !UnlockEnrollment.Matches(_api, local) ? "device_or_grant_changed" :
+                WindowsSession.Locked(WindowsSession.CurrentId) == false ? "windows_not_locked_app_verification_on_device" :
+                "protected_transport_unavailable";
+            Report("blocked", reason);
             return true;
         }
         // Neither curtain nor ordinary control is required for Winlogon input.
         // They are released rather than bypassed or silently re-enabled later.
+        _tools?.StopMicrophone("off");
+        _verifiedFiles?.Suspend();
         CurtainController.Release(owner, "windows_unlock");
         _inputPermission.SetMode("view"); owner.SetMode("view");
         InputRelay.ReleaseHeldInputs();

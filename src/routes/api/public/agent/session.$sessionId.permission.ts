@@ -21,9 +21,12 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/permi
         const query = new URL(request.url).searchParams;
         const mode = query.get("mode"), authorizationId = query.get("authorization_id");
         const controllerId = query.get("admin_client_id"), instance = query.get("instance");
+        const scope = query.get("tool_scope"), peerId = query.get("peer_id");
+        const tool = scope !== null;
         if (!uuid.test(params.sessionId) || !authorizationId || !uuid.test(authorizationId) ||
             !instance || !uuid.test(instance) || !isAdminClientId(controllerId) ||
-            (mode !== "view" && mode !== "control"))
+            (tool ? !["files", "microphone", "verification", "status"].includes(scope!) ||
+              !peerId || !uuid.test(peerId) : mode !== "view" && mode !== "control"))
           return reply({ error: "invalid_permission_request" }, 400);
         try {
           const [sessionResult, runtimeResult, licenseResult] = await Promise.all([
@@ -40,27 +43,38 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/permi
           const session = sessionResult.data, runtime = runtimeResult.data;
           if (!runtime || runtime.agent_instance !== instance || runtime.agent_state !== "running")
             return reply({ error: "retired_or_stopped_process" }, 409);
-          if (!session || session.state !== "active" || session.mode !== mode ||
+          if (!session || session.state !== "active" || (!tool && session.mode !== mode) ||
               session.authorization_id !== authorizationId || session.admin_client_id !== controllerId)
             return reply({ error: "session_binding_changed" }, 409);
           const license = await evaluateLicense(ctx.admin as never, licenseResult.data as LicenseRow | null, ctx.device.id);
           if (license.state !== "active" && license.state !== "unlicensed")
             return reply({ error: "license_denied" }, 403);
-          if (mode === "control" && !session.technician_id)
+          if ((mode === "control" || tool) && !session.technician_id)
             return reply({ error: "permission_denied" }, 403);
           let unavailable = false;
           // A stored grant must not re-enable control after its session owner
           // has been downgraded to a viewer. Read the current role, not JWT or
           // UI state, alongside the existing bounded grant check.
           const [allowed, roles] = await Promise.all([
-            sessionAuthorized(ctx.admin, session.id, mode, () => { unavailable = true; }),
-            mode === "control" ? ctx.admin.from("user_roles").select("role")
+            sessionAuthorized(ctx.admin, session.id, tool ? scope === "files" ? "files" : "view" : mode as "view" | "control",
+              () => { unavailable = true; }),
+            mode === "control" || tool ? ctx.admin.from("user_roles").select("role")
               .eq("user_id", session.technician_id!) : Promise.resolve({ data: [], error: null }),
           ]);
           if (unavailable || roles.error) return reply({ error: "permission_unavailable" }, 503);
           const staff = roles.data?.some(row => ["super_admin", "admin", "technician"].includes(row.role));
-          if (!allowed || (mode === "control" && !staff))
+          if (!allowed || ((mode === "control" || tool) && !staff))
             return reply({ error: "permission_denied" }, 403);
+          if (tool) {
+            const latest = await ctx.admin.from("session_signals").select("payload")
+              .eq("session_id", session.id).eq("from_side", "admin").eq("kind", "offer")
+              .eq("admin_client_id", controllerId!).order("id", { ascending: false }).limit(1).maybeSingle();
+            if (latest.error) return reply({ error: "permission_unavailable" }, 503);
+            if ((latest.data?.payload as { peer_id?: unknown } | null)?.peer_id !== peerId)
+              return reply({ error: "peer_changed" }, 409);
+            return reply({ sessionId: session.id, authorizationId, adminClientId: controllerId,
+              peerId, scope, protocol: 1 });
+          }
           return reply({ sessionId: session.id, authorizationId, adminClientId: controllerId, mode, protocol: 1 });
         } catch { return reply({ error: "permission_unavailable" }, 503); }
       },

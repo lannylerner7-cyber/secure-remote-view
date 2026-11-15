@@ -33,6 +33,17 @@ Set-Location $root
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw "Installer compilation and MSI inspection require Windows. Linux cross-builds do not validate MSI installation."
 }
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw ".NET 8 SDK is required." }
+$sdkVersions = & dotnet --list-sdks
+if ($LASTEXITCODE -ne 0 -or -not ($sdkVersions -match '^8\.')) { throw "Install the .NET 8 SDK before building." }
+foreach ($source in @(
+    "src/ConnectLiveAgent.csproj", "src/Watch/ConnectLiveWatch.csproj",
+    "src/UpdateHost/ConnectLiveUpdate.csproj", ".config/dotnet-tools.json",
+    "packaging/msi/Inspect-Msi.ps1", "Verify-Startup.ps1", "INSTALL.md"
+)) {
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Incomplete Agent source: $source is missing." }
+}
+. (Join-Path $root "packaging/msi/Inspect-Msi.ps1")
 function Invoke-PinnedWix {
     param([string[]]$WixArguments)
     # WiX 4 targets .NET 6. Run its managed tool on the required .NET 8
@@ -75,8 +86,7 @@ $signHelper = @(
 if ($signHelper) {
     . $signHelper
 } else {
-    Write-Warning "CodeSign.ps1 not found - building UNSIGNED (see docs\SIGNING.md)."
-    function Invoke-ConnectLiveSign { param([string[]]$Paths, [switch]$Skip) }
+    throw "CodeSign.ps1 is missing. Extract the complete source including tools; do not silently skip configured signing."
 }
 
 # -- 0. Version ----------------------------------------------------------------
@@ -108,7 +118,8 @@ foreach ($directory in @("publish/agent", "publish/watch", "publish/update-host"
 }
 # Remove only generated installer outputs so skipped targets cannot leak from
 # an earlier build into this run's archive or signature summary.
-foreach ($artifact in @("dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi", "dist/ConnectLiveAgent.zip", "dist/Intune-app.json")) {
+foreach ($artifact in @("dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi", "dist/ConnectLiveAgent.zip",
+    "dist/Intune-app.json", "dist/MSI-VERIFICATION.json")) {
     if (Test-Path $artifact) { Remove-Item $artifact -Force }
 }
 Write-Host "==> Build version: $Version"
@@ -248,14 +259,9 @@ if (-not $SkipMsi) {
             "-o", (Join-Path $root "dist/ConnectLiveAgent.msi"))
         if ($LASTEXITCODE -ne 0) { throw "WiX build failed (exit $LASTEXITCODE)" }
         # Generate deployment metadata from this MSI, never from its UpgradeCode.
-        $msiReader = New-Object -ComObject WindowsInstaller.Installer
-        $msiDb = $msiReader.OpenDatabase((Join-Path $root "dist/ConnectLiveAgent.msi"), 0)
-        $propertyView = $msiDb.OpenView("SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = 'ProductCode'")
-        $propertyView.Execute()
-        $propertyRow = $propertyView.Fetch()
-        if (-not $propertyRow) { throw "Built MSI has no ProductCode." }
-        $productCode = $propertyRow.StringData(1)
-        $propertyView.Close()
+        $msiInspection = Get-ConnectLiveMsiInspection -Path (Join-Path $root "dist/ConnectLiveAgent.msi") `
+            -ExpectedVersion $Version -PayloadDirectory (Join-Path $root "dist")
+        $productCode = $msiInspection.ProductCode
         $template = Get-Content (Join-Path $root "packaging/intune/intune-app.json") -Raw
         $template = $template.Replace("REPLACE_WITH_BUILT_MSI_PRODUCT_CODE", $productCode)
         $template = $template.Replace("REPLACE_WITH_BUILT_MSI_VERSION", $Version)
@@ -274,15 +280,24 @@ foreach ($installer in $builtInstallers) {
     if (-not (Test-Path $installer)) { throw "Missing expected installer: $installer" }
 }
 Invoke-ConnectLiveSign -Paths $builtInstallers -Skip:$SkipSign
+if (-not $SkipMsi) {
+    $msiInspection | Add-Member -NotePropertyName Sha256 -NotePropertyValue `
+        (Get-FileHash -Algorithm SHA256 -LiteralPath "dist/ConnectLiveAgent.msi").Hash.ToLower()
+    $msiInspection | Add-Member -NotePropertyName SignatureStatus -NotePropertyValue `
+        ([string](Get-AuthenticodeSignature -LiteralPath "dist/ConnectLiveAgent.msi").Status)
+    $msiInspection | ConvertTo-Json -Depth 5 | Set-Content "dist/MSI-VERIFICATION.json" -Encoding UTF8
+}
 
 # -- 6. Package the installer(s) for distribution ------------------------------
 
 Write-Host "==> Creating distribution ZIP..."
 if (Test-Path dist/ConnectLiveAgent.zip) { Remove-Item dist/ConnectLiveAgent.zip }
 if (Test-Path INSTALL.md) { Copy-Item INSTALL.md dist/README-INSTALL.txt -Force }
+Copy-Item Verify-Startup.ps1 dist/Verify-Startup.ps1 -Force
 
 $zipItems = @($builtInstallers)
-if (-not $SkipMsi) { $zipItems += "dist/Intune-app.json" }
+if (-not $SkipMsi) { $zipItems += @("dist/Intune-app.json", "dist/MSI-VERIFICATION.json") }
+$zipItems += "dist/Verify-Startup.ps1"
 if (Test-Path dist/README-INSTALL.txt)   { $zipItems += "dist/README-INSTALL.txt" }
 
 if ($zipItems.Count -eq 0) { throw "No installer was built -- nothing to package." }
@@ -293,6 +308,7 @@ Write-Host "  Zip  : dist\ConnectLiveAgent.zip"
 
 Write-Host ""
 Write-Host "=== Build complete (version $Version) ==="
+Write-Host "MSI table checks do not certify installation, upgrade, rollback or reboot behavior. Run the Windows acceptance checklist."
 Write-Host ""
 Write-Host "  Raw binaries (input to installer - do NOT ship directly):"
 Write-Host "    dist\ConnectLive.exe"
@@ -316,7 +332,7 @@ if ($SkipSign) {
 
 Write-Host ""
 Write-Host "=== Release manifest (S14) ==="
-$artifacts = @("dist/ConnectLive.exe", "dist/ConnectLiveAgent.zip",
+$artifacts = @("dist/ConnectLive.exe", "dist/ConnectLiveWatch.exe", "dist/ConnectLiveUpdate.exe", "dist/ConnectLiveAgent.zip",
                "dist/ConnectLiveSetup.exe", "dist/ConnectLiveAgent.msi")
 foreach ($a in $artifacts) {
     if (Test-Path $a) {

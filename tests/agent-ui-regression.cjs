@@ -51,7 +51,7 @@ assert.match(app, /a\.Equals\("\/disable"/);
 assert.match(app, /a\.Equals\("--disable"/);
 assert.ok(app.indexOf('Log.Info("startup entered') < app.indexOf("var uninstalling"),
   "file logging must initialize before early startup exits");
-assert.match(app, /if \(LocalAccessState\.IsDisabled\(\) \|\| InstallationLifecycle\.RemovalRequested\(\)\) DisableRemoteAccess\(\)/);
+assert.match(app, /if \(LocalAccessState\.IsDisabled\(\) \|\| InstallationLifecycle\.RemovalRequested\(\) \|\|[\s\S]*?InstallationLifecycle\.GrantIsCurrent\(local\)\)[\s\S]*?DisableRemoteAccess\(\)/);
 assert.match(read("App.xaml"), /ShutdownMode="OnExplicitShutdown"/);
 const runner = fs.readFileSync(path.join(dir, "../run.ps1"), "utf8");
 assert.match(runner, /"build", \(Join-Path/);

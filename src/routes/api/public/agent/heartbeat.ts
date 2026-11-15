@@ -4,7 +4,7 @@ import { currentAuthorization, sessionAuthorized } from "@/lib/authorization.ser
 import { legacyMonitorMayBeDelivered } from "@/shared/legacy-monitor";
 import { evaluateLicense, type LicenseRow } from "@/lib/licensing.server";
 import { withAgentHttpDiagnostics } from "@/lib/agent-http-diagnostics.server";
-import { writeBoundedTelemetry } from "@/lib/bounded-telemetry.server";
+import { writeBoundedTelemetry, readBoundedOptional } from "@/lib/bounded-telemetry.server";
 
 /**
  * Called by the Agent every 5-60s. Watch has a separate, authorized lifecycle
@@ -83,6 +83,14 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
             .select("id, meeting_id, seat_limit, status, starts_at, expires_at").eq("id", licenseId).maybeSingle())
             .then(value => value, () => ({ data: null, error: true }))
           : Promise.resolve({ data: null, error: null });
+        // License evaluation is mandatory and fresh, but independent of the
+        // runtime fence. Overlap it instead of paying both round trips serially.
+        const licenseEvaluation = licenseRead.then(async result => {
+          if (result.error) return null;
+          const license = result.data as LicenseRow | null;
+          return { license, verdict: await trace.step("license_evaluation", () =>
+            evaluateLicense(ctx.admin as never, license, ctx.device.id)) };
+        }).catch(() => null);
         const sessionsRead = trace.step("sessions_lookup", () => ctx.admin.from("sessions")
           .select("id, mode, state, media_mode, created_at, authorization_id")
           .eq("device_id", ctx.device.id).in("state", ["invited", "consented", "active", "paused"])
@@ -90,6 +98,13 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
           .then(value => value, () => ({ data: null, error: true }));
 
         const nowIso = new Date().toISOString();
+        // Read only. On deadline commands remain queued/dispatched and will be
+        // offered by a later heartbeat; no acknowledgement or state is invented.
+        const commandsRead = trace.step("commands_lookup", () => readBoundedOptional(request.signal, signal => ctx.admin
+          .from("power_commands").select("id, kind, payload, device_id, relay_device_id, expires_at")
+          .in("state", ["queued", "dispatched"])
+          .or(`device_id.eq.${ctx.device.id},relay_device_id.eq.${ctx.device.id}`).gt("expires_at", nowIso)
+          .order("created_at", { ascending: true }).limit(8).abortSignal(signal))).catch(() => null);
         const prevStatus = ctx.device.status;
         const prevSeen = ctx.device.last_seen_at ? new Date(ctx.device.last_seen_at).getTime() : 0;
         const gap = Date.now() - prevSeen;
@@ -224,24 +239,19 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // The runtime RPC above already committed/fenced native presence.
         // Do not spend the authority heartbeat's remaining budget on optional
         // metadata. Older clients retain their original presence-write path.
-        const presenceError = body.runtime
-          ? !await trace.step("presence_write", () => writeBoundedTelemetry(
+        const presenceResult = body.runtime
+          ? trace.step("presence_write", () => writeBoundedTelemetry(
               request.signal, signal => presenceQuery.abortSignal(signal)))
-          : !!(await trace.step("presence_write", () => presenceQuery)).error;
+          : trace.step("presence_write", () => presenceQuery).then(result => !result.error).catch(() => false);
         // Runtime fencing and authorization are mandatory; metadata telemetry
         // is not authority and must not tear down an otherwise verified peer.
 
         // ---- Licence gate -----------------------------------------------
         // A blocked/expired device keeps heartbeating (so it wakes the moment
         // a seat frees) but is handed no sessions and captures nothing.
-        let license: LicenseRow | null = null;
-        if (licenseId) {
-          const { data, error } = await licenseRead;
-          if (error) return trace.respond(new Response("license_unavailable", { status: 503 }), "license_unavailable");
-          license = (data as LicenseRow | null) ?? null;
-        }
-        const verdict = await trace.step("license_evaluation", () =>
-          evaluateLicense(ctx.admin as never, license, ctx.device.id));
+        const evaluated = await licenseEvaluation;
+        if (!evaluated) return trace.respond(new Response("license_unavailable", { status: 503 }), "license_unavailable");
+        const { license, verdict } = evaluated;
         if (verdict.state !== ctx.device.license_state) {
           const { error } = await trace.step("license_state_write", () => ctx.admin
             .from("devices")
@@ -317,14 +327,9 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
         // Fetch queued power commands where this device is either
         //   (a) the target of a local action (device_id), OR
         //   (b) the LAN relay peer for a Wake-on-LAN broadcast (relay_device_id).
-        const { data: powerRows } = await trace.step("commands_lookup", () => ctx.admin
-          .from("power_commands")
-          .select("id, kind, payload, device_id, relay_device_id, expires_at")
-          .in("state", ["queued", "dispatched"])
-          .or(`device_id.eq.${ctx.device.id},relay_device_id.eq.${ctx.device.id}`)
-          .gt("expires_at", nowIso)
-          .order("created_at", { ascending: true })
-          .limit(8));
+        const commandResult = await commandsRead;
+        const commandsDeferred = !commandResult || !!commandResult.error;
+        const powerRows = commandResult?.error ? [] : commandResult?.data ?? [];
 
         const powerCommands = (powerRows ?? [])
           .filter(r => legacyMonitorMayBeDelivered(r, authorization, authorizedSessions))
@@ -340,26 +345,27 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
 
         if (licensed && powerCommands.length > 0) {
           const ids = powerCommands.map((c) => c.id);
-          await trace.step("commands_dispatch", () => ctx.admin
+          await trace.step("commands_dispatch", () => writeBoundedTelemetry(request.signal, signal => ctx.admin
             .from("power_commands")
             .update({ state: "dispatched", dispatched_at: nowIso })
             .in("id", ids)
-            .eq("state", "queued"));
+            .eq("state", "queued").abortSignal(signal)));
         }
 
         let notificationFailed = false;
         if (wasOffline) {
-          const { error } = await trace.step("notification_write", () => ctx.admin.from("notifications").insert({
+          const written = await trace.step("notification_write", () => writeBoundedTelemetry(request.signal, signal => ctx.admin.from("notifications").insert({
             recipient_id: null,
             title: "Device reconnected",
             body: `${ctx.device.display_name} (${ctx.device.device_id}) is back online`,
             severity: "success",
-          }));
+          }).abortSignal(signal)));
           // Notification delivery is not session authority. Expose the error
           // without tearing down healthy media over an unrelated side effect.
-          notificationFailed = !!error;
+          notificationFailed = !written;
         }
 
+        const presenceError = !await presenceResult;
         return trace.respond(new Response(
           JSON.stringify({
             ok: true,
@@ -367,6 +373,7 @@ export const Route = createFileRoute("/api/public/agent/heartbeat")({
               ...(presenceError ? ["presence_metadata_write_failed"] : []),
               ...(notificationFailed ? ["reconnection_notification_failed"] : []),
               ...(sessionStatusUnavailable ? ["session_status_unavailable"] : []),
+              ...(commandsDeferred ? ["commands_deferred"] : []),
             ],
             authorization,
             session_status: sessionStatus,

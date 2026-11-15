@@ -26,8 +26,8 @@ behavior or establish that curtain rendering works on a particular Windows PC.
 | `src/Agent.cs` | Session coordinator, heartbeat loop, frame/input/cursor streaming |
 | `src/ApiClient.cs` | HTTP client for the ConnectLive API (enroll, heartbeat, frame, signal) |
 | `src/StreamListener.cs` | SSE wake channel client (`GET /api/public/agent/stream`) |
-| `src/StartupSelfHeal.cs` | Re-registers its own autostart (HKCU Run, Startup shortcut, ONLOGON task) |
-| `src/ConsentPrompt.cs` | Consent dialog — 90 s auto-decline, optional standing consent |
+| `src/StartupSelfHeal.cs` | Locally opted-in HKCU Run entry and visible per-user Watch task |
+| `src/StartupSetup.cs` | Explicit owner startup setup; never grants remote access |
 | `src/PairingPrompt.cs` | One pairing-code screen with inline organization/access review |
 | `src/DxgiCapture.cs` / `src/ScreenCapture.cs` | Desktop Duplication capture with GDI fallback |
 | `src/MonitorSelector.cs` | Which display is captured; source of truth for bounds |
@@ -39,6 +39,7 @@ behavior or establish that curtain rendering works on a particular Windows PC.
 | `assets/logo.svg` / `assets/icon.ico` | ConnectLive branding |
 | `run.ps1` | Manual source build/run, optional startup request, and local disable without a control UI |
 | `build.ps1` | Deferred installer/release packaging, including MSI generation |
+| `Verify-Startup.ps1` | Read-only Windows startup/process/heartbeat check before and after reboot |
 
 ## Installer packaging (only after manual source testing)
 
@@ -74,14 +75,17 @@ Edit `src/ApiClient.cs` — set `ApiBaseUrl` to your ConnectLive gateway before 
 
 ## Deploy (MDM/GPO)
 
-Ship `ConnectLive.exe` through Intune, SCCM, or GPO. On first run the agent:
+Deploy the complete MSI/Inno payload, not a lone executable. Installation alone
+does not enroll a device or enable startup. The intended user pairs locally,
+then explicitly approves **ConnectLive - enable Windows startup**.
+The Agent starts after that Windows user signs in; Watch recovery requires fresh
+server authority and never bypasses withdrawal or device revocation.
 
-1. Enrolls itself keylessly (`POST /api/public/agent/enroll`) — device token stored DPAPI-encrypted at `%LOCALAPPDATA%\ConnectLive\device.dat`
-2. Self-heals its own autostart (HKCU Run key, Startup shortcut, ONLOGON scheduled task) — no helper service
-3. Runs headless in the background; heartbeat + session reconnect happen in-process
+See [INSTALL.md](INSTALL.md) for exact build commands, status meanings,
+uninstall/reinstall safeguards and the real-Windows acceptance checklist.
 
 ## Non-negotiables (baked into the code)
 
-- Invited sessions never auto-activate. `Agent.cs` awaits `ConsentPrompt.AskAsync` and only starts capture/input loops when the user clicks Allow (90 s auto-decline).
+- Attended/unattended behavior follows the accepted grant; software installation, a saved session ID or process launch is not consent.
 - Curtain/takeover mode uses the dedicated input-blocking hooks and always releases on dead-man failure.
 - No Defender exclusions requested or applied by the installer.

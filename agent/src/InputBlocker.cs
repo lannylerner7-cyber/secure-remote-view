@@ -104,6 +104,7 @@ public static class InputBlocker
     private static Action<string>? _onAutoRelease;
     private static readonly LocalEscapeGesture EscapeGesture = new();
     public static event Action? LocalStopRequested;
+    public static event Action? LocalMicrophoneStopRequested;
     private static volatile bool _localStopPending;
     public static bool LocalStopPending => _localStopPending;
     private static readonly Timer Watchdog;
@@ -335,6 +336,11 @@ public static class InputBlocker
             bool ours = hs.dwExtraInfo == CONNECTLIVE_INPUT_MAGIC;
             bool injected = (hs.flags & LLKHF_INJECTED_MASK) != 0;
             bool down = wParam.ToInt64() is 0x100 or 0x104;
+            if (EscapeGesture.MicrophoneStop(hs.vkCode, down, injected || ours))
+            {
+                ThreadPool.QueueUserWorkItem(_ => { try { LocalMicrophoneStopRequested?.Invoke(); } catch { } });
+                return (IntPtr)1; // Stop audio without releasing curtain/control.
+            }
             if (EscapeGesture.Feed(hs.vkCode, down, injected || ours))
             {
                 // Unpause immediately. Disk/network/UI work is never performed

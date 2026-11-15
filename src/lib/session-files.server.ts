@@ -51,11 +51,13 @@ export async function assertSessionAccess(
   userId: string,
   sessionId: string,
 ): Promise<"not_found" | "forbidden" | null> {
-  const [{ data: session }, { data: isSuper, error: roleError }] = await Promise.all([
+  const [{ data: session }, { data: isSuper, error: roleError }, roles] = await Promise.all([
     supabase.from("sessions").select("id, technician_id").eq("id", sessionId).maybeSingle(),
     supabase.rpc("has_role", { _user_id: userId, _role: "super_admin" as never }),
+    supabase.from("user_roles").select("role").eq("user_id", userId),
   ]);
   if (!session) return "not_found";
+  if (roles.error || !roles.data?.some(row => ["super_admin", "admin", "technician"].includes(row.role))) return "forbidden";
   if (session.technician_id !== userId && (roleError || isSuper !== true)) return "forbidden";
   if (!(await sessionAuthorized(supabase, sessionId, "files"))) return "forbidden";
   return null;
@@ -65,11 +67,11 @@ export async function sessionBytesUsed(
   admin: SupabaseClient<Database>,
   sessionId: string,
 ): Promise<number> {
-  const { data } = await admin
+  const { data, error } = await admin
     .from("session_files")
     .select("size_bytes")
-    .eq("session_id", sessionId)
-    .is("deleted_at", null);
+    .eq("session_id", sessionId);
+  if (error || !data) throw new Error("file_quota_unavailable");
   return (data ?? []).reduce((sum, r) => sum + Number(r.size_bytes ?? 0), 0);
 }
 

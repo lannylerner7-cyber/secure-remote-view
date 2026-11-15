@@ -23,6 +23,9 @@
  * web console never touches `session_signals` directly.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { createBrowserFileChannel } from "./browser-file-channel";
+import { createSessionToolsClient } from "./browser-session-tools";
+import type { SessionToolsClient, ToolBinding } from "@/shared/session-tools";
 import { postAdminSignal, bindAdmin } from "@/lib/webrtc-signal.functions";
 import { API_ROUTES } from "@/shared/api-routes";
 import { RecordingAuthority } from "@/lib/recording-authority";
@@ -124,11 +127,11 @@ import type { InputPauseState } from "./browser-input-pause";
 
 /** Step 8 — progress/lifecycle events emitted by the `files` DataChannel. */
 export type FileTransferEvent =
-  | { kind: "begin"; name: string; size: number }
-  | { kind: "progress"; name: string; size: number; sent: number }
-  | { kind: "complete"; name: string; size: number; blob: Blob }
-  | { kind: "sent"; name: string; size: number }
-  | { kind: "error"; name: string; message: string };
+  | { kind: "begin"; id?: string; name: string; size: number }
+  | { kind: "progress"; id?: string; name: string; size: number; sent: number }
+  | { kind: "complete"; id?: string; name: string; size: number; blob: Blob }
+  | { kind: "sent"; id?: string; name: string; size: number }
+  | { kind: "error"; id?: string; name: string; message: string };
 
 /** S24 — one finished local recording of the live track. */
 export type RecordingResult = { blob: Blob; mimeType: string; durationMs: number };
@@ -136,6 +139,9 @@ export type RecordingResult = { blob: Blob; mimeType: string; durationMs: number
 export interface WebRtcLive {
   readonly sessionId: string;
   video: HTMLVideoElement;
+  sessionTools: SessionToolsClient | null;
+  presentedFrame: () => { source: HTMLVideoElement; width: number; height: number; presentedAt: number; peerId: string } | null;
+  prepareAppVerification: () => Promise<void>;
   state: () => WebRtcState;
   onState: (cb: (s: WebRtcState) => void) => () => void;
   /** "host" | "srflx" | "prflx" | "relay" once ICE settles, else null. */
@@ -226,7 +232,7 @@ type QueueItem = {
 };
 
 export interface WebRtcOptions {
-  videoOnly?: boolean; authorizationId?: string | null;
+  videoOnly?: boolean; authorizationId?: string | null; deviceId?: string;
   strictPeerIdentity?: boolean;
   profile?: MediaProfile;
 }
@@ -245,6 +251,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   let closed = false;
   let presentedFrames: number | null = null, lastPresentedAt: number | null = null;
   let presentedCallback: number | null = null;
+  let currentVideoTrack: MediaStreamTrack | null = null;
   let generation = 0;
   let iceRevision = 0;
   let iceRequest: AbortController | null = null;
@@ -261,8 +268,14 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   if (typeof video.requestVideoFrameCallback === "function") {
     const presented: VideoFrameRequestCallback = (_now, metadata) => {
       if (!active()) return;
-      presentedFrames = metadata.presentedFrames;
-      lastPresentedAt = Date.now();
+      if (state === "connected" && !viewerPaused && currentVideoTrack?.readyState === "live" &&
+          (video.srcObject as MediaStream | null)?.getVideoTracks()[0] === currentVideoTrack &&
+          metadata.width > 0 && metadata.height > 0) {
+        presentedFrames = metadata.presentedFrames;
+        lastPresentedAt = lastMediaProgressAt = Date.now();
+        videoStall.reset();
+        mediaListeners.forEach(cb => cb({ framesDecoded: lastDecodedFrames, codec: negotiatedCodec, path: selectedCandidateType }));
+      }
       presentedCallback = video.requestVideoFrameCallback(presented);
     };
     presentedCallback = video.requestVideoFrameCallback(presented);
@@ -279,6 +292,11 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   const setState = (s: WebRtcState) => {
     if (closed || (state === "superseded" && s !== "superseded")) return;
     state = s;
+    if (s !== "connected") {
+      lastPresentedAt = null;
+      void sessionTools.microphone(false).catch(() => {});
+      sessionTools.cancelVerification(); sessionTools.cancelDownload();
+    }
     if (s === "failed" || s === "superseded") cancelIce();
     listeners.forEach((cb) => cb(s));
   };
@@ -316,83 +334,45 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   dc.onmessage = event => actions.receive(event.data);
   dc.onclose = () => { dc = null; actions.reset(); };
 
-  // ---- Step 8: `files` DataChannel ---------------------------------------
-  // Separate ordered streams avoid mixing file chunks into input ordering.
-  // They still share network congestion. Wire format: a JSON control frame
-  // ("file_begin" / "file_end"), then raw ArrayBuffer chunks in order that
-  // belong to the most recent "file_begin".
-  const fileChunk = 16 * 1024;
-  const fdc: RTCDataChannel = pc.createDataChannel("files", { ordered: true });
-  fdc.binaryType = "arraybuffer";
-  let incoming: { name: string; mime: string; size: number; parts: ArrayBuffer[]; got: number } | null = null;
-
-  fdc.onmessage = (ev) => {
-    if (typeof ev.data === "string") {
-      try {
-        const msg = JSON.parse(ev.data) as Record<string, unknown>;
-        if (msg["type"] === "file_begin") {
-          incoming = {
-            name: String(msg["name"] ?? "file"),
-            mime: String(msg["mime"] ?? "application/octet-stream"),
-            size: Number(msg["size"] ?? 0),
-            parts: [],
-            got: 0,
-          };
-          fileListeners.forEach((cb) => cb({ kind: "begin", name: incoming!.name, size: incoming!.size }));
-        } else if (msg["type"] === "file_end" && incoming) {
-          const done = incoming;
-          incoming = null;
-          const blob = new Blob(done.parts, { type: done.mime });
-          fileListeners.forEach((cb) => cb({ kind: "complete", name: done.name, size: blob.size, blob }));
-        } else if (msg["type"] === "file_error") {
-          incoming = null;
-          fileListeners.forEach((cb) => cb({ kind: "error", name: String(msg["name"] ?? ""), message: String(msg["message"] ?? "transfer failed") }));
-        }
-      } catch { /* ignore malformed control frame */ }
-      return;
-    }
-    if (!incoming) return;
-    const buf = ev.data as ArrayBuffer;
-    incoming.parts.push(buf);
-    incoming.got += buf.byteLength;
-    const rec = incoming;
-    fileListeners.forEach((cb) => cb({ kind: "progress", name: rec.name, size: rec.size, sent: rec.got }));
-  };
-
   const fileListeners = new Set<(ev: FileTransferEvent) => void>();
-  const failIncomingFile = () => {
-    if (incoming) {
-      const name = incoming.name;
-      incoming = null;
-      fileListeners.forEach(cb => cb({
-        kind: "error", name, message: "Connection interrupted. The file was not completed; retry it from Files.",
-      }));
-    }
-  };
-  fdc.onclose = failIncomingFile;
-
-  /** Push a local file to the agent, yielding to the SCTP buffer as it fills. */
-  async function sendFileOverChannel(file: File): Promise<boolean> {
-    if (!active() || fdc.readyState !== "open") return false;
-    try {
-      fdc.send(JSON.stringify({ type: "file_begin", name: file.name, size: file.size, mime: file.type }));
-      let offset = 0;
-      while (offset < file.size) {
-        while (fdc.bufferedAmount > 256 * 1024) {
-          await new Promise((r) => setTimeout(r, 20));
-          if (fdc.readyState !== "open") return false;
-        }
-        const slice = await file.slice(offset, offset + fileChunk).arrayBuffer();
-        fdc.send(slice);
-        offset += slice.byteLength;
-        fileListeners.forEach((cb) => cb({ kind: "progress", name: file.name, size: file.size, sent: offset }));
-      }
-      fdc.send(JSON.stringify({ type: "file_end", name: file.name, size: file.size }));
-      fileListeners.forEach((cb) => cb({ kind: "sent", name: file.name, size: file.size }));
-      return true;
-    } catch {
-      return false;
-    }
+  const toolBinding: ToolBinding = { sessionId, deviceId: options.deviceId ?? "", authorizationId: options.authorizationId ?? "",
+    controllerId: webClientId, peerId };
+  const fdc = pc.createDataChannel("files-v2", { ordered: true });
+  const files = createBrowserFileChannel(fdc, toolBinding,
+    () => active() && state === "connected",
+    event => fileListeners.forEach(cb => cb(event)), () => !protectedMedia());
+  const audio = document.createElement("audio");
+  audio.autoplay = false; audio.muted = true;
+  const tdc = pc.createDataChannel("session-tools-v1", { ordered: true });
+  let audioReceived = 0, audioLost = 0, audioAdvancedAt = Date.now(), audioCongested = 0;
+  const sessionTools = createSessionToolsClient(tdc, toolBinding, () => active() && state === "connected",
+    files, prepareAppVerification, audio, async () => {
+      const report = await pc.getStats();
+      let healthy = Date.now() - audioAdvancedAt < 5000;
+      report.forEach(row => {
+        if (row.type !== "inbound-rtp" || (row.kind ?? row.mediaType) !== "audio") return;
+        const received = Number(row.packetsReceived ?? 0), lost = Number(row.packetsLost ?? 0);
+        if (received > audioReceived) audioAdvancedAt = Date.now();
+        const total = Math.max(0,received-audioReceived)+Math.max(0,lost-audioLost);
+        const congested = Number(row.jitter ?? 0) > .5 || (total > 10 && (lost-audioLost)/total > .2);
+        audioCongested = congested ? audioCongested+1 : 0;
+        audioReceived=received; audioLost=lost;
+        healthy = audioCongested < 3 && Date.now()-audioAdvancedAt < 5000;
+      });
+      return healthy;
+    });
+  sessionTools.onState(value => { if (value.microphone !== "sharing") { audioAdvancedAt=Date.now(); audioCongested=0; } });
+  const protectedMedia = () => actions.unlock.active() ||
+    ["approval_required","in_progress"].includes(sessionTools.state().verification);
+  async function prepareAppVerification() {
+    secureInputBlocked = secureRecordingBlocked = true;
+    await stopRecordingInternal();
+    if (recorder || finishingRecording || recordingBusy || recordingIssue === "finalization_failed")
+      throw new Error("Recording did not confirm stopping. Verification is blocked.");
+    await sessionTools.microphone(false);
+    files.suspend();
+    sessionTools.cancelDownload();
+    if (!active() || state !== "connected") throw new Error("Live session unavailable.");
   }
 
   // ---- S22: `clip` DataChannel -------------------------------------------
@@ -725,8 +705,13 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
 
   pc.ontrack = (ev) => {
     if (!active()) return;
-    const stream = ev.streams[0] ?? new MediaStream([ev.track]);
-    video.srcObject = stream;
+    if (ev.track.kind === "audio") {
+      audio.srcObject = new MediaStream([ev.track]);
+      return;
+    }
+    if (ev.track.kind !== "video") return;
+    currentVideoTrack = ev.track; lastPresentedAt = null; presentedFrames = null;
+    video.srcObject = new MediaStream([ev.track]); // microphone is never recorded.
     // Muted remote desktop playback is normally permitted. If it is blocked,
     // the explicit Pause/Resume UI remains available; never claim pixels arrived.
     if (!viewerPaused) void video.play().catch(() => undefined);
@@ -929,6 +914,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       if (!valid()) return;
       if (!restart) {
         const receiver = pc.addTransceiver("video", { direction: "recvonly" });
+        pc.addTransceiver("audio", { direction: "recvonly" });
         const supported = typeof RTCRtpReceiver !== "undefined"
           ? RTCRtpReceiver.getCapabilities?.("video")?.codecs : undefined;
         if (supported && receiver?.setCodecPreferences) {
@@ -1007,13 +993,9 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       const now = Date.now();
       if (decoded > lastDecodedFrames) {
         lastDecodedFrames = decoded;
-        lastMediaProgressAt = now;
         lastDecodedAt = now;
-        videoStall.reset();
-        mediaListeners.forEach(cb => cb({
-          framesDecoded: decoded, codec: negotiatedCodec, path: selectedCandidateType,
-        }));
-        return;
+        // Decoding is diagnostic only. A buffered track or moving cursor must
+        // not make the viewer claim it has presented current-peer pixels.
       }
       if (!hasInboundVideo && now - connectedAt < 8_000) return;
       checkMediaStall();
@@ -1138,6 +1120,14 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
   return {
     sessionId,
     video,
+    sessionTools,
+    prepareAppVerification,
+    presentedFrame: () => {
+      if (state !== "connected" || viewerPaused || protectedMedia() || lastPresentedAt === null ||
+          Date.now() - lastPresentedAt > 3000 || !video.videoWidth || !video.videoHeight ||
+          currentVideoTrack?.readyState !== "live") return null;
+      return { source: video, width: video.videoWidth, height: video.videoHeight, presentedAt: lastPresentedAt, peerId };
+    },
     state: () => state,
     onState: (cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; },
     candidateType: () => selectedCandidateType,
@@ -1163,17 +1153,17 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       if (value && actions.unlock.active()) actions.unlock.cancel();
     },
 
-    sendInput: payload => !secureInputBlocked && !actions.unlock.active() && actions.sendInput(payload),
+    sendInput: payload => !secureInputBlocked && !protectedMedia() && actions.sendInput(payload),
     inputPause: actions.inputPause.state,
     onInputPause: actions.inputPause.onState,
-    inputAllowed: () => !secureInputBlocked && !actions.unlock.active() && actions.inputPause.allowed(),
-    setInputPaused: (paused, signal) => actions.unlock.active()
+    inputAllowed: () => !secureInputBlocked && !protectedMedia() && actions.inputPause.allowed(),
+    setInputPaused: (paused, signal) => protectedMedia()
       ? Promise.reject(new Error("Finish or cancel Windows sign-in before changing ordinary input."))
       : actions.inputPause.setPaused(paused, signal),
     sensitiveInput: () => secureInputBlocked,
     prepareUnlock: () => { secureInputBlocked = true; secureRecordingBlocked = true; },
     resumeOrdinaryInput: () => {
-      if (!actions.unlock.active() && actions.mode() === "control") secureInputBlocked = false;
+      if (!protectedMedia() && actions.mode() === "control") secureInputBlocked = false;
     },
     peerId: () => active() && dc?.readyState === "open" ? peerId : null,
     unlockState: actions.unlock.state,
@@ -1185,6 +1175,11 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
           input.phase === "paused" && actions.mode() === "control"))
         throw new Error("Release paused control to view-only before starting Windows sign-in.");
       secureInputBlocked = true; secureRecordingBlocked = true;
+      files.suspend();
+      await sessionTools.microphone(false).catch(() => {
+        if (sessionTools.state().supported) throw new Error("Microphone Off was not confirmed.");
+      });
+      sessionTools.cancelDownload(); sessionTools.cancelVerification();
       // This must complete BEFORE asking the Agent to emit secure pixels.
       await stopRecordingInternal();
       if (recordingIssue === "finalization_failed")
@@ -1202,22 +1197,22 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
     selectMonitor: actions.selectMonitor,
     onCurtain: actions.onCurtain,
     setCurtain: actions.setCurtain,
-    filesReady: () => active() && !actions.unlock.active() && fdc.readyState === "open",
-    sendFile: (file) => actions.unlock.active() ? Promise.resolve(false) : sendFileOverChannel(file),
+    filesReady: () => !protectedMedia() && files.ready(),
+    sendFile: (file) => protectedMedia() ? Promise.resolve(false) : files.sendFile(file),
     onFile: (cb) => { fileListeners.add(cb); return () => { fileListeners.delete(cb); }; },
 
-    clipboardReady: () => active() && !actions.unlock.active() && cdc.readyState === "open",
-    sendClipboard: (text) => !actions.unlock.active() && sendClipboardText(text),
+    clipboardReady: () => active() && !protectedMedia() && cdc.readyState === "open",
+    sendClipboard: (text) => !protectedMedia() && sendClipboardText(text),
     onClipboard: (cb) => { clipListeners.add(cb); return () => { clipListeners.delete(cb); }; },
 
-    canRecord: () => !secureRecordingBlocked && !actions.unlock.active() && pickRecordMime() !== null && recordableStream() !== null,
+    canRecord: () => !secureRecordingBlocked && !protectedMedia() && pickRecordMime() !== null && recordableStream() !== null,
     recording: () => recorder !== null || finishingRecording !== null,
     recordingIssue: () => recordingIssue,
     onRecording: (callback) => {
       recordingListeners.add(callback);
       return () => { recordingListeners.delete(callback); };
     },
-    startRecording: () => secureRecordingBlocked || actions.unlock.active() ? Promise.resolve(false) : startRecordingInternal(),
+    startRecording: () => secureRecordingBlocked || protectedMedia() ? Promise.resolve(false) : startRecordingInternal(),
     stopRecording: () => stopRecordingInternal(),
 
     close: () => {
@@ -1226,6 +1221,7 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       catchupAbort?.abort();
       window.clearInterval(catchupTimer);
       if (closed) return;
+      sessionTools.close(); files.close();
       closed = true;
       remoteMedia.close();
       actions.dispose();
@@ -1240,7 +1236,6 @@ export function startWebRtcLive(sessionId: string, options: WebRtcOptions = {}):
       // Local teardown must not wait for an unresponsive final-signal request.
       try { dc?.close(); } catch {}
       // The explicit handler also covers transports which omit onclose.
-      failIncomingFile();
       try { fdc.close(); cdc.close(); } catch {}
       try { pc.close(); } catch {}
       try { video.pause(); video.srcObject = null; } catch {}

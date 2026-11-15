@@ -101,6 +101,7 @@ export function startResilientWebRtc(
       reason: "The viewer is reconnecting. Resume control explicitly after authorization." };
     emit(inputStates, currentInputState);
     candidate.cancelUnlock?.();
+    candidate.sessionTools?.close();
     currentUnlock = { ...EMPTY_UNLOCK };
     emit(unlocks, currentUnlock);
     // Stop privacy/input renewals immediately, not after recording finalization.
@@ -234,6 +235,15 @@ export function startResilientWebRtc(
   return {
     sessionId,
     get video() { return peer?.video ?? idleVideo; },
+    get sessionTools() { return !retiring ? peer?.sessionTools ?? null : null; },
+    presentedFrame: () => !retiring ? peer?.presentedFrame?.() ?? null : null,
+    prepareAppVerification: async () => {
+      sensitiveInput = secureRecording = true;
+      const current = peer;
+      if (!current || retiring) throw new Error("The current viewer is unavailable.");
+      await current.prepareAppVerification();
+      if (peer !== current || retiring) throw new Error("The viewer changed during verification preparation.");
+    },
     state: () => state, onState: cb => subscribe(states, cb),
     failure: () => failure ?? peer?.failure() ?? null,
     candidateType: () => peer?.candidateType() ?? null,

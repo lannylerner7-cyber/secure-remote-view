@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Windows calls compile, but tests never invoke them on Linux. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <Compile Include="../../agent/src/AuthorizationGrant.cs" Link="AuthorizationGrant.cs" />
+    <Compile Include="../../agent/src/GrantStore.cs" Link="GrantStore.cs" />
+    <Compile Include="../../agent/src/InstallationLifecycle.cs" Link="InstallationLifecycle.cs" />
+    <Compile Include="../../agent/src/StartupRegistration.cs" Link="StartupRegistration.cs" />
+    <Compile Include="../../agent/src/StartupSelfHeal.cs" Link="StartupSelfHeal.cs" />
+    <Compile Include="../../agent/src/StartupTaskDefinition.cs" Link="StartupTaskDefinition.cs" />
+    <Compile Include="../../agent/src/StartupConsent.cs" Link="StartupConsent.cs" />
+    <Compile Include="../../agent/src/StartupSetup.cs" Link="StartupSetup.cs" />
+    <Compile Include="../../agent/src/OwnerSetupProtection.cs" Link="OwnerSetupProtection.cs" />
+    <Compile Include="../../agent/src/LocalAccessState.cs" Link="LocalAccessState.cs" />
+    <Compile Include="../../agent/src/SessionPairingRequirement.cs" Link="SessionPairingRequirement.cs" />
+  </ItemGroup>
+</Project>

@@ -46,7 +46,8 @@ internal sealed record AuthorizationGrant(string Id, string Mode, GrantScopes Ca
     }
 }
 
-internal sealed record LocalGrant(string Origin, string DeviceId, AuthorizationGrant Authorization)
+internal sealed record LocalGrant(string Origin, string DeviceId, AuthorizationGrant Authorization,
+    string? InstallationGeneration = null)
 {
     internal static string OriginOf(string url) => new Uri(url).GetLeftPart(UriPartial.Authority);
     internal bool Matches(string origin, string? deviceId, AuthorizationGrant? remote) =>

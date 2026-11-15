@@ -179,7 +179,7 @@ public static class ScreenCapture
                 lastCaptureDiagnosticMs = diagnosticNow;
                 Log.Info(CaptureHealth.DiagnosticLine());
             }
-            if (UnlockOperation.Sensitive ||
+            if (UnlockOperation.Sensitive || AppVerification.Active || OwnerSetupProtection.Active ||
                 ConnectLive.Unlock.WindowsSession.Locked(ConnectLive.Unlock.WindowsSession.CurrentId) == true)
             {
                 CaptureHealth.ProtectedDesktop();
@@ -499,7 +499,7 @@ public static class ScreenCapture
     {
         try
         {
-            if (UnlockOperation.Sensitive ||
+            if (UnlockOperation.Sensitive || AppVerification.Active || OwnerSetupProtection.Active ||
                 ConnectLive.Unlock.WindowsSession.Locked(ConnectLive.Unlock.WindowsSession.CurrentId) == true) return;
             var live = WebRtcSession.Current;
             if (live == null) return;

@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { WebRtcLive, FileTransferEvent } from "@/lib/webrtc-live";
+import { hashBlob } from "@/lib/file-integrity";
+import { getWebClientId } from "@/shared/signaling-identity";
 import {
   listSessionFiles,
   prepareSessionUpload,
@@ -66,17 +68,6 @@ function fmtBytes(n: number) {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-async function sha256Hex(blob: Blob): Promise<string | undefined> {
-  try {
-    const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-    return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Step 8 — in-session Files panel.
  *
@@ -89,9 +80,12 @@ async function sha256Hex(blob: Blob): Promise<string | undefined> {
 export function SessionFilesPanel({
   sessionId,
   getRtc,
+  mode = "history", disabled = false,
 }: {
   sessionId: string;
   getRtc: () => WebRtcLive | null;
+  mode?: "send" | "history";
+  disabled?: boolean;
 }) {
   const qc = useQueryClient();
   const list = useServerFn(listSessionFiles);
@@ -116,9 +110,11 @@ export function SessionFilesPanel({
   const { data } = useQuery({
     queryKey: ["session-files", sessionId],
     queryFn: () => list({ data: { sessionId } }),
-    refetchInterval: 15_000,
+    refetchInterval: disabled ? false : 15_000,
+    enabled: !disabled,
   });
   const files = data?.ok ? data.files : [];
+  const direct = data?.ok ? data.receipts ?? [] : [];
   const hasPassword = !!(data?.ok && data.hasPassword);
   const bytesUsed = data?.ok ? data.bytesUsed : 0;
 
@@ -133,20 +129,28 @@ export function SessionFilesPanel({
       name: string,
       direction: "from_agent" | "from_admin",
       transport: "datachannel" | "http",
+      transferId?: string,
     ) => {
-      const prep = await prepare({ data: { sessionId, name, size: blob.size } });
+      const checksum = await hashBlob(blob);
+      const controllerId = getWebClientId(), peerId = getRtc()?.peerId() ?? "";
+      const id = transferId ?? crypto.randomUUID();
+      const prep = await prepare({ data: { sessionId, name, size: blob.size, sha256: checksum,
+        id, controllerId, peerId, direction } });
       if (!prep.ok) {
         toast.error(
           prep.error === "file_too_large"
             ? "That file is over the 500 MB per-file limit."
-            : prep.error === "session_quota_exceeded"
-              ? "This session has reached its 5 GB transfer limit."
-              : "Could not start the upload.",
+            : prep.error === "transfer_schema_required"
+              ? "Verified transfer setup needs the separately approved database update."
+              : "Upload reservation failed. Check permission, session quota and connection.",
         );
         return false;
       }
       try {
-        await fileProxyFetch(prep.url, { method: "PUT", body: blob });
+        await fileProxyFetch(prep.url, { method: "PUT", body: blob, headers: {
+          "x-file-size": String(blob.size), "x-file-sha256": checksum,
+          "x-file-controller": controllerId, "x-file-peer": peerId, "x-file-direction": direction,
+        } });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Upload failed.");
         return false;
@@ -158,7 +162,8 @@ export function SessionFilesPanel({
           name,
           size: blob.size,
           mime: blob.type || "application/octet-stream",
-          sha256: await sha256Hex(blob),
+           sha256: checksum,
+           id, controllerId, peerId,
           direction,
           transport,
         },
@@ -166,7 +171,7 @@ export function SessionFilesPanel({
       if (!res.ok) toast.error(res.error || "Could not register the uploaded file.");
       return res.ok;
     },
-    [prepare, register, sessionId],
+    [prepare, register, sessionId, getRtc],
   );
 
   // Inbound transfers pushed by the agent over the `files` channel.
@@ -178,6 +183,9 @@ export function SessionFilesPanel({
         setProgress({ name: ev.name, pct: ev.size ? Math.min(100, (ev.sent / ev.size) * 100) : 0 });
       } else if (ev.kind === "complete") {
         setProgress(null);
+        // Approved-root downloads are deliberate local exports, not implicit
+        // background collection in the server's archive.
+        if (ev.id) return;
         void (async () => {
           const ok = await archive(ev.blob, ev.name, "from_agent", "datachannel");
           if (ok) {
@@ -197,53 +205,62 @@ export function SessionFilesPanel({
 
   const pushFiles = useCallback(
     async (picked: FileList | File[]) => {
+      if (disabled) return;
       const rtc = getRtc();
       setBusy(true);
       try {
         for (const file of Array.from(picked)) {
           setProgress({ name: file.name, pct: 0 });
-          const viaChannel = rtc?.filesReady?.() ? await rtc.sendFile(file) : false;
+          let deliveredId: string | undefined;
+          const offReceipt = rtc?.onFile(event => { if(event.kind === "sent" && event.name === file.name) deliveredId=event.id; });
+          let viaChannel = false;
+          try { viaChannel = rtc?.filesReady?.() ? await rtc.sendFile(file) : false; }
+          finally { offReceipt?.(); }
           const ok = await archive(
             file,
             file.name,
             "from_admin",
             viaChannel ? "datachannel" : "http",
+            deliveredId,
           );
           if (ok) {
             toast.success(
               viaChannel
                 ? `Sent ${file.name} to the remote PC`
-                : `Stored ${file.name} — it will deliver when the live channel reconnects`,
+                : `Archived ${file.name}. It was not delivered to the Windows device.`,
             );
           }
         }
         refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "File result unconfirmed. No automatic retry.");
       } finally {
         setProgress(null);
         setBusy(false);
       }
     },
-    [archive, getRtc, refresh],
+    [archive, getRtc, refresh, disabled],
   );
 
   const selectedIds = Object.keys(selected).filter((id) => selected[id]);
 
   return (
-    <div className="border-t border-white/10 bg-[#0B1220] px-5 py-4">
+    <fieldset disabled={disabled} className="min-w-0 border-t border-white/10 bg-[#0B1220] px-5 py-4">
+      {disabled && <p role="status" className="mb-3 text-xs text-amber-200">File actions are unavailable for this role or during protected verification.</p>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-white/60">
           <FileArchive className="h-3.5 w-3.5" /> Session files
           <span className="font-normal normal-case tracking-normal text-white/35">
-            {fmtBytes(bytesUsed)} of 5 GB · {getRtc()?.filesReady?.() ? "live channel" : "store & forward"}
+            {fmtBytes(bytesUsed)} of 5 GiB · {getRtc()?.filesReady?.() ? "verified channel" : "archive only"}
           </span>
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => inputRef.current?.click()}
-            disabled={busy}
+            disabled={busy || disabled}
             className="flex items-center gap-1.5 rounded bg-[#4F7CFF] px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50"
           >
-            <Upload className="h-3.5 w-3.5" /> Send files
+            <Upload className="h-3.5 w-3.5" /> {getRtc()?.filesReady?.() ? "Choose files to send" : "Choose files to archive"}
           </button>
           <button
             onClick={() => (hasPassword ? void clearPw({ data: { sessionId } }).then(refresh) : setShowLock((v) => !v))}
@@ -281,6 +298,15 @@ export function SessionFilesPanel({
         </div>
       </div>
 
+      {data && !data.ok && <p role="alert" className="mt-3 text-xs text-amber-200">Transfer history unavailable: {data.error}</p>}
+      {data?.ok && data.receiptError && <p role="status" className="mt-3 text-xs text-amber-200">{data.receiptError}</p>}
+      {direct.length > 0 && <details className="mt-3 text-xs" open={mode === "history"}>
+        <summary>Direct transfers and reserved quota ({direct.length})</summary>
+        <ul className="mt-2 space-y-2">{direct.map(row => <li key={row.id} className="flex flex-wrap justify-between gap-2 rounded border border-white/10 p-2">
+          <span className="break-all">{row.name} · {fmtBytes(Number(row.size_bytes))}</span>
+          <span>{row.state === "delivered" ? "Verified direct transfer · not archived" : "Reserved · completion unconfirmed"}</span>
+        </li>)}</ul>
+      </details>}
       {showLock && !hasPassword && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-white/10 bg-[#0F172A] p-3">
           <p className="w-full text-[11px] text-white/50">
@@ -408,6 +434,6 @@ export function SessionFilesPanel({
           </ul>
         )}
       </div>
-    </div>
+    </fieldset>
   );
 }

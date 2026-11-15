@@ -62,6 +62,16 @@ async function main() {
   }
   // Real runner, rollback-only: assert its DDL and history also roll back.
   const { apply } = require('../scripts/apply-agent-lifecycle.cjs');
+  if (process.argv.includes('--session-tools')) {
+    await apply(client, '--apply');
+    await require('../scripts/apply-windows-unlock.cjs').apply(client, '--apply');
+    await client.query(fs.readFileSync('supabase/migrations/20261115000000_session_tools.sql','utf8'));
+    await client.query('BEGIN');
+    try { await require('./windows-session-tools-database.cjs').verify(client); }
+    finally { await client.query('ROLLBACK'); }
+    console.log('Session tools migration verified only in disposable PostgreSQL. No remote database accessed.');
+    return;
+  }
   if (process.argv.includes('--windows-unlock')) {
     // This client only points at the disposable Unix-socket instance above.
     await apply(client, '--apply');

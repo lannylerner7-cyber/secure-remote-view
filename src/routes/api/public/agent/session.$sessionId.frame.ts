@@ -26,6 +26,10 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/frame
           return trace.respond(Response.json({ error: "invalid_frame" }, { status: 400 }), "invalid_frame");
         }
         const frame = body.frame;
+        let authorizationUnavailable = false;
+        const authorization = trace.step("session_authorization", () =>
+          sessionAuthorized(ctx.admin, params.sessionId, "view", () => { authorizationUnavailable = true; }))
+          .catch(() => { authorizationUnavailable = true; return false; });
 
         // Ownership check: the session must belong to this device and be live.
         const { data: session, error: sessionError } = await trace.step("session_lookup", () => ctx.admin
@@ -44,9 +48,7 @@ export const Route = createFileRoute("/api/public/agent/session/$sessionId/frame
         if (session.state !== "active") {
           return trace.respond(Response.json({ error: "not_active", state: session.state }, { status: 409 }), "not_active");
         }
-        let authorizationUnavailable = false;
-        const allowed = await trace.step("session_authorization", () =>
-          sessionAuthorized(ctx.admin, session.id, "view", () => { authorizationUnavailable = true; }));
+        const allowed = await authorization;
         if (authorizationUnavailable) return trace.respond(
           Response.json({ error: "session_authorization_unavailable" }, { status: 503 }), "session_authorization_unavailable");
         if (!allowed) return trace.respond(

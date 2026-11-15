@@ -41,6 +41,7 @@ def sources(side):
     candidates += [APP / "docs/SIGNING.md"]
     if side == "admin":
         candidates += [APP / "agent/src/NativeGatewayPolicy.cs"]
+        candidates += [APP / "agent/src/OfferGeneration.cs"]
     else:
         # The portable gateway regression project links this single shared
         # configuration parser. Do not ship the Admin application itself.
@@ -104,6 +105,8 @@ def main():
         files["supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql"] = (
             APP / "supabase/migrations/20261022002000_reconcile_recorded_control_guard.sql").read_bytes()
         if side in ("agent", "clients"):
+            if "agent/.config/dotnet-tools.json" not in files:
+                raise RuntimeError("Required Agent tooling manifest is missing; do not export incomplete source")
             files["tests/agent-ui-regression.cjs"] = (ROOT / "tests/agent-ui-regression.cjs").read_bytes()
             files["tests/video-native-preflight.cjs"] = (ROOT / "tests/video-native-preflight.cjs").read_bytes()
             for name in (
@@ -111,11 +114,15 @@ def main():
                 "20261103001000_browser_video_sessions.sql",
                 "20261103002000_signed_agent_update_channel.sql",
                 "20261103003000_agent_lifecycle.sql",
+                "20261107000000_windows_unlock.sql",
+                "20261115000000_session_tools.sql",
             ):
                 files[f"supabase/migrations/{name}"] = (APP / "supabase/migrations" / name).read_bytes()
             for name in ("agent-windows-verification.md", "agent-lifecycle-implementation.md",
-                         "browser-first-verification.md", "browser-first-migration.md"):
+                         "browser-first-verification.md", "browser-first-migration.md",
+                         "windows-session-tools-baseline.md", "windows-session-tools-acceptance.md"):
                 files[f"docs/{name}"] = (ROOT / "docs" / name).read_bytes()
+            files["docs/windows-unlock.md"] = (APP / "docs/windows-unlock.md").read_bytes()
         validate_project_references(files)
         if args.github_commit:
             for name, data in files.items():
@@ -203,7 +210,9 @@ def main():
                "The one pairing-code window replaces both old startup windows. Access details stay inline.\n"
                "An existing valid pairing resumes. Add -Pair only for a new pairing or changed server origin.\n"
                "After a confirmed support-session end, enter a new code in the Agent's pairing window.\n"
-               "After pairing there is no status window or tray/control UI.\n"
+                "Optional first-pairing owner setup can be skipped; normal support still works.\n"
+                "There is no general status/tray UI. Consented microphone sharing alone shows a local Stop indicator.\n"
+                "Read VERIFICATION-STATUS.md before testing new session tools; browser Hello remains on-device only.\n"
                "Local disable still works: .\\run.ps1 -Disable or ConnectLive.exe /disable.\n"
                "Source files are in agent/src, agent/update-core and agent/tools; they are not download links.\n"
                "The single admin/src/Api/AppConfig.cs file is a shared test dependency, not another client bundle.\n"

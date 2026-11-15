@@ -139,7 +139,7 @@ for (const stage of ["device_auth", "authorization", "runtime_write",
     assert.equal(response.status, 503);
     // Prefetched reads run concurrently; the last completed stage is not
     // necessarily the failing stage. HTTP outcome still fails closed.
-    if (!["authorization", "license_lookup", "sessions_lookup"].includes(stage))
+    if (!["authorization", "license_lookup", "sessions_lookup", "runtime_write"].includes(stage))
       assert.equal(f.logs[0].stage, stage);
     assert.doesNotMatch(await response.text(), /PRIVATE|fixture-session|"authorization"/);
     assert.doesNotMatch(JSON.stringify(f.logs), /PRIVATE/);
@@ -162,13 +162,14 @@ test("a hung optional metadata write is aborted without skipping fresh authority
   const f = routeFixture("heartbeat", { stall: "presence_write" });
   const pending = f.call();
   for (let n = 0; n < 100; n++) await Promise.resolve();
-  assert.equal(f.telemetrySignals.length, 1);
-  assert.equal(f.telemetrySignals[0].aborted, false);
+  const metadata = f.telemetrySignals.filter(signal => signal.fixtureTable === "devices");
+  assert.equal(metadata.length, 1);
+  assert.equal(metadata[0].aborted, false);
   f.advance(1_000);
   const response = await pending;
   const body = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(f.telemetrySignals[0].aborted, true);
+  assert.equal(metadata[0].aborted, true);
   assert.ok(body.reporting_warnings.includes("presence_metadata_write_failed"));
   assert.ok(body.is_session_active);
   for (const required of ["runtime_write", "authorization", "session_authorization", "license_lookup"])
@@ -187,7 +188,7 @@ test("a thrown optional metadata error is a reporting warning, not a lost-author
 test("legacy presence writes do not use the optional native metadata deadline", async () => {
   const f = routeFixture("heartbeat");
   assert.equal((await f.call({})).status, 200);
-  assert.equal(f.telemetrySignals.length, 0);
+  assert.equal(f.telemetrySignals.filter(signal => signal.fixtureTable === "devices").length, 0);
   const presence = f.writes.find(value => value.table === "devices" && value.values.metadata);
   assert.equal(presence.values.status, "online");
 });

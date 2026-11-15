@@ -16,6 +16,9 @@ import {
   BUCKET,
 } from "@/lib/session-files.server";
 import { fileProxyUrl, registerUploadedFile, validFilePath } from "@/lib/session-file-proxy.server";
+import { fileDatabase } from "./agent-file-upload.server";
+import { safeName } from "./session-files.server";
+import { z } from "zod";
 
 export const listSessionFiles = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -27,7 +30,7 @@ export const listSessionFiles = createServerFn({ method: "GET" })
     const denied = await assertSessionAccess(context.supabase, context.userId, data.sessionId);
     if (denied) return { ok: false as const, error: denied, files: [], bytesUsed: 0, hasPassword: false };
     const admin = serviceClient();
-    const [{ data: files }, { data: secret }] = await Promise.all([
+    const [{ data: files, error: filesError }, { data: secret }, receiptResult] = await Promise.all([
       admin
         .from("session_files")
         .select("id, name, size_bytes, mime, sha256, direction, transport, created_at")
@@ -39,30 +42,35 @@ export const listSessionFiles = createServerFn({ method: "GET" })
         .select("expires_at")
         .eq("session_id", data.sessionId)
         .maybeSingle(),
+      fileDatabase(admin).from("session_file_receipts").select("id,name,size_bytes,direction,state,created_at")
+        .eq("session_id",data.sessionId).neq("state","complete").order("created_at",{ascending:false}).limit(512),
     ]);
     const hasPassword = !!secret && new Date(secret.expires_at).getTime() > Date.now();
-    const bytesUsed = (files ?? []).reduce((n, f) => n + Number(f.size_bytes ?? 0), 0);
-    return { ok: true as const, files: files ?? [], bytesUsed, hasPassword };
+    if (filesError) return { ok:false as const,error:"history_unavailable",files:[],bytesUsed:0,hasPassword:false };
+    const bytesUsed = await sessionBytesUsed(admin,data.sessionId) +
+      (receiptResult.data ?? []).reduce((n,r)=>n+Number(r.size_bytes),0);
+    return { ok: true as const, files: files ?? [], bytesUsed, hasPassword, receipts:receiptResult.data ?? [],
+      receiptError:receiptResult.error ? "Direct-transfer history requires the approved database update." : null };
   });
 
 /** Prepare an identifier-only URL; every byte request still needs a fresh JWT. */
 export const prepareSessionUpload = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { sessionId: string; name: string; size: number }) => {
-    if (!data?.sessionId) throw new Error("invalid_session_id");
-    if (!data?.name) throw new Error("invalid_name");
-    if (!Number.isFinite(data.size) || data.size < 0) throw new Error("invalid_size");
-    return data;
-  })
+  .inputValidator(z.object({ sessionId: z.string().uuid(), name: z.string().min(1).max(255), size: z.number().int().min(0),
+    id: z.string().uuid(), sha256: z.string().regex(/^[a-f0-9]{64}$/), controllerId: z.string().min(1).max(128),
+    peerId: z.string().max(64), direction: z.enum(["from_admin","from_agent"]) }).strict())
   .handler(async ({ data, context }) => {
     const denied = await assertSessionAccess(context.supabase, context.userId, data.sessionId);
     if (denied) return { ok: false as const, error: denied };
     if (data.size > MAX_FILE_BYTES) return { ok: false as const, error: "file_too_large" as const };
     const admin = serviceClient();
-    const used = await sessionBytesUsed(admin, data.sessionId);
-    if (used + data.size > MAX_SESSION_BYTES)
-      return { ok: false as const, error: "session_quota_exceeded" as const };
-    const path = storagePathFor(data.sessionId, data.name);
+    const reservation = await fileDatabase(admin).rpc("reserve_session_file", {
+      _session:data.sessionId, _id:data.id, _size:data.size, _sha:data.sha256, _name:safeName(data.name),
+      _direction:data.direction, _controller:data.controllerId, _peer:data.peerId,
+    });
+    if (reservation.error || !reservation.data)
+      return { ok:false as const,error: reservation.error?.code === "PGRST202" ? "transfer_schema_required" : "reservation_or_authority_failed" };
+    const path = reservation.data.path;
     return { ok: true as const, path, url: fileProxyUrl(data.sessionId, { path }) };
   });
 
@@ -79,6 +87,7 @@ export const registerSessionFile = createServerFn({ method: "POST" })
       sha256?: string;
       direction: "from_agent" | "from_admin";
       transport?: "datachannel" | "http";
+      id: string; controllerId: string; peerId: string;
     }) => {
       if (!data?.sessionId || !data?.path || !data?.name) throw new Error("invalid_input");
       if (data.direction !== "from_agent" && data.direction !== "from_admin")

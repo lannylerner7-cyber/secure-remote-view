@@ -12,6 +12,7 @@ import {
   wrapPassword,
 } from "@/lib/session-files.server";
 import { fileProxyUrl, registerUploadedFile, validFilePath } from "@/lib/session-file-proxy.server";
+import { fileDatabase } from "@/lib/agent-file-upload.server";
 
 /**
  * Authenticated native-admin routes for in-session file transfer.
@@ -101,6 +102,18 @@ export const Route = createFileRoute("/api/public/admin/session/$sessionId/files
           const used = await sessionBytesUsed(ctx.admin, params.sessionId);
           if (used + size > MAX_SESSION_BYTES) return bad(413, "session_quota_exceeded");
           const path = storagePathFor(params.sessionId, name);
+          const session = await ctx.admin.from("sessions").select("admin_client_id").eq("id",params.sessionId).maybeSingle();
+          const controller = session.data?.admin_client_id ?? "";
+          const offer = await ctx.admin.from("session_signals").select("payload").eq("session_id",params.sessionId)
+            .eq("from_side","admin").eq("kind","offer").eq("admin_client_id",controller)
+            .order("id",{ascending:false}).limit(1).maybeSingle();
+          if (session.error || offer.error) return bad(503,"authority_unavailable");
+          const peer = (offer.data?.payload as {peer_id?:string}|null)?.peer_id ?? "";
+          const reservation = await fileDatabase(ctx.admin).rpc("reserve_session_file", {
+            _session:params.sessionId,_id:path.slice(params.sessionId.length+1,params.sessionId.length+37),
+            _size:size,_sha:"",_name:name,_direction:"",_controller:controller,_peer:peer,
+          });
+          if (reservation.error || !reservation.data) return bad(409,"file_reservation_unavailable");
           const url = fileProxyUrl(params.sessionId, { path });
           // signedUrl is a compatibility DTO field for native Admin, not a signed URL.
           return Response.json({ ok: true, path, url, signedUrl: url });

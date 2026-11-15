@@ -102,7 +102,11 @@
         <Shortcut Id="ConnectLiveStartMenuShortcut"
                   Name="ConnectLive"
                   Target="[INSTALLDIR]ConnectLive.exe"
-                  Description="ConnectLive pairing, status and remote-access settings" />
+                  Description="ConnectLive pairing and authorized remote support" />
+        <Shortcut Id="ConnectLiveStartupShortcut"
+                  Name="ConnectLive - enable Windows startup"
+                  Target="[INSTALLDIR]ConnectLive.exe" Arguments="--startup-enable"
+                  Description="Explicitly enable startup and recovery for the paired Windows user" />
         <RegistryValue Root="HKLM"
                        Key="Software\ConnectLive"
                        Name="StartMenuShortcut"
@@ -130,8 +134,8 @@
     <CustomAction Id="RollbackRemovalMarker" Directory="INSTALLDIR"
                   ExeCommand="&quot;[System64Folder]reg.exe&quot; ADD &quot;HKLM\Software\ConnectLive&quot; /v UninstallRequested /t REG_SZ /d none /f /reg:64"
                   Execute="rollback" Impersonate="no" Return="check" />
-    <CustomAction Id="MarkRemoval" Directory="INSTALLDIR"
-                  ExeCommand="&quot;[System64Folder]reg.exe&quot; ADD &quot;HKLM\Software\ConnectLive&quot; /v UninstallRequested /t REG_SZ /d &quot;[INSTALLDIR].&quot; /f /reg:64"
+    <CustomAction Id="MarkRemoval" FileRef="AgentExeFile"
+                  ExeCommand="--uninstall-machine"
                   Execute="deferred" Impersonate="no" Return="check" />
     <CustomAction Id="WithdrawCurrentUser" FileRef="AgentExeFile" ExeCommand="/uninstall"
                   Execute="deferred" Impersonate="yes" Return="ignore" />

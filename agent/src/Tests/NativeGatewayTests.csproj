@@ -11,6 +11,7 @@
     <Compile Include="../PeerSignalBinding.cs" Link="PeerSignalBinding.cs" />
     <Compile Include="../SignalIdentity.cs" Link="SignalIdentity.cs" />
     <Compile Include="../PeerInputPermission.cs" Link="PeerInputPermission.cs" />
+    <Compile Include="../InputPauseGate.cs" Link="InputPauseGate.cs" />
     <Compile Include="../CurtainLease.cs" Link="CurtainLease.cs" />
     <Compile Include="../LocalEscapeGesture.cs" Link="LocalEscapeGesture.cs" />
     <Compile Include="../RecoveryBudget.cs" Link="RecoveryBudget.cs" />

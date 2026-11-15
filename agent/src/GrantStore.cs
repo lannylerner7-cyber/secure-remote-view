@@ -14,18 +14,21 @@ internal static class GrantStore
     {
         try
         {
-            return JsonSerializer.Deserialize<LocalGrant>(ProtectedData.Unprotect(
+            var grant = JsonSerializer.Deserialize<LocalGrant>(ProtectedData.Unprotect(
                 File.ReadAllBytes(PathName), null, DataProtectionScope.CurrentUser));
+            return grant != null && InstallationLifecycle.GrantIsCurrent(grant) ? grant : null;
         }
         catch { return null; } // Missing, corrupt, other Windows user: dormant.
     }
 
-    internal static void Save(LocalGrant grant)
+    internal static LocalGrant Save(LocalGrant grant)
     {
+        grant = grant with { InstallationGeneration = InstallationLifecycle.CurrentRemovalGeneration() };
         Directory.CreateDirectory(Path.GetDirectoryName(PathName)!);
         var temp = PathName + ".tmp";
         File.WriteAllBytes(temp, ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(grant),
             null, DataProtectionScope.CurrentUser));
         File.Move(temp, PathName, true);
+        return grant;
     }
 }

@@ -111,6 +111,7 @@ for (const [file, method, denial] of [
   ["session.$sessionId.file", "POST", 409],
   ["session.$sessionId.signal", "POST", 409],
   ["session.$sessionId.signal", "GET", 403],
+  ["session.$sessionId.permission", "GET", 403],
   ["session.$sessionId.reconnect", "POST", 409],
   ["ice", "GET", 403],
 ]) {
@@ -119,7 +120,8 @@ for (const [file, method, denial] of [
       const f = pairingRouteFixture(routes.find(([name, verb]) => name === file && verb === method));
       f.permission = permission;
       const response = await f.call();
-      assert.equal(response.status, denial);
+      const distinguishesOutage = file.endsWith(".signal") || file.endsWith(".permission") || file === "ice";
+      assert.equal(response.status, distinguishesOutage && permission !== "denied" ? 503 : denial);
       assert.equal(f.writes.length, 0);
       assert.equal(f.providerCalls, 0);
       assert.doesNotMatch(await response.text(), /PRIVATE/);

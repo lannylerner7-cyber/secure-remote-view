@@ -122,7 +122,7 @@ function routeFixture(operation, options = {}) {
         eq(key, value) { filters.push([key, value]); return query; },
         in(key, value) { filters.push([key, value]); return query; },
         order() { return query; }, or() { return query; }, gt() { return query; }, limit() { return query; },
-        abortSignal(signal) { telemetrySignals.push(signal); return query; },
+        abortSignal(signal) { signal.fixtureTable = table; telemetrySignals.push(signal); return query; },
         maybeSingle: execute,
         then(resolve, reject) { return execute().then(resolve, reject); },
       };
